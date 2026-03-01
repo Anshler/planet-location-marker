@@ -2,23 +2,44 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Mars Direction Globe (Topocentric Accurate 2025)</title>
+<title>Mars Direction Globe (Full Working)</title>
 <link rel="icon" href="data:,">
 
+<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+
 <style>
-body { margin:0; overflow:hidden; background:black; color:white; font-family:sans-serif; }
-#ui {
-    position:absolute;
-    top:10px;
-    left:10px;
-    background:rgba(0,0,0,0.85);
-    padding:14px;
-    border-radius:8px;
-    width:320px;
+body{
+    margin:0;
+    overflow:hidden;
+    background:#000814;
+    font-family:system-ui,-apple-system,sans-serif;
 }
-label { display:block; margin-top:8px; font-size:14px; }
-input, select, button { width:100%; margin-top:4px; }
-#coords { margin-top:10px; font-size:13px; }
+canvas{display:block;}
+#ui{
+    position:absolute;
+    top:20px;
+    left:20px;
+    width:360px;
+    backdrop-filter:blur(12px);
+    background:rgba(20,25,35,0.85);
+    border-radius:16px;
+    box-shadow:0 10px 40px rgba(0,0,0,0.5);
+}
+.card-header{
+    background:transparent;
+    border-bottom:1px solid rgba(255,255,255,0.08);
+    font-weight:600;
+    color:#fff;
+}
+.form-control,.form-select{
+    background:#161b22;
+    border:1px solid #30363d;
+    color:#fff;
+}
+#coords{
+    font-size:0.85rem;
+    color:#9da5b4;
+}
 </style>
 
 <script type="importmap">
@@ -32,226 +53,240 @@ input, select, button { width:100%; margin-top:4px; }
 </head>
 <body>
 
-<div id="ui">
-<label>Search Location:
-<input type="text" id="searchBox" placeholder="e.g. Tokyo">
-<button id="searchBtn">Search</button>
-</label>
+<div id="ui" class="card text-white">
+<div class="card-header">Mars Direction Controls</div>
+<div class="card-body">
 
-<label>Date:
-<input type="date" id="dateInput">
-</label>
+<div class="mb-3">
+<label class="form-label">Search Location</label>
+<div class="input-group">
+<input type="text" id="searchBox" class="form-control" placeholder="e.g. Tokyo">
+<button id="searchBtn" class="btn btn-primary">Search</button>
+</div>
+</div>
 
-<label>Time:
-<input type="time" id="timeInput" step="1">
-</label>
+<div class="mb-3">
+<label class="form-label">Date</label>
+<input type="date" id="dateInput" class="form-control">
+</div>
 
-<label>Timezone:
-<select id="timezoneSelect"></select>
-</label>
+<div class="mb-3">
+<label class="form-label">Time</label>
+<input type="time" id="timeInput" step="1" class="form-control">
+</div>
 
-<label>Earth Transparency:
-<input type="range" id="opacitySlider" min="0.1" max="1" step="0.05" value="1">
-</label>
+<div class="mb-3">
+<label class="form-label">Timezone</label>
+<select id="timezoneSelect" class="form-select"></select>
+</div>
 
-<div id="coords">Lat: -, Lon: -</div>
+<div class="mb-3">
+<label class="form-label">Earth Transparency</label>
+<input type="range" id="opacitySlider" class="form-range" min="0.1" max="1" step="0.05" value="1">
+</div>
+
+<div id="coords" class="pt-2 border-top">
+<div id="earthCoords">Lat: -, Lon: -</div>
+<div id="marsCoords">Mars: -</div>
+</div>
+
+</div>
 </div>
 
 <script type="module">
 import * as THREE from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 
-const DEG = Math.PI / 180;
-const J2000 = 2451545.0;
-const C_AU_PER_DAY = 173.1446327;
-const OBLIQUITY = 23.4392911 * DEG;
-const EARTH_RADIUS_AU = 6378.137 / 149597870.7;
+const DEG=Math.PI/180;
+const J2000=2451545.0;
+const C_AU_PER_DAY=173.1446327;
+const OBLIQUITY=23.4392911*DEG;
+const EARTH_RADIUS_AU=6378.137/149597870.7;
 
-// ---------------- SCENE ----------------
+/* ---------------- SCENE ---------------- */
 
-const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(60, innerWidth/innerHeight, 0.1, 1000);
+const scene=new THREE.Scene();
+const camera=new THREE.PerspectiveCamera(60,innerWidth/innerHeight,0.1,1000);
 camera.position.set(0,0,4);
 
-const renderer = new THREE.WebGLRenderer({antialias:true});
-renderer.setSize(innerWidth, innerHeight);
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setSize(innerWidth,innerHeight);
+renderer.setPixelRatio(window.devicePixelRatio);
+renderer.outputColorSpace=THREE.SRGBColorSpace;
+renderer.toneMapping=THREE.ACESFilmicToneMapping;
+renderer.physicallyCorrectLights=true;
 document.body.appendChild(renderer.domElement);
 
-const controls = new OrbitControls(camera, renderer.domElement);
-controls.enablePan = false;
+const composer=new EffectComposer(renderer);
+composer.addPass(new RenderPass(scene,camera));
+composer.addPass(new UnrealBloomPass(
+    new THREE.Vector2(innerWidth,innerHeight),
+    0.4,0.4,0.85
+));
 
-scene.add(new THREE.AmbientLight(0x555555));
-const light = new THREE.DirectionalLight(0xffffff,1);
-light.position.set(5,3,5);
-scene.add(light);
+const controls=new OrbitControls(camera,renderer.domElement);
+controls.enablePan=false;
 
-const earthTexture = new THREE.TextureLoader().load(
-"https://threejs.org/examples/textures/land_ocean_ice_cloud_2048.jpg"
-);
+scene.add(new THREE.AmbientLight(0xffffff,0.1));
 
-const earth = new THREE.Mesh(
-    new THREE.SphereGeometry(1,64,64),
-    new THREE.MeshPhongMaterial({map:earthTexture,transparent:true,opacity:1})
+const sunLight=new THREE.DirectionalLight(0xffffff,3);
+sunLight.position.set(10,0,5);
+scene.add(sunLight);
+
+/* ---------------- EARTH ---------------- */
+
+const loader=new THREE.TextureLoader();
+
+const dayTexture=loader.load("https://threejs.org/examples/textures/land_ocean_ice_cloud_2048.jpg");
+const nightTexture=loader.load("https://threejs.org/examples/textures/planets/earth_at_night_2048.jpg");
+const normalMap=loader.load("https://threejs.org/examples/textures/planets/earth_normal_2048.jpg");
+
+const earthMaterial=new THREE.MeshStandardMaterial({
+    map:dayTexture,
+    emissiveMap:nightTexture,
+    emissive:new THREE.Color(0xffffff),
+    emissiveIntensity:0.6,
+    normalMap:normalMap,
+    normalScale:new THREE.Vector2(0.8,0.8),
+    roughness:1,
+    metalness:0,
+    transparent:true,
+    opacity:1
+});
+
+const earth=new THREE.Mesh(
+    new THREE.SphereGeometry(1,128,128),
+    earthMaterial
 );
 scene.add(earth);
+
+const atmosphere=new THREE.Mesh(
+    new THREE.SphereGeometry(1.02,64,64),
+    new THREE.MeshBasicMaterial({
+        color:0x4da6ff,
+        transparent:true,
+        opacity:0.15,
+        side:THREE.BackSide
+    })
+);
+earth.add(atmosphere);
+
+/* ---------------- STARFIELD ---------------- */
+
+const starGeometry = new THREE.BufferGeometry();
+const starVertices = [];
+
+for (let i = 0; i < 15000; i++) {
+    const r = 1000;
+    const theta = Math.random() * 2 * Math.PI;
+    const phi = Math.acos((Math.random() * 2) - 1);
+
+    starVertices.push(
+        r * Math.sin(phi) * Math.cos(theta),
+        r * Math.sin(phi) * Math.sin(theta),
+        r * Math.cos(phi)
+    );
+}
+
+starGeometry.setAttribute(
+    'position',
+    new THREE.Float32BufferAttribute(starVertices, 3)
+);
+
+const starMaterial = new THREE.PointsMaterial({
+    size: 0.7,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false
+});
+
+const stars = new THREE.Points(starGeometry, starMaterial);
+scene.add(stars);
+
+/* ---------------- VARIABLES ---------------- */
 
 let redMarker=null;
 let blueMarker=null;
 let marsLine=null;
 
-// ---------------- TIME ----------------
-
-function normalizeAngleRad(x){
-    x = x % (2*Math.PI);
-    return x < 0 ? x + 2*Math.PI : x;
-}
+/* ---------------- TIME ---------------- */
 
 function getUTCDate(){
-    if(!dateInput.value || !timeInput.value) return null;
-    const local = new Date(`${dateInput.value}T${timeInput.value}`);
-    const tz = timezoneSelect.value;
-    const offset = new Date(local.toLocaleString("en-US",{timeZone:tz}));
-    const utc = new Date(local.toLocaleString("en-US",{timeZone:"UTC"}));
-    return new Date(local.getTime() + (utc - offset));
+    if(!dateInput.value||!timeInput.value) return null;
+    const local=new Date(`${dateInput.value}T${timeInput.value}`);
+    const tz=timezoneSelect.value;
+    const offset=new Date(local.toLocaleString("en-US",{timeZone:tz}));
+    const utc=new Date(local.toLocaleString("en-US",{timeZone:"UTC"}));
+    return new Date(local.getTime()+(utc-offset));
 }
 
 function julianDate(date){
-    return date.getTime()/86400000 + 2440587.5;
+    return date.getTime()/86400000+2440587.5;
 }
 
 function gmst(date){
-    const JD = julianDate(date);
-    const T = (JD - J2000)/36525;
-    let theta =
-        280.46061837 +
-        360.98564736629*(JD - J2000) +
-        0.000387933*T*T -
-        T*T*T/38710000;
-
-    theta = ((theta % 360) + 360) % 360;
-    return theta * DEG;
+    const JD=julianDate(date);
+    const T=(JD-J2000)/36525;
+    let theta=280.46061837+
+    360.98564736629*(JD-J2000)+
+    0.000387933*T*T-
+    T*T*T/38710000;
+    theta=((theta%360)+360)%360;
+    return theta*DEG;
 }
 
-// ---------------- ORBITS ----------------
+function normalizeAngleRad(x){
+    x%=2*Math.PI;
+    return x<0?x+2*Math.PI:x;
+}
 
 function solveKepler(M,e){
-    M = normalizeAngleRad(M);
-    let E = M;
+    M=normalizeAngleRad(M);
+    let E=M;
     for(let i=0;i<10;i++){
-        E -= (E - e*Math.sin(E) - M)/(1 - e*Math.cos(E));
+        E-=(E-e*Math.sin(E)-M)/(1-e*Math.cos(E));
     }
     return E;
 }
 
-function orbitalElements(body, JD){
-    const T = (JD - J2000)/36525;
-
-    if(body==="earth"){
-        return {
-            a: 1.00000261 + 0.00000562*T,
-            e: 0.01671123 - 0.00004392*T,
-            I: (-0.00001531 - 0.01294668*T)*DEG,
-            L: (100.46457166 + 35999.37244981*T)*DEG,
-            w_bar: (102.93768193 + 0.32327364*T)*DEG,
-            Omega: 0
-        };
-    }
-
-    if(body==="mars"){
-        return {
-            a: 1.52371034 + 0.00001847*T,
-            e: 0.09339410 + 0.00007882*T,
-            I: (1.84969142 - 0.00813131*T)*DEG,
-            L: (-4.55343205 + 19140.30268499*T)*DEG,
-            w_bar: (-23.94362959 + 0.44441088*T)*DEG,
-            Omega: (49.55953891 - 0.29257343*T)*DEG
-        };
-    }
+function orbitalElements(body,JD){
+    const T=(JD-J2000)/36525;
+    if(body==="earth")return{
+        a:1.00000261+0.00000562*T,
+        e:0.01671123-0.00004392*T,
+        I:(-0.00001531-0.01294668*T)*DEG,
+        L:(100.46457166+35999.37244981*T)*DEG,
+        w_bar:(102.93768193+0.32327364*T)*DEG,
+        Omega:0
+    };
+    if(body==="mars")return{
+        a:1.52371034+0.00001847*T,
+        e:0.09339410+0.00007882*T,
+        I:(1.84969142-0.00813131*T)*DEG,
+        L:(-4.55343205+19140.30268499*T)*DEG,
+        w_bar:(-23.94362959+0.44441088*T)*DEG,
+        Omega:(49.55953891-0.29257343*T)*DEG
+    };
 }
 
-function heliocentricPosition(body, JD){
-    const el = orbitalElements(body, JD);
-    const M = normalizeAngleRad(el.L - el.w_bar);
-    const E = solveKepler(M, el.e);
-
-    const xv = el.a*(Math.cos(E)-el.e);
-    const yv = el.a*Math.sqrt(1-el.e*el.e)*Math.sin(E);
-
-    const v = Math.atan2(yv,xv);
-    const r = Math.sqrt(xv*xv + yv*yv);
-
-    const w = el.w_bar - el.Omega;
-
-    const xh = r*(Math.cos(el.Omega)*Math.cos(v+w) -
-                 Math.sin(el.Omega)*Math.sin(v+w)*Math.cos(el.I));
-    const yh = r*(Math.sin(el.Omega)*Math.cos(v+w) +
-                 Math.cos(el.Omega)*Math.sin(v+w)*Math.cos(el.I));
-    const zh = r*(Math.sin(v+w)*Math.sin(el.I));
-
+function heliocentricPosition(body,JD){
+    const el=orbitalElements(body,JD);
+    const M=normalizeAngleRad(el.L-el.w_bar);
+    const E=solveKepler(M,el.e);
+    const xv=el.a*(Math.cos(E)-el.e);
+    const yv=el.a*Math.sqrt(1-el.e*el.e)*Math.sin(E);
+    const v=Math.atan2(yv,xv);
+    const r=Math.sqrt(xv*xv+yv*yv);
+    const w=el.w_bar-el.Omega;
+    const xh=r*(Math.cos(el.Omega)*Math.cos(v+w)-
+    Math.sin(el.Omega)*Math.sin(v+w)*Math.cos(el.I));
+    const yh=r*(Math.sin(el.Omega)*Math.cos(v+w)+
+    Math.cos(el.Omega)*Math.sin(v+w)*Math.cos(el.I));
+    const zh=r*(Math.sin(v+w)*Math.sin(el.I));
     return new THREE.Vector3(xh,yh,zh);
 }
-
-// ---------------- UPDATE ----------------
-
-function updateScene(){
-    if(!redMarker) return;
-    const date = getUTCDate();
-    if(!date) return;
-
-    const JD = julianDate(date);
-    earth.rotation.y = -gmst(date);
-
-    const earthPos = heliocentricPosition("earth", JD);
-
-    // --- Light-time iteration ---
-    let marsPos = heliocentricPosition("mars", JD);
-    for(let i=0;i<2;i++){
-        const geoTemp = marsPos.clone().sub(earthPos);
-        const lt = geoTemp.length()/C_AU_PER_DAY;
-        marsPos = heliocentricPosition("mars", JD - lt);
-    }
-
-    let geo = marsPos.clone().sub(earthPos);
-
-    // Ecliptic → Equatorial
-    geo.applyAxisAngle(new THREE.Vector3(1,0,0), -OBLIQUITY);
-
-    // Observer in equatorial AU
-    const observerLocal = redMarker.position.clone();
-    const observerEquatorial = observerLocal.clone()
-        .applyAxisAngle(new THREE.Vector3(1,0,0), -OBLIQUITY)
-        .multiplyScalar(EARTH_RADIUS_AU);
-
-    // --- Topocentric correction ---
-    const topo = geo.clone().sub(observerEquatorial).normalize();
-
-    const observerWorld = earth.localToWorld(redMarker.position.clone());
-
-    if(marsLine){
-        scene.remove(marsLine);
-        marsLine.geometry.dispose();
-    }
-
-    const end = observerWorld.clone().add(topo.clone().multiplyScalar(5));
-
-    marsLine = new THREE.Line(
-        new THREE.BufferGeometry().setFromPoints([observerWorld,end]),
-        new THREE.LineBasicMaterial({color:0xffffff})
-    );
-    scene.add(marsLine);
-
-    const localExit = earth.worldToLocal(observerWorld.clone().add(topo.clone().multiplyScalar(2)));
-
-    if(blueMarker) earth.remove(blueMarker);
-    blueMarker = new THREE.Mesh(
-        new THREE.SphereGeometry(0.04,16,16),
-        new THREE.MeshBasicMaterial({color:0x00aaff})
-    );
-    blueMarker.position.copy(localExit);
-    earth.add(blueMarker);
-}
-
-// ---------------- LOCATION ----------------
 
 function latLonToVector3(lat,lon){
     const phi=(90-lat)*DEG;
@@ -263,7 +298,79 @@ function latLonToVector3(lat,lon){
     );
 }
 
-// ---------------- UI ----------------
+/* ---------------- UPDATE ---------------- */
+
+function updateScene(){
+    if(!redMarker) return;
+    const date=getUTCDate();
+    if(!date) return;
+
+    const JD=julianDate(date);
+    earth.rotation.y=-gmst(date);
+
+    const earthPos=heliocentricPosition("earth",JD);
+	sunLight.position.copy(earthPos.clone().negate().normalize().multiplyScalar(20));
+    let marsPos=heliocentricPosition("mars",JD);
+
+    for(let i=0;i<2;i++){
+        const geoTemp=marsPos.clone().sub(earthPos);
+        const lt=geoTemp.length()/C_AU_PER_DAY;
+        marsPos=heliocentricPosition("mars",JD-lt);
+    }
+
+    let geo=marsPos.clone().sub(earthPos);
+    geo.applyAxisAngle(new THREE.Vector3(1,0,0),-OBLIQUITY);
+
+    const observerLocal=redMarker.position.clone();
+    const observerEquatorial=observerLocal.clone()
+        .applyAxisAngle(new THREE.Vector3(1,0,0),-OBLIQUITY)
+        .multiplyScalar(EARTH_RADIUS_AU);
+
+    const topo=geo.clone().sub(observerEquatorial).normalize();
+	// ----- RA / DEC -----
+	const ra = Math.atan2(topo.z, topo.x);
+	const dec = Math.asin(topo.y);
+
+	let raHours = ra < 0 ? ra + 2*Math.PI : ra;
+	raHours = raHours * 12 / Math.PI;
+
+	const decDeg = dec * 180 / Math.PI;
+
+	marsCoords.innerText =
+		`Mars RA: ${raHours.toFixed(2)} h, ` +
+		`Dec: ${decDeg.toFixed(2)}°`;
+
+    const observerWorld=earth.localToWorld(observerLocal.clone());
+
+    if(marsLine){
+        scene.remove(marsLine);
+        marsLine.geometry.dispose();
+    }
+
+    const end=observerWorld.clone().add(topo.clone().multiplyScalar(5));
+
+    marsLine=new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints([observerWorld,end]),
+        new THREE.LineBasicMaterial({color:0xffffff})
+    );
+    scene.add(marsLine);
+
+    const localExit=earth.worldToLocal(
+        observerWorld.clone().add(topo.clone().multiplyScalar(2))
+    );
+
+    if(blueMarker) earth.remove(blueMarker);
+
+    blueMarker=new THREE.Mesh(
+        new THREE.SphereGeometry(0.04,16,16),
+        new THREE.MeshBasicMaterial({color:0x00aaff})
+    );
+
+    blueMarker.position.copy(localExit);
+    earth.add(blueMarker);
+}
+
+/* ---------------- UI ---------------- */
 
 searchBtn.onclick=async()=>{
     const response=await fetch(
@@ -275,46 +382,59 @@ searchBtn.onclick=async()=>{
     const lat=parseFloat(data[0].lat);
     const lon=parseFloat(data[0].lon);
 
-    coords.innerText=`Lat: ${lat.toFixed(4)}, Lon: ${lon.toFixed(4)}`;
+    earthCoords.innerText=`Lat: ${lat.toFixed(4)}, Lon: ${lon.toFixed(4)}`;
 
     if(redMarker) earth.remove(redMarker);
+
     redMarker=new THREE.Mesh(
         new THREE.SphereGeometry(0.04,16,16),
         new THREE.MeshBasicMaterial({color:0xff0000})
     );
+
     redMarker.position.copy(latLonToVector3(lat,lon));
     earth.add(redMarker);
 
     updateScene();
 };
 
-["dateInput","timeInput","timezoneSelect"].forEach(id=>{
-    document.getElementById(id).addEventListener("change",updateScene);
-});
-
 opacitySlider.addEventListener("input",e=>{
     earth.material.opacity=parseFloat(e.target.value);
 });
 
+["dateInput","timeInput","timezoneSelect"].forEach(id=>{
+    document.getElementById(id).addEventListener("change",updateScene);
+});
+
 Intl.supportedValuesOf("timeZone").forEach(tz=>{
-    const o=document.createElement("option");
-    o.value=tz;
-    o.textContent=tz;
-    timezoneSelect.appendChild(o);
+    const option=document.createElement("option");
+    option.value=tz;
+    option.textContent=tz;
+    timezoneSelect.appendChild(option);
 });
 timezoneSelect.value=Intl.DateTimeFormat().resolvedOptions().timeZone;
 
-const now=new Date();
-dateInput.value=now.toISOString().split("T")[0];
-timeInput.value=now.toTimeString().split(" ")[0];
+function setDefaults(){
+    const now=new Date();
+    dateInput.value=now.toISOString().split("T")[0];
+    timeInput.value=now.toTimeString().split(" ")[0];
+}
+setDefaults();
+
+/* ---------------- ANIMATION ---------------- */
 
 function animate(){
     requestAnimationFrame(animate);
     controls.update();
-    renderer.render(scene,camera);
+    composer.render();
 }
 animate();
 
+window.addEventListener('resize',()=>{
+    camera.aspect=innerWidth/innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(innerWidth,innerHeight);
+    composer.setSize(innerWidth,innerHeight);
+});
 </script>
 </body>
 </html>

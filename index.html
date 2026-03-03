@@ -210,6 +210,8 @@ scene.add(stars);
 let redMarker=null;
 let blueMarker=null;
 let marsLine=null;
+let currentLat = 0;
+let currentLon = 0;
 
 /* ---------------- TIME ---------------- */
 
@@ -321,26 +323,40 @@ function updateScene(){
     let geo=marsPos.clone().sub(earthPos);
     geo.applyAxisAngle(new THREE.Vector3(1,0,0),-OBLIQUITY);
 
-    const observerLocal=redMarker.position.clone();
-    const observerEquatorial=observerLocal.clone()
-        .applyAxisAngle(new THREE.Vector3(1,0,0),-OBLIQUITY)
-        .multiplyScalar(EARTH_RADIUS_AU);
+    // ----- Observer in inertial equatorial frame -----
 
-    const topo=geo.clone().sub(observerEquatorial).normalize();
+	// Get latitude & longitude from the red marker
+	// (store lat/lon globally when searching so we can reuse them)
+	const latRad = currentLat * DEG;
+	const lonRad = currentLon * DEG;
+
+	// Local sidereal angle
+	const theta = gmst(date) + lonRad;
+
+	// Observer vector in equatorial frame (J2000)
+	const observerEquatorial = new THREE.Vector3(
+		Math.cos(latRad) * Math.cos(theta),
+		Math.cos(latRad) * Math.sin(theta),
+		Math.sin(latRad)
+	).multiplyScalar(EARTH_RADIUS_AU);
+
+	// ----- Topocentric vector -----
+	const topo = geo.clone().sub(observerEquatorial).normalize();
+
 	// ----- RA / DEC -----
-	const ra = Math.atan2(topo.z, topo.x);
-	const dec = Math.asin(topo.y);
+	let ra = Math.atan2(topo.y, topo.x);
+	if (ra < 0) ra += 2 * Math.PI;
 
-	let raHours = ra < 0 ? ra + 2*Math.PI : ra;
-	raHours = raHours * 12 / Math.PI;
+	const dec = Math.asin(topo.z);
 
+	const raHours = ra * 12 / Math.PI;
 	const decDeg = dec * 180 / Math.PI;
 
 	marsCoords.innerText =
 		`Mars RA: ${raHours.toFixed(2)} h, ` +
 		`Dec: ${decDeg.toFixed(2)}°`;
 
-    const observerWorld=earth.localToWorld(observerLocal.clone());
+    const observerWorld = redMarker.getWorldPosition(new THREE.Vector3());
 
     if(marsLine){
         scene.remove(marsLine);
@@ -381,6 +397,10 @@ searchBtn.onclick=async()=>{
 
     const lat=parseFloat(data[0].lat);
     const lon=parseFloat(data[0].lon);
+
+    // ✅ ADD THESE TWO LINES
+    currentLat = lat;
+    currentLon = lon;
 
     earthCoords.innerText=`Lat: ${lat.toFixed(4)}, Lon: ${lon.toFixed(4)}`;
 

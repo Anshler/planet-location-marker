@@ -6,8 +6,8 @@ An interactive 3D globe that shows the direction of Mars from any location on Ea
 
 ## Features
 
-- Real-time or custom date/time Mars direction visualization
-- Search any location on Earth by name or coordinates
+- Custom date/time Mars direction visualization
+- Search any location on Earth by name
 - 3D Earth globe with day/night shading, atmosphere, and starfield
 - Topocentric Mars position with light-travel time correction
 

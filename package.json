@@ -1,0 +1,9 @@
+{
+  "name": "mars-location-marker",
+  "scripts": {
+    "start": "npx serve . -l 8080"
+  },
+  "dependencies": {
+    "@pimzino/claude-code-spec-workflow": "^1.5.9"
+  }
+}

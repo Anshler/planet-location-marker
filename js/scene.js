@@ -23,13 +23,13 @@ export const composer = new EffectComposer(renderer);
 composer.addPass(new RenderPass(scene, camera));
 composer.addPass(new UnrealBloomPass(
     new THREE.Vector2(innerWidth, innerHeight),
-    0.5, 0.5, 0.4
+    0.5, 0.5, 0.95
 ));
 
 export const controls = new OrbitControls(camera, renderer.domElement);
 controls.enablePan = false;
 
-scene.add(new THREE.AmbientLight(0xffffff, 0.05));
+scene.add(new THREE.AmbientLight(0xffffff, 0.01));
 
 export const sunLight = new THREE.DirectionalLight(0xffffff, 3);
 sunLight.position.set(1, 0, 0);
@@ -49,7 +49,7 @@ export const earthMaterial = new THREE.MeshStandardMaterial({
     lightMapIntensity: 1.5,
     normalMap: normalMap,
     normalScale: new THREE.Vector2(0.8, 0.8),
-    roughness: 0.25,
+    roughness: 0.3,
     metalness: 0,
     transparent: true,
     opacity: 1
@@ -66,7 +66,7 @@ scene.add(earth);
 
 /* ---------------- ATMOSPHERE ---------------- */
 
-const atmosphereGeometry = new THREE.SphereGeometry(1.015, 128, 128);
+const atmosphereGeometry = new THREE.SphereGeometry(1.001, 128, 128);
 
 export const atmosphereMaterial = new THREE.ShaderMaterial({
     uniforms: {
@@ -74,48 +74,46 @@ export const atmosphereMaterial = new THREE.ShaderMaterial({
         glowColor:    { value: new THREE.Color(0x4da6ff) }
     },
     vertexShader: `
-        varying vec3 vNormal;
+        varying vec3 vWorldNormal;
         varying vec3 vWorldPosition;
 
         void main() {
-            vNormal = normalize(normalMatrix * normal);
-            vec4 worldPosition = modelMatrix * vec4(position, 1.0);
-            vWorldPosition = worldPosition.xyz;
-            gl_Position = projectionMatrix * viewMatrix * worldPosition;
+            vec4 worldPos = modelMatrix * vec4(position, 1.0);
+            vWorldPosition = worldPos.xyz;
+            // so mat3(modelMatrix) * normal == normal. Kept explicit for clarity.
+            vWorldNormal = normalize(mat3(modelMatrix) * normal);
+            gl_Position = projectionMatrix * viewMatrix * worldPos;
         }
     `,
     fragmentShader: `
         uniform vec3 sunDirection;
         uniform vec3 glowColor;
 
-        varying vec3 vNormal;
+        varying vec3 vWorldNormal;
         varying vec3 vWorldPosition;
 
         void main() {
+            vec3 N = normalize(vWorldNormal);
+            vec3 V = normalize(cameraPosition - vWorldPosition);
 
-            // View direction
-            vec3 viewDir = normalize(cameraPosition - vWorldPosition);
+            // Fresnel: peaks at limb (V perp to N), fades toward center back
+            float fresnel = pow(1.0 - max(dot(V, N), 0.0), 5.0);
 
-            // Fresnel effect (strong at limb)
-            float fresnel = pow(1.0 - dot(viewDir, vNormal), 4.0);
+            float sunDot = dot(N, sunDirection);
+            // Soft terminator — upper edge intentionally past 0 to widen glow band
+            float dayFactor = smoothstep(-0.15, 0.4, sunDot);
 
-            // Sun scattering (day side brighter)
-            float sunFactor = max(dot(vNormal, sunDirection), 0.0);
-
-            // Combine effects
-            float intensity = fresnel * (0.4 + sunFactor * 0.6);
-
-            gl_FragColor = vec4(glowColor, intensity * 0.6);
+            float intensity = fresnel * (0.1 + dayFactor * 0.9);
+            gl_FragColor = vec4(glowColor, intensity * 0.7);
         }
     `,
     blending: THREE.AdditiveBlending,
-    side: THREE.BackSide,
     transparent: true,
     depthWrite: false
 });
 
 const atmosphere = new THREE.Mesh(atmosphereGeometry, atmosphereMaterial);
-earth.add(atmosphere);
+scene.add(atmosphere);
 
 /* ---------------- STARFIELD ---------------- */
 

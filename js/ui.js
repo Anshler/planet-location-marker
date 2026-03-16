@@ -122,7 +122,7 @@ export function updateScene() {
         new THREE.MeshBasicMaterial({ color: 0x00aaff })
     );
     state.blueMarker.position.copy(
-        observerWorld.clone().add(topo.clone().multiplyScalar(2))
+        observerWorld.clone().add(topo.clone().multiplyScalar(2.2))
     );
     state.blueMarker.quaternion.setFromUnitVectors(
         new THREE.Vector3(0, 1, 0),
@@ -138,7 +138,7 @@ export function updateScene() {
 
     state.marsLabel = createLabel('Mars');
     state.marsLabel.position.copy(
-        observerWorld.clone().add(topo.clone().multiplyScalar(2))
+        observerWorld.clone().add(topo.clone().multiplyScalar(2.2))
     );
     scene.add(state.marsLabel);
 }

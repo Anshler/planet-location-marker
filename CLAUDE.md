@@ -14,26 +14,32 @@ There are no tests or linting configured.
 
 ## Architecture
 
-This is a single-page vanilla JS app using ES modules (no bundler). It renders an interactive 3D Earth globe and draws a line from the observer's location toward Mars based on real-time orbital calculations.
+This is a single-page vanilla JS app using ES modules (no bundler). It renders an interactive 3D Earth globe and draws a line from a chosen observer location toward Mars based on real-time orbital calculations.
 
 **Module dependency flow:**
 
 ```
 index.html
-  └── js/scene.js       — Three.js scene setup (renderer, camera, earth mesh, atmosphere shader, starfield)
-  └── js/ui.js          — UI event handlers + core updateScene() logic
+  └── js/scene.js       — Three.js scene setup (renderer, camera, earth mesh, atmosphere shader, starfield, sun sprite)
+  └── js/ui.js          — UI event handlers + core updateScene() logic + getUTCDate()
+  └── js/animation.js   — Realtime and timelapse animation loop; hooks into state callbacks
         ├── js/astronomy.js  — Orbital mechanics (Kepler solver, heliocentric positions, GMST, lat/lon utils)
         ├── js/constants.js  — Shared math constants (DEG, J2000, AU conversions)
-        ├── js/state.js      — Mutable scene object refs (markers, line, current lat/lon)
+        ├── js/state.js      — Mutable scene object refs (markers, line, labels, animation state)
         └── js/scene.js      — Imports earth mesh, materials, sunLight for mutation
 ```
 
 **Key rendering concepts:**
-- Earth rotates via `earth.rotation.y = -gmst(date)` to align with real sidereal time
+- Earth rotates via `earth.rotation.y = gmst(date)` to align with real sidereal time
 - Mars direction is computed as a topocentric vector (geocentric position minus observer position in AU), accounting for light-travel time via two iterations
-- The result is drawn as a white `THREE.Line` from the observer's world position outward, plus a blue sphere marker where the line exits the Earth
-- The atmosphere uses a custom GLSL shader with Fresnel + sun-scattering effects (additive blending, `BackSide`)
+- The result is drawn as a white `THREE.Line` from the observer's world position outward, plus a blue cone marker indicating the Mars direction
+- The atmosphere uses a custom GLSL shader with Fresnel + sun-scattering effects (additive blending, `depthWrite: false`), rendered on a slightly oversized sphere (radius 1.001)
 - Post-processing uses `EffectComposer` → `RenderPass` + `UnrealBloomPass`
+
+**Animation system:**
+- `state.js` holds all animation state (`animMode`, `animPlaying`, `animRafHandle`, etc.) plus two callback hooks: `onMarkerSet` and `onExternalChange`
+- `animation.js` registers those callbacks at init time; `ui.js` calls them when the location or date/timezone changes
+- Two modes: `realtime` (wall-clock drives sim time from a base timestamp) and `timelapse` (interpolates between user-specified from/to dates over a fixed duration)
 
 **External dependencies (CDN only, no npm install):**
 - Three.js `0.160.0` via unpkg importmap
@@ -41,4 +47,4 @@ index.html
 - Nominatim (OpenStreetMap) for location geocoding
 - Three.js hosted textures for earth day/night/normal maps
 
-**Coordinate system note:** `latLonToVector3` in [js/astronomy.js](js/astronomy.js) maps lat/lon to a unit sphere where Three.js +Y = north pole. The equatorial observer position uses GMST + longitude as the hour angle.
+**Coordinate system note:** `latLonToVector3` in [js/astronomy.js](js/astronomy.js) maps lat/lon to a unit sphere where Three.js +Y = north pole. The equatorial observer position uses GMST + longitude as the hour angle. The ecliptic tilt (`OBLIQUITY`) is applied as a rotation around the X-axis to convert from heliocentric ecliptic to the scene's equatorial frame.

@@ -56,6 +56,14 @@ canvas{display:block;}
     border:1px solid #30363d;
     color:#fff;
 }
+#tlFromInput, #tlToInput, #tlDuration {
+    background:#161b22;
+    border:1px solid #30363d;
+    color:#fff;
+}
+#tlFromInput, #tlToInput, #dateTimeInput {
+    color-scheme: dark;
+}
 #coords{
     font-size:0.85rem;
     color:#9da5b4;
@@ -89,14 +97,44 @@ canvas{display:block;}
 </div>
 </div>
 
-<div class="mb-3">
-<label class="form-label">Date</label>
-<input type="date" id="dateInput" class="form-control">
+<div class="mb-2">
+  <button id="animToggleBtn" class="btn btn-sm btn-outline-secondary w-100">&#9654; Animation</button>
+</div>
+
+<div id="animControls" style="display:none" class="mb-2">
+  <div class="btn-group w-100 mb-2" role="group" aria-label="Animation mode">
+    <input type="radio" class="btn-check" name="animMode" id="modeRealtime" value="realtime" autocomplete="off" checked>
+    <label class="btn btn-sm btn-outline-secondary" for="modeRealtime">Realtime</label>
+    <input type="radio" class="btn-check" name="animMode" id="modeTimelapse" value="timelapse" autocomplete="off">
+    <label class="btn btn-sm btn-outline-secondary" for="modeTimelapse">Timelapse</label>
+  </div>
+
+  <div id="tlDateRange" style="display:none">
+    <div class="row g-2 mb-2">
+      <div class="col">
+        <label for="tlFromInput" class="form-label">From</label>
+        <input type="datetime-local" id="tlFromInput" class="form-control">
+      </div>
+      <div class="col">
+        <label for="tlToInput" class="form-label">To</label>
+        <input type="datetime-local" id="tlToInput" class="form-control">
+      </div>
+    </div>
+    <div class="mb-2">
+      <label for="tlDuration" class="form-label">Duration (s)</label>
+      <input type="number" id="tlDuration" class="form-control" value="10" min="1">
+    </div>
+  </div>
+
+  <div class="d-flex align-items-center gap-2">
+    <button id="animPlayBtn" class="btn btn-sm btn-primary" style="min-width:38px" disabled>&#9654;</button>
+    <input type="range" id="animSlider" class="form-range" min="0" max="100" value="0" disabled style="opacity:0.35; pointer-events:none">
+  </div>
 </div>
 
 <div class="mb-3">
-<label class="form-label">Time</label>
-<input type="time" id="timeInput" step="1" class="form-control">
+<label for="dateTimeInput" class="form-label">Date &amp; Time</label>
+<input type="datetime-local" id="dateTimeInput" step="1" class="form-control">
 </div>
 
 <div class="mb-3">
@@ -129,6 +167,7 @@ cardHeader.addEventListener('click', () => {
 <script type="module">
 import { camera, renderer, composer, controls } from './js/scene.js';
 import './js/ui.js';
+import './js/animation.js';
 
 function animate() {
     requestAnimationFrame(animate);

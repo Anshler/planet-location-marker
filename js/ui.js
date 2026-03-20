@@ -31,13 +31,27 @@ function createLabel(text) {
 
 /* ---------------- TIME ---------------- */
 
-function getUTCDate() {
-    if (!dateInput.value || !timeInput.value) return null;
-    const local = new Date(`${dateInput.value}T${timeInput.value}`);
+export function getUTCDate() {
+    if (!dateTimeInput.value) return null;
+    const [datePart, timePart = '00:00:00'] = dateTimeInput.value.split('T');
+    const [year, month, day] = datePart.split('-').map(Number);
+    const [hour = 0, minute = 0, second = 0] = timePart.split(':').map(Number);
+    // Parse as UTC to avoid any browser-timezone influence
+    const naive = Date.UTC(year, month - 1, day, hour, minute, second);
+
     const tz = timezoneSelect.value;
-    const offset = new Date(local.toLocaleString("en-US", { timeZone: tz }));
-    const utc = new Date(local.toLocaleString("en-US", { timeZone: "UTC" }));
-    return new Date(local.getTime() + (utc - offset));
+    // Find what the selected timezone displays at UTC=naive
+    const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: tz,
+        year: 'numeric', month: '2-digit', day: '2-digit',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        hour12: false
+    }).formatToParts(new Date(naive));
+    const p = Object.fromEntries(parts.map(x => [x.type, x.value]));
+    const tzAsUTC = Date.UTC(Number(p.year), Number(p.month) - 1, Number(p.day),
+                             Number(p.hour), Number(p.minute), Number(p.second));
+    // naive - tzAsUTC = the tz offset at that moment; subtract it to get true UTC
+    return new Date(naive + (naive - tzAsUTC));
 }
 
 /* ---------------- UPDATE ---------------- */
@@ -47,7 +61,7 @@ export function updateScene() {
     if (!date) return;
 
     const JD = julianDate(date);
-    earth.rotation.y = -gmst(date);
+    earth.rotation.y = gmst(date);
 
     const earthPos = heliocentricPosition("earth", JD);
 
@@ -152,8 +166,8 @@ searchBtn.onclick = async () => {
     const data = await response.json();
     if (!data.length) return;
 
-    const lat = parseFloat(data[0].lat);
-    const lon = parseFloat(data[0].lon);
+    const lat = Number.parseFloat(data[0].lat);
+    const lon = Number.parseFloat(data[0].lon);
 
     state.currentLat = lat;
     state.currentLon = lon;
@@ -185,6 +199,8 @@ searchBtn.onclick = async () => {
     pinGroup.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), pinNormal);
 
     state.redMarker = pinGroup;
+    state.onMarkerSet?.();
+    state.onExternalChange?.();
     earth.add(state.redMarker);
 
     if (state.locationLabel) {
@@ -202,11 +218,14 @@ searchBtn.onclick = async () => {
 };
 
 opacitySlider.addEventListener("input", e => {
-    earthMaterial.opacity = parseFloat(e.target.value);
+    earthMaterial.opacity = Number.parseFloat(e.target.value);
 });
 
-["dateInput", "timeInput", "timezoneSelect"].forEach(id => {
-    document.getElementById(id).addEventListener("change", updateScene);
+["dateTimeInput", "timezoneSelect"].forEach(id => {
+    document.getElementById(id).addEventListener("change", () => {
+        state.onExternalChange?.();
+        updateScene();
+    });
 });
 
 Intl.supportedValuesOf("timeZone").forEach(tz => {
@@ -219,8 +238,8 @@ timezoneSelect.value = Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 function setDefaults() {
     const now = new Date();
-    dateInput.value = now.toISOString().split("T")[0];
-    timeInput.value = now.toTimeString().split(" ")[0];
+    const pad = n => String(n).padStart(2, '0');
+    dateTimeInput.value = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}T${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
 }
 setDefaults();
 updateScene();

@@ -65,9 +65,9 @@ export function updateScene() {
 
     const earthPos = heliocentricPosition("earth", JD);
 
-    const sunDir = earthPos.clone().negate()
-        .applyAxisAngle(new THREE.Vector3(1, 0, 0), -OBLIQUITY)
-        .normalize();
+    const sunEq = earthPos.clone().negate()
+        .applyAxisAngle(new THREE.Vector3(1, 0, 0), OBLIQUITY);
+    const sunDir = new THREE.Vector3(sunEq.x, sunEq.z, -sunEq.y).normalize();
     sunSprite.position.copy(sunDir).multiplyScalar(900);
     sunLight.position.copy(sunDir).multiplyScalar(100);
     atmosphereMaterial.uniforms.sunDirection.value.copy(sunDir);
@@ -83,7 +83,7 @@ export function updateScene() {
     }
 
     let geo = marsPos.clone().sub(earthPos);
-    geo.applyAxisAngle(new THREE.Vector3(1, 0, 0), -OBLIQUITY);
+    geo.applyAxisAngle(new THREE.Vector3(1, 0, 0), OBLIQUITY);
 
     const latRad = state.currentLat * DEG;
     const lonRad = state.currentLon * DEG;
@@ -97,6 +97,7 @@ export function updateScene() {
     ).multiplyScalar(EARTH_RADIUS_AU);
 
     const topo = geo.clone().sub(observerEquatorial).normalize();
+    const topoScene = new THREE.Vector3(topo.x, topo.z, -topo.y);
 
     let ra = Math.atan2(topo.y, topo.x);
     if (ra < 0) ra += 2 * Math.PI;
@@ -117,7 +118,7 @@ export function updateScene() {
         state.marsLine.geometry.dispose();
     }
 
-    const end = observerWorld.clone().add(topo.clone().multiplyScalar(5));
+    const end = observerWorld.clone().add(topoScene.clone().multiplyScalar(5));
 
     state.marsLine = new THREE.Line(
         new THREE.BufferGeometry().setFromPoints([observerWorld, end]),
@@ -136,11 +137,11 @@ export function updateScene() {
         new THREE.MeshBasicMaterial({ color: 0x00aaff })
     );
     state.blueMarker.position.copy(
-        observerWorld.clone().add(topo.clone().multiplyScalar(2.2))
+        observerWorld.clone().add(topoScene.clone().multiplyScalar(2.2))
     );
     state.blueMarker.quaternion.setFromUnitVectors(
         new THREE.Vector3(0, 1, 0),
-        topo
+        topoScene
     );
     scene.add(state.blueMarker);
 
@@ -152,7 +153,7 @@ export function updateScene() {
 
     state.marsLabel = createLabel('Mars');
     state.marsLabel.position.copy(
-        observerWorld.clone().add(topo.clone().multiplyScalar(2.2))
+        observerWorld.clone().add(topoScene.clone().multiplyScalar(2.2))
     );
     scene.add(state.marsLabel);
 }

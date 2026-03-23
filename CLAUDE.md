@@ -36,15 +36,19 @@ index.html
 - The atmosphere uses a custom GLSL shader with Fresnel + sun-scattering effects (additive blending, `depthWrite: false`), rendered on a slightly oversized sphere (radius 1.001)
 - Post-processing uses `EffectComposer` → `RenderPass` + `UnrealBloomPass`
 
+**Earth-lock camera mode:**
+- A "Lock view to Earth" checkbox (enabled by default) makes the camera co-rotate with Earth's sidereal rotation
+- Implemented entirely in the `animate()` loop in `index.html`: each frame, the delta of `earth.rotation.y` (GMST) is computed and applied to `camera.position` via `applyAxisAngle(Y_AXIS, delta)` before `controls.update()`
+
 **Animation system:**
 - `state.js` holds all animation state (`animMode`, `animPlaying`, `animRafHandle`, etc.) plus two callback hooks: `onMarkerSet` and `onExternalChange`
 - `animation.js` registers those callbacks at init time; `ui.js` calls them when the location or date/timezone changes
 - Two modes: `realtime` (wall-clock drives sim time from a base timestamp) and `timelapse` (interpolates between user-specified from/to dates over a fixed duration)
+
+**Coordinate system note:** `latLonToVector3` in [js/astronomy.js](js/astronomy.js) maps lat/lon to a unit sphere where Three.js +Y = north pole. The equatorial observer position uses GMST + longitude as the hour angle. Two-step frame conversion is applied in `ui.js`: (1) ecliptic → standard equatorial via `applyAxisAngle(X, +OBLIQUITY)`; (2) equatorial (Z=north) → scene (Y=north) via the mapping `(x, y, z) → (x, z, -y)`. RA/Dec are computed in the equatorial frame; the rendered line and cone use the scene-frame vector.
 
 **External dependencies (CDN only, no npm install):**
 - Three.js `0.160.0` via unpkg importmap
 - Bootstrap `5.3.3` for UI styling
 - Nominatim (OpenStreetMap) for location geocoding
 - Three.js hosted textures for earth day/night/normal maps
-
-**Coordinate system note:** `latLonToVector3` in [js/astronomy.js](js/astronomy.js) maps lat/lon to a unit sphere where Three.js +Y = north pole. The equatorial observer position uses GMST + longitude as the hour angle. Two-step frame conversion is applied in `ui.js`: (1) ecliptic → standard equatorial via `applyAxisAngle(X, +OBLIQUITY)`; (2) equatorial (Z=north) → scene (Y=north) via the mapping `(x, y, z) → (x, z, -y)`. RA/Dec are computed in the equatorial frame; the rendered line and cone use the scene-frame vector.

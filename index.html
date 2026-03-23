@@ -147,6 +147,11 @@ canvas{display:block;}
 <input type="range" id="opacitySlider" class="form-range" min="0.1" max="1" step="0.05" value="1">
 </div>
 
+<div class="mb-3 form-check">
+<input type="checkbox" class="form-check-input" id="earthLockCheckbox" checked>
+<label class="form-check-label" for="earthLockCheckbox">Lock view to Earth</label>
+</div>
+
 <div id="coords" class="pt-2 border-top">
 <div id="earthCoords">Lat: -, Lon: -</div>
 <div id="marsCoords">Mars: -</div>
@@ -165,12 +170,37 @@ cardHeader.addEventListener('click', () => {
 </script>
 
 <script type="module">
-import { camera, renderer, composer, controls } from './js/scene.js';
+import * as THREE from 'three';
+import { camera, renderer, composer, controls, earth } from './js/scene.js';
 import './js/ui.js';
 import './js/animation.js';
 
+const earthLockCheckbox = document.getElementById('earthLockCheckbox');
+const Y_AXIS = new THREE.Vector3(0, 1, 0);
+// Track Earth's Y rotation from the previous frame to compute per-frame delta
+let prevEarthRotY = earth.rotation.y;
+
+// Reset the baseline when the lock is toggled to avoid a sudden camera jump
+earthLockCheckbox.addEventListener('change', () => {
+    prevEarthRotY = earth.rotation.y;
+});
+
 function animate() {
     requestAnimationFrame(animate);
+
+    if (earthLockCheckbox.checked) {
+        // earth.rotation.y = gmst(date), normalized to [0, 2π], so it wraps.
+        // Normalize delta to [-π, π] to handle the wrap-around correctly.
+        let delta = earth.rotation.y - prevEarthRotY;
+        if (delta > Math.PI)  delta -= 2 * Math.PI;
+        if (delta < -Math.PI) delta += 2 * Math.PI;
+
+        // Rotate the camera around the world Y axis by the same angle Earth rotated.
+        // OrbitControls recomputes its spherical state from camera.position on each.
+        if (delta !== 0) camera.position.applyAxisAngle(Y_AXIS, delta);
+    }
+    prevEarthRotY = earth.rotation.y;
+
     controls.update();
     composer.render();
 }

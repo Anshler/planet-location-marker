@@ -1,5 +1,6 @@
 import * as THREE from 'three';
-import { DEG, J2000, EARTH_RADIUS_AU } from './constants.js';
+import { DEG, J2000 } from './constants.js';
+import { EARTH_ORBITAL } from './planets.js';
 
 export function normalizeAngleRad(x) {
     x %= 2 * Math.PI;
@@ -15,28 +16,20 @@ export function solveKepler(M, e) {
     return E;
 }
 
-export function orbitalElements(body, JD) {
+export function orbitalElements(orbital, JD) {
     const T = (JD - J2000) / 36525;
-    if (body === "earth") return {
-        a: 1.00000261 + 0.00000562 * T,
-        e: 0.01671123 - 0.00004392 * T,
-        I: (-0.00001531 - 0.01294668 * T) * DEG,
-        L: (100.46457166 + 35999.37244981 * T) * DEG,
-        w_bar: (102.93768193 + 0.32327364 * T) * DEG,
-        Omega: 0
-    };
-    if (body === "mars") return {
-        a: 1.52371034 + 0.00001847 * T,
-        e: 0.09339410 + 0.00007882 * T,
-        I: (1.84969142 - 0.00813131 * T) * DEG,
-        L: (-4.55343205 + 19140.30268499 * T) * DEG,
-        w_bar: (-23.94362959 + 0.44441088 * T) * DEG,
-        Omega: (49.55953891 - 0.29257343 * T) * DEG
+    return {
+        a:      orbital.a[0]     + orbital.a[1]     * T,
+        e:      orbital.e[0]     + orbital.e[1]     * T,
+        I:     (orbital.I[0]     + orbital.I[1]     * T) * DEG,
+        L:     (orbital.L[0]     + orbital.L[1]     * T) * DEG,
+        w_bar: (orbital.w_bar[0] + orbital.w_bar[1] * T) * DEG,
+        Omega: (orbital.Omega[0] + orbital.Omega[1] * T) * DEG,
     };
 }
 
-export function heliocentricPosition(body, JD) {
-    const el = orbitalElements(body, JD);
+export function heliocentricPosition(orbital, JD) {
+    const el = orbitalElements(orbital, JD);
     const M = normalizeAngleRad(el.L - el.w_bar);
     const E = solveKepler(M, el.e);
     const xv = el.a * (Math.cos(E) - el.e);
@@ -50,6 +43,10 @@ export function heliocentricPosition(body, JD) {
         Math.cos(el.Omega) * Math.sin(v + w) * Math.cos(el.I));
     const zh = r * (Math.sin(v + w) * Math.sin(el.I));
     return new THREE.Vector3(xh, yh, zh);
+}
+
+export function heliocentricEarthPosition(JD) {
+    return heliocentricPosition(EARTH_ORBITAL, JD);
 }
 
 export function julianDate(date) {

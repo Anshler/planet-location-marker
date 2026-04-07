@@ -13,7 +13,7 @@ An interactive 3D globe that shows the direction of Mars from any location on Ea
 
 ## Features
 
-- 🔴 Real-time Mars direction from any Earth location
+- 🔴 Real-time direction of all planets from any Earth location
 - 🌍 Interactive 3D globe with atmosphere & starfield
 - 🕐 Timelapse animation across any date range
 - 📡 Topocentric position with light-travel time correction

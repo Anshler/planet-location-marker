@@ -1,5 +1,5 @@
 {
-  "name": "mars-location-marker",
+  "name": "planet-location-marker",
   "scripts": {
     "start": "npx serve . -l 8080"
   }

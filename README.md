@@ -1,4 +1,4 @@
-# Mars Location Marker
+# Planet Location Marker
 ![License](https://img.shields.io/badge/license-MIT-blue)
 ![Vanilla JS](https://img.shields.io/badge/built%20with-Vanilla%20JS-f7df1e)
 ![No build step](https://img.shields.io/badge/build-none-brightgreen)
@@ -7,9 +7,9 @@
 ![Nominatim](https://img.shields.io/badge/Geocoding-Nominatim-7EBC6F?logo=openstreetmap&logoColor=white)
 
 
-An interactive 3D globe that shows the direction of Mars from any location on Earth, at any point in time.
+An interactive 3D globe that shows the direction of planets in the solar system from any location on Earth, at any point in time.
 
-## [→ Try it live](https://anshler.github.io/mars-location-marker/)
+## [→ Try it live](https://anshler.github.io/planet-location-marker/)
 
 ## Features
 
@@ -30,7 +30,7 @@ Serves the app at `http://localhost:8080`. No build step required.
 
 Built with vanilla JavaScript and [Three.js](https://threejs.org/), no bundler, no framework. The app runs entirely in the browser as ES modules loaded directly from `index.html`.
 
-Mars's position is computed from first principles using Kepler's equation to solve for the heliocentric orbital positions of Earth and Mars. The direction is then converted to a **topocentric vector**, accounting for the observer's exact position on Earth's surface, with two iterations of **light-travel time correction**, so the line points where Mars *was* when the light you'd see today left it.
+A planet's position is computed from first principles using Kepler's equation to solve for the heliocentric orbital positions of Earth and the planets. The direction is then converted to a **topocentric vector**, accounting for the observer's exact position on Earth's surface, with two iterations of **light-travel time correction**, so the line points where the planets *were* when the light you'd see today left it.
 
 Earth's orientation uses Greenwich Mean Sidereal Time (GMST) so the globe rotates to match the real sky at any given moment. The atmosphere glow is a custom GLSL shader with Fresnel and sun-scattering terms, rendered with additive blending. A bloom post-processing pass (Three.js `UnrealBloomPass`) adds the final glow.
 

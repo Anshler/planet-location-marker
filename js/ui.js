@@ -1,14 +1,25 @@
 import * as THREE from 'three';
 import { DEG, OBLIQUITY, EARTH_RADIUS_AU, C_AU_PER_DAY } from './constants.js';
-import { julianDate, gmst, heliocentricPosition, latLonToVector3 } from './astronomy.js';
+import { julianDate, gmst, heliocentricPosition, heliocentricEarthPosition, latLonToVector3 } from './astronomy.js';
+import { PLANETS } from './planets.js';
 import { scene, earth, earthMaterial, sunLight, atmosphereMaterial, createSunSprite } from './scene.js';
 import { state } from './state.js';
 
 const sunSprite = createSunSprite();
 
-/* ---------------- MARS LABEL ---------------- */
+/* ---------------- PLANET COORD READOUTS ---------------- */
 
-function createLabel(text) {
+const planetCoordEls = {};
+for (const planet of PLANETS) {
+    const el = document.createElement('div');
+    el.textContent = `${planet.name}: -`;
+    document.getElementById('coords').appendChild(el);
+    planetCoordEls[planet.name] = el;
+}
+
+/* ---------------- PLANET LABELS ---------------- */
+
+function createLabel(text, color = 0xffffff) {
     const canvas = document.createElement('canvas');
     canvas.width = 512;
     canvas.height = 64;
@@ -19,7 +30,7 @@ function createLabel(text) {
     ctx.strokeStyle = 'black';
     ctx.lineWidth = 5;
     ctx.strokeText(text, 8, 32);
-    ctx.fillStyle = 'white';
+    ctx.fillStyle = '#' + color.toString(16).padStart(6, '0');
     ctx.fillText(text, 8, 32);
     const texture = new THREE.CanvasTexture(canvas);
     const sprite = new THREE.Sprite(
@@ -66,7 +77,7 @@ export function updateScene() {
     const JD = julianDate(date);
     earth.rotation.y = gmst(date);
 
-    const earthPos = heliocentricPosition("earth", JD);
+    const earthPos = heliocentricEarthPosition(JD);
 
     // Ecliptic → equatorial (rotate around X by obliquity), then equatorial → scene (Y=north)
     const sunEq = earthPos.clone().negate()
@@ -78,91 +89,62 @@ export function updateScene() {
 
     if (!state.redMarker) return;
 
-    let marsPos = heliocentricPosition("mars", JD);
-
-    for (let i = 0; i < 2; i++) {
-        const geoTemp = marsPos.clone().sub(earthPos);
-        const lt = geoTemp.length() / C_AU_PER_DAY;
-        marsPos = heliocentricPosition("mars", JD - lt);
-    }
-
-    // Geocentric Mars in ecliptic → equatorial (rotate around X by obliquity)
-    let geo = marsPos.clone().sub(earthPos);
-    geo.applyAxisAngle(new THREE.Vector3(1, 0, 0), OBLIQUITY);
-
     const latRad = state.currentLat * DEG;
     const lonRad = state.currentLon * DEG;
-
     const theta = gmst(date) + lonRad;
-
     const observerEquatorial = new THREE.Vector3(
         Math.cos(latRad) * Math.cos(theta),
         Math.cos(latRad) * Math.sin(theta),
         Math.sin(latRad)
     ).multiplyScalar(EARTH_RADIUS_AU);
 
-    // topo: topocentric direction in equatorial coords (Z=north) — used for RA/Dec
-    const topo = geo.clone().sub(observerEquatorial).normalize();
-    // topoScene: equatorial (Z=north) → scene frame (Y=north) for rendering
-    const topoScene = new THREE.Vector3(topo.x, topo.z, -topo.y);
-
-    let ra = Math.atan2(topo.y, topo.x);
-    if (ra < 0) ra += 2 * Math.PI;
-
-    const dec = Math.asin(topo.z);
-
-    const raHours = ra * 12 / Math.PI;
-    const decDeg = dec * 180 / Math.PI;
-
-    marsCoords.innerText =
-        `Mars RA: ${raHours.toFixed(2)} h, ` +
-        `Dec: ${decDeg.toFixed(2)}°`;
-
     const observerWorld = earth.localToWorld(latLonToVector3(state.currentLat, state.currentLon));
 
-    if (state.marsLine) {
-        scene.remove(state.marsLine);
-        state.marsLine.geometry.dispose();
+    for (const planet of PLANETS) {
+        // Light-travel-time corrected heliocentric position
+        let pos = heliocentricPosition(planet.orbital, JD);
+        for (let i = 0; i < 2; i++) {
+            const lt = pos.clone().sub(earthPos).length() / C_AU_PER_DAY;
+            pos = heliocentricPosition(planet.orbital, JD - lt);
+        }
+
+        // Ecliptic → equatorial → topocentric → scene frame
+        let geo = pos.clone().sub(earthPos);
+        geo.applyAxisAngle(new THREE.Vector3(1, 0, 0), OBLIQUITY);
+        const topo = geo.clone().sub(observerEquatorial).normalize();
+        const topoScene = new THREE.Vector3(topo.x, topo.z, -topo.y);
+
+        // RA/Dec
+        let ra = Math.atan2(topo.y, topo.x);
+        if (ra < 0) ra += 2 * Math.PI;
+        const dec = Math.asin(topo.z);
+        planetCoordEls[planet.name].textContent =
+            `${planet.name} RA: ${(ra * 12 / Math.PI).toFixed(2)} h, Dec: ${(dec * 180 / Math.PI).toFixed(2)}°`;
+
+        // Dispose previous scene objects
+        const prev = state.planetObjects[planet.name] ?? {};
+        if (prev.line)   { scene.remove(prev.line);   prev.line.geometry.dispose(); }
+        if (prev.marker) { prev.marker.geometry.dispose(); prev.marker.material.dispose(); scene.remove(prev.marker); }
+        if (prev.label)  { prev.label.material.map.dispose(); prev.label.material.dispose(); scene.remove(prev.label); }
+
+        // Create new scene objects
+        const end = observerWorld.clone().add(topoScene.clone().multiplyScalar(5));
+        const line = new THREE.Line(
+            new THREE.BufferGeometry().setFromPoints([observerWorld, end]),
+            new THREE.LineBasicMaterial({ color: planet.color })
+        );
+        const marker = new THREE.Mesh(
+            new THREE.ConeGeometry(0.025, 0.2, 12),
+            new THREE.MeshBasicMaterial({ color: planet.color })
+        );
+        marker.position.copy(observerWorld.clone().add(topoScene.clone().multiplyScalar(2.2)));
+        marker.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), topoScene);
+        const label = createLabel(planet.name, planet.color);
+        label.position.copy(observerWorld.clone().add(topoScene.clone().multiplyScalar(2.2)));
+
+        scene.add(line, marker, label);
+        state.planetObjects[planet.name] = { line, marker, label };
     }
-
-    const end = observerWorld.clone().add(topoScene.clone().multiplyScalar(5));
-
-    state.marsLine = new THREE.Line(
-        new THREE.BufferGeometry().setFromPoints([observerWorld, end]),
-        new THREE.LineBasicMaterial({ color: 0xffffff })
-    );
-    scene.add(state.marsLine);
-
-    if (state.blueMarker) {
-        state.blueMarker.geometry.dispose();
-        state.blueMarker.material.dispose();
-        scene.remove(state.blueMarker);
-    }
-
-    state.blueMarker = new THREE.Mesh(
-        new THREE.ConeGeometry(0.025, 0.2, 12),
-        new THREE.MeshBasicMaterial({ color: 0x00aaff })
-    );
-    state.blueMarker.position.copy(
-        observerWorld.clone().add(topoScene.clone().multiplyScalar(2.2))
-    );
-    state.blueMarker.quaternion.setFromUnitVectors(
-        new THREE.Vector3(0, 1, 0),
-        topoScene
-    );
-    scene.add(state.blueMarker);
-
-    if (state.marsLabel) {
-        state.marsLabel.material.map.dispose();
-        state.marsLabel.material.dispose();
-        scene.remove(state.marsLabel);
-    }
-
-    state.marsLabel = createLabel('Mars');
-    state.marsLabel.position.copy(
-        observerWorld.clone().add(topoScene.clone().multiplyScalar(2.2))
-    );
-    scene.add(state.marsLabel);
 }
 
 /* ---------------- UI ---------------- */

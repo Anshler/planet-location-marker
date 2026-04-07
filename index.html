@@ -2,7 +2,7 @@
 <html>
 <head>
 <meta charset="UTF-8">
-<title>Mars Direction Globe (Accurate around 2025)</title>
+<title>Planets Direction Globe (Accurate around 2025)</title>
 <link rel="icon" href="data:,">
 
 <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
@@ -83,7 +83,7 @@ canvas{display:block;}
 
 <div id="ui" class="card text-white">
 <div class="card-header" id="cardHeader">
-  <span>Mars Direction Controls</span>
+  <span>Planets Direction Controls</span>
   <button id="toggleBtn" title="Toggle controls">&#9776;</button>
 </div>
 <div id="collapseBody">
@@ -112,11 +112,10 @@ canvas{display:block;}
   <div id="tlDateRange" style="display:none">
     <div class="row g-2 mb-2">
       <div class="col">
-        <label for="tlFromInput" class="form-label">From</label>
+        <label for="tlFromInput" class="form-label">From/To</label>
         <input type="datetime-local" id="tlFromInput" class="form-control">
       </div>
       <div class="col">
-        <label for="tlToInput" class="form-label">To</label>
         <input type="datetime-local" id="tlToInput" class="form-control">
       </div>
     </div>
@@ -126,8 +125,8 @@ canvas{display:block;}
     </div>
   </div>
 
-  <div class="d-flex align-items-center gap-2">
-    <button id="animPlayBtn" class="btn btn-sm btn-primary" style="min-width:38px" disabled>&#9654;</button>
+  <div class="d-flex align-items-center gap-2 p-2 rounded" style="background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.18);">
+    <button id="animPlayBtn" class="btn btn-sm btn-primary fw-bold" style="min-width:38px" disabled>&#9654;</button>
     <input type="range" id="animSlider" class="form-range" min="0" max="100" value="0" disabled style="opacity:0.35; pointer-events:none">
   </div>
 </div>
@@ -142,9 +141,9 @@ canvas{display:block;}
 <select id="timezoneSelect" class="form-select"></select>
 </div>
 
-<div class="mb-3">
-<label class="form-label">Earth Transparency</label>
-<input type="range" id="opacitySlider" class="form-range" min="0.1" max="1" step="0.05" value="1">
+<div class="mb-3 d-flex align-items-center gap-2">
+<label for="opacitySlider" class="form-label mb-0 text-nowrap">Transparency</label>
+<input type="range" id="opacitySlider" class="form-range mb-0" min="0.1" max="1" step="0.05" value="1">
 </div>
 
 <div class="mb-3 form-check">
@@ -154,7 +153,6 @@ canvas{display:block;}
 
 <div id="coords" class="pt-2 border-top">
 <div id="earthCoords">Lat: -, Lon: -</div>
-<div id="marsCoords">Mars: -</div>
 </div>
 
 </div>

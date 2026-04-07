@@ -1,9 +1,7 @@
 export const state = {
-    redMarker:  null,
-    blueMarker: null,
-    marsLine:   null,
-    marsLabel:      null,
-    locationLabel:  null,
+    redMarker:     null,
+    locationLabel: null,
+    planetObjects: {},
     currentLat: 0,
     currentLon: 0,
 

@@ -1,0 +1,22 @@
+{
+  "id": "./",
+  "name": "Planet Location Marker",
+  "short_name": "Planet Marker",
+  "description": "Stand anywhere on Earth and see where the Sun, the Moon and every planet are right now — a real-time 3D globe with a beam to each world and the true star sky, computed in your browser.",
+  "lang": "en",
+  "dir": "ltr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["fullscreen", "standalone"],
+  "orientation": "any",
+  "background_color": "#03060d",
+  "theme_color": "#03060d",
+  "categories": ["education", "science", "utilities"],
+  "icons": [
+    { "src": "assets/icons/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "assets/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "assets/icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

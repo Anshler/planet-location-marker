@@ -1,6 +1,18 @@
 {
   "name": "planet-location-marker",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
   "scripts": {
-    "start": "npx serve . -l 8080"
+    "start": "node scripts/serve.mjs",
+    "test": "node --test \"test/**/*.test.mjs\"",
+    "smoke": "node scripts/smoke.mjs --offline --expect-ready --assert",
+    "smoke:mobile": "node scripts/smoke.mjs --offline --expect-ready --assert --mobile",
+    "vendor": "node scripts/fetch-vendor.mjs",
+    "vendor:check": "node scripts/fetch-vendor.mjs --check",
+    "data": "node scripts/build-sky.mjs && node scripts/build-milkyway.mjs && node scripts/build-cities.mjs",
+    "icons": "node scripts/build-icons.mjs",
+    "size": "node scripts/check-size.mjs",
+    "stage": "node scripts/stage-site.mjs _site"
   }
 }

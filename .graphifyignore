@@ -1,2 +1,8 @@
 .claude*
 node_modules
+vendor/
+data/
+assets/
+.scratch/
+js/graphify-out/
+test/fixtures/

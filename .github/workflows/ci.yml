@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests, budgets and headless smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Unit tests (node:test, zero dependencies)
+        run: npm test
+
+      - name: Transfer-size budgets
+        run: npm run size
+
+      - name: Vendored files match vendor/VENDOR.json
+        run: node scripts/fetch-vendor.mjs --check
+
+      - name: Generated data is up to date with data/raw
+        run: |
+          node scripts/build-sky.mjs --check
+          node scripts/build-milkyway.mjs --check
+
+      - name: Locate Chrome
+        run: echo "CHROME_PATH=$(which google-chrome || which google-chrome-stable || which chromium)" >> "$GITHUB_ENV"
+
+      # Every external host is unresolvable: boot must not need the network (SPEC §H).
+      # Served under the Pages sub-path so any absolute URL fails here, not in production.
+      - name: Smoke — desktop 1440×900, offline, sub-path
+        run: >
+          node scripts/smoke.mjs --offline --expect-ready --assert
+          --subpath=/planet-location-marker/
+          --out=smoke/desktop.png --json=smoke/desktop.json
+
+      - name: Smoke — mobile 390×844 @3, offline
+        if: ${{ !cancelled() }}
+        run: >
+          node scripts/smoke.mjs --offline --expect-ready --assert --mobile
+          --out=smoke/mobile.png --json=smoke/mobile.json
+
+      # v1 died on systems whose time zone is UTC; keep that path covered.
+      - name: Smoke — UTC system time zone, reduced motion
+        if: ${{ !cancelled() }}
+        run: >
+          node scripts/smoke.mjs --offline --expect-ready --assert --tz=UTC --reduced-motion
+          --out=smoke/utc-reduced-motion.png --json=smoke/utc-reduced-motion.json
+
+      - name: Upload smoke screenshots
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-screenshots
+          path: smoke/
+          if-no-files-found: warn
+          retention-days: 14

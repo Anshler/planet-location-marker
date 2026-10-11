@@ -1,0 +1,4 @@
+# Vendored files and generated data must stay byte-identical to their pinned sha256
+# (vendor/VENDOR.json) and to the build-script output (CI freshness check).
+vendor/** -text
+data/** -text

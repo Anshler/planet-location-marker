@@ -1,11 +1,794 @@
 {
-  "js\\animation.js": 1774279370.0475988,
-  "js\\astronomy.js": 1775568153.1774776,
-  "js\\constants.js": 1773655477.502087,
-  "js\\planets.js": 1775569928.746964,
-  "js\\scene.js": 1773674916.1708395,
-  "js\\state.js": 1775567952.9171326,
-  "js\\ui.js": 1775569852.6050127,
-  "CLAUDE.md": 1775568685.1697242,
-  "README.md": 1775569105.5041952
+  "CLAUDE.md": {
+    "mtime": 1791673310.650036,
+    "seen": 1791702813.8919916,
+    "ast_hash": "8477d8804d50b9a380cf731aedf73201",
+    "semantic_hash": "8477d8804d50b9a380cf731aedf73201"
+  },
+  "README.md": {
+    "mtime": 1791673290.8509605,
+    "seen": 1791702813.8919935,
+    "ast_hash": "4e9a422fb688ef11376cfa21c524f3b9",
+    "semantic_hash": "4e9a422fb688ef11376cfa21c524f3b9"
+  },
+  "js/app/actions.js": {
+    "mtime": 1791669853.5188234,
+    "seen": 1791671795.0259356,
+    "ast_hash": "6593166ba88c9e6ff79dea5fde9bb502",
+    "semantic_hash": "6593166ba88c9e6ff79dea5fde9bb502"
+  },
+  "js/app/fallback.js": {
+    "mtime": 1791669650.2462027,
+    "seen": 1791671795.0259395,
+    "ast_hash": "63aac8495089d7309c07b974d379d618",
+    "semantic_hash": "63aac8495089d7309c07b974d379d618"
+  },
+  "js/app/intro.js": {
+    "mtime": 1791656413.8794448,
+    "seen": 1791671795.0259411,
+    "ast_hash": "fff377efe69d04b10dc36ff93fee60d7",
+    "semantic_hash": "fff377efe69d04b10dc36ff93fee60d7"
+  },
+  "js/app/labels-feed.js": {
+    "mtime": 1791656413.8784428,
+    "seen": 1791671795.025942,
+    "ast_hash": "2fa0255c2e6f49761668ba3b0c8c0521",
+    "semantic_hash": "2fa0255c2e6f49761668ba3b0c8c0521"
+  },
+  "js/app/loop.js": {
+    "mtime": 1791683868.8996072,
+    "seen": 1791702813.8917294,
+    "ast_hash": "8d8f4ee47712a94ce38a351f78a664f0",
+    "semantic_hash": "8d8f4ee47712a94ce38a351f78a664f0"
+  },
+  "js/astro/ae.js": {
+    "mtime": 1791654710.1104789,
+    "seen": 1791671795.0259438,
+    "ast_hash": "2da583c6bc7e4fb24c31026a0c865c8e",
+    "semantic_hash": "2da583c6bc7e4fb24c31026a0c865c8e"
+  },
+  "js/astro/almanac.js": {
+    "mtime": 1791656470.8344195,
+    "seen": 1791671795.0259442,
+    "ast_hash": "5158a46fa32577c0abe1308ceb006ef5",
+    "semantic_hash": "5158a46fa32577c0abe1308ceb006ef5"
+  },
+  "js/astro/bodies.js": {
+    "mtime": 1791654711.2065442,
+    "seen": 1791671795.025945,
+    "ast_hash": "b387e89f094b10be0ec6a476de96925a",
+    "semantic_hash": "b387e89f094b10be0ec6a476de96925a"
+  },
+  "js/astro/client.js": {
+    "mtime": 1791655687.1830544,
+    "seen": 1791671795.0259457,
+    "ast_hash": "72e2e224379e8b9aab7096c829eb0b45",
+    "semantic_hash": "72e2e224379e8b9aab7096c829eb0b45"
+  },
+  "js/astro/events.js": {
+    "mtime": 1791670645.383701,
+    "seen": 1791671795.0259464,
+    "ast_hash": "79383dbb82da133e21a533c952fc6f31",
+    "semantic_hash": "79383dbb82da133e21a533c952fc6f31"
+  },
+  "js/astro/frames.js": {
+    "mtime": 1791656087.729177,
+    "seen": 1791671795.025947,
+    "ast_hash": "fc0ce6f3f92b9f2de84b7d35d5520ef5",
+    "semantic_hash": "fc0ce6f3f92b9f2de84b7d35d5520ef5"
+  },
+  "js/astro/paths.js": {
+    "mtime": 1791655604.2708101,
+    "seen": 1791671795.0259478,
+    "ast_hash": "f254dcce75f08468d382edf826d4d69a",
+    "semantic_hash": "f254dcce75f08468d382edf826d4d69a"
+  },
+  "js/astro/photometry.js": {
+    "mtime": 1791654882.0777385,
+    "seen": 1791671795.0259488,
+    "ast_hash": "c630f76de60f1f68d366deb41344ac32",
+    "semantic_hash": "c630f76de60f1f68d366deb41344ac32"
+  },
+  "js/astro/shadow.js": {
+    "mtime": 1791673648.144005,
+    "seen": 1791702813.8917537,
+    "ast_hash": "f02a8e79832077c39020772453b16c85",
+    "semantic_hash": "f02a8e79832077c39020772453b16c85"
+  },
+  "js/astro/snapshot.js": {
+    "mtime": 1791673683.4028747,
+    "seen": 1791702813.8917558,
+    "ast_hash": "499810ce82beec614aa3a01e252bbaaf",
+    "semantic_hash": "499810ce82beec614aa3a01e252bbaaf"
+  },
+  "js/astro/worker.js": {
+    "mtime": 1791655686.109033,
+    "seen": 1791671795.0259504,
+    "ast_hash": "daf50264e0ed21e40adaa69781c65544",
+    "semantic_hash": "daf50264e0ed21e40adaa69781c65544"
+  },
+  "js/camera/picking.js": {
+    "mtime": 1791656808.0549521,
+    "seen": 1791671795.025951,
+    "ast_hash": "ac261bc93b018ea0790243a04098ae95",
+    "semantic_hash": "ac261bc93b018ea0790243a04098ae95"
+  },
+  "js/camera/rig.js": {
+    "mtime": 1791688949.8412042,
+    "seen": 1791702813.891762,
+    "ast_hash": "77d518d07dfd5aba0c9334387a5a6ec8",
+    "semantic_hash": "77d518d07dfd5aba0c9334387a5a6ec8"
+  },
+  "js/core/bus.js": {
+    "mtime": 1791654914.5383039,
+    "seen": 1791671795.0259526,
+    "ast_hash": "a840ff2f37d1024cd3b2949c24a7b6f1",
+    "semantic_hash": "a840ff2f37d1024cd3b2949c24a7b6f1"
+  },
+  "js/core/clock.js": {
+    "mtime": 1791655037.2942975,
+    "seen": 1791671795.0259533,
+    "ast_hash": "615b86a557160062fdc61a43e7e96ae0",
+    "semantic_hash": "615b86a557160062fdc61a43e7e96ae0"
+  },
+  "js/core/format.js": {
+    "mtime": 1791656228.6810293,
+    "seen": 1791671795.0259542,
+    "ast_hash": "acbf17b28e77ffd0aa561703159f58e8",
+    "semantic_hash": "acbf17b28e77ffd0aa561703159f58e8"
+  },
+  "js/core/prefs.js": {
+    "mtime": 1791656549.4489155,
+    "seen": 1791671795.0259547,
+    "ast_hash": "1b5cf9cb8de1525b286447f345331c99",
+    "semantic_hash": "1b5cf9cb8de1525b286447f345331c99"
+  },
+  "js/core/quality.js": {
+    "mtime": 1791655312.683455,
+    "seen": 1791671795.0259557,
+    "ast_hash": "40257fd464fc5e9b9d0972db3cc99921",
+    "semantic_hash": "40257fd464fc5e9b9d0972db3cc99921"
+  },
+  "js/core/store.js": {
+    "mtime": 1791656589.7348094,
+    "seen": 1791671795.0259564,
+    "ast_hash": "3a5f653248d34ab5f1ac12641aee7979",
+    "semantic_hash": "3a5f653248d34ab5f1ac12641aee7979"
+  },
+  "js/core/types.js": {
+    "mtime": 1791679965.9751992,
+    "seen": 1791702813.8917766,
+    "ast_hash": "eaf6b7a117d05c0eac7530b49b898f56",
+    "semantic_hash": "eaf6b7a117d05c0eac7530b49b898f56"
+  },
+  "js/core/tz.js": {
+    "mtime": 1791655813.9903336,
+    "seen": 1791671795.0259578,
+    "ast_hash": "e4b2614d7715999ab848287d6c2adc19",
+    "semantic_hash": "e4b2614d7715999ab848287d6c2adc19"
+  },
+  "js/core/url-state.js": {
+    "mtime": 1791669766.7243266,
+    "seen": 1791671795.0259583,
+    "ast_hash": "832577751e2fc4cc640b6e2da3942979",
+    "semantic_hash": "832577751e2fc4cc640b6e2da3942979"
+  },
+  "js/geo/cities.js": {
+    "mtime": 1791655813.8721056,
+    "seen": 1791671795.0259593,
+    "ast_hash": "ed2c66085bc933d5f66ef604ed22d208",
+    "semantic_hash": "ed2c66085bc933d5f66ef604ed22d208"
+  },
+  "js/geo/coords.js": {
+    "mtime": 1791656816.8351367,
+    "seen": 1791671795.02596,
+    "ast_hash": "de25a9feacbc0171f5d1582659659adc",
+    "semantic_hash": "de25a9feacbc0171f5d1582659659adc"
+  },
+  "js/geo/geocode.js": {
+    "mtime": 1791655694.8521004,
+    "seen": 1791671795.0259607,
+    "ast_hash": "f47e6c57d84739fd7125bbd0a4829ac3",
+    "semantic_hash": "f47e6c57d84739fd7125bbd0a4829ac3"
+  },
+  "js/main.js": {
+    "mtime": 1791673268.8163567,
+    "seen": 1791702813.89179,
+    "ast_hash": "bc0c9496dea3886485dead994e612701",
+    "semantic_hash": "bc0c9496dea3886485dead994e612701"
+  },
+  "js/render/atmosphere.js": {
+    "mtime": 1791688927.7734973,
+    "seen": 1791702813.8917923,
+    "ast_hash": "3ff0583a2b50b4094b3096c97a59eb1f",
+    "semantic_hash": "3ff0583a2b50b4094b3096c97a59eb1f"
+  },
+  "js/render/beams.js": {
+    "mtime": 1791670986.6108809,
+    "seen": 1791671795.0259626,
+    "ast_hash": "babbad7ab22e769b0c75b31b460a8f20",
+    "semantic_hash": "babbad7ab22e769b0c75b31b460a8f20"
+  },
+  "js/render/bodies.js": {
+    "mtime": 1791683959.2681155,
+    "seen": 1791702813.8917966,
+    "ast_hash": "997deaf7102f21592e4959de6861164a",
+    "semantic_hash": "997deaf7102f21592e4959de6861164a"
+  },
+  "js/render/context.js": {
+    "mtime": 1791675832.7264037,
+    "seen": 1791702813.8917985,
+    "ast_hash": "dfaf81a0dc5ca812a7eb3f7cfe6a5faa",
+    "semantic_hash": "dfaf81a0dc5ca812a7eb3f7cfe6a5faa"
+  },
+  "js/render/debug.js": {
+    "mtime": 1791670594.757308,
+    "seen": 1791671795.0259645,
+    "ast_hash": "f971afe02a36d793520ebf85e1717487",
+    "semantic_hash": "f971afe02a36d793520ebf85e1717487"
+  },
+  "js/render/earth.js": {
+    "mtime": 1791688934.8474863,
+    "seen": 1791702813.8918028,
+    "ast_hash": "328a1014ce8a32e970bba1d6d729c78f",
+    "semantic_hash": "328a1014ce8a32e970bba1d6d729c78f"
+  },
+  "js/render/flare.js": {
+    "mtime": 1791673095.6240032,
+    "seen": 1791702813.8918047,
+    "ast_hash": "1291eacf633f1ee139bc6d5fd02f5323",
+    "semantic_hash": "1291eacf633f1ee139bc6d5fd02f5323"
+  },
+  "js/render/ground.js": {
+    "mtime": 1791688885.2935338,
+    "seen": 1791702813.8918066,
+    "ast_hash": "de29f1903dfaba51f53c1de39162ea8e",
+    "semantic_hash": "de29f1903dfaba51f53c1de39162ea8e"
+  },
+  "js/render/labels.js": {
+    "mtime": 1791683876.068711,
+    "seen": 1791702813.8918087,
+    "ast_hash": "cd796a5c514cac6f529aeecb7a5afa67",
+    "semantic_hash": "cd796a5c514cac6f529aeecb7a5afa67"
+  },
+  "js/render/pin.js": {
+    "mtime": 1791689438.907146,
+    "seen": 1791702813.8918104,
+    "ast_hash": "c55948e096a87a24531a32d842d409a6",
+    "semantic_hash": "c55948e096a87a24531a32d842d409a6"
+  },
+  "js/render/postfx.js": {
+    "mtime": 1791675805.480612,
+    "seen": 1791702813.891812,
+    "ast_hash": "26a8701eeccf514e703ba7cecf8a025f",
+    "semantic_hash": "26a8701eeccf514e703ba7cecf8a025f"
+  },
+  "js/render/shaders/atmosphere.glsl.js": {
+    "mtime": 1791689438.908146,
+    "seen": 1791702813.891814,
+    "ast_hash": "18e4d60c9e73b8d980d823639643e075",
+    "semantic_hash": "18e4d60c9e73b8d980d823639643e075"
+  },
+  "js/render/shaders/beam.glsl.js": {
+    "mtime": 1791683777.7051022,
+    "seen": 1791702813.8918157,
+    "ast_hash": "64abac0165c0966868b76b911c451c54",
+    "semantic_hash": "64abac0165c0966868b76b911c451c54"
+  },
+  "js/render/shaders/bodies.glsl.js": {
+    "mtime": 1791689438.908146,
+    "seen": 1791702813.891818,
+    "ast_hash": "c59bf7b0336226290ae5d2d324d8414a",
+    "semantic_hash": "c59bf7b0336226290ae5d2d324d8414a"
+  },
+  "js/render/shaders/clouds.glsl.js": {
+    "mtime": 1791656904.2033587,
+    "seen": 1791671795.0259712,
+    "ast_hash": "66f13122f49ab48110062e55fe7d5b2d",
+    "semantic_hash": "66f13122f49ab48110062e55fe7d5b2d"
+  },
+  "js/render/shaders/common.glsl.js": {
+    "mtime": 1791691228.270642,
+    "seen": 1791702813.8918223,
+    "ast_hash": "b134facb211cd13c756373789ff0d104",
+    "semantic_hash": "b134facb211cd13c756373789ff0d104"
+  },
+  "js/render/shaders/earth.glsl.js": {
+    "mtime": 1791689438.908146,
+    "seen": 1791702813.8918245,
+    "ast_hash": "d51df38f0a750af5f89bb0eb09377f13",
+    "semantic_hash": "d51df38f0a750af5f89bb0eb09377f13"
+  },
+  "js/render/shaders/ground.glsl.js": {
+    "mtime": 1791691500.7165196,
+    "seen": 1791702813.8918264,
+    "ast_hash": "bcefc45831e1ba94b66a7e3f0d134a7c",
+    "semantic_hash": "bcefc45831e1ba94b66a7e3f0d134a7c"
+  },
+  "js/render/shaders/sky.glsl.js": {
+    "mtime": 1791691500.715504,
+    "seen": 1791702813.8918283,
+    "ast_hash": "6af13fe4fa4eb6fcd1dbbeb7bf66b40b",
+    "semantic_hash": "6af13fe4fa4eb6fcd1dbbeb7bf66b40b"
+  },
+  "js/render/sky.js": {
+    "mtime": 1791688872.9851675,
+    "seen": 1791702813.89183,
+    "ast_hash": "ee1f818a648ad7ab57db51cb9d716a5c",
+    "semantic_hash": "ee1f818a648ad7ab57db51cb9d716a5c"
+  },
+  "js/render/textures.js": {
+    "mtime": 1791654669.8700724,
+    "seen": 1791671795.025975,
+    "ast_hash": "6cd6e87cae9545a7457661d8df9ef0cd",
+    "semantic_hash": "6cd6e87cae9545a7457661d8df9ef0cd"
+  },
+  "js/render/trails.js": {
+    "mtime": 1791670125.8385687,
+    "seen": 1791671795.0259755,
+    "ast_hash": "fc1854f710cca0d38d95db8695f9e1ad",
+    "semantic_hash": "fc1854f710cca0d38d95db8695f9e1ad"
+  },
+  "js/ui/about.js": {
+    "mtime": 1791655870.1976388,
+    "seen": 1791671795.0259764,
+    "ast_hash": "24a91a88e870b351992d61bee71e64c1",
+    "semantic_hash": "24a91a88e870b351992d61bee71e64c1"
+  },
+  "js/ui/announcer.js": {
+    "mtime": 1791656001.8711393,
+    "seen": 1791671795.0259771,
+    "ast_hash": "ba44a38eb679f965cc9b201b995eaf5f",
+    "semantic_hash": "ba44a38eb679f965cc9b201b995eaf5f"
+  },
+  "js/ui/body-card.js": {
+    "mtime": 1791683733.5291336,
+    "seen": 1791702813.8918424,
+    "ast_hash": "1c8ebdce5f5ddefe028870fb0fdac6bd",
+    "semantic_hash": "1c8ebdce5f5ddefe028870fb0fdac6bd"
+  },
+  "js/ui/dom.js": {
+    "mtime": 1791673268.9013877,
+    "seen": 1791702813.8918445,
+    "ast_hash": "4674bb59a6d0ffa6379d3ce81fdcb3b3",
+    "semantic_hash": "4674bb59a6d0ffa6379d3ce81fdcb3b3"
+  },
+  "js/ui/events-panel.js": {
+    "mtime": 1791655731.5746343,
+    "seen": 1791671795.025979,
+    "ast_hash": "5cba0a8750e543d54b404d0a4d4d367e",
+    "semantic_hash": "5cba0a8750e543d54b404d0a4d4d367e"
+  },
+  "js/ui/help.js": {
+    "mtime": 1791655871.2322524,
+    "seen": 1791671795.0259798,
+    "ast_hash": "e897b656f8cd9be2a4f8d7b54f862792",
+    "semantic_hash": "e897b656f8cd9be2a4f8d7b54f862792"
+  },
+  "js/ui/icons.js": {
+    "mtime": 1791656283.5430286,
+    "seen": 1791671795.0259805,
+    "ast_hash": "b2b1e37c35bb8a49c7a4ac45e86e3c45",
+    "semantic_hash": "b2b1e37c35bb8a49c7a4ac45e86e3c45"
+  },
+  "js/ui/index.js": {
+    "mtime": 1791656730.1053107,
+    "seen": 1791671795.025981,
+    "ast_hash": "694bbf55b7daa7e0c03df6f201daef10",
+    "semantic_hash": "694bbf55b7daa7e0c03df6f201daef10"
+  },
+  "js/ui/layers.js": {
+    "mtime": 1791655771.0725095,
+    "seen": 1791671795.0259817,
+    "ast_hash": "3e61d068bfa74a9ff73fde4b4f38cb19",
+    "semantic_hash": "3e61d068bfa74a9ff73fde4b4f38cb19"
+  },
+  "js/ui/location.js": {
+    "mtime": 1791670072.889991,
+    "seen": 1791671795.0259824,
+    "ast_hash": "b1c39ae5a681428586cc0a7d0dc7075b",
+    "semantic_hash": "b1c39ae5a681428586cc0a7d0dc7075b"
+  },
+  "js/ui/settings.js": {
+    "mtime": 1791655794.981496,
+    "seen": 1791671795.0259836,
+    "ast_hash": "3ddaad0909e58fb79058c7509af08590",
+    "semantic_hash": "3ddaad0909e58fb79058c7509af08590"
+  },
+  "js/ui/shell.js": {
+    "mtime": 1791656540.1892667,
+    "seen": 1791671795.025984,
+    "ast_hash": "c66de4cd189ec7b06f53401660fbe5ad",
+    "semantic_hash": "c66de4cd189ec7b06f53401660fbe5ad"
+  },
+  "js/ui/shortcuts.js": {
+    "mtime": 1791656763.4619663,
+    "seen": 1791671795.0259848,
+    "ast_hash": "ca81abd2477d7424b8c0f8ad2f21a2e8",
+    "semantic_hash": "ca81abd2477d7424b8c0f8ad2f21a2e8"
+  },
+  "js/ui/sky-now.js": {
+    "mtime": 1791683733.5291336,
+    "seen": 1791702813.891867,
+    "ast_hash": "1d3aef4f561b4caf671c68e60a01c3f7",
+    "semantic_hash": "1d3aef4f561b4caf671c68e60a01c3f7"
+  },
+  "js/ui/timebar.js": {
+    "mtime": 1791670602.3062036,
+    "seen": 1791671795.025986,
+    "ast_hash": "91a48d9df08045886d6e3fef58e0d5d4",
+    "semantic_hash": "91a48d9df08045886d6e3fef58e0d5d4"
+  },
+  "js/ui/toast.js": {
+    "mtime": 1791656000.7796338,
+    "seen": 1791671795.025987,
+    "ast_hash": "c1fe59e7e8c20a1f59afaec3618a378b",
+    "semantic_hash": "c1fe59e7e8c20a1f59afaec3618a378b"
+  },
+  "js/ui/topbar.js": {
+    "mtime": 1791656695.430971,
+    "seen": 1791671795.0259874,
+    "ast_hash": "20973098191cb8772674149fef7551fc",
+    "semantic_hash": "20973098191cb8772674149fef7551fc"
+  },
+  "js/ui/view-switch.js": {
+    "mtime": 1791656695.5374384,
+    "seen": 1791671795.025988,
+    "ast_hash": "89e873963388cd688c62f700f6762023",
+    "semantic_hash": "89e873963388cd688c62f700f6762023"
+  },
+  "js/version.js": {
+    "mtime": 1791673227.4856732,
+    "seen": 1791702813.8918777,
+    "ast_hash": "bee45e0382eaf14a57dfde667960c6a9",
+    "semantic_hash": "bee45e0382eaf14a57dfde667960c6a9"
+  },
+  "package.json": {
+    "mtime": 1791673227.5726168,
+    "seen": 1791702813.8918793,
+    "ast_hash": "4138e770b4485ecccc5b058f47ec6e65",
+    "semantic_hash": "4138e770b4485ecccc5b058f47ec6e65"
+  },
+  "scripts/build-cities.mjs": {
+    "mtime": 1791654701.820776,
+    "seen": 1791671795.0259905,
+    "ast_hash": "8af4dfb522151b9c0f6c2877a65d88c2",
+    "semantic_hash": "8af4dfb522151b9c0f6c2877a65d88c2"
+  },
+  "scripts/build-icons.mjs": {
+    "mtime": 1791673256.3048642,
+    "seen": 1791702813.8918834,
+    "ast_hash": "ece66fa4b76e87bac4d6f7b9003bf767",
+    "semantic_hash": "ece66fa4b76e87bac4d6f7b9003bf767"
+  },
+  "scripts/build-milkyway.mjs": {
+    "mtime": 1791674095.5700288,
+    "seen": 1791702813.891885,
+    "ast_hash": "a08cdd2bf68058d892c483b33e72bcca",
+    "semantic_hash": "a08cdd2bf68058d892c483b33e72bcca"
+  },
+  "scripts/build-sky.mjs": {
+    "mtime": 1791654286.37358,
+    "seen": 1791671795.0259924,
+    "ast_hash": "057e762189f2580fc3d5ec1f48f49e45",
+    "semantic_hash": "057e762189f2580fc3d5ec1f48f49e45"
+  },
+  "scripts/check-size.mjs": {
+    "mtime": 1791670093.2139926,
+    "seen": 1791671795.025993,
+    "ast_hash": "1dd2345e687cbea05c88cd141c6d932f",
+    "semantic_hash": "1dd2345e687cbea05c88cd141c6d932f"
+  },
+  "scripts/fetch-vendor.mjs": {
+    "mtime": 1791655350.3942168,
+    "seen": 1791671795.025994,
+    "ast_hash": "d8d280428531b5aab3ef4543e5041762",
+    "semantic_hash": "d8d280428531b5aab3ef4543e5041762"
+  },
+  "scripts/lib/chrome.mjs": {
+    "mtime": 1791684621.8854015,
+    "seen": 1791702813.891893,
+    "ast_hash": "40a92cecb2911861ed49dbeb3289c561",
+    "semantic_hash": "40a92cecb2911861ed49dbeb3289c561"
+  },
+  "scripts/lib/http.mjs": {
+    "mtime": 1791656693.932726,
+    "seen": 1791671795.0259955,
+    "ast_hash": "dd95a80b0a83e32ea6fbd5f4c645ccb0",
+    "semantic_hash": "dd95a80b0a83e32ea6fbd5f4c645ccb0"
+  },
+  "scripts/lib/jsscan.mjs": {
+    "mtime": 1791655908.8209033,
+    "seen": 1791671795.025996,
+    "ast_hash": "84c148fbd3661659b33b26faa3fb4f2e",
+    "semantic_hash": "84c148fbd3661659b33b26faa3fb4f2e"
+  },
+  "scripts/lib/modgraph.mjs": {
+    "mtime": 1791656208.0746925,
+    "seen": 1791671795.0259967,
+    "ast_hash": "b20e8b2b705df695f9aa45bde7aece63",
+    "semantic_hash": "b20e8b2b705df695f9aa45bde7aece63"
+  },
+  "scripts/lib/png.mjs": {
+    "mtime": 1791654198.8735707,
+    "seen": 1791671795.0259976,
+    "ast_hash": "e83d877e96d1ef9673081d7bd5b47aa8",
+    "semantic_hash": "e83d877e96d1ef9673081d7bd5b47aa8"
+  },
+  "scripts/lib/zip.mjs": {
+    "mtime": 1791654467.9805968,
+    "seen": 1791671795.025999,
+    "ast_hash": "54766436cb50146cbfee1d4cb16b6c9e",
+    "semantic_hash": "54766436cb50146cbfee1d4cb16b6c9e"
+  },
+  "scripts/serve.mjs": {
+    "mtime": 1791673268.661942,
+    "seen": 1791702813.8919058,
+    "ast_hash": "4039e3d5dd1172b134ddc08d42d0456d",
+    "semantic_hash": "4039e3d5dd1172b134ddc08d42d0456d"
+  },
+  "scripts/smoke.mjs": {
+    "mtime": 1791689560.8511174,
+    "seen": 1791702813.8919077,
+    "ast_hash": "ef8b767e3676704ea66863d285f1b23a",
+    "semantic_hash": "ef8b767e3676704ea66863d285f1b23a"
+  },
+  "scripts/stage-site.mjs": {
+    "mtime": 1791656050.1968517,
+    "seen": 1791671795.026001,
+    "ast_hash": "ea811acb204d6af98f4a2a26677dc09c",
+    "semantic_hash": "ea811acb204d6af98f4a2a26677dc09c"
+  },
+  "sw.js": {
+    "mtime": 1791689577.737439,
+    "seen": 1791702813.8919122,
+    "ast_hash": "6a3d649c32d287af9248afee9eb76a78",
+    "semantic_hash": "6a3d649c32d287af9248afee9eb76a78"
+  },
+  "test/app.actions.test.mjs": {
+    "mtime": 1791669872.4394686,
+    "seen": 1791671795.0260024,
+    "ast_hash": "d5a8a87d3e455fe936085063dfb940bc",
+    "semantic_hash": "d5a8a87d3e455fe936085063dfb940bc"
+  },
+  "test/astro.almanac.test.mjs": {
+    "mtime": 1791656237.6397133,
+    "seen": 1791671795.0260031,
+    "ast_hash": "38b9a1998b2914cb29b9ce8695f54e66",
+    "semantic_hash": "38b9a1998b2914cb29b9ce8695f54e66"
+  },
+  "test/astro.bodies.test.mjs": {
+    "mtime": 1791656361.413299,
+    "seen": 1791671795.0260036,
+    "ast_hash": "d431e7146bafb21aca657760e0cca5d6",
+    "semantic_hash": "d431e7146bafb21aca657760e0cca5d6"
+  },
+  "test/astro.events.test.mjs": {
+    "mtime": 1791670690.4842906,
+    "seen": 1791671795.0260046,
+    "ast_hash": "ed700054be27611c08ca3191da66a814",
+    "semantic_hash": "ed700054be27611c08ca3191da66a814"
+  },
+  "test/astro.frames.test.mjs": {
+    "mtime": 1791656086.6911533,
+    "seen": 1791671795.026005,
+    "ast_hash": "210de3e8840a003f73ae5f5964165bf0",
+    "semantic_hash": "210de3e8840a003f73ae5f5964165bf0"
+  },
+  "test/astro.paths.test.mjs": {
+    "mtime": 1791656304.9802225,
+    "seen": 1791671795.0260057,
+    "ast_hash": "a1ca4c475f5b80e1013c70d74ea3acd8",
+    "semantic_hash": "a1ca4c475f5b80e1013c70d74ea3acd8"
+  },
+  "test/astro.photometry.test.mjs": {
+    "mtime": 1791656360.3642888,
+    "seen": 1791671795.0260065,
+    "ast_hash": "0d3db26ed2dab9df66335d3b12c8b38f",
+    "semantic_hash": "0d3db26ed2dab9df66335d3b12c8b38f"
+  },
+  "test/astro.shadow.test.mjs": {
+    "mtime": 1791673803.453108,
+    "seen": 1791702813.89193,
+    "ast_hash": "720b1710273a52a84b23cc3f31ca021d",
+    "semantic_hash": "720b1710273a52a84b23cc3f31ca021d"
+  },
+  "test/astro.snapshot.test.mjs": {
+    "mtime": 1791673832.0608277,
+    "seen": 1791702813.891932,
+    "ast_hash": "2442406c5b77fca6768be1e00bd888fd",
+    "semantic_hash": "2442406c5b77fca6768be1e00bd888fd"
+  },
+  "test/astro.worker.test.mjs": {
+    "mtime": 1791656404.39899,
+    "seen": 1791671795.0260084,
+    "ast_hash": "b65c7cb56df808facabc8077c6d03c93",
+    "semantic_hash": "b65c7cb56df808facabc8077c6d03c93"
+  },
+  "test/core.bus.test.mjs": {
+    "mtime": 1791656491.4601817,
+    "seen": 1791671795.0260088,
+    "ast_hash": "ebfcaea99cbbb667391e482077e70dc2",
+    "semantic_hash": "ebfcaea99cbbb667391e482077e70dc2"
+  },
+  "test/core.clock.test.mjs": {
+    "mtime": 1791656068.139086,
+    "seen": 1791671795.0260096,
+    "ast_hash": "efe3447e101d441a9ed9779de36c7deb",
+    "semantic_hash": "efe3447e101d441a9ed9779de36c7deb"
+  },
+  "test/core.format.test.mjs": {
+    "mtime": 1791656247.2031205,
+    "seen": 1791671795.0260103,
+    "ast_hash": "ab267928b753b808870a07744e4429f9",
+    "semantic_hash": "ab267928b753b808870a07744e4429f9"
+  },
+  "test/core.hygiene.test.mjs": {
+    "mtime": 1791656900.655973,
+    "seen": 1791671795.026011,
+    "ast_hash": "985d04d748cce9834ab4d45980695cad",
+    "semantic_hash": "985d04d748cce9834ab4d45980695cad"
+  },
+  "test/core.prefs.test.mjs": {
+    "mtime": 1791656550.482383,
+    "seen": 1791671795.0260117,
+    "ast_hash": "2136189ca5e34d4da7428243cd6c68b6",
+    "semantic_hash": "2136189ca5e34d4da7428243cd6c68b6"
+  },
+  "test/core.quality.test.mjs": {
+    "mtime": 1791656492.5161211,
+    "seen": 1791671795.0260122,
+    "ast_hash": "740ad0d6719748e1d30003c5c9ef841d",
+    "semantic_hash": "740ad0d6719748e1d30003c5c9ef841d"
+  },
+  "test/core.store.test.mjs": {
+    "mtime": 1791656490.4257078,
+    "seen": 1791671795.026013,
+    "ast_hash": "46c66adededa4bf86949c9880fdecd17",
+    "semantic_hash": "46c66adededa4bf86949c9880fdecd17"
+  },
+  "test/core.tz.test.mjs": {
+    "mtime": 1791656171.4917533,
+    "seen": 1791671795.0260134,
+    "ast_hash": "e4390691d6a66b4d08a133dfc44dbe39",
+    "semantic_hash": "e4390691d6a66b4d08a133dfc44dbe39"
+  },
+  "test/core.url-state.test.mjs": {
+    "mtime": 1791669766.7253268,
+    "seen": 1791671795.026014,
+    "ast_hash": "a64b68d9b67d94bf6c1eab61334cfc14",
+    "semantic_hash": "a64b68d9b67d94bf6c1eab61334cfc14"
+  },
+  "test/data.catalog.test.mjs": {
+    "mtime": 1791654817.1532044,
+    "seen": 1791671795.026015,
+    "ast_hash": "14038bdff9e6d40e9f9cb3a36ed97e10",
+    "semantic_hash": "14038bdff9e6d40e9f9cb3a36ed97e10"
+  },
+  "test/data.cities.test.mjs": {
+    "mtime": 1791656517.148203,
+    "seen": 1791671795.0260155,
+    "ast_hash": "74494a1adebe6888ebf62b03297ae5d8",
+    "semantic_hash": "74494a1adebe6888ebf62b03297ae5d8"
+  },
+  "test/data.milkyway.test.mjs": {
+    "mtime": 1791674846.69136,
+    "seen": 1791702813.8919606,
+    "ast_hash": "95cadf404f463e84cc0bedad387b69cc",
+    "semantic_hash": "95cadf404f463e84cc0bedad387b69cc"
+  },
+  "test/data.sky.test.mjs": {
+    "mtime": 1791656514.931499,
+    "seen": 1791671795.0260167,
+    "ast_hash": "d8268a212e228c63aaa7cb3f1a440227",
+    "semantic_hash": "d8268a212e228c63aaa7cb3f1a440227"
+  },
+  "test/geo.cities.test.mjs": {
+    "mtime": 1791656706.1960924,
+    "seen": 1791671795.0260174,
+    "ast_hash": "08b757d0392112ce4ec1930d679babe4",
+    "semantic_hash": "08b757d0392112ce4ec1930d679babe4"
+  },
+  "test/geo.coords.test.mjs": {
+    "mtime": 1791669392.1511042,
+    "seen": 1791671795.0260184,
+    "ast_hash": "459753c63deb546a0c9dd4439b32abf6",
+    "semantic_hash": "459753c63deb546a0c9dd4439b32abf6"
+  },
+  "test/geo.geocode.test.mjs": {
+    "mtime": 1791656874.7743225,
+    "seen": 1791671795.0260189,
+    "ast_hash": "ba6a667ea3effdbafb6f5e4d9955e637",
+    "semantic_hash": "ba6a667ea3effdbafb6f5e4d9955e637"
+  },
+  "test/repo.assets.test.mjs": {
+    "mtime": 1791673227.6331072,
+    "seen": 1791702813.891976,
+    "ast_hash": "bd3faf4b9520070186c680bb47711e04",
+    "semantic_hash": "bd3faf4b9520070186c680bb47711e04"
+  },
+  "test/repo.importmap.test.mjs": {
+    "mtime": 1791656614.1240802,
+    "seen": 1791671795.02602,
+    "ast_hash": "ef25fbe84a4b732c1b1f2cc6618c4790",
+    "semantic_hash": "ef25fbe84a4b732c1b1f2cc6618c4790"
+  },
+  "test/repo.no-external-urls.test.mjs": {
+    "mtime": 1791656616.2011993,
+    "seen": 1791671795.0260208,
+    "ast_hash": "0cfff9b83be23498b0d3fca0c0d5ef70",
+    "semantic_hash": "0cfff9b83be23498b0d3fca0c0d5ef70"
+  },
+  "test/repo.purity.test.mjs": {
+    "mtime": 1791656615.1678102,
+    "seen": 1791671795.0260215,
+    "ast_hash": "b6374cce7c986892a624188c4b6c576e",
+    "semantic_hash": "b6374cce7c986892a624188c4b6c576e"
+  },
+  "test/repo.tooling.test.mjs": {
+    "mtime": 1791670093.2149024,
+    "seen": 1791671795.0260222,
+    "ast_hash": "4c06f254fe7b0daf702d4fdf71c6229f",
+    "semantic_hash": "4c06f254fe7b0daf702d4fdf71c6229f"
+  },
+  "test/repo.vendor.test.mjs": {
+    "mtime": 1791656618.2854598,
+    "seen": 1791671795.026023,
+    "ast_hash": "4fd83adb84d3d5cf399f9b8466d15760",
+    "semantic_hash": "4fd83adb84d3d5cf399f9b8466d15760"
+  },
+  ".github/workflows/ci.yml": {
+    "mtime": 1791656323.4450364,
+    "seen": 1791671795.0260236,
+    "ast_hash": "676bf9b9ac5546cd828edb33d86de0f8",
+    "semantic_hash": "676bf9b9ac5546cd828edb33d86de0f8"
+  },
+  ".github/workflows/pages.yml": {
+    "mtime": 1791656324.6137335,
+    "seen": 1791671795.0260243,
+    "ast_hash": "9e750790128aed7f1ca3bb98dde0d809",
+    "semantic_hash": "9e750790128aed7f1ca3bb98dde0d809"
+  },
+  "THIRD_PARTY_NOTICES.md": {
+    "mtime": 1791673311.6984577,
+    "seen": 1791702813.8919952,
+    "ast_hash": "48a67b5bcba35e608df6bcc48f2779ea",
+    "semantic_hash": "48a67b5bcba35e608df6bcc48f2779ea"
+  },
+  "docs/ARCHITECTURE.md": {
+    "mtime": 1791689650.1486938,
+    "seen": 1791702813.891997,
+    "ast_hash": "bf08682c850c0f1f25bc2c24d3a2350f",
+    "semantic_hash": "bf08682c850c0f1f25bc2c24d3a2350f"
+  },
+  "docs/ASTRONOMY.md": {
+    "mtime": 1791684501.1919923,
+    "seen": 1791702813.8919992,
+    "ast_hash": "308f5c199da7616aa44aca99f199343e",
+    "semantic_hash": "308f5c199da7616aa44aca99f199343e"
+  },
+  "index.html": {
+    "mtime": 1791673324.189121,
+    "seen": 1791702813.8920014,
+    "ast_hash": "0c8d464c12a4b3a0683d5fa3d1f0127c",
+    "semantic_hash": "0c8d464c12a4b3a0683d5fa3d1f0127c"
+  },
+  "test/render.shaders.test.mjs": {
+    "mtime": 1791689493.938657,
+    "seen": 1791702813.8919718,
+    "ast_hash": "10a0af487ddc96b6719648db871951f0",
+    "semantic_hash": "10a0af487ddc96b6719648db871951f0"
+  },
+  "test/render.transition.test.mjs": {
+    "mtime": 1791689621.5459692,
+    "seen": 1791702813.891974,
+    "ast_hash": "ccba6a9b5d511b9e382f84214e3c66d1",
+    "semantic_hash": "ccba6a9b5d511b9e382f84214e3c66d1"
+  },
+  "test/ui.sky-now.test.mjs": {
+    "mtime": 1791683694.3401186,
+    "seen": 1791702813.891989,
+    "ast_hash": "5356995e12b8d1de91e75d8f794ec55a",
+    "semantic_hash": "5356995e12b8d1de91e75d8f794ec55a"
+  }
 }

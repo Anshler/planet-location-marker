@@ -1,0 +1,7 @@
+{"type":"FeatureCollection","features":[
+{"type":"Feature","geometry":{"type":"Point","coordinates":[4.8320114,45.7578137]},"properties":{"osm_type":"R","osm_id":120965,"osm_key":"place","osm_value":"city","type":"city","postcode":"69001","countrycode":"FR","name":"Lyon","country":"France","state":"Auvergne-Rhône-Alpes","county":"Rhône","extent":[4.7718134,45.8082628,4.8983774,45.7073666]}},
+{"type":"Feature","geometry":{"type":"Point","coordinates":[-95.0,40.0]},"properties":{"osm_type":"N","osm_id":1,"osm_key":"highway","osm_value":"residential","type":"street","countrycode":"US","street":"Lyon Street","country":"United States","state":"Kansas"}},
+{"type":"Feature","geometry":{"type":"Point","coordinates":[4.8320114,45.7578137]},"properties":{"name":"Lyon","countrycode":"FR","country":"France"}},
+{"type":"Feature","geometry":{"type":"Point","coordinates":[]},"properties":{"name":"Nowhere"}},
+{"type":"Feature","properties":{"name":"No geometry"}}
+]}

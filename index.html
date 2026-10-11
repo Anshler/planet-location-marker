@@ -1,214 +1,358 @@
-<!DOCTYPE html>
-<html>
+<!doctype html>
+<html lang="en">
 <head>
-<meta charset="UTF-8">
-<title>Planets Direction Globe (Accurate around 2025)</title>
-<link rel="icon" href="data:,">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Planet Location Marker — where every planet is, right now</title>
+<meta name="description" content="Stand anywhere on Earth and see where the Sun, the Moon and every planet are right now: a real-time 3D globe with a beam to each world, the true star sky, and astronomy computed entirely in your browser.">
+<meta name="application-name" content="Planet Location Marker">
+<meta name="apple-mobile-web-app-title" content="Planet Marker">
+<meta name="theme-color" content="#03060d">
+<meta name="color-scheme" content="dark">
+<link rel="canonical" href="https://anshler.github.io/planet-location-marker/">
+<link rel="icon" href="assets/icons/favicon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="assets/icons/icon-192.png">
+<link rel="manifest" href="manifest.webmanifest">
 
-<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Planet Location Marker">
+<meta property="og:title" content="Planet Location Marker — where every planet is, right now">
+<meta property="og:description" content="A real-time 3D globe that points a beam from wherever you stand to the Sun, the Moon and every planet. Accurate positions, the real star sky, no install.">
+<meta property="og:url" content="https://anshler.github.io/planet-location-marker/">
+<meta property="og:image" content="https://anshler.github.io/planet-location-marker/assets/og.jpg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="The Earth at night seen from space, with glowing beams rising from one city toward the Sun, the Moon and the planets.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Planet Location Marker — where every planet is, right now">
+<meta name="twitter:description" content="A real-time 3D globe that points a beam from wherever you stand to the Sun, the Moon and every planet.">
+<meta name="twitter:image" content="https://anshler.github.io/planet-location-marker/assets/og.jpg">
 
-<style>
-body{
-    margin:0;
-    overflow:hidden;
-    background:#000814;
-    font-family:system-ui,-apple-system,sans-serif;
-}
-canvas{display:block;}
-#ui{
-    position:absolute;
-    top:20px;
-    left:20px;
-    width:360px;
-    backdrop-filter:blur(12px);
-    background:rgba(20,25,35,0.85);
-    border-radius:16px;
-    box-shadow:0 10px 40px rgba(0,0,0,0.5);
-}
-.card-header{
-    background:transparent;
-    border-bottom:1px solid rgba(255,255,255,0.08);
-    font-weight:600;
-    color:#fff;
-    display:flex;
-    align-items:center;
-    justify-content:space-between;
-    cursor:pointer;
-    user-select:none;
-}
-.card-header:hover{
-    background:rgba(255,255,255,0.04);
-}
-#toggleBtn{
-    background:none;
-    border:none;
-    color:#9da5b4;
-    font-size:1.1rem;
-    line-height:1;
-    padding:0 2px;
-    cursor:pointer;
-}
-#collapseBody{
-    transition:none;
-}
-.form-control,.form-select{
-    background:#161b22;
-    border:1px solid #30363d;
-    color:#fff;
-}
-#tlFromInput, #tlToInput, #tlDuration {
-    background:#161b22;
-    border:1px solid #30363d;
-    color:#fff;
-}
-#tlFromInput, #tlToInput, #dateTimeInput {
-    color-scheme: dark;
-}
-#coords{
-    font-size:0.85rem;
-    color:#9da5b4;
-}
-</style>
-
+<!-- The import map must come before any module script or modulepreload. -->
 <script type="importmap">
 {
   "imports": {
-    "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-    "three/examples/jsm/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    "three": "./vendor/three/three.module.min.js",
+    "three/addons/": "./vendor/three/addons/"
   }
 }
 </script>
-</head>
-<body>
+<link rel="modulepreload" href="vendor/three/three.module.min.js">
+<link rel="modulepreload" href="vendor/astronomy-engine/astronomy.js">
+<link rel="modulepreload" href="js/main.js">
+<link rel="preload" href="data/cities.json" as="fetch" type="application/json" crossorigin>
 
-<div id="ui" class="card text-white">
-<div class="card-header" id="cardHeader">
-  <span>Planets Direction Controls</span>
-  <button id="toggleBtn" title="Toggle controls">&#9776;</button>
-</div>
-<div id="collapseBody">
-<div class="card-body">
+<link rel="stylesheet" href="css/app.css">
 
-<div class="mb-3">
-<label class="form-label">Search Location</label>
-<div class="input-group">
-<input type="text" id="searchBox" class="form-control" placeholder="e.g. Tokyo">
-<button id="searchBtn" class="btn btn-primary">Search</button>
-</div>
-</div>
+<style>
+/* Critical CSS: the loader and the bare page, painted before any module has loaded.
+   Everything else is styled by css/app.css. */
+html{background:#03060d;color-scheme:dark}
+body.no-webgl #scene,body.no-webgl #labels-root{display:none!important}
+body.is-intro #ui-root{opacity:0!important;pointer-events:none!important}
+body.is-intro-out #ui-root{animation:pc-ui-in .9s cubic-bezier(.2,.7,.2,1) both}
+@keyframes pc-ui-in{from{opacity:0}to{opacity:1}}
 
-<div class="mb-2">
-  <button id="animToggleBtn" class="btn btn-sm btn-outline-secondary w-100">&#9654; Animation</button>
-</div>
-
-<div id="animControls" style="display:none" class="mb-2">
-  <div class="btn-group w-100 mb-2" role="group" aria-label="Animation mode">
-    <input type="radio" class="btn-check" name="animMode" id="modeRealtime" value="realtime" autocomplete="off" checked>
-    <label class="btn btn-sm btn-outline-secondary" for="modeRealtime">Realtime</label>
-    <input type="radio" class="btn-check" name="animMode" id="modeTimelapse" value="timelapse" autocomplete="off">
-    <label class="btn btn-sm btn-outline-secondary" for="modeTimelapse">Timelapse</label>
-  </div>
-
-  <div id="tlDateRange" style="display:none">
-    <div class="row g-2 mb-2">
-      <div class="col">
-        <label for="tlFromInput" class="form-label">From/To</label>
-        <input type="datetime-local" id="tlFromInput" class="form-control">
-      </div>
-      <div class="col">
-        <input type="datetime-local" id="tlToInput" class="form-control">
-      </div>
-    </div>
-    <div class="mb-2">
-      <label for="tlDuration" class="form-label">Duration (s)</label>
-      <input type="number" id="tlDuration" class="form-control" value="10" min="1">
-    </div>
-  </div>
-
-  <div class="d-flex align-items-center gap-2 p-2 rounded" style="background:rgba(255,255,255,0.07); border:1px solid rgba(255,255,255,0.18);">
-    <button id="animPlayBtn" class="btn btn-sm btn-primary fw-bold" style="min-width:38px" disabled>&#9654;</button>
-    <input type="range" id="animSlider" class="form-range" min="0" max="100" value="0" disabled style="opacity:0.35; pointer-events:none">
-  </div>
-</div>
-
-<div class="mb-2">
-<label for="dateTimeInput" class="form-label">Date &amp; Time Zone</label>
-<input type="datetime-local" id="dateTimeInput" step="1" class="form-control">
-</div>
-
-<div class="mb-3">
-<select id="timezoneSelect" class="form-select"></select>
-</div>
-
-<div class="mb-3 d-flex align-items-center gap-2">
-<label for="opacitySlider" class="form-label mb-0 text-nowrap">Transparency</label>
-<input type="range" id="opacitySlider" class="form-range mb-0" min="0.1" max="1" step="0.05" value="1">
-</div>
-
-<div class="mb-3 form-check">
-<input type="checkbox" class="form-check-input" id="earthLockCheckbox" checked>
-<label class="form-check-label" for="earthLockCheckbox">Lock view to Earth</label>
-</div>
-
-<div id="coords" class="pt-2 border-top">
-<div id="earthCoords">Lat: -, Lon: -</div>
-</div>
-
-</div>
-</div>
-</div>
+#loader{position:fixed;inset:0;z-index:2000;display:grid;place-items:center;overflow:auto;
+ padding:max(16px,env(safe-area-inset-top)) 16px max(16px,env(safe-area-inset-bottom));
+ background:radial-gradient(120% 90% at 50% 38%,#0c1628 0%,#060b16 45%,#03060d 75%);color:#e8edf6;
+ font:15px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+ transition:opacity .7s ease,visibility 0s linear .7s;-webkit-font-smoothing:antialiased}
+#loader.is-done{opacity:0;visibility:hidden;pointer-events:none}
+#loader *{box-sizing:border-box}
+.pc-ld{display:flex;flex-direction:column;align-items:center;width:min(440px,100%);text-align:center}
+.pc-ld__art{width:176px;height:176px;margin-bottom:10px;overflow:visible}
+.pc-ld__ring{fill:none;stroke:rgba(156,196,255,.16);stroke-width:1}
+.pc-ld__beam{stroke:url(#pcBeam);stroke-width:1.6;stroke-linecap:round}
+.pc-ld__beam--a{animation:pc-beam 3.6s ease-in-out infinite}
+.pc-ld__beam--b{animation:pc-beam 3.6s ease-in-out 1.2s infinite}
+.pc-ld__beam--c{animation:pc-beam 3.6s ease-in-out 2.4s infinite}
+@keyframes pc-beam{0%,100%{opacity:.25}50%{opacity:1}}
+.pc-ld__name{margin:6px 0 0;font-size:13px;font-weight:600;letter-spacing:.34em;text-transform:uppercase;color:#e8edf6;padding-left:.34em}
+.pc-ld__tag{margin:6px 0 18px;font-size:14px;color:#9aa6b8}
+.pc-ld__bar{position:relative;width:min(220px,70vw);height:2px;border-radius:2px;background:rgba(255,255,255,.08);overflow:hidden}
+.pc-ld__fill{position:absolute;inset:0 auto 0 0;width:4%;border-radius:2px;background:linear-gradient(90deg,#4f9dff,#7cc4ff);
+ box-shadow:0 0 10px rgba(124,196,255,.8);transition:width .35s ease}
+.pc-ld__status{margin:10px 0 0;min-height:1.45em;font-size:12px;letter-spacing:.02em;color:#9aa6b8;font-variant-numeric:tabular-nums}
+.pc-ld__tip{margin:16px 0 0;min-height:2.9em;max-width:340px;font-size:13px;color:#c2cbda;opacity:0;transition:opacity .45s ease}
+.pc-ld__tip.is-on{opacity:.9}
+.pc-ld__tip kbd{display:inline-block;min-width:1.5em;padding:0 .35em;border:1px solid rgba(255,255,255,.22);border-bottom-width:2px;
+ border-radius:4px;font:600 11px/1.6 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;color:#e8edf6;background:rgba(255,255,255,.05)}
+.pc-ld__actions{display:flex;flex-wrap:wrap;justify-content:center;gap:10px;margin-top:18px}
+.pc-ld button{font:inherit;font-size:13px;line-height:1.2;color:#e8edf6;background:rgba(255,255,255,.06);
+ border:1px solid rgba(255,255,255,.16);border-radius:10px;padding:9px 14px;cursor:pointer;transition:background .16s ease,border-color .16s ease}
+.pc-ld button:hover{background:rgba(255,255,255,.12);border-color:rgba(255,255,255,.28)}
+.pc-ld button:focus-visible{outline:2px solid #7cc4ff;outline-offset:2px}
+.pc-ld button.pc-ld__primary{color:#03060d;background:#7cc4ff;border-color:#7cc4ff;font-weight:600}
+.pc-ld button.pc-ld__primary:hover{background:#a3d6ff}
+.pc-ld__error{margin-top:18px;width:100%}
+.pc-ld__err-title{margin:0 0 6px;font-size:15px;font-weight:600;color:#ffcc66}
+.pc-ld__err-text{margin:0;color:#9aa6b8;font-size:13px}
+.pc-ld__error details{margin-top:12px;text-align:left;font-size:12px;color:#9aa6b8}
+.pc-ld__error summary{cursor:pointer;text-align:center}
+.pc-ld__error pre{margin:8px 0 0;max-height:30vh;overflow:auto;padding:10px;border-radius:8px;background:rgba(255,255,255,.04);
+ border:1px solid rgba(255,255,255,.08);white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+#loader.is-error .pc-ld__bar,#loader.is-error .pc-ld__tip,#loader.is-error .pc-ld__status{display:none}
+[hidden]{display:none!important}
+@media (prefers-reduced-motion:reduce){
+ #loader,.pc-ld__fill,.pc-ld__tip{transition:none}
+ .pc-ld__beam--a,.pc-ld__beam--b,.pc-ld__beam--c{animation:none;opacity:.7}
+ body.is-intro-out #ui-root{animation:none}
+}
+.pc-noscript{position:fixed;inset:0;z-index:2100;display:grid;place-items:center;padding:24px;background:#03060d;color:#e8edf6;
+ font:16px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;text-align:center}
+.pc-noscript p{max-width:420px;margin:0}
+</style>
+<noscript><style>#loader{display:none!important}</style></noscript>
 
 <script>
-const cardHeader = document.getElementById('cardHeader');
-const collapseBody = document.getElementById('collapseBody');
-cardHeader.addEventListener('click', () => {
-    collapseBody.style.display = collapseBody.style.display === 'none' ? '' : 'none';
-});
-</script>
+/* Loader API + global error capture. Runs before any module so a failed import, a syntax error or
+   an unsupported browser always ends on a readable screen, never a blank one. */
+(function () {
+  'use strict';
+  var d = document, w = window;
+  var fatalShown = false;
+  var errors = [];
+  w.__pcErrors = errors;
 
-<script type="module">
-import * as THREE from 'three';
-import { camera, renderer, composer, controls, earth } from './js/scene.js';
-import './js/ui.js';
-import './js/animation.js';
+  function $(id) { return d.getElementById(id); }
+  function appName() {
+    var m = d.querySelector('meta[name="application-name"]');
+    return (m && m.content) || 'this app';
+  }
+  function ready() { return !!(d.body && d.body.classList.contains('is-ready')); }
+  function describe(x) {
+    if (!x) return 'Unknown error';
+    if (x instanceof Error) return (x.name || 'Error') + ': ' + x.message + (x.stack ? '\n' + x.stack : '');
+    try { return typeof x === 'string' ? x : JSON.stringify(x); } catch (e) { return String(x); }
+  }
+  function showPanel(title, text, detail) {
+    var ld = $('loader');
+    if (!ld) return;
+    ld.classList.remove('is-done');
+    ld.classList.add('is-error');
+    $('pc-ld-err-title').textContent = title;
+    $('pc-ld-err-text').textContent = text;
+    var det = $('pc-ld-details');
+    if (detail) { det.textContent = detail; $('pc-ld-details-wrap').hidden = false; }
+    $('pc-ld-error').hidden = false;
+    $('pc-ld-actions').hidden = true;
+    var reload = $('pc-ld-reload');
+    if (reload) try { reload.focus(); } catch (e) { /* focus is a courtesy */ }
+  }
+  function fatal(detail) {
+    if (fatalShown || ready()) return;
+    fatalShown = true;
+    showPanel('Something went wrong loading ' + appName() + '.',
+      'Reloading usually fixes it. If it keeps happening, the details below help us find the cause.', detail);
+  }
 
-const earthLockCheckbox = document.getElementById('earthLockCheckbox');
-const Y_AXIS = new THREE.Vector3(0, 1, 0);
-// Track Earth's Y rotation from the previous frame to compute per-frame delta
-let prevEarthRotY = earth.rotation.y;
-
-// Reset the baseline when the lock is toggled to avoid a sudden camera jump
-earthLockCheckbox.addEventListener('change', () => {
-    prevEarthRotY = earth.rotation.y;
-});
-
-function animate() {
-    requestAnimationFrame(animate);
-
-    if (earthLockCheckbox.checked) {
-        // earth.rotation.y = gmst(date), normalized to [0, 2π], so it wraps.
-        // Normalize delta to [-π, π] to handle the wrap-around correctly.
-        let delta = earth.rotation.y - prevEarthRotY;
-        if (delta > Math.PI)  delta -= 2 * Math.PI;
-        if (delta < -Math.PI) delta += 2 * Math.PI;
-
-        // Rotate the camera around the world Y axis by the same angle Earth rotated.
-        // OrbitControls recomputes its spherical state from camera.position on each.
-        if (delta !== 0) camera.position.applyAxisAngle(Y_AXIS, delta);
+  w.__pcLoader = {
+    /** 0..1 progress; optional status text. */
+    progress: function (f, label) {
+      var fill = $('pc-ld-fill');
+      if (fill && Number.isFinite(f)) fill.style.width = Math.max(4, Math.min(100, f * 100)).toFixed(1) + '%';
+      if (label) { var s = $('pc-ld-status'); if (s) s.textContent = label + '…'; }
+    },
+    /** Fades the loader out and removes it. */
+    done: function () {
+      var ld = $('loader');
+      if (!ld || fatalShown) return;
+      ld.classList.add('is-done');
+      ld.setAttribute('aria-busy', 'false');
+      w.clearInterval(w.__pcTipTimer);
+      w.setTimeout(function () { if (!fatalShown) ld.remove(); }, 900);
+    },
+    fatal: fatal,
+    /** Old browsers: a calm explanation instead of an error dump. */
+    unsupported: function (text) {
+      fatalShown = true;
+      showPanel(appName() + ' needs a newer browser.', text, '');
     }
-    prevEarthRotY = earth.rotation.y;
+  };
 
-    controls.update();
-    composer.render();
-}
-animate();
+  // Runtime errors and failed scripts. Before main.js has started, any of these is fatal; after
+  // that, main.js owns error handling (per-feature fallbacks, text mode).
+  w.addEventListener('error', function (e) {
+    var t = e.target;
+    if (t && t !== w && t.tagName) {
+      if (t.tagName === 'SCRIPT' && !w.__pcBooted) fatal('Could not load ' + (t.src || 'a script'));
+      return;
+    }
+    var msg = describe(e.error || e.message) + (e.filename ? '\n  at ' + e.filename + ':' + e.lineno + ':' + e.colno : '');
+    errors.push(msg);
+    if (!w.__pcBooted) fatal(msg);
+  }, true);
+  w.addEventListener('unhandledrejection', function (e) {
+    var msg = describe(e.reason);
+    errors.push(msg);
+    if (!w.__pcBooted) fatal(msg);
+  });
+})();
+</script>
+</head>
+<body>
+<canvas id="scene" role="img" aria-label="3D view of Earth and the sky"></canvas>
+<div id="labels-root"></div>
+<div id="ui-root"></div>
 
-window.addEventListener('resize', () => {
-    camera.aspect = innerWidth / innerHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(innerWidth, innerHeight);
-    composer.setSize(innerWidth, innerHeight);
-});
+<div id="loader" role="status" aria-live="polite" aria-busy="true">
+  <div class="pc-ld">
+    <svg class="pc-ld__art" viewBox="0 0 176 176" aria-hidden="true" focusable="false">
+      <defs>
+        <radialGradient id="pcEarth" cx="38%" cy="34%" r="72%">
+          <stop offset="0" stop-color="#bfe3ff"/>
+          <stop offset=".28" stop-color="#4b8fe0"/>
+          <stop offset=".62" stop-color="#143a72"/>
+          <stop offset="1" stop-color="#050c1a"/>
+        </radialGradient>
+        <radialGradient id="pcGlow" cx="50%" cy="50%" r="50%">
+          <stop offset=".55" stop-color="#7cc4ff" stop-opacity=".22"/>
+          <stop offset="1" stop-color="#7cc4ff" stop-opacity="0"/>
+        </radialGradient>
+        <linearGradient id="pcBeam" x1="0" y1="1" x2="1" y2="0">
+          <stop offset="0" stop-color="#ffffff" stop-opacity=".95"/>
+          <stop offset="1" stop-color="#7cc4ff" stop-opacity="0"/>
+        </linearGradient>
+        <clipPath id="pcBack"><rect x="0" y="0" width="176" height="88"/></clipPath>
+        <clipPath id="pcFront"><rect x="0" y="88" width="176" height="88"/></clipPath>
+      </defs>
+      <g transform="rotate(-16 88 88)">
+        <ellipse class="pc-ld__ring" cx="88" cy="88" rx="78" ry="26"/>
+        <ellipse class="pc-ld__ring" cx="88" cy="88" rx="50" ry="17"/>
+        <!-- far halves of the orbits pass behind the planet -->
+        <g clip-path="url(#pcBack)">
+          <circle r="3.4" fill="#ff6a3d"><animateMotion dur="9s" repeatCount="indefinite" path="M166 88a78 26 0 1 1-156 0a78 26 0 1 1 156 0"/></circle>
+          <circle r="2.6" fill="#d8dde6"><animateMotion dur="4.2s" repeatCount="indefinite" path="M138 88a50 17 0 1 1-100 0a50 17 0 1 1 100 0"/></circle>
+        </g>
+      </g>
+      <circle cx="88" cy="88" r="42" fill="url(#pcGlow)"/>
+      <circle cx="88" cy="88" r="24" fill="url(#pcEarth)"/>
+      <circle cx="88" cy="88" r="24.6" fill="none" stroke="#9fd0ff" stroke-opacity=".35" stroke-width=".8"/>
+      <!-- the marker: an observer on the limb, beams to three worlds -->
+      <line class="pc-ld__beam pc-ld__beam--a" x1="99" y1="69" x2="150" y2="22"/>
+      <line class="pc-ld__beam pc-ld__beam--b" x1="99" y1="69" x2="128" y2="10"/>
+      <line class="pc-ld__beam pc-ld__beam--c" x1="99" y1="69" x2="164" y2="54"/>
+      <circle cx="99" cy="69" r="2.2" fill="#ffffff"/>
+      <g transform="rotate(-16 88 88)">
+        <g clip-path="url(#pcFront)">
+          <circle r="3.4" fill="#ff6a3d"><animateMotion dur="9s" repeatCount="indefinite" path="M166 88a78 26 0 1 1-156 0a78 26 0 1 1 156 0"/></circle>
+          <circle r="2.6" fill="#d8dde6"><animateMotion dur="4.2s" repeatCount="indefinite" path="M138 88a50 17 0 1 1-100 0a50 17 0 1 1 100 0"/></circle>
+        </g>
+      </g>
+    </svg>
+    <p class="pc-ld__name" id="pc-ld-name"></p>
+    <p class="pc-ld__tag">Where every world is, right now</p>
+    <div class="pc-ld__bar" aria-hidden="true"><span class="pc-ld__fill" id="pc-ld-fill"></span></div>
+    <p class="pc-ld__status" id="pc-ld-status">Loading…</p>
+    <p class="pc-ld__tip" id="pc-ld-tip" aria-hidden="true"></p>
+    <div class="pc-ld__actions" id="pc-ld-actions" hidden>
+      <button type="button" id="pc-ld-slow">Slow connection — continue with low detail</button>
+    </div>
+    <div class="pc-ld__error" id="pc-ld-error" role="alert" hidden>
+      <p class="pc-ld__err-title" id="pc-ld-err-title"></p>
+      <p class="pc-ld__err-text" id="pc-ld-err-text"></p>
+      <div class="pc-ld__actions">
+        <button type="button" class="pc-ld__primary" id="pc-ld-reload">Reload</button>
+      </div>
+      <details id="pc-ld-details-wrap" hidden><summary>Details</summary><pre id="pc-ld-details"></pre></details>
+    </div>
+  </div>
+</div>
+
+<noscript>
+  <div class="pc-noscript"><p>Planet Location Marker computes and draws the sky in your browser, so it needs JavaScript. Please enable it and reload the page.</p></div>
+</noscript>
+
+<script>
+/* Feature detection, body classes and loader behaviour. main.js reads window.__pcEnv instead of
+   probing WebGL a second time. */
+(function () {
+  'use strict';
+  var d = document, w = window, b = d.body;
+  function $(id) { return d.getElementById(id); }
+  function mq(q) { try { return !!(w.matchMedia && w.matchMedia(q).matches); } catch (e) { return false; } }
+
+  var env = { importmap: false, webgl2: false, renderer: '', maxTex: 0 };
+  try { env.importmap = !!(w.HTMLScriptElement && HTMLScriptElement.supports && HTMLScriptElement.supports('importmap')); } catch (e) { /* old browser */ }
+  try {
+    var gl = d.createElement('canvas').getContext('webgl2');
+    if (gl) {
+      env.webgl2 = true;
+      env.maxTex = gl.getParameter(gl.MAX_TEXTURE_SIZE) || 0;
+      var r = String(gl.getParameter(gl.RENDERER) || '');
+      if (!r || /^WebKit WebGL$/i.test(r)) {
+        var dbg = gl.getExtension('WEBGL_debug_renderer_info');
+        if (dbg) r = String(gl.getParameter(dbg.UNMASKED_RENDERER_WEBGL) || r);
+      }
+      env.renderer = r;
+      var lose = gl.getExtension('WEBGL_lose_context');
+      if (lose) lose.loseContext();
+    }
+  } catch (e) { /* no WebGL2: text mode */ }
+  w.__pcEnv = env;
+
+  var reduced = mq('(prefers-reduced-motion: reduce)');
+  if (!env.webgl2 || !env.importmap) b.classList.add('no-webgl');
+  if (mq('(pointer: coarse)')) b.classList.add('is-coarse');
+  if (reduced) b.classList.add('is-reduced-motion');
+
+  var nameMeta = d.querySelector('meta[name="application-name"]');
+  $('pc-ld-name').textContent = nameMeta ? nameMeta.content : '';
+  if (reduced) {
+    var art = d.querySelector('.pc-ld__art');
+    if (art && art.pauseAnimations) art.pauseAnimations();
+  }
+  $('pc-ld-reload').addEventListener('click', function () { w.location.reload(); });
+
+  // Rotating tips.
+  var tips = [
+    'Drag to orbit the globe · scroll or pinch to zoom',
+    'Press <kbd>V</kbd> to stand on the ground and look up',
+    'Press <kbd>1</kbd>–<kbd>9</kbd> for the Sun, the Moon and each planet',
+    'Click anywhere on Earth to stand there instead',
+    '<kbd>Space</kbd> pauses time · <kbd>[</kbd> and <kbd>]</kbd> change its speed',
+    'Every position is computed in your browser — no network needed',
+    'A beam that dives into the Earth points at a world below your horizon'
+  ];
+  var tipEl = $('pc-ld-tip');
+  var tipIndex = Math.floor(Math.random() * tips.length);
+  function showTip() {
+    tipEl.classList.remove('is-on');
+    w.setTimeout(function () {
+      tipEl.innerHTML = tips[tipIndex];
+      tipIndex = (tipIndex + 1) % tips.length;
+      tipEl.classList.add('is-on');
+    }, reduced ? 0 : 450);
+  }
+  showTip();
+  if (!reduced) w.__pcTipTimer = w.setInterval(showTip, 3600);
+
+  // After 8 s: offer to continue with low detail (main.js listens for 'pc:slow').
+  w.setTimeout(function () {
+    var ld = $('loader');
+    if (!ld || ld.classList.contains('is-done') || ld.classList.contains('is-error')) return;
+    $('pc-ld-actions').hidden = false;
+    $('pc-ld-slow').addEventListener('click', function () {
+      w.__pcSlow = true;
+      this.disabled = true;
+      this.textContent = 'Continuing with low detail…';
+      try { w.dispatchEvent(new Event('pc:slow')); } catch (e) { /* very old browser */ }
+    }, { once: true });
+  }, 8000);
+
+  // After 40 s without the app's code even starting, say so (slow networks still get to finish).
+  w.setTimeout(function () {
+    if (w.__pcBooted) return;
+    var s = $('pc-ld-status');
+    if (s) s.textContent = 'Still loading — this is taking much longer than usual.';
+    $('pc-ld-actions').hidden = false;
+  }, 40000);
+})();
+</script>
+<script type="module" src="js/main.js"></script>
+<script nomodule>
+  window.__pcLoader && window.__pcLoader.unsupported('This browser cannot run modern JavaScript modules. Please update it, or open the page in a current version of Chrome, Edge, Firefox or Safari.');
 </script>
 </body>
 </html>

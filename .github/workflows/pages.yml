@@ -1,0 +1,57 @@
+name: Deploy to GitHub Pages
+
+# Deploys main after CI has passed on it (or manually). One-time setup in the repository:
+# Settings → Pages → Build and deployment → Source: GitHub Actions.
+# (A plain "Deploy from a branch: main / root" setup also keeps working — the site needs no
+# build step; .nojekyll stops Jekyll from touching it.)
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Deploy exactly the commit CI tested.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Only site files: no test/, scripts/, docs/, data/raw/, .github/, node_modules/,
+      # graphify-out/, .claude/ (see scripts/stage-site.mjs; same list as the size budget).
+      - name: Stage the site
+        run: node scripts/stage-site.mjs _site
+
+      - name: Staged size
+        run: du -sh _site && find _site -type f | wc -l
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

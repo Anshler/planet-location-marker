@@ -1,2 +1,9 @@
 node_modules
 .claude*
+.scratch/
+data/raw/geonames/
+# outputs of scripts/stage-site.mjs and the CI smoke runs
+_site/
+smoke/
+# machine-specific interpreter path written by graphify
+graphify-out/.graphify_python

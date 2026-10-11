@@ -1,0 +1,7 @@
+{"results":[
+{"id":2988507,"name":"Paris","latitude":48.85341,"longitude":2.3488,"elevation":42.0,"feature_code":"PPLC","country_code":"FR","admin1_id":3012874,"admin2_id":2968815,"timezone":"Europe/Paris","population":2138551,"country_id":3017382,"country":"France","admin1":"Île-de-France","admin2":"Paris"},
+{"id":4717560,"name":"Paris","latitude":33.66094,"longitude":-95.55551,"elevation":183.0,"feature_code":"PPLA2","country_code":"US","admin1_id":4736286,"admin2_id":4705086,"timezone":"America/Chicago","population":24782,"postcodes":["75460","75461","75462"],"country_id":6252001,"country":"United States","admin1":"Texas","admin2":"Lamar"},
+{"id":4647963,"name":"Paris","latitude":36.302,"longitude":-88.32671,"elevation":157.0,"feature_code":"PPLA2","country_code":"US","admin1_id":4662168,"timezone":"America/Chicago","population":10156,"country":"United States","admin1":"Tennessee"},
+{"id":9999999,"name":"Broken","latitude":"not-a-number","longitude":2.0,"country_code":"ZZ"},
+null
+],"generationtime_ms":0.6909370422363281}

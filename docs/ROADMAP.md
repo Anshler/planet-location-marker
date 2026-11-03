@@ -207,3 +207,6 @@ Use the 1000–3000 range and the unused Astronomy Engine APIs.
   cities.json has only 1,621 large cities; needs a light-pollution raster or a denser town list (max-only data is fine);
   (2) leaving max keeps the 8K maps on the GPU — needs a texture-store release() and rebinding. High tier has ~1.4 KB of
   budget headroom and is 0.27 MB under the 6 MB hard line: new features should lazy-load or live on max.
+- 2026-11-05: graphify code graph rebuilt (3662dc1, AST only: 2,502 nodes, 101 communities). Doc semantics pending: run
+  /graphify . --update (LLM) when convenient. Next up: Phase 5 (camera, storytelling & sharing) — lazy-load new UI/render
+  code (high tier is at its 6 MB ceiling), starting with lighten-stacking-exposure, sky-postcard and guided-tours.

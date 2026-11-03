@@ -49,6 +49,9 @@ export function mountAbout(root, ctx) {
             h('h3', { class: 'group-title' }, 'Accuracy'),
             h('p', { class: 'prose' }, 'Positions computed in your browser with astronomy-engine (VSOP87/ELP; accurate to about 1 arcminute, 1800–2200).'),
             h('p', { class: 'prose' }, 'Drawn positions are astrometric J2000; tables show apparent, refracted values.'),
+            h('p', { class: 'prose' }, 'The planets at the ends of the beams, and the Details card’s eyepiece view, are magnified, not to scale. '
+                + 'Their phase, pole, Saturn’s ring tilt and Jupiter’s moons are computed; belts, the Great Red Spot and Mars’s markings are schematic, '
+                + 'and the moons’ spacing beyond Jupiter’s edge is compressed.'),
             h('p', { class: 'prose prose--muted' }, 'Dates from 1000 to 3000 are supported, with reduced accuracy outside 1800–2200. '
                 + 'For a point clicked far from any listed city, the local time zone is estimated from longitude and marked “approx.”.')),
         h('div', { class: 'group' },

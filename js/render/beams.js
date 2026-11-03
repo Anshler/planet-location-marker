@@ -17,6 +17,9 @@
  *    "labels fade in as each beam lands" falls out of the launch for free.
  *  - `prime()` hides every beam until the next `launch()` (call at intro start).
  *  - `skipLaunch()` completes a running launch at once (intro skipped).
+ *  - `setFootprint(id, halfW, halfH)` reserves a marker centred on a body's label anchor (a planet
+ *    medallion, render/planets.js): the anchor keeps it inside the free area and the label
+ *    de-overlap treats it as part of the label box.
  *
  * No per-frame allocation (R5): every buffer and scratch object is created once.
  *

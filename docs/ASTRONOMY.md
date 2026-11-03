@@ -190,6 +190,58 @@ Libration falls out of this for free. The shader lights the Moon with Lommel–S
 from the true Sun direction. The phase you see is therefore correct by construction, not drawn from
 `MoonPhase`, with faint earthshine on the night side.
 
+### Planet discs, Jupiter's moons and the libration (`js/astro/disc.js`, `js/astro/moons.js`)
+
+The globe's planet medallions (`render/planets.js`) and the Details card's eyepiece portrait
+(`ui/eyepiece.js`) draw each body as seen from the observer, from snapshot fields filled at both
+detail levels (they cost ≈ 0.03 ms together):
+
+```
+ax      = AE.RotationAxis(planet, t − lightTime)          // the instant the light left
+R       = Rz(90° + α) · Rx(90° − δ) · Rz(W)               // as for the Moon
+poleS   = S · R·ẑ;   primeS = S · R·x̂;   spinDeg = W      // the Moon's from its own matrix
+lightS  = normalize(dirS☉ · d☉ − dirS · d)                // body → Sun, from the two topocentric vectors
+ringTiltDeg = AE.Illumination(Saturn).ring_tilt           // positive while the south face is seen
+galilean = AE.JupiterMoons(t − lightTime♃) / R♃ (scene frame) + flags     // below
+libration = AE.Libration(t)                               // 'full' only: it feeds the card
+```
+
+- **The disc frame.** `discFrame(dirS, up)` builds `ez` toward the observer, `ey` the projection
+  of `up` on the sky plane and `ex = ey × ez`. The medallions and the card use the planet's pole as
+  up (planet north up; on a north-up sky east is then left). A true-scale view passes a camera's up
+  instead. In that frame `discView` gives the sub-observer latitude `asin(pole·ẑ)` (for Saturn the
+  ring opening B), the phase angle `acos(light·ẑ)`, the bright limb's direction and the central
+  meridian. The phase angle from `lightS` matches `Illumination`'s within 0.04° for the planets
+  (the Moon differs by its ≈ 1° parallax: ours is topocentric, AE's geocentric), and Saturn's
+  opening matches `−ring_tilt` within 0.02° (2026-11-03: 6.5°, south face).
+- **The impostor.** The shader (`shaders/planets.glsl.js`, and its JS port in the card) ray-traces
+  an oblate spheroid (Jupiter 0.065, Saturn 0.098, Mars 0.006) along the IAU pole, lit from
+  `lightS`: Venus's crescent and Mars's gibbous disc are exact. Saturn's rings are the plane through
+  the centre normal to the pole, with Cassini radii (C, B, Cassini division, A, Encke gap) and
+  representative optical depths; the slant opacity is `1 − e^(−τ/|μ|)`, the globe shades the rings
+  and the rings shade the globe along the same Sun ray. **Illustrative:** Jupiter's and Saturn's
+  belt colours and turbulence, the Great Red Spot (held at System II 55° W, converted to System III
+  with the IAU rates, so only right within a year or two of 2026), Mars's albedo (a dozen Gaussian
+  areas, fixed polar caps), Mercury's mottling, the tints of Venus, Uranus and Neptune.
+- **Magnified on purpose.** A medallion is ~26 CSS px (40 when selected), whatever the planet's
+  true 3″–60″; the card's portrait likewise. Both say "magnified".
+- **Jupiter's moons.** `AE.JupiterMoons` (L1.2 theory: arcsecond-level near the present, degrading
+  far from it) at `t − lightTime♃`, the same instant as Jupiter's astrometric `dirS`; without it Io
+  is ~6° off along its orbit. Flags come from lines through each moon against the oblate globe
+  (stretched to a unit sphere): the line of sight (**transit** in front, **occulted** behind) and
+  the Sun ray (**eclipsed** in Jupiter's shadow; otherwise, on the sunward side, its **shadow**
+  falls on Jupiter, flagged when that point faces us). Umbra only, moons as points, so contacts are
+  within about a minute: the triple shadow transit of 2015-01-24 comes out 06:28–06:53 UT against
+  the published 06:28–06:52 (test). Beyond Jupiter's limb the drawings space the moons by
+  `1 + 0.6 · ln r` (true side and order, compressed distance); on the disc they are true.
+- **Libration.** `AE.Libration` gives the sub-Earth point (elon, elat). The card names its
+  direction ("toward the north-east limb", selenographic) and the limb feature whose distance from
+  the disc centre shrank most against the mean (Mare Crisium, Marginis, Smythii, Humboldtianum,
+  Australe, Grimaldi, Orientale, Bailly). The portrait samples `moon_1024.jpg` through the Moon's
+  pole and prime meridian, so phase, libration and orientation (lunar north up) are the model's.
+- **Saturn edge-on.** `saturnEdgeOn(t)` scans the sign of `ring_tilt` forward (adaptive steps, then
+  a bisection to a day): from 2026, the run of crossings is Oct 2038 to Jul 2039 (three crossings).
+
 ---
 
 ## 5. The star sky (`data/sky.json`, `js/data/catalog.js`)
@@ -608,6 +660,7 @@ and AE's contacts to 0.1 s; the shapes are illustrative.
 | Frame consistency: our Earth matrix against `Rotation_EQJ_HOR` | 0.007″ measured | The test bound is 0.05″ over 300 random epochs and sites, 1900–2150. |
 | Drawn (astrometric) against tabulated (apparent) direction | ≤ 20.8″ measured | Annual aberration. Refraction is added on top in the tables. The Moon's `dirS` is made astrometric too, so drawn Sun–Moon and star–Moon separations are the apparent ones (§4). |
 | Eclipse contacts at the observer (obscuration, sky-view discs, panel) against `AE.SearchLocalSolarEclipse` | < 0.1 s measured | Same discs and radii as AE. The 0.5 s frame-snapshot cadence bounds the visible lag. |
+| Planet medallions and the eyepiece portrait | geometry exact, size magnified | Phase, pole, ring opening and the Galilean moons' sides and flags follow the models (moon flags within ~1 min); Jupiter's and Saturn's belts, the Red Spot's longitude, Mars's markings and the moons' spacing beyond the limb are illustrative (§4). |
 | Baily's beads, corona, prominences | illustrative | Placed by the true contact geometry, but the limb profile (±2.2″, no libration) and the corona's streamers, plumes and prominences are invented per date. Bead timing is typical to a few seconds. |
 | Pin on a sphere against the WGS84 ellipsoid | ≤ 21 km in position | ≤ 11″ on the Moon's direction from the pin (globe view, the umbra on the globe), negligible for everything farther. The sky view and the observer's obscuration use AE's WGS84 topocentric directions. The zenith direction is exact (geodetic). |
 | Beam far endpoint at 2000 Earth radii | `camDist / 2000` rad | 0.1° at the default 3.4 ER view. The beam is a line from the pin, so seen from elsewhere it converges at 2000 ER. |

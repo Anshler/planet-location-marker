@@ -155,6 +155,54 @@ test('a deep partial solar eclipse never reads "100% covered" (Madrid, 2026-08-1
     assert.equal(ev.title, 'Partial solar eclipse visible here (99% covered)');
 });
 
+// The eclipse of one source seen from `site`, searched over a few days around `iso`.
+function eclipseAt(site, iso, kind) {
+    const list = upcomingEvents({ elevM: 0, ...site }, Date.parse(iso) - 2 * DAY, 4);
+    const ev = list.find((e) => e.kind === kind);
+    assert.ok(ev, `${kind} near ${iso}`);
+    return ev;
+}
+
+test('"Total solar eclipse visible here" only when totality itself clears the horizon (upper-limb test)', () => {
+    // Atlantic, near the sunrise end of the 2027-08-02 track: C2/C3 at −1.3° (upper limb −1.0°).
+    const atlantic = eclipseAt({ latDeg: 28.10, lonDeg: -46.97 }, '2027-08-02T08:25:00Z', 'local-solar-eclipse');
+    assert.equal(atlantic.eclipseKind, 'total');
+    assert.equal(atlantic.title, 'Partial solar eclipse visible here (totality is below the horizon)');
+    assert.match(atlantic.detail, /^The Sun rises after maximum, still partly eclipsed\. /);
+    // Western Mediterranean, 2026-08-12: C2 has the upper limb at +0.10°, C3 at −0.10°.
+    const sunset = eclipseAt({ latDeg: 37.8, lonDeg: 6.0 }, '2026-08-12T18:30:00Z', 'local-solar-eclipse');
+    assert.equal(sunset.eclipseKind, 'total');
+    assert.equal(sunset.title, 'Total solar eclipse visible here at sunset');
+    assert.match(sunset.detail, /^The Sun sets during totality\. /);
+    // Luxor: totality high in the sky.
+    const luxor = eclipseAt({ latDeg: 25.7, lonDeg: 32.6 }, '2027-08-02T10:05:00Z', 'local-solar-eclipse');
+    assert.equal(luxor.title, 'Total solar eclipse visible here');
+    assert.match(luxor.detail, /^The Sun is 8\d° up at maximum\. /);
+    assert.equal(luxor.view, 'sky');
+});
+
+test('a lunar eclipse is visible when any part of its umbral phase is above the horizon, not only mid-eclipse', () => {
+    // 2026-03-03 (mid-eclipse 11:34 UTC): New York sees totality begin before moonset.
+    const ny = eclipseAt({ latDeg: 40.71, lonDeg: -74.0 }, '2026-03-03T11:34:00Z', 'lunar-eclipse');
+    assert.equal(ny.visibleHere, true);
+    assert.equal(ny.view, 'sky');
+    assert.equal(ny.detail, 'Partly visible from here: the Moon sets during totality, before mid-eclipse; totality lasts 59 min');
+    // Hanoi: moonrise in the partial phase, before totality.
+    const hanoi = eclipseAt({ latDeg: 21.03, lonDeg: 105.85 }, '2026-03-03T11:34:00Z', 'lunar-eclipse');
+    assert.equal(hanoi.visibleHere, true);
+    assert.match(hanoi.detail, /^Visible from here: the Moon rises before totality and is \d° up at mid-eclipse;/);
+    // Paris: the Moon set before the umbral phase began.
+    const paris = eclipseAt({ latDeg: 48.85, lonDeg: 2.35 }, '2026-03-03T11:34:00Z', 'lunar-eclipse');
+    assert.equal(paris.visibleHere, false);
+    assert.equal(paris.view, 'orbit');
+    assert.match(paris.detail, /^Not visible from here: the Moon is below the horizon throughout the eclipse;/);
+    // 2028-12-31: Lagos has the Moon 11° down at mid-eclipse but up before the partial phase ends.
+    const lagos = eclipseAt({ latDeg: 6.52, lonDeg: 3.38 }, '2028-12-31T16:52:00Z', 'lunar-eclipse');
+    assert.equal(lagos.visibleHere, true);
+    assert.equal(lagos.view, 'sky');
+    assert.match(lagos.detail, /^Partly visible from here: the Moon rises after totality;/);
+});
+
 test('event ids of two-body events name both bodies, so simultaneous pairings cannot collide', () => {
     for (const ev of [...hanoi2026, ...hanoi2024]) {
         if (ev.bodyIds) assert.ok(ev.id.includes(ev.bodyIds.join('+')), ev.id);

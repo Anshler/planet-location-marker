@@ -232,9 +232,14 @@ from the true Sun direction. The phase you see is therefore correct by construct
   - Moon quarters;
   - oppositions and conjunctions (`SearchRelativeLongitude` 180°/0°);
   - greatest elongations of Mercury and Venus;
-  - lunar eclipses;
+  - lunar eclipses. A partial or total one is *visible here* when the Moon's centre is above the
+    horizon at any time between U1 and U4 (sampled every 5 minutes, crossings bisected), so
+    eclipses at moonrise and moonset count; a penumbral one is judged at mid-eclipse;
   - global solar eclipses, with the point of greatest eclipse;
-  - local solar eclipses with the obscuration here;
+  - local solar eclipses with the obscuration here. "Total" or "annular … visible here" needs the
+    central phase itself above the horizon, by Astronomy Engine's refracted Sun-centre altitude
+    plus 0.27° for the upper limb. Only part of it above gives "at sunrise" or "at sunset"; none of
+    it gives a partial eclipse with the central phase below the horizon;
   - equinoxes and solstices (`Seasons`).
 - **Retrograde paths.** ±180 days of geocentric `GeoVector(…, true)` through S, one sample per
   day (the Moon: ±14 days at 2 h). The stationary points are the sign changes of dλ/dt in ecliptic

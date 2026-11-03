@@ -36,7 +36,7 @@ const JUMP_ANIMATE_MS = 1400;
 export const LAYER_LABELS = Object.freeze({
     beams: 'Beams', ghostBeams: 'Through-Earth beams', sunMoonBeams: 'Sun and Moon beams', stars: 'Stars',
     constellations: 'Constellation lines', constellationNames: 'Constellation names', starNames: 'Star names',
-    milkyWay: 'Milky Way', clouds: 'Clouds', atmosphere: 'Atmosphere', ecliptic: 'Ecliptic', eqGrid: 'Equatorial grid',
+    milkyWay: 'Milky Way', clouds: 'Clouds', atmosphere: 'Atmosphere', ecliptic: 'Ecliptic', eqGrid: 'Equatorial grid (of date)',
     altAzGrid: 'Horizon grid', horizon: 'Horizon disc', footprint: 'Visibility footprint', subpoints: 'Sub-points',
     trails: 'Path of selected body', labels: 'Labels',
 });

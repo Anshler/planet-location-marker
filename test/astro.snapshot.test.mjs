@@ -176,6 +176,41 @@ test('earthMatrix, earthQuat and the D.3 formula E = PN·Rz(GAST) agree', () => 
     }
 });
 
+test('equatorial grid of date (render/sky.js): earthMatrix · RotY(−GAST) is S·PN·Sᵀ, so the grid pole is earthMatrix·ŷ', () => {
+    // three's makeRotationY(θ), column-major; sky.js multiplies earthMatrix by it with θ = −GAST.
+    const rotY16 = (t) => {
+        const c = Math.cos(t), s = Math.sin(t);
+        return [c, 0, -s, 0, 0, 1, 0, 0, s, 0, c, 0, 0, 0, 0, 1];
+    };
+    const mul16 = (a, b) => {
+        const o = new Array(16).fill(0);
+        for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) for (let k = 0; k < 4; k++) o[c * 4 + r] += a[k * 4 + r] * b[c * 4 + k];
+        return o;
+    };
+    const snap = createSnapshot();
+    const r = rng(105);
+    const cases = [Date.UTC(1066, 3, 24, 21), Date.UTC(2999, 11, 31), Date.UTC(1000, 0, 2), Date.UTC(2026, 10, 3)];
+    for (let k = 0; k < 20; k++) cases.push(randomCase(r).tMs);
+    for (const tMs of cases) {
+        computeSnapshot(tMs, { latDeg: 48.85, lonDeg: 2.35, elevM: 0 }, snap, { detail: 'frame' });
+        const time = AE.MakeTime(new Date(tMs));
+        const grid = mul16(snap.earthMatrix, rotY16(-snap.gastDeg * D2R));
+        const ref = F.m3ToSceneM4(F.aeRotToM3(AE.Rotation_EQD_EQJ(time)));
+        for (let i = 0; i < 16; i++) close(grid[i], ref[i], 1e-12, `element ${i}`);
+        const pole = F.m4MulDir(grid, [0, 1, 0]), axis = F.m4MulDir(snap.earthMatrix, [0, 1, 0]);
+        for (let c = 0; c < 3; c++) close(pole[c], axis[c], 1e-9, 'pole of date');
+        // A grid point at a star's RA/Dec of date lands on the star as drawn (J2000).
+        const starS = F.raDecToScene(37.95, 89.264);               // Polaris, J2000
+        const eqd = AE.EquatorFromVector(AE.RotateVector(AE.Rotation_EQJ_EQD(time), new AE.Vector(...F.sceneToEqj(starS), time)));
+        const onGrid = F.m4MulDir(grid, F.raDecToScene(eqd.ra * 15, eqd.dec));
+        assert.ok(F.angleBetween3(onGrid, starS) < 1e-9, `${new Date(tMs).toISOString()}: grid misses Polaris`);
+    }
+    // The fix matters at the ends of the range: the pole of 1066 is 5.2° from the J2000 pole.
+    computeSnapshot(Date.UTC(1066, 3, 24, 21), { latDeg: 48.85, lonDeg: 2.35, elevM: 0 }, snap);
+    const tilt = F.angleBetween3(F.m4MulDir(snap.earthMatrix, [0, 1, 0]), [0, 1, 0]) / D2R;
+    assert.ok(tilt > 5.1 && tilt < 5.3, `1066 pole offset ${tilt.toFixed(2)}°`);
+});
+
 test('rendered directions are the topocentric astrometric J2000 vectors; J2000 RA/Dec and sub-points derive from them', () => {
     const snap = createSnapshot();
     const tMs = Date.parse('2026-10-11T13:00:00Z');

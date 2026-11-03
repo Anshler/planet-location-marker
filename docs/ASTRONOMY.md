@@ -72,10 +72,16 @@ That is exactly S·EF, so an equirectangular Earth texture needs no offset:
 
 With E = Rz(θ) alone, S·Rz(θ)·Sᵀ is three's `rotation.y = θ`, which was v1's convention.
 
-**The sky is static; the Earth moves.** Stars, constellations, the Milky Way, the grids and the
-ecliptic are placed once at load, in J2000 scene coordinates. Precession and nutation appear
-because the Earth's axis (`earthMatrix`) moves inside that fixed sky. Over centuries the celestial
-pole visibly drifts away from Polaris.
+**The sky is static; the Earth moves.** Stars, constellations, the Milky Way and the ecliptic are
+placed once at load, in J2000 scene coordinates. Precession and nutation appear because the
+Earth's axis (`earthMatrix`) moves inside that fixed sky. Over centuries the celestial pole
+visibly drifts away from Polaris.
+
+The two grids are the exceptions. The alt-az grid follows the observer. The equatorial grid is
+drawn **of date**: it is built in J2000 RA/Dec and turned by `S·PN·Sᵀ = earthMatrix · RotY(−GAST)`,
+since `S·Rz(θ)·Sᵀ` is three's `rotation.y = θ`. Its pole is therefore `earthMatrix·ŷ`, the pole the
+sky turns around, and its 0h line is the true equinox of date. In 1066 that pole is 5.2° from
+the J2000 one. The ecliptic stays J2000, because its plane moves only about 47″ per century.
 
 ---
 

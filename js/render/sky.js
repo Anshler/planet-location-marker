@@ -3,8 +3,9 @@
  * figures, the Milky Way, the equatorial grid, the ecliptic and the sky-view alt-az grid.
  *
  * Everything here is static in the J2000 scene frame and drawn "at infinity" (SPEC E.1), so the
- * Earth and Moon occlude it through the depth test. Only the alt-az grid moves: it is re-oriented
- * every frame from the observer's ENU basis.
+ * Earth and Moon occlude it through the depth test. Two grids move: the alt-az grid is re-oriented
+ * every snapshot from the observer's ENU basis, and the equatorial grid is turned to the true
+ * equator and equinox of date (S·PN·Sᵀ), so its pole stays on the pole the sky turns around.
  */
 import * as THREE from 'three';
 import { AE } from '../astro/ae.js';
@@ -206,6 +207,7 @@ export function createSky(rc, deps = {}) {
     const northS = new THREE.Vector3(0, 0, -1);
     const eastS = new THREE.Vector3(1, 0, 0);
     const southS = new THREE.Vector3();
+    const unspin = new THREE.Matrix4();
 
     // --- Milky Way ------------------------------------------------------------------------------
     const M = EQJ_TO_GAL;
@@ -474,6 +476,14 @@ export function createSky(rc, deps = {}) {
         southS.copy(northS).negate();
         altAz.mesh.matrix.makeBasis(eastS, upS, southS);
         altAz.mesh.matrixWorldNeedsUpdate = true;
+        // Equatorial grid of date: earthMatrix = S·PN·Rz(GAST)·Sᵀ and S·Rz(θ)·Sᵀ is a turn of θ
+        // about +Y, so S·PN·Sᵀ = earthMatrix · RotY(−GAST). The grid is built in J2000 RA/Dec, so
+        // this puts its pole on earthMatrix·ŷ and its 0h line on the true equinox of date.
+        if (snap.earthMatrix && Number.isFinite(snap.gastDeg)) {
+            unspin.makeRotationY(-snap.gastDeg * DEG);
+            eqGrid.mesh.matrix.fromArray(snap.earthMatrix).multiply(unspin);
+            eqGrid.mesh.matrixWorldNeedsUpdate = true;
+        }
         if (selection && snap.bodies) {
             let b = null;
             for (let k = 0; k < snap.bodies.length; k++) if (snap.bodies[k].id === selection) { b = snap.bodies[k]; break; }

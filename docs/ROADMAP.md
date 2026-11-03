@@ -184,3 +184,7 @@ Use the 1000–3000 range and the unused Astronomy Engine APIs.
   the companion HUD (≤ 3 agents at a time). Merged at 5f2e302; npm test (511), size, smoke, smoke:mobile and text mode pass.
   Tier budgets raised to low 3.5 / medium 4.35 / high 5.55 MB (about 130 KB of new JS); headroom is now ~30–60 KB per tier,
   so Phase 2+ needs either lazy loading or another re-baseline.
+- 2026-11-04: Eclipse review (Phase 0 core + Phase 1): contacts match AE within 5 ms, paths within ~2 % of NASA. Fixed
+  9784110 (chase focus kind) and the chase's leftover timelapse range + ribbon retry after a failed request. Open minor items:
+  Play/reverse during the chase's 1.5 s hold at greatest eclipse; event contact times are shown in the observer's zone and
+  don't refresh on a 12/24 h toggle (same as 'tonight'); the brown lunar disc at the diamond ring is bloom (by design).

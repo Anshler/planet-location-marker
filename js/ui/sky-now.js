@@ -338,13 +338,35 @@ export function mountBodyStrip(root, ctx) {
         ui.act('select', chip.dataset.id, { fly: true });
         ui.openPanel('details', { sheet: 'half' });
     }));
+    /**
+     * Scrolls the strip (and only the strip: never the page or the sheet) so the selected chip
+     * is fully visible. A no-op while the strip is detached, as it is at mount and on desktop.
+     * @param {boolean} smooth
+     */
+    function reveal(smooth) {
+        const sel = store.get().selection;
+        const chip = sel && chips[sel]?.chip;
+        if (!chip || !scroller.isConnected || !scroller.clientWidth) return;
+        const s = scroller.getBoundingClientRect(), c = chip.getBoundingClientRect();
+        const dx = c.left < s.left ? c.left - s.left - 4 : c.right > s.right ? c.right - s.right + 4 : 0;
+        if (Math.abs(dx) < 1) return;
+        const left = scroller.scrollLeft + dx;
+        if (typeof scroller.scrollTo === 'function') scroller.scrollTo({ left, behavior: smooth && !ui.reducedMotion() ? 'smooth' : 'auto' });
+        else scroller.scrollLeft = left;
+    }
     offs.push(store.subscribe((st) => st.selection, (sel) => {
         for (const id in chips) {
             chips[id].chip.setAttribute('aria-pressed', String(sel === id));
             chips[id].chip.classList.toggle('is-selected', sel === id);
         }
-        if (sel && chips[sel]) chips[sel].chip.scrollIntoView?.({ block: 'nearest', inline: 'nearest', behavior: ui.reducedMotion() ? 'auto' : 'smooth' });
+        reveal(true);
     }, { immediate: true }));
+    // The strip joins the sheet on the phone layout after mount (a shared link's selection is
+    // already set by then), and the sheet settles a frame later.
+    offs.push(ui.on('layout', () => {
+        reveal(false);
+        requestAnimationFrame(() => reveal(false));
+    }));
 
     function update(snap) {
         if (!snap?.bodies) return;

@@ -408,14 +408,15 @@ export function mountShell(root, ctx) {
     }, { immediate: true }));
     offs.push(store.subscribe((s) => s.status?.webgl, () => applyLayout()));
     // A new selection brings its card forward when the user is looking at sky information.
-    offs.push(store.subscribe((s) => s.selection, (id) => {
+    function showSelection(id) {
         if (!id) return;
         if (activeTab === 'sky' || activeTab === 'details') {
             setStoreUi({ panel: 'details' });
             selectTab('details');
             if (ui.layout === 'desktop' && railed) setRail(false);
         }
-    }));
+    }
+    offs.push(store.subscribe((s) => s.selection, showSelection));
 
     // ------------------------------------------------------------------ pick-on-globe hint
     let hintTimer = 0;
@@ -448,6 +449,9 @@ export function mountShell(root, ctx) {
 
     applyLayout();
     selectTab(store.get().ui?.panel || 'sky');
+    // A selection that was there before the shell (a shared link's `sel=`) opens its card too,
+    // unless a tab other than Sky is already showing.
+    if (activeTab === 'sky') showSelection(store.get().selection);
 
     return {
         overlay,

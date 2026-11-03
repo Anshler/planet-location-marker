@@ -345,6 +345,7 @@ change.
 - `r` is the signed rate in sim-seconds per second, snapped to the ladder.
 - `ly` is the exact set of enabled layers.
 - `cam` is `o:lat,lon,dist` (the sub-camera point) or `s:az,alt,fov`.
+- `sel` selects a body and opens its card (the Details tab), as a click on it would.
 
 `bindUrl` writes the hash at most every 500 ms and leaves a fresh visit's URL clean. Hand edits
 are applied live through `onExternalChange`.

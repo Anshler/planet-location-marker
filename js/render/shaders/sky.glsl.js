@@ -6,6 +6,10 @@
  * Every fragment shader ends with the tonemapping/colorspace includes (SPEC R6).
  */
 import { SKYGLOW_CHUNK } from './skyglow.glsl.js';
+import { ZL_S10 } from '../../astro/skyglow.js';
+
+// Leinert's Table 17 (astro/skyglow.js ZL_S10) as ln S10, for MW_FRAG zodiacal().
+const ZL_LN = ZL_S10.map((v) => Math.log(v).toFixed(4)).join(', ');
 
 /**
  * Atmospheric refraction as the sky view draws it (sky-view-refraction): refractLift(d) raises a
@@ -235,24 +239,25 @@ varying vec3 vDir;
 const float PI = 3.14159265358979;
 const float MW_GAMMA = 1.85;
 ${SKYGLOW_CHUNK}
-// Zodiacal light and gegenschein above the ecliptic poles' level, in natural-sky units (1 S10 =
-// 27.78 mag/arcsec², so the natural sky is ≈ 205 S10). A smooth fit to the shape of Leinert et al.
-// (1998, A&AS 127, 1) Table 17 by the helio-ecliptic longitude Δλ and latitude β: on the ecliptic
-// ≈ 230·(90°/Δλ)^1.7 S10 sunward of 90°, ≈ 175 beyond; off it a Lorentzian of 22° half-width in β
-// times cos²β, so the poles sit at 60 S10 whatever Δλ (it is undefined there); and the gegenschein
-// (+50 S10, 9° × 7°) opposite the Sun. Illustrative to ±20 %.
+// Zodiacal light and gegenschein above the ecliptic poles' level (77 S10, part of the natural sky),
+// in natural-sky units (1 S10 = 27.78 mag/arcsec², so the natural sky is ≈ 205 S10): Leinert et al.
+// (1998, A&AS 127, 1) Table 17 by helio-ecliptic longitude |Δλ| (rows: 5° steps to 45°, then 15°)
+// and latitude |β| (columns: 5° steps to 30°, then 15°), bilinear in ln S10. Mirrors
+// js/astro/skyglow.js zodiacalS10.
+const float ZL_LN[${ZL_S10.length}] = float[${ZL_S10.length}](${ZL_LN});
 float zodiacal(vec3 d) {
     vec3 e = uToEcl * d;
-    float sb = clamp(e.z, -1.0, 1.0);
-    float b = degrees(asin(clamp(sb, -1.0, 1.0)));
+    float b = degrees(asin(clamp(abs(e.z), 0.0, 1.0)));
     float lp = length(e.xy), ls = length(uSunEcl.xy);
     float cdl = (lp > 1e-5 && ls > 1e-5) ? dot(e.xy, uSunEcl.xy) / (lp * ls) : 0.0;
     float dl = degrees(acos(clamp(cdl, -1.0, 1.0)));
-    float ecl = dl < 90.0 ? 230.0 * exp(1.7 * log(max(90.0 / max(dl, 12.0), 1.0)))
-                          : 175.0 + 55.0 * exp(-0.5 * (dl - 90.0) * (dl - 90.0) / 225.0);
-    float bb = b / 22.0, g = (180.0 - dl) / 9.0, gb = b / 7.0;
-    float band = (1.0 - sb * sb) / (1.0 + bb * bb);
-    return ((ecl - 60.0) * band + 50.0 * exp(-g * g - gb * gb)) / 205.0;
+    float x = dl < 45.0 ? dl / 5.0 : 9.0 + (dl - 45.0) / 15.0;
+    float y = b < 30.0 ? b / 5.0 : 6.0 + (b - 30.0) / 15.0;
+    int i = min(int(x), 17), j = min(int(y), 9);
+    float fx = clamp(x - float(i), 0.0, 1.0), fy = clamp(y - float(j), 0.0, 1.0);
+    int k = i * 11 + j;
+    float l = mix(mix(ZL_LN[k], ZL_LN[k + 1], fy), mix(ZL_LN[k + 11], ZL_LN[k + 12], fy), fx);
+    return max(exp(l) - 77.0, 0.0) / 205.0;
 }
 vec2 sceneDirToRaDecUv(vec3 d) {
     vec3 e = vec3(d.x, -d.z, d.y);

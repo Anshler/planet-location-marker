@@ -320,6 +320,59 @@ export function milkyWayContrast(excessMag) {
     return 1 - smoothstep(0.1, 3.4, excessMag);
 }
 
+/** Helio-ecliptic longitudes |λ − λ☉| (degrees) of the rows of {@link ZL_S10}. */
+export const ZL_LON_DEG = Object.freeze([0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 60, 75, 90, 105, 120, 135, 150, 165, 180]);
+/** Ecliptic latitudes |β| (degrees) of the columns of {@link ZL_S10}. */
+export const ZL_LAT_DEG = Object.freeze([0, 5, 10, 15, 20, 25, 30, 45, 60, 75, 90]);
+/**
+ * Zodiacal light at 500 nm in S10 units (1 S10 = 27.78 mag/arcsec², so the natural sky's 22.0 is
+ * ≈ 205 S10): Leinert et al. (1998, A&AS 127, 1) Table 17, row-major by ZL_LON_DEG × ZL_LAT_DEG.
+ * The table is blank within about 12° of the Sun; those eight cells (row 0: β 0–10, row 5: β 0–10,
+ * row 10: β 0–5) are extrapolated along β from the rows beyond, and are never seen at night (the
+ * Sun is then well below the horizon). MW_FRAG embeds the same values.
+ */
+export const ZL_S10 = Object.freeze([
+    20000, 11600, 6000, 3140, 1610, 985, 640, 275, 150, 100, 77,
+    18500, 10900, 5600, 2940, 1540, 945, 625, 271, 150, 100, 77,
+    15800, 9300, 4740, 2470, 1370, 865, 590, 264, 148, 100, 77,
+    11500, 6780, 3440, 1860, 1110, 755, 525, 251, 146, 100, 77,
+    6400, 4480, 2410, 1410, 910, 635, 454, 237, 141, 99, 77,
+    3840, 2830, 1730, 1100, 749, 545, 410, 223, 136, 97, 77,
+    2480, 1870, 1220, 845, 615, 467, 365, 207, 131, 95, 77,
+    1650, 1270, 910, 680, 510, 397, 320, 193, 125, 93, 77,
+    1180, 940, 700, 530, 416, 338, 282, 179, 120, 92, 77,
+    910, 730, 555, 442, 356, 292, 250, 166, 116, 90, 77,
+    505, 442, 352, 292, 243, 209, 183, 134, 104, 86, 77,
+    338, 317, 269, 227, 196, 172, 151, 116, 93, 82, 77,
+    259, 251, 225, 193, 166, 147, 132, 104, 86, 79, 77,
+    212, 210, 197, 170, 150, 133, 119, 96, 82, 77, 77,
+    188, 186, 177, 154, 138, 125, 113, 90, 77, 74, 77,
+    179, 178, 166, 147, 134, 122, 110, 90, 77, 73, 77,
+    179, 178, 165, 148, 137, 127, 116, 96, 79, 72, 77,
+    196, 192, 179, 165, 151, 141, 131, 104, 82, 72, 77,
+    230, 212, 195, 178, 163, 148, 134, 105, 83, 72, 77,
+]);
+
+/**
+ * Zodiacal light (S10) at helio-ecliptic longitude `dlDeg` from the Sun and ecliptic latitude
+ * `betaDeg`: {@link ZL_S10} interpolated bilinearly in log brightness (power-law falloffs stay
+ * smooth). The grid is 5° steps to 45° (|λ − λ☉|) and 30° (|β|), 15° beyond. Mirrored by MW_FRAG
+ * zodiacal().
+ * @param {number} dlDeg
+ * @param {number} betaDeg
+ * @returns {number}
+ */
+export function zodiacalS10(dlDeg, betaDeg) {
+    const dl = Math.min(Math.abs(dlDeg), 180), b = Math.min(Math.abs(betaDeg), 90);
+    const x = dl < 45 ? dl / 5 : 9 + (dl - 45) / 15;
+    const y = b < 30 ? b / 5 : 6 + (b - 30) / 15;
+    const i = Math.min(Math.floor(x), 17), j = Math.min(Math.floor(y), 9);
+    const fx = x - i, fy = y - j, k = i * 11 + j;
+    const L = (n) => Math.log(ZL_S10[n]);
+    const lo = L(k) + (L(k + 1) - L(k)) * fy, hi = L(k + 11) + (L(k + 12) - L(k + 11)) * fy;
+    return Math.exp(lo + (hi - lo) * fx);
+}
+
 /** Dark-sky gate (zodiacal light, green airglow) for `excessMag` (shared with MW_FRAG). */
 export function darkSkyGate(excessMag) {
     return 1 - smoothstep(0.1, 1.5, excessMag);

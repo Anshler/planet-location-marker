@@ -406,13 +406,16 @@ natural-sky units R = B / B_nat, where B_nat ≈ 54 nL is a dark site's moonless
   `Δm = 2.5·log10(R / R_nat)`. The Milky Way is scaled by `1 − smoothstep(0.1, 3.4, Δm)`, so it is gone
   by about Bortle 6–7 or under a full Moon. The zodiacal light uses `1 − smoothstep(0.1, 1.5, Δm)`,
   so it shows at Bortle 1–4 without the Moon.
-- **Zodiacal light and gegenschein** (illustrative, medium tier and up). These are drawn in the Milky
-  Way pass from a smooth fit to the shape of Leinert et al. (1998, A&AS 127, 1) Table 17, in S10
-  units (1 S10 = 27.78 mag/arcsec², so the natural sky is about 205 S10). On the ecliptic the value
-  is ≈ 230·(90°/Δλ)^1.7 sunward of 90° and ≈ 175 beyond. Off the ecliptic it falls by a 22° Lorentzian
-  in β times cos²β, down to 60 S10 at the poles. The gegenschein adds 50 S10 (9° × 7°) opposite the
-  Sun. The display gain puts the band 90° from the Sun at the edge of visibility and the cone 30°
-  from it near the Milky Way's brightness, faded by extinction toward the horizon and by twilight.
+- **Zodiacal light and gegenschein** (medium tier and up). These are drawn in the Milky Way pass
+  from Leinert et al. (1998, A&AS 127, 1) Table 17, in S10 units (1 S10 = 27.78 mag/arcsec², so the
+  natural sky is about 205 S10): 19 helio-ecliptic longitudes |Δλ| by 11 latitudes |β|, interpolated
+  bilinearly in log brightness (`skyglow.js` `zodiacalS10`, mirrored in the shader). The eight blank
+  cells within about 12° of the Sun are extrapolated; they are never seen at night. Only the excess
+  over the ecliptic poles' 77 S10 is drawn, since the natural sky already contains that. So the cone
+  leans along the ecliptic, about 3–4 times brighter there than at the same distance straight above
+  or below the Sun, and the gegenschein is the table's broad bump opposite the Sun. The display gain
+  puts the band 90° from the Sun at the edge of visibility and the cone 30° from it at about the
+  Milky Way's brightness, faded by extinction toward the horizon and by twilight.
 - **Airglow colour** (illustrative). The horizon airglow band leans from blue-grey toward the green
   of the 557.7 nm [O I] line under a dark sky (the dark-sky gate at the zenith), subtly, since night
   vision is nearly colourless.
@@ -801,7 +804,7 @@ and AE's contacts to 0.1 s; the shapes are illustrative.
 - **Bortle scale.** J. E. Bortle (2001), "Introducing the Bortle Dark-Sky Scale", *Sky & Telescope*
   101(2), 126. SQM bounds as commonly tabulated.
 - **Zodiacal light.** Ch. Leinert et al. (1998), "The 1997 reference of diffuse night sky
-  brightness", *A&AS* 127, 1 (Table 17, shape only).
+  brightness", *A&AS* 127, 1 (Table 17).
 - **Geomagnetic field.** P. Alken et al. (2021), "International Geomagnetic Reference Field: the
   thirteenth generation", *Earth Planets Space* 73, 49; IGRF-14 (IAGA V-MOD, 2024) for the 2025
   coefficients and 2025–2030 secular variation.

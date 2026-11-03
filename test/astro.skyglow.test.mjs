@@ -265,3 +265,38 @@ test('the frame loop fills snap.skyglow from its site and recomputes it on setSk
     assert.ok(readouts.includes(9) && readouts.at(-1) === 3, `readouts ${readouts}`);
     loop.dispose();
 });
+
+test('zodiacal light: Leinert Table 17, a cone along the ecliptic (not across it), mirrored by MW_FRAG', async () => {
+    const Z = S.zodiacalS10;
+    assert.equal(S.ZL_S10.length, S.ZL_LON_DEG.length * S.ZL_LAT_DEG.length);
+    // The table at its nodes.
+    close(Z(30, 0), 2480, 1e-6, 'ecliptic, 30° from the Sun');
+    close(Z(0, 30), 640, 1e-6, 'straight above the Sun, 30° away');
+    close(Z(90, 0), 259, 1e-6);
+    close(Z(180, 0), 230, 1e-6, 'gegenschein');
+    for (const dl of [0, 37, 90, 151, 180]) close(Z(dl, 90), 77, 1e-6, `ecliptic pole (Δλ ${dl})`);
+    close(Z(-30, -5), Z(30, 5), 1e-9, 'symmetric in Δλ and β');
+    // At the same elongation the glow along the ecliptic is several times the glow straight above
+    // or below the Sun (the old separable fit had them the other way round at 20–40°).
+    for (let e = 20; e <= 60; e += 5) {
+        const along = Z(e, 0), across = Z(0, e);
+        assert.ok(along > 2.5 * across, `elongation ${e}°: ecliptic ${along.toFixed(0)} vs across ${across.toFixed(0)}`);
+    }
+    // Continuous across the grid's step changes and cell edges, and monotonic away from the Sun.
+    for (const [dl, b] of [[45, 10], [20, 30], [60, 45], [105, 3]]) {
+        close(Z(dl - 1e-6, b), Z(dl + 1e-6, b), 1e-3, `Δλ ${dl}`);
+        close(Z(dl, b - 1e-6), Z(dl, b + 1e-6), 1e-3, `β ${b}`);
+    }
+    for (let dl = 1; dl <= 135; dl++) assert.ok(Z(dl, 0) < Z(dl - 1, 0), `fades along the ecliptic at ${dl}°`);
+    // MW_FRAG embeds the table (ln S10) and the same interpolation.
+    const { MW_FRAG } = await import('../js/render/shaders/sky.glsl.js');
+    const m = MW_FRAG.match(/const float ZL_LN\[(\d+)\] = float\[\d+\]\(([^)]*)\);/);
+    assert.ok(m, 'ZL_LN array');
+    assert.equal(Number(m[1]), S.ZL_S10.length);
+    const ln = m[2].split(',').map(Number);
+    assert.equal(ln.length, S.ZL_S10.length);
+    ln.forEach((v, i) => close(v, Math.log(S.ZL_S10[i]), 1e-4, `ZL_LN[${i}]`));
+    assert.match(MW_FRAG, /float x = dl < 45\.0 \? dl \/ 5\.0 : 9\.0 \+ \(dl - 45\.0\) \/ 15\.0;/);
+    assert.match(MW_FRAG, /float y = b < 30\.0 \? b \/ 5\.0 : 6\.0 \+ \(b - 30\.0\) \/ 15\.0;/);
+    assert.match(MW_FRAG, /return max\(exp\(l\) - 77\.0, 0\.0\) \/ 205\.0;/, 'above the ecliptic poles\' level');
+});

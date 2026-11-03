@@ -64,3 +64,12 @@ test('sky view: the Moon is drawn along the snapshot dirS at its topocentric dis
     assert.match(body(flare, 'apply'), /sunR = sunAngularRadius\(s\.distAU\)/);
     assert.match(body(flare, 'update'), /\(1 - obscuration - visM\) \* skyBlend/, 'sky view occludes by obscurationAtObserver');
 });
+
+test('totality stars come from the pure exposureFor, not a render-side term', () => {
+    const sky = stripComments(read('js/render/sky.js'));
+    assert.doesNotMatch(sky, /eclipseStars/);
+    assert.match(body(sky, 'update'), /const starExp = exposure\.stars;/);
+    const loop = stripComments(read('js/app/loop.js'));
+    assert.match(loop, /exposureFor\(sunAlt, skyBlend, exposure, obscuration, tierMagLimit\)/);
+    assert.match(loop, /updateExposure\(snap\.observer\.sunAltDeg, skyBlend, snap\.eclipse\.obscurationAtObserver,/);
+});

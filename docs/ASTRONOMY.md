@@ -217,12 +217,25 @@ from the true Sun direction. The phase you see is therefore correct by construct
   | below | night |
 
 - **Sky-view exposure.** It blends from 1 in orbit view (skyBlend 0) to these curves in sky view:
-  - stars: `1 − smoothstep(−18°, −4°, h☉)`;
+  - stars: `max(1 − smoothstep(−18°, −4°, h☉), eclipse term)`;
   - planets: `max(0.15, 1 − 0.85·smoothstep(−8°, 4°, h☉))`;
   - Milky Way: `1 − smoothstep(−20°, −10°, h☉)`.
 
   Stars fade with the dawn, and Venus and Jupiter stay visible in twilight. The daylight dome is
   the Preetham–Shirley–Smits analytic sky driven by the true Sun.
+- **Star limit.** The star shader shows stars to `lim = −1 + (m_tier + 1)·√e` for star exposure
+  `e`, where `m_tier` is the tier's dark-sky limit (5.0 / 6.0 / 6.5); `starLimitMag` and
+  `starExposureForLimit` convert both ways.
+- **Totality's stars.** The eclipse term is specified in magnitudes, so every tier shows the same
+  stars. The photosphere left shines `L = (1 − obscuration)^1.4` of full (limb darkening makes the
+  last crescent dimmer than its area). On top of the totality sky's own 10⁻⁵ of daylight, the limit
+  is `m = 2.0 − 1.25·log10(1 + L / 10⁻⁵)`, since against a bright background the threshold flux grows
+  about as √B. In totality that is magnitude 2.0: the planets and roughly the first- and
+  second-magnitude stars. Real totality skies reach about 1.5 to 3 with the umbra's size and haze,
+  so 2.0 is a mid value. At 10⁻⁴ of the sunlight left (Luxor: about 20 s before second contact) only
+  Sirius-class stars show (m ≈ 0.7). The old term reached magnitude 5.7 on high (the Beehive
+  cluster) and started 2.8 minutes before second contact. The Milky Way stays a function of h☉
+  (dark only at night).
 
 ---
 
@@ -290,7 +303,8 @@ The true-scale Sun, Moon and Earth geometry gives eclipses without special cases
   (adapted as `(1 − obscuration)^0.56`, like the daylight), the ground darkens with the sky, and
   past 98.5 % a compact pearly corona (e-folding 0.2°) takes over. In totality (obscuration
   exactly 1) the photosphere is not drawn at all. Otherwise the disc's 1 px anti-aliased rim, and
-  its 3 px minimum size in a wide view, left a ring of sunlight around the Moon.
+  its 3 px minimum size in a wide view, left a ring of sunlight around the Moon. The stars follow
+  §6.
 - **Flags.** The snapshot flags `eclipse.solar` and `eclipse.lunar` when the geocentric Sun–Moon
   separation is under 1.6°, or the Moon–antisun separation is under 1.65°.
 - **Eclipse magnitudes.** `AE.Illumination` ignores shadows, so the snapshot dims the magnitudes
@@ -348,7 +362,7 @@ The true-scale Sun, Moon and Earth geometry gives eclipses without special cases
 - second and third contacts of the snapshot's obscuration and drawn discs within 1 s of
   `AE.SearchLocalSolarEclipse` for the eclipses of 2026, 2027 (total and annular) and 2028, and a
   Sky panel that never reads "Partial … 100.0 %";
-- the globe's umbra half-width on 2027-08-02 (≈ 129 km).
+- the globe's umbra half-width on 2027-08-02 (≈ 129 km) and totality's star limit (≤ 2.5).
 
 ---
 

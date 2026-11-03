@@ -38,7 +38,6 @@ const DERIVED_LOCK = path.join(ROOT, 'vendor', 'DERIVED.json');
 const THREE = { name: 'three', version: '0.170.0', license: 'MIT', base: 'https://cdn.jsdelivr.net/npm/three@0.170.0/' };
 const AE = { name: 'astronomy-engine', version: '2.1.19', license: 'MIT' };
 const TEX170 = { version: 'r170', base: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r170/examples/textures/' };
-const TEX186 = { version: 'r186', base: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r186/examples/textures/' };
 const D3C = {
     name: 'd3-celestial', version: '7e720a3de062059d4c5400a379146a601d9010e0', license: 'BSD-3-Clause',
     base: 'https://cdn.jsdelivr.net/gh/ofrohn/d3-celestial@7e720a3de062059d4c5400a379146a601d9010e0/',
@@ -51,7 +50,6 @@ const texture = (pin, sub, file, license) => ({
 });
 const SSS = 'CC-BY-4.0 (Solar System Scope, via three.js examples)';
 const THREE_EX = 'three.js examples (NASA-derived imagery; no separate licence stated)';
-const RO_ME = 'three.js examples (ro.me)';
 const SSS8K = { version: 'Solar System Scope 8k', base: 'https://www.solarsystemscope.com/textures/download/', license: 'CC-BY-4.0 (Solar System Scope)' };
 /** An 8192 px Solar System Scope map: shipped as-is under assets/textures/, or (cache) a build input. */
 const sss8k = (file, dst, cache = false) => ({
@@ -74,8 +72,6 @@ export const MANIFEST = [
     texture(TEX170, 'planets', 'earth_night_4096.jpg', SSS),
     texture(TEX170, 'planets', 'earth_bump_roughness_clouds_4096.jpg', SSS),
     texture(TEX170, 'planets', 'moon_1024.jpg', THREE_EX),
-    texture(TEX186, 'lensflare', 'lensflare0.png', RO_ME),
-    texture(TEX186, 'lensflare', 'lensflare3.png', RO_ME),
     sss8k('8k_earth_daymap.jpg', 'assets/textures/earth_day_8192.jpg'),
     sss8k('8k_earth_nightmap.jpg', 'assets/textures/earth_night_8192.jpg'),
     sss8k('8k_earth_clouds.jpg', 'data/raw/textures/8k_earth_clouds.jpg', true),

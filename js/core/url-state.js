@@ -1,7 +1,10 @@
 // Deep links in the URL hash (SPEC §C.3, §F.4).
 //
 //   #loc=21.0285,105.8542&n=Hanoi&cc=VN&tz=Asia/Ho_Chi_Minh&el=15&t=2027-08-02T10:07:00Z&r=3600&p=1
-//    &view=orbit&lock=1&sel=moon&ly=bgoscCnmkazhld&q=auto&cam=o:21.0,105.8,3.2|s:142.3,25.0,60&intro=0&debug=1
+//    &view=orbit&lock=1&sel=moon&ly=bgoscCnmkazhld&q=auto&sky=auto&cam=o:21.0,105.8,3.2|s:142.3,25.0,60&intro=0&debug=1
+//
+// `sky` is the Sky darkness setting: auto (light pollution estimated from nearby cities), pristine,
+// or a Bortle class 1–9.
 //
 // parseHash never throws: values are validated, clamped (time, elevation, camera) or dropped, and
 // every key that was present but not usable as written is listed in `invalid` (for the
@@ -10,7 +13,7 @@
 // short; `t` is omitted while Live.
 
 import { MIN_MS, MAX_MS, snapRate } from './clock.js';
-import { DEFAULT_STATE } from './store.js';
+import { DEFAULT_STATE, SKY_DARK_SETTINGS } from './store.js';
 import { canonTz, daysInMonth } from './tz.js';
 
 const BODY_IDS = Object.freeze(['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune']);
@@ -23,7 +26,7 @@ export const LAYER_CODES = Object.freeze([
     ['p', 'subpoints'], ['t', 'trails'], ['l', 'labels'], ['d', 'landscape'],
 ].map((pair) => Object.freeze(pair)));
 const LAYER_BY_CODE = new Map(LAYER_CODES);
-const KNOWN_KEYS = new Set(['loc', 'n', 'cc', 'tz', 'el', 't', 'r', 'p', 'view', 'lock', 'sel', 'ly', 'q', 'cam', 'intro', 'debug']);
+const KNOWN_KEYS = new Set(['loc', 'n', 'cc', 'tz', 'el', 't', 'r', 'p', 'view', 'lock', 'sel', 'ly', 'q', 'sky', 'cam', 'intro', 'debug']);
 const MAX_HASH_LEN = 4096;
 const NAME_MAX = 80;
 const ELEV_MIN = -500, ELEV_MAX = 9000;
@@ -345,6 +348,11 @@ function parseViewKeys(params, out, invalid) {
         if (QUALITY_SETTINGS.includes(v)) out.quality = /** @type {any} */ (v);
         else invalid.push('q');
     }
+    if (params.has('sky')) {
+        const v = params.get('sky').trim().toLowerCase();
+        if (SKY_DARK_SETTINGS.includes(v)) out.skyDark = v;
+        else invalid.push('sky');
+    }
     if (params.has('cam')) {
         const views = params.get('cam').split('|').map(parseCamPart).filter(Boolean);
         if (!views.length) invalid.push('cam');
@@ -424,6 +432,8 @@ export function serializeHash({ state, clock, cam, extra } = {}) {
         if (ly !== null && ly !== DEFAULT_LAYER_CODE) parts.push(`ly=${ly}`);
         const q = s.quality?.setting;
         if (typeof q === 'string' && q !== 'auto' && QUALITY_SETTINGS.includes(q)) parts.push(`q=${q}`);
+        const sky = s.display?.skyDark;
+        if (typeof sky === 'string' && sky !== 'auto' && SKY_DARK_SETTINGS.includes(sky)) parts.push(`sky=${sky}`);
         const c = camToCode(cam);
         if (c) parts.push(`cam=${c}`);
         if (extra?.intro === false) parts.push('intro=0');
@@ -509,7 +519,8 @@ export function bindUrl({ win, store, clock, getCam, onExternalChange, minInterv
 
     const offs = [];
     if (store?.subscribe) {
-        for (const sel of [(s) => s.observer, (s) => s.selection, (s) => s.view, (s) => s.layers, (s) => s.quality?.setting]) {
+        for (const sel of [(s) => s.observer, (s) => s.selection, (s) => s.view, (s) => s.layers, (s) => s.quality?.setting,
+            (s) => s.display?.skyDark]) {
             offs.push(store.subscribe(sel, schedule));
         }
     }

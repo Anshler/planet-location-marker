@@ -115,7 +115,7 @@ test('one horizon for everything: the flare, picking and labels test the shared 
     assert.match(labels, /horizonAltDeg\(landscape, azimuthDeg\(d, northS, eastS\)\)/);
     assert.match(read('js/app/labels-feed.js'), /labelBelow\(snap\.bodies\[i\], sky, view && view\.horizon\)/);
     const main = read('js/main.js');
-    for (const m of ['createBodies(rc, { textures, horizon })', 'createGround(rc, { textures, horizon, cities })', 'createFlare(rc, { textures, horizon })']) {
+    for (const m of ['createBodies(rc, { textures, horizon })', 'createGround(rc, { textures, horizon, cities })', 'createFlare(rc, { horizon })']) {
         assert.ok(main.includes(m), m);
     }
     assert.match(main, /getTierCfg: \(\) => currentCfg, horizon,/);

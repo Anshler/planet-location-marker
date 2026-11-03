@@ -41,6 +41,7 @@ import {
 import { refractionDeg, twilightClass } from './photometry.js';
 import { discVisibleFraction, lunarEclipseLight } from './shadow.js';
 import { bailysBeads, createBeads, NO_GAP } from './totality.js';
+import { createSkyglow } from './skyglow.js';
 
 const N_BODIES = BODIES.length;
 const SUN = 0;
@@ -143,6 +144,8 @@ export function createSnapshot() {
         },
         bodies: BODIES.map(makeBodyState),
         eclipse: { solar: false, lunar: false, obscurationAtObserver: 0, moonLitFraction: 1, beads: createBeads() },
+        // Filled by the frame loop (computeSkyglow) after each computeSnapshot: it needs the site.
+        skyglow: createSkyglow(),
     };
 }
 

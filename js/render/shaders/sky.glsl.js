@@ -5,6 +5,7 @@
  *
  * Every fragment shader ends with the tonemapping/colorspace includes (SPEC R6).
  */
+import { SKYGLOW_CHUNK } from './skyglow.glsl.js';
 
 /**
  * Atmospheric refraction as the sky view draws it (sky-view-refraction): refractLift(d) raises a
@@ -91,8 +92,11 @@ const TONE = /* glsl */`
 /**
  * Stars as Points. A star is a Gaussian PSF: faint stars keep a fixed ~0.6 px sigma (so they never
  * shimmer as they cross pixels) and get dimmer; stars brighter than mag 2.5 grow and exceed 1.0 in
- * HDR so bloom gives them halos. Twilight raises the limiting magnitude (faint stars vanish first),
- * and in sky view low stars are dimmed/reddened by extinction and scintillate (high tier).
+ * HDR so bloom gives them halos. Twilight, the Moon and light pollution raise the limiting magnitude
+ * (faint stars vanish first): uExposure carries the zenith's limit (photometry.exposureFor), and in
+ * sky view each star's own sky (SKYGLOW_CHUNK) moves it, so stars near the Moon and under a city's
+ * light dome go first. Low stars are dimmed/reddened by extinction and scintillate (high tier):
+ * bright ones low down also flash colour (chromatic scintillation).
  */
 export const STAR_VERT = /* glsl */`
 uniform float uMagLimit;
@@ -106,6 +110,7 @@ uniform float uSkyBlend;
 uniform vec3 uUp;
 uniform float uSaturation;
 uniform float uDisplay;
+uniform float uSgLimZen;
 attribute float aMag;
 attribute vec3 aColor;
 varying vec3 vColor;
@@ -115,11 +120,14 @@ varying float vHalo;
 ${INFINITY_VERT_CHUNK}
 ${EXTINCTION_CHUNK}
 ${SMOOTH_FALL_CHUNK}
+${SKYGLOW_CHUNK}
 void main() {
     vec3 dir = normalize(mat3(modelMatrix) * position);
     // Twilight: the effective limiting magnitude brightens as exposure falls.
     float e = clamp(uExposure, 0.0, 1.0);
     float lim = mix(-1.0, uMagLimit, sqrt(e));
+    // The sky behind this star, brighter or darker than the zenith's, moves its limit.
+    if (uSkyBlend > 0.0) lim = min(lim + (sgLimitMag(sgSky(dir)) - uSgLimZen) * uSkyBlend, uMagLimit);
     float vis = smoothFall(lim + 0.35, lim - 0.45, aMag) * smoothstep(0.0, 0.04, e);
     // Flux relative to a mag-2.5 star, the "just saturated" reference. Below it the peak is
     // compressed (F^0.75) so mag-6 stars stay visible on a display; above it stars grow instead.
@@ -141,6 +149,15 @@ void main() {
             float tw = 0.6 * sin(uTime * (6.0 + 5.0 * fract(ph * 1.7)) + ph)
                      + 0.4 * sin(uTime * (11.0 + 7.0 * fract(ph * 3.1)) + ph * 2.3);
             peak *= 1.0 + 0.35 * strength * tw;
+            // Chromatic scintillation: dispersion splits each colour's path through the turbulence
+            // by more the lower the star, so bright low stars (Sirius on the horizon) flash colours.
+            // Per-channel phases grow with airmass; the mean is taken out so brightness holds.
+            float low = 1.0 - clamp(sinAlt, 0.0, 1.0);
+            float chroma = uTwinkle * smoothstep(1.5, 40.0, F) * low * low;
+            if (chroma > 0.002) {
+                vec3 cs = sin(uTime * (17.0 + 6.0 * fract(ph * 5.3)) + ph * 3.7 + vec3(0.0, 0.9, 1.7) * airmassKY(sinAlt));
+                col = max(col * (1.0 + 0.45 * chroma * (cs - dot(cs, vec3(0.2126, 0.7152, 0.0722)))), vec3(0.0));
+            }
         }
     }
     float haloPx = sigmaPx * 3.5 * (1.0 + (0.8 + 1.2 * uHalo) * smoothstep(1.5, 40.0, F));
@@ -192,6 +209,10 @@ void main() {
  * Rift from Cygnus through Aquila to Ophiuchus/Sagittarius, plus patchy lanes along the plane)
  * that dims and reddens. Noise octaves and star layers fade out once their cells shrink to a few
  * pixels, so wide views stay calm and zoomed views keep their texture. Static: no time input.
+ *
+ * In sky view the band fades with the local sky's excess over the natural sky (SKYGLOW_CHUNK:
+ * moonlight, light pollution), and with uZodi > 0 (medium and up) this pass also draws the
+ * zodiacal light and the gegenschein, gated to dark skies.
  */
 export const MW_FRAG = /* glsl */`
 uniform sampler2D uMW;
@@ -204,9 +225,32 @@ uniform float uSkyBlend;
 uniform vec3 uUp;
 uniform float uDisplay;
 uniform float uDpr;
+uniform mat3 uToEcl;
+uniform vec3 uSunEcl;
+uniform float uZodi;
 varying vec3 vDir;
 const float PI = 3.14159265358979;
 const float MW_GAMMA = 1.85;
+${SKYGLOW_CHUNK}
+// Zodiacal light and gegenschein above the ecliptic poles' level, in natural-sky units (1 S10 =
+// 27.78 mag/arcsec², so the natural sky is ≈ 205 S10). A smooth fit to the shape of Leinert et al.
+// (1998, A&AS 127, 1) Table 17 by the helio-ecliptic longitude Δλ and latitude β: on the ecliptic
+// ≈ 230·(90°/Δλ)^1.7 S10 sunward of 90°, ≈ 175 beyond; off it a Lorentzian of 22° half-width in β
+// times cos²β, so the poles sit at 60 S10 whatever Δλ (it is undefined there); and the gegenschein
+// (+50 S10, 9° × 7°) opposite the Sun. Illustrative to ±20 %.
+float zodiacal(vec3 d) {
+    vec3 e = uToEcl * d;
+    float sb = clamp(e.z, -1.0, 1.0);
+    float b = degrees(asin(clamp(sb, -1.0, 1.0)));
+    float lp = length(e.xy), ls = length(uSunEcl.xy);
+    float cdl = (lp > 1e-5 && ls > 1e-5) ? dot(e.xy, uSunEcl.xy) / (lp * ls) : 0.0;
+    float dl = degrees(acos(clamp(cdl, -1.0, 1.0)));
+    float ecl = dl < 90.0 ? 230.0 * exp(1.7 * log(max(90.0 / max(dl, 12.0), 1.0)))
+                          : 175.0 + 55.0 * exp(-0.5 * (dl - 90.0) * (dl - 90.0) / 225.0);
+    float bb = b / 22.0, g = (180.0 - dl) / 9.0, gb = b / 7.0;
+    float band = (1.0 - sb * sb) / (1.0 + bb * bb);
+    return ((ecl - 60.0) * band + 50.0 * exp(-g * g - gb * gb)) / 205.0;
+}
 vec2 sceneDirToRaDecUv(vec3 d) {
     vec3 e = vec3(d.x, -d.z, d.y);
     // atan(0, 0) is undefined (a pixel exactly on a pole vertex of the sphere): 0 there.
@@ -295,48 +339,60 @@ void main() {
     float px = max(length(dFdx(vDir)), length(dFdy(vDir)));   // radians per pixel
     vec2 uv = sceneDirToRaDecUv(d);
     float v = uDetail > 0.0 ? textureBSpline(uMW, uv, uMWSize) : texture2D(uMW, uv).r;
-    if (v < 0.002) discard;
-    vec3 g = uToGal * d;                       // x → galactic centre, z → north galactic pole
-    float l = (g.x == 0.0 && g.y == 0.0) ? 0.0 : degrees(atan(g.y, g.x));   // atan(0, 0) is undefined
-    float b = degrees(asin(clamp(g.z, -1.0, 1.0)));
-    // The bulge, seen mostly south of the plane where the dust lets its light through.
-    float bulge = gauss(l / 9.0) * gauss((b + 3.0) / 5.5);
-    float I = pow(v, MW_GAMMA) * (1.0 + 0.5 * bulge);
-    vec3 tau = vec3(0.0);
-    float stars = 0.0;
-    float starHue = 0.5;
-    if (uDetail > 0.0 && v > 0.01) {
-        float dens = clamp(1.6 * v, 0.0, 1.0);
-        vec3 q = g * vec3(1.0, 1.0, 1.3);      // features elongated along the plane
-        float clouds = fbm(q * 40.0, 1.0 / (40.0 * px), 3);
-        float mottle = fbm(q * 160.0 + 23.0, 1.0 / (160.0 * px), 3);
-        I *= max(0.0, 1.0 + (0.5 + 0.5 * dens) * clouds + 0.5 * dens * mottle);
-        // Dust: fBm stretched along the plane and gently domain-warped, so lanes come out wispy.
-        vec3 qd = g * vec3(1.0, 1.0, 2.0);
-        vec3 warp = vec3(vnoise(qd * 12.0 + 3.1), vnoise(qd * 12.0 + 9.7), vnoise(qd * 12.0 + 5.3)) - 0.5;
-        float dn = 0.5 + fbm(qd * 30.0 + 41.0 + 2.0 * warp, 1.0 / (30.0 * px), 5);
-        float lane = riftLane(l, b) + 0.2 * gauss(b / 2.2);
-        tau = lane * (0.3 + 0.9 * smoothstep(0.45, 0.7, dn)) * vec3(0.82, 1.0, 1.22);
-        // Field stars cluster in the bright clouds and thin out in the dust lanes (besides being
-        // dimmed by them below), so the lanes read as dark rather than as evenly starry.
-        float sd = clamp((0.2 + 0.75 * dens) * (1.0 + 1.5 * clouds) * exp(-1.6 * tau.y), 0.0, 1.0);
-        vec2 s0 = fieldStars(g, 60.0, 0.0, px, sd);
-        vec2 s1 = fieldStars(g, 150.0, 0.0, px, sd);
-        vec2 s2 = fieldStars(g, 150.0, 0.5, px, sd);
-        vec2 s3 = fieldStars(g, 375.0, 0.0, px, sd);
-        vec2 s4 = fieldStars(g, 375.0, 0.5, px, sd);
-        vec2 s5 = fieldStars(g, 940.0, 0.0, px, sd);
-        vec2 s6 = fieldStars(g, 940.0, 0.5, px, sd);
-        vec4 sw = vec4(1.2 * s0.x, 0.9 * (s1.x + s2.x), 0.7 * (s3.x + s4.x), 0.5 * (s5.x + s6.x));
-        float sum = sw.x + sw.y + sw.z + sw.w;
-        starHue = (sw.x * s0.y + sw.y * max(s1.y, s2.y) + sw.z * max(s3.y, s4.y) + sw.w * max(s5.y, s6.y)) / max(1e-4, sum);
-        stars = sum * (0.7 + 0.3 * uSkyBlend);   // quieter from orbit
+    bool zodi = uZodi > 0.0 && uSkyBlend > 0.0;
+    if (v < 0.002 && !zodi) discard;
+    // Sky view: how much brighter than the natural sky this direction is (Moon, light pollution).
+    float ex = uSkyBlend > 0.0 ? sgExcessMag(d) : 0.0;
+    float zl = zodi ? zodiacal(d) * (1.0 - smoothstep(0.1, 1.5, ex)) : 0.0;
+    if (v < 0.002 && zl < 0.02) discard;
+    vec3 zlCol = vec3(1.0, 0.95, 0.86) * clamp(zl, 0.0, 12.0) * (uZodi * uSkyBlend * uExposure * uDisplay);
+    vec3 mwCol = vec3(0.0);
+    if (v >= 0.002) {
+        vec3 g = uToGal * d;                       // x → galactic centre, z → north galactic pole
+        float l = (g.x == 0.0 && g.y == 0.0) ? 0.0 : degrees(atan(g.y, g.x));   // atan(0, 0) is undefined
+        float b = degrees(asin(clamp(g.z, -1.0, 1.0)));
+        // The bulge, seen mostly south of the plane where the dust lets its light through.
+        float bulge = gauss(l / 9.0) * gauss((b + 3.0) / 5.5);
+        float I = pow(v, MW_GAMMA) * (1.0 + 0.5 * bulge);
+        vec3 tau = vec3(0.0);
+        float stars = 0.0;
+        float starHue = 0.5;
+        if (uDetail > 0.0 && v > 0.01) {
+            float dens = clamp(1.6 * v, 0.0, 1.0);
+            vec3 q = g * vec3(1.0, 1.0, 1.3);      // features elongated along the plane
+            float clouds = fbm(q * 40.0, 1.0 / (40.0 * px), 3);
+            float mottle = fbm(q * 160.0 + 23.0, 1.0 / (160.0 * px), 3);
+            I *= max(0.0, 1.0 + (0.5 + 0.5 * dens) * clouds + 0.5 * dens * mottle);
+            // Dust: fBm stretched along the plane and gently domain-warped, so lanes come out wispy.
+            vec3 qd = g * vec3(1.0, 1.0, 2.0);
+            vec3 warp = vec3(vnoise(qd * 12.0 + 3.1), vnoise(qd * 12.0 + 9.7), vnoise(qd * 12.0 + 5.3)) - 0.5;
+            float dn = 0.5 + fbm(qd * 30.0 + 41.0 + 2.0 * warp, 1.0 / (30.0 * px), 5);
+            float lane = riftLane(l, b) + 0.2 * gauss(b / 2.2);
+            tau = lane * (0.3 + 0.9 * smoothstep(0.45, 0.7, dn)) * vec3(0.82, 1.0, 1.22);
+            // Field stars cluster in the bright clouds and thin out in the dust lanes (besides being
+            // dimmed by them below), so the lanes read as dark rather than as evenly starry.
+            float sd = clamp((0.2 + 0.75 * dens) * (1.0 + 1.5 * clouds) * exp(-1.6 * tau.y), 0.0, 1.0);
+            vec2 s0 = fieldStars(g, 60.0, 0.0, px, sd);
+            vec2 s1 = fieldStars(g, 150.0, 0.0, px, sd);
+            vec2 s2 = fieldStars(g, 150.0, 0.5, px, sd);
+            vec2 s3 = fieldStars(g, 375.0, 0.0, px, sd);
+            vec2 s4 = fieldStars(g, 375.0, 0.5, px, sd);
+            vec2 s5 = fieldStars(g, 940.0, 0.0, px, sd);
+            vec2 s6 = fieldStars(g, 940.0, 0.5, px, sd);
+            vec4 sw = vec4(1.2 * s0.x, 0.9 * (s1.x + s2.x), 0.7 * (s3.x + s4.x), 0.5 * (s5.x + s6.x));
+            float sum = sw.x + sw.y + sw.z + sw.w;
+            starHue = (sw.x * s0.y + sw.y * max(s1.y, s2.y) + sw.z * max(s3.y, s4.y) + sw.w * max(s5.y, s6.y)) / max(1e-4, sum);
+            stars = sum * (0.7 + 0.3 * uSkyBlend);   // quieter from orbit
+        }
+        vec3 tint = mix(vec3(0.84, 0.89, 1.0), vec3(1.0, 0.93, 0.83), smoothstep(0.1, 0.9, bulge));
+        vec3 starCol = mix(vec3(0.78, 0.86, 1.0), vec3(1.0, 0.88, 0.72), starHue);
+        mwCol = (tint * I + starCol * stars) * exp(-tau) * (uGain * uExposure * uDisplay);
+        // A brighter sky swallows the band: gone by about 3.4 mag of excess (Bortle 6–7, a full Moon).
+        mwCol *= mix(1.0, 1.0 - smoothstep(0.1, 3.4, ex), uSkyBlend);
     }
-    vec3 tint = mix(vec3(0.84, 0.89, 1.0), vec3(1.0, 0.93, 0.83), smoothstep(0.1, 0.9, bulge));
-    vec3 starCol = mix(vec3(0.78, 0.86, 1.0), vec3(1.0, 0.88, 0.72), starHue);
-    vec3 col = (tint * I + starCol * stars) * exp(-tau) * (uGain * uExposure * uDisplay);
+    vec3 col = mwCol + zlCol;
     if (uSkyBlend > 0.0) {
-        // Extinction flattens the band toward the horizon in sky view.
+        // Extinction flattens the band (and the zodiacal light) toward the horizon in sky view.
         float s = clamp(dot(d, uUp), 0.0, 1.0);
         col *= mix(1.0, smoothstep(0.0, 0.35, s), uSkyBlend);
     }

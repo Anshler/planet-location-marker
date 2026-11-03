@@ -141,13 +141,13 @@ test('max: 8192 maps of the same imagery, each after its 4096 stand-in; only max
     assert.deepEqual(recipeFor('clouds8k').recipe.clamp, [0.2, 1]);
     assert.equal(recipeFor('moon4k').recipe.colour, 'srgb', 'the Moon is filtered in linear light');
     const keys = tierTextureKeys(TIERS.max);
-    assert.deepEqual(keys, ['day4k', 'night4k', 'brc4k', 'moon', 'milkyway', 'flare0', 'flare3', 'day8k', 'night8k', 'clouds8k', 'moon4k']);
+    assert.deepEqual(keys, ['day4k', 'night4k', 'brc4k', 'moon', 'milkyway', 'day8k', 'night8k', 'clouds8k', 'moon4k']);
     for (const [big, small] of [['day8k', 'day4k'], ['night8k', 'night4k'], ['clouds8k', 'brc4k'], ['moon4k', 'moon']]) {
         assert.ok(keys.indexOf(small) < keys.indexOf(big), `${small} shows while ${big} loads`);
     }
     // A GPU under 8192 px keeps the 4096 Earth maps on max, and the 4096 Moon.
     assert.deepEqual(tierTextureKeys(tierConfig('max', { maxTextureSize: 4096 })),
-        ['day4k', 'night4k', 'brc4k', 'moon', 'milkyway', 'flare0', 'flare3', 'moon4k']);
+        ['day4k', 'night4k', 'brc4k', 'moon', 'milkyway', 'moon4k']);
     for (const t of ['low', 'medium', 'high']) {
         for (const cfg of [TIERS[t], tierConfig(t, { maxTextureSize: 4096 })]) {
             for (const key of MAX_ONLY) assert.ok(!tierTextureKeys(cfg).includes(key), `${t} never loads ${key}`);

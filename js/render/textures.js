@@ -42,8 +42,6 @@ export const ASSETS = {
     clouds2k: { url: 'assets/textures/earth_clouds_2048.webp', bytes: 235e3, cs: 'linear' },
     brc4k: { url: 'assets/textures/earth_bump_roughness_clouds_4096.jpg', bytes: 1508e3, cs: 'linear' },
     moon: { url: 'assets/textures/moon_1024.jpg', bytes: 238e3, cs: 'srgb' },
-    flare0: { url: 'assets/textures/lensflare0.png', bytes: 65e3, cs: 'srgb' },
-    flare3: { url: 'assets/textures/lensflare3.png', bytes: 3e3, cs: 'srgb' },
     milkyway: { url: 'data/milkyway.png', bytes: 200e3, cs: 'linear', mipmaps: false },
 };
 
@@ -147,7 +145,6 @@ export function keysForTier(cfg) {
     push(stand(clouds));
     push(stand(moon));
     push('milkyway');
-    if (cfg?.flare) { push('flare0'); push('flare3'); }
     for (const k of [day, night, clouds, moon]) if (interimKeyFor(k)) push(k);
     return { critical: [stand(day), stand(night)], deferred };
 }

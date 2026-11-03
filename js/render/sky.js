@@ -10,12 +10,21 @@
 import * as THREE from 'three';
 import { AE } from '../astro/ae.js';
 import { STAR_VERT, STAR_FRAG, MW_VERT, MW_FRAG, LINE_VERT, LINE_FRAG } from './shaders/sky.glsl.js';
+import { createSkyglowUniforms, applySkyglow } from './skyglow.js';
 
 const DEG = Math.PI / 180;
 const OBLIQUITY_DEG = 23.4392911;
 /** Milky Way brightness: kept subtle from orbit, fuller from a dark site in sky view. */
 const MW_GAIN_ORBIT = 0.18;
 const MW_GAIN_SKY = 0.27;
+/**
+ * Zodiacal light's display gain per natural-sky unit (MW_FRAG zodiacal()): the band 90° from the
+ * Sun stays at the edge of visibility, the cone 30° from it reaches the Milky Way's brightness, as
+ * at a dark site. Medium tier and up.
+ */
+const ZODI_GAIN = 0.009;
+/** Strength of the night-vision grade at full rod vision (postfx uScotopic): subtle by design. */
+const VISION_GAIN = 0.5;
 // Constellation figures: full strength in sky view; from orbit quieter, behind the beams, and
 // receding as the camera pulls back (×clamp(REF / distance, MIN, 1)). The highlighted figure keeps
 // the sky-view strength. The twilight floor goes with the last stars (e < 0.1).
@@ -236,9 +245,20 @@ export function createSky(rc, deps = {}) {
         M[3], M[5], -M[4],
         M[6], M[8], -M[7],
     );
+    // scene → ecliptic of J2000 (the zodiacal light): eqj = (xs, −zs, ys), then Rx(−ε).
+    const ce = Math.cos(OBLIQUITY_DEG * DEG), se = Math.sin(OBLIQUITY_DEG * DEG);
+    const toEcl = new THREE.Matrix3().set(1, 0, 0, 0, se, -ce, 0, ce, se);
+    const sunEcl = new THREE.Vector3(1, 0, 0);
+    // The night sky's brightness (SKYGLOW_CHUNK), shared by the stars and the Milky Way.
+    const sg = createSkyglowUniforms();
+    let sgMilkyWay = 1;
     const blank = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1, THREE.RGBAFormat);
     blank.needsUpdate = true;
     const mwUniforms = {
+        ...sg,
+        uToEcl: { value: toEcl },
+        uSunEcl: { value: sunEcl },
+        uZodi: { value: 0 },
         uMW: { value: blank },
         uMWSize: { value: new THREE.Vector2(1, 1) },
         uDetail: { value: 0 },
@@ -295,6 +315,8 @@ export function createSky(rc, deps = {}) {
 
     // --- Stars ------------------------------------------------------------------------------------
     const starUniforms = {
+        ...sg,
+        uSgLimZen: { value: 6.6 },
         uMagLimit: { value: magLimit },
         uExposure: { value: 1 },
         uPx: { value: 1 },
@@ -494,6 +516,12 @@ export function createSky(rc, deps = {}) {
         obscuration = snap.eclipse && Number.isFinite(snap.eclipse.obscurationAtObserver)
             ? snap.eclipse.obscurationAtObserver : 0;
         upS.set(o.upS[0], o.upS[1], o.upS[2]);
+        applySkyglow(sg, snap);
+        if (snap.skyglow) {
+            starUniforms.uSgLimZen.value = snap.skyglow.limitMag;
+            sgMilkyWay = snap.skyglow.milkyWayMax;
+        }
+        if (snap.sunDirS) sunEcl.set(snap.sunDirS[0], snap.sunDirS[1], snap.sunDirS[2]).applyMatrix3(toEcl);
         northS.set(o.northS[0], o.northS[1], o.northS[2]);
         eastS.set(o.eastS[0], o.eastS[1], o.eastS[2]);
         southS.copy(northS).negate();
@@ -555,9 +583,17 @@ export function createSky(rc, deps = {}) {
         mwUniforms.uDpr.value = Math.max(0.5, dpr);
         mwUniforms.uGain.value = MW_GAIN_ORBIT + (MW_GAIN_SKY - MW_GAIN_ORBIT) * skyBlend;
         mwUniforms.uSkyBlend.value = skyBlend;
+        // Zodiacal light (sky view, medium and up): only under a dark sky, which MW_FRAG checks per
+        // direction; skipped outright when even the darkest part of this site's sky is too bright.
+        const zodi = wantDetail() && skyBlend > 0 && sg.uSgDark.value > 0.001;
+        mwUniforms.uZodi.value = zodi ? ZODI_GAIN : 0;
+        if (rc && rc.setVision) rc.setVision(VISION_GAIN * (Number.isFinite(fi.exposure?.vision) ? fi.exposure.vision : 0));
 
         stars.visible = layers.stars && starExp > 0.001 && starGeometry.drawRange.count > 0;
-        milkyWay.visible = layers.milkyWay && mwReady && exposure.milkyWay > 0.001;
+        // In sky view a bright enough sky (a city's) hides the band everywhere.
+        const mwSky = 1 - skyBlend * (1 - sgMilkyWay);
+        milkyWay.visible = layers.milkyWay && exposure.milkyWay > 0.001
+            && ((mwReady && mwSky > 0.001) || zodi);
         const e = Math.max(0, Math.min(1, starExp));
         // No figure floats on a blue daytime sky.
         const consE = Math.max(e, CONS_FLOOR * smooth(0.02, 0.1, e));

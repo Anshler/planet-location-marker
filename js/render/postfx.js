@@ -106,12 +106,20 @@ vec3 pcFxaa(vec3 hdrM, vec2 uv, vec2 px) {
 #endif
 `;
 
+/**
+ * Night vision (uScotopic, set through rc.setVision from photometry.exposureFor's `vision`: sky
+ * view in low light only): as rods take over from cones the dim sky and land lose colour and shift
+ * toward blue (the Purkinje shift), while bright pixels (stars, planets, the Moon) keep theirs. The
+ * rod weighting (0.06, 0.56, 0.38) approximates the scotopic V′(λ) curve on the sRGB primaries, and
+ * the grade is applied before tone mapping. Illustrative and deliberately subtle (≤ 50 %).
+ */
 const FINAL_FRAG = /* glsl */ `
 ${FINITE_CHUNK}
 uniform sampler2D tDiffuse;
 uniform vec2 uResolution;
 uniform float uVignette;
 uniform float uDither;
+uniform float uScotopic;
 varying vec2 vUv;
 ${FXAA_CHUNK}
 float ign(vec2 p) {
@@ -123,6 +131,10 @@ void main() {
     #ifdef PC_FXAA
     c = pcFxaa(c, vUv, 1.0 / max(uResolution, vec2(1.0)));
     #endif
+    if (uScotopic > 0.0) {
+        float s = uScotopic * (1.0 - smoothstep(0.03, 0.4, dot(c, vec3(0.2126, 0.7152, 0.0722))));
+        c = mix(c, dot(c, vec3(0.06, 0.56, 0.38)) * vec3(0.86, 1.0, 1.40), s);
+    }
     vec2 q = vUv - 0.5;
     q.x *= uResolution.x / max(uResolution.y, 1.0);
     float r = length(q) / length(vec2(0.5 * uResolution.x / max(uResolution.y, 1.0), 0.5));
@@ -160,6 +172,7 @@ function createFinalPass(fxaa) {
             uResolution: { value: new THREE.Vector2(1, 1) },
             uVignette: { value: 0.12 },
             uDither: { value: 1 / 255 },
+            uScotopic: { value: 0 },
         },
         vertexShader: FINAL_VERT,
         fragmentShader: FINAL_FRAG,
@@ -249,6 +262,7 @@ export function createPostFx(renderer, scene, camera, cfg, size) {
     let msaa = 0;
     let bloomCfg = null;
     let useFinal = true;
+    let vision = 0;
 
     /** @type {EffectComposer} */
     let composer = null;
@@ -306,6 +320,7 @@ export function createPostFx(renderer, scene, camera, cfg, size) {
         composer.addPass(finalPass);
         // The scene renders into readBuffer (needsSwap is false everywhere); its depth, if any.
         if (finalPass?.uniforms?.tDepth) finalPass.uniforms.tDepth.value = composer.readBuffer.depthTexture ?? null;
+        if (finalPass?.uniforms?.uScotopic) finalPass.uniforms.uScotopic.value = vision;
         applySize();
     }
 
@@ -343,6 +358,15 @@ export function createPostFx(renderer, scene, camera, cfg, size) {
             h = Math.max(1, nh);
             if (Number.isFinite(ndpr) && ndpr > 0) dpr = ndpr;
             applySize();
+        },
+        /**
+         * Night-vision strength for the final pass (0 = none). An OutputPass (finalPass: false)
+         * has no grade. Cheap: called every rendered frame.
+         * @param {number} s 0…1
+         */
+        setVision(s) {
+            vision = Number.isFinite(s) ? Math.min(1, Math.max(0, s)) : 0;
+            if (finalPass?.uniforms?.uScotopic) finalPass.uniforms.uScotopic.value = vision;
         },
         /** Applies a new tier in place: MSAA, bloom and final-pass changes only. */
         setTier(nextCfg) {

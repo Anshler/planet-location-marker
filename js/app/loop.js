@@ -2,8 +2,8 @@
 //
 //   frame(now): dt = min(now − last, 100)
 //     t = clock.tick(now)
-//     snapshot ('frame' detail) when the observer changed, the clock jumped or sim time moved ≥ 0.5 s
-//         → every module.apply(snap)
+//     snapshot ('frame' detail) when the observer or the sky site changed, the clock jumped or sim
+//         time moved ≥ 0.5 s → snap.skyglow (the night sky at the site) → every module.apply(snap)
 //     readout ('full' detail) at most every 250 ms when sim time or the observer changed → bus 'readout'
 //     moving = rig.update(dt, snap)
 //     render when something is dirty or in motion (camera motion, tweens, time-lapse, intro,
@@ -29,6 +29,7 @@
 
 import { createSnapshot, computeSnapshot } from '../astro/snapshot.js';
 import { exposureFor, skyBrightness } from '../astro/photometry.js';
+import { computeSkyglow } from '../astro/skyglow.js';
 
 /** Recompute the 'frame' snapshot when simulated time has moved this far (ms). */
 export const SNAP_STALE_MS = 500;
@@ -93,7 +94,7 @@ const FEATURE_NAMES = Object.freeze({
  *            attach(renderDeps:object):void, broadcast(method:string, a?:any, b?:any):void,
  *            callModule(m:RenderModule, method:string, a?:any, b?:any, c?:any):boolean, isDisabled(m:RenderModule):boolean,
  *            replaceModule(prev:RenderModule|null, next:RenderModule, name?:string):void,
- *            setDebug(overlay:any):void, setRenderPaused(paused:boolean):void, refreshReadout():void,
+ *            setDebug(overlay:any):void, setRenderPaused(paused:boolean):void, setSkySite(site:object|null):void, refreshReadout():void,
  *            stats():object, dispose():void, readonly running:boolean, readonly rendering:boolean}}
  */
 export function createLoop(deps) {
@@ -105,6 +106,8 @@ export function createLoop(deps) {
 
     const snap = deps.snap ?? createSnapshot();
     const snapFull = deps.snapFull ?? createSnapshot();
+    // The observer's light pollution (astro/skyglow.js SkySite; null = pristine), set by setSkySite.
+    let skySite = deps.skySite ?? null;
 
     // Render stack (attached later in the normal boot).
     let rc = null;
@@ -163,8 +166,10 @@ export function createLoop(deps) {
     let idleLastFrame = false;
 
     // Preallocated per-frame objects.
-    const exposure = { stars: 1, planets: 1, milkyWay: 1 };
+    const exposure = { stars: 1, planets: 1, milkyWay: 1, vision: 0 };
     let expSunAlt = NaN;
+    let expSkyLim = NaN;
+    let expSkyNl = NaN;
     let expBlend = NaN;
     let expObsc = NaN;
     let expLimit = NaN;
@@ -252,19 +257,32 @@ export function createLoop(deps) {
         dirty = true;
     }
 
-    /** fi.exposure from the Sun's altitude, the view blend and (totality's stars) the eclipse. */
-    function updateExposure(sunAlt, skyBlend, obscuration, tierMagLimit) {
-        if (sunAlt === expSunAlt && skyBlend === expBlend && obscuration === expObsc && tierMagLimit === expLimit) return;
+    /**
+     * fi.exposure from the Sun's altitude, the view blend, (totality's stars) the eclipse and the
+     * night sky's own brightness (snap.skyglow: the Moon and light pollution).
+     */
+    function updateExposure(sunAlt, skyBlend, obscuration, tierMagLimit, sky) {
+        const skyLim = sky ? sky.limitMag : NaN, skyNl = sky ? sky.zenithNl : NaN;
+        if (sunAlt === expSunAlt && skyBlend === expBlend && obscuration === expObsc && tierMagLimit === expLimit
+            && Object.is(skyLim, expSkyLim) && Object.is(skyNl, expSkyNl)) return;
         expSunAlt = sunAlt;
         expBlend = skyBlend;
         expObsc = obscuration;
         expLimit = tierMagLimit;
-        const r = exposureFor(sunAlt, skyBlend, exposure, obscuration, tierMagLimit);
+        expSkyLim = skyLim;
+        expSkyNl = skyNl;
+        const r = exposureFor(sunAlt, skyBlend, exposure, obscuration, tierMagLimit, sky ?? null);
         if (r !== exposure && r) {
             exposure.stars = r.stars;
             exposure.planets = r.planets;
             exposure.milkyWay = r.milkyWay;
+            exposure.vision = r.vision ?? 0;
         }
+    }
+
+    /** snap.skyglow for a freshly computed snapshot (snapshots without one are left alone). */
+    function fillSkyglow(s) {
+        if (s.skyglow) computeSkyglow(s, skySite, s.skyglow);
     }
 
     function frame(now) {
@@ -287,6 +305,7 @@ export function createLoop(deps) {
         if (rendering && (observerDirty || jumped || !snapValid || Math.abs(t - snap.tMs) >= SNAP_STALE_MS)) {
             try {
                 computeSnapshot(t, obs, snap, OPT_FRAME);
+                fillSkyglow(snap);
                 snapValid = true;
                 for (let i = 0; i < modules.length; i++) callModule(modules[i], 'apply', snap);
                 if (hooks.onApply) hooks.onApply(snap);
@@ -300,6 +319,7 @@ export function createLoop(deps) {
         if (now - lastFull >= FULL_INTERVAL_MS && (!fullValid || t !== fullT || observerDirty)) {
             try {
                 computeSnapshot(t, obs, snapFull, OPT_FULL);
+                fillSkyglow(snapFull);
                 fullValid = true;
                 fullT = t;
                 lastFull = now;
@@ -312,6 +332,7 @@ export function createLoop(deps) {
                 // Headless: keep the frame snapshot meaningful for snapshot() consumers.
                 try {
                     computeSnapshot(t, obs, snap, OPT_FRAME);
+                    fillSkyglow(snap);
                     snapValid = true;
                 } catch { /* reported above */ }
             }
@@ -342,7 +363,7 @@ export function createLoop(deps) {
 
             const cfg = getTierCfg();
             updateExposure(snap.observer.sunAltDeg, skyBlend, snap.eclipse.obscurationAtObserver,
-                cfg && Number.isFinite(cfg.starMagLimit) ? cfg.starMagLimit : 6);
+                cfg && Number.isFinite(cfg.starMagLimit) ? cfg.starMagLimit : 6, snap.skyglow);
             const motion = moving || !!(rig && rig.tweening) || clock.isAnimating() || introPlaying
                 || pointers.size > 0;
             // Twinkle alone: only while stars are actually shown, and at most ~30 Hz.
@@ -605,6 +626,18 @@ export function createLoop(deps) {
                 snapValid = false;
                 observerDirty = true;
             }
+        },
+        /**
+         * The observer's light pollution (astro/skyglow.js SkySite; null = pristine). Both snapshots'
+         * skyglow is recomputed on the next frame; the caller may pass the same, refilled object.
+         * @param {object|null} site
+         */
+        setSkySite(site) {
+            skySite = site ?? null;
+            snapValid = false;
+            fullValid = false;
+            lastFull = -Infinity;
+            dirty = true;
         },
         /** Forces a full readout on the next frame (e.g. right after the UI mounts). */
         refreshReadout() {

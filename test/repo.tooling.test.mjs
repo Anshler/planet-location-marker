@@ -264,19 +264,19 @@ test('check-size: tier texture selection mirrors keysForTier', () => {
     assert.deepEqual(tierTextureKeys({ dayTex: 'day2k', oceanMask: 'derived', clouds: 'none', flare: false }), ['day2k', 'night2k', 'moon', 'milkyway'],
         'a derived mask loads nothing');
     assert.deepEqual(tierTextureKeys({ dayTex: 'day4k', oceanMask: 'roughness2k', clouds: 'clouds2k', flare: true }),
-        ['day4k', 'night4k', 'roughness2k', 'clouds2k', 'moon', 'milkyway', 'flare0', 'flare3']);
+        ['day4k', 'night4k', 'roughness2k', 'clouds2k', 'moon', 'milkyway']);
     assert.deepEqual(tierTextureKeys({ dayTex: 'day2k', oceanMask: 'roughness2k', clouds: 'clouds2k', flare: true }),
-        ['day2k', 'night2k', 'roughness2k', 'clouds2k', 'moon', 'milkyway', 'flare0', 'flare3'], 'medium on a small GPU');
+        ['day2k', 'night2k', 'roughness2k', 'clouds2k', 'moon', 'milkyway'], 'medium on a small GPU');
     assert.deepEqual(tierTextureKeys({ dayTex: 'day4k', oceanMask: 'roughness', clouds: 'brc4k', flare: true }),
-        ['day4k', 'night4k', 'brc4k', 'moon', 'milkyway', 'flare0', 'flare3']);
-    assert.deepEqual(TIER_BUDGETS, { low: 3.526e6, medium: 4.351e6, high: 5.568e6 });
+        ['day4k', 'night4k', 'brc4k', 'moon', 'milkyway']);
+    assert.deepEqual(TIER_BUDGETS, { low: 3.6e6, medium: 4.4e6, high: 5.6e6 });
     // SPEC §E.6: every tier stays under 6 MB, and the tiers grow with quality.
     assert.ok(TIER_BUDGETS.low < TIER_BUDGETS.medium && TIER_BUDGETS.medium < TIER_BUDGETS.high && TIER_BUDGETS.high < 6e6);
     // max has no budget: it is reported, never enforced. Its 8192 maps follow their 4096 stand-ins.
     assert.deepEqual(INFO_TIERS, ['max']);
     assert.equal(TIER_BUDGETS.max, undefined);
     assert.deepEqual(tierTextureKeys({ dayTex: 'day8k', oceanMask: 'roughness', clouds: 'clouds8k', moonTex: 'moon4k', flare: true }),
-        ['day4k', 'night4k', 'brc4k', 'moon', 'milkyway', 'flare0', 'flare3', 'day8k', 'night8k', 'clouds8k', 'moon4k'], 'max');
+        ['day4k', 'night4k', 'brc4k', 'moon', 'milkyway', 'day8k', 'night8k', 'clouds8k', 'moon4k'], 'max');
     // The staged site carries the max maps (≈ 15 MB) with headroom; GitHub Pages allows 1 GB.
     assert.equal(STAGING_BUDGET, 32e6);
 });

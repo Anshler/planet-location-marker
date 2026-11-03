@@ -29,6 +29,7 @@ import { AU_KM, BODIES, sunAngularRadius } from '../astro/bodies.js';
 import { umbraHorizonGlow, createHorizonGlow } from '../astro/totality.js';
 import { liftByRefraction } from '../astro/photometry.js';
 import { HORIZON_SAMPLES, buildHorizon, createHorizon, urbanIndex } from '../geo/horizon.js';
+import { createSkyglowUniforms, applySkyglow } from './skyglow.js';
 
 const DEG = Math.PI / 180;
 const LOW_SUN_TURBIDITY = 3.5;
@@ -168,6 +169,9 @@ export function createGround(rc, deps = {}) {
     // Totality's 360° glow (umbraHorizonGlow): first harmonic + level, second harmonic axis + amplitude.
     su.uEclH1 = { value: new THREE.Vector4(0, 0, 0, 1) };
     su.uEclH2 = { value: new THREE.Vector4(0, 1, 0, 0) };
+    // The night sky's own light (moonlit sky, city light dome), shared by the dome and the ground.
+    const sg = createSkyglowUniforms();
+    Object.assign(su, sg);
     group.add(sky);
 
     // --- Landscape profile (geo/horizon.js) as a float texture: far, near, sea, silhouette ---------
@@ -205,6 +209,7 @@ export function createGround(rc, deps = {}) {
         uObscuration: su.uObscuration,
         uEclH1: su.uEclH1,
         uEclH2: su.uEclH2,
+        ...sg,
     };
     const groundMaterial = new THREE.ShaderMaterial({
         name: 'ground.hemisphere', uniforms: gUniforms, vertexShader: GROUND_VERT, fragmentShader: GROUND_FRAG,
@@ -320,6 +325,7 @@ export function createGround(rc, deps = {}) {
             ? clamp(snap.eclipse.obscurationAtObserver, 0, 1) : 0;
         su.uSunAltDeg.value = sunAltDeg;
         gUniforms.uSunAltDeg.value = sunAltDeg;
+        applySkyglow(sg, snap);
         su.uObscuration.value = obscuration;
         moonTerms(snap, o.upS);
         // The Sun's glitter: its extinction colour, strongest low over the sea, gone by ~25°.

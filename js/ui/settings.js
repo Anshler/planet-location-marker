@@ -1,6 +1,7 @@
 /**
  * Settings tab: quality (Auto / Low / Medium / High / Max with the running tier),
- * time display zone (Observer / Device / UTC), 24-hour clock, Earth-lock,
+ * time display zone (Observer / Device / UTC), 24-hour clock, sky darkness
+ * (Auto from location / Pristine / Bortle 1–9), Earth-lock,
  * Replay intro, keyboard shortcuts and Reset all settings (with confirmation).
  *
  * @module ui/settings
@@ -11,6 +12,9 @@ import { h, on, setText, segmented, switchRow } from './dom.js';
 import { icon } from './icons.js';
 
 const TIER_NAME = { low: 'Low', medium: 'Medium', high: 'High', max: 'Max' };
+/** Bortle's names for classes 1…9. */
+const BORTLE_NAMES = ['Excellent dark site', 'Typical dark site', 'Rural sky', 'Rural/suburban transition', 'Suburban sky',
+    'Bright suburban sky', 'Suburban/urban transition', 'City sky', 'Inner-city sky'];
 /** Max is never chosen automatically, so its cost is spelled out next to the choice. */
 const MAX_CAPTION = 'Everything at full detail: 8K Earth maps, full screen resolution, every effect at its finest. '
     + 'Large download (about 15 MB more); for fast GPUs.';
@@ -52,6 +56,16 @@ export function mountSettings(root, ctx) {
         onChange: (on24) => store.set({ display: { ...store.get().display, hour12: !on24 } }),
     });
 
+    // Sky darkness (light pollution in sky view; js/astro/skyglow.js).
+    const skyId = 'settings-sky-dark';
+    const skyDark = h('select', { class: 'select', id: skyId },
+        h('option', { value: 'auto' }, 'Auto (from location)'),
+        h('option', { value: 'pristine' }, 'Pristine (no light pollution)'),
+        ...BORTLE_NAMES.map((name, i) => h('option', { value: String(i + 1) }, `Bortle ${i + 1} · ${name}`)));
+    skyDark.value = st0.display?.skyDark || 'auto';
+    const skyHint = h('p', { class: 'setting__hint' });
+    offs.push(on(skyDark, 'change', () => ui.act('setSkyDark', skyDark.value)));
+
     // View.
     const lock = switchRow({
         label: 'Lock view to Earth', keys: ['L'], desc: 'The camera turns with the Earth, so your location stays in view',
@@ -73,6 +87,7 @@ export function mountSettings(root, ctx) {
         h('div', { class: 'section-head' }, h('h2', { class: 'panel-title' }, 'Settings')),
         h('div', { class: 'group' }, h('h3', { class: 'group-title' }, 'Quality'), quality.el, running),
         h('div', { class: 'group' }, h('h3', { class: 'group-title' }, 'Time display'), tzMode.el, tzHint, clock24.el),
+        h('div', { class: 'group' }, h('h3', { class: 'group-title' }, h('label', { for: skyId }, 'Sky darkness')), skyDark, skyHint),
         h('div', { class: 'group' }, h('h3', { class: 'group-title' }, 'View'), lock.el),
         h('div', { class: 'group group--actions' }, h('div', { class: 'btn-row' }, replay, keys), reset, confirm),
         motion);
@@ -107,6 +122,13 @@ export function mountSettings(root, ctx) {
             : mode === 'device' ? `This device’s zone (${ui.offsetText(t)}).`
                 : `${ui.placeShort(st.observer)} time (${ui.offsetText(t)}${st.observer?.tzApprox ? ', approximate' : ''}).`);
         clock24.set(!st.display?.hour12);
+        const sd = st.display?.skyDark || 'auto';
+        if (skyDark.value !== sd) skyDark.value = sd;
+        const sg = ui.snap?.skyglow;
+        setText(skyHint, sd === 'auto'
+            ? `${sg?.auto ? `Estimated Bortle ${sg.bortle} from the cities around ${ui.placeShort(st.observer)}` : 'Estimated from the cities around you'}: moonlight and city glow brighten the sky view and hide faint stars.`
+            : sd === 'pristine' ? 'No light pollution: the sky of a remote dark site, with moonlight only.'
+                : `Bortle ${sd}: the sky of ${BORTLE_NAMES[Number(sd) - 1].toLowerCase()}, wherever you are.`);
         lock.set(!!st.view?.earthLock);
         setText(motion, st.status?.reducedMotion || ui.reducedMotion()
             ? 'Reduced motion is on (system setting): transitions are cuts and the intro is skipped.'
@@ -117,6 +139,12 @@ export function mountSettings(root, ctx) {
     offs.push(store.subscribe((s) => s.view, sync));
     offs.push(store.subscribe((s) => s.observer, sync));
     offs.push(store.subscribe((s) => s.status, sync));
+    // The estimated class arrives with the readouts (snap.skyglow).
+    let lastSky = '';
+    offs.push(ui.on('snap', (snap) => {
+        const key = `${snap?.skyglow?.auto}|${snap?.skyglow?.bortle}`;
+        if (key !== lastSky) { lastSky = key; sync(); }
+    }));
     sync();
 
     return { destroy() { offs.forEach((off) => off()); root.textContent = ''; } };

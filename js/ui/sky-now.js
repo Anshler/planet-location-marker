@@ -201,6 +201,8 @@ export function mountSkyNow(root, ctx) {
                 : sol ? `${moonPhaseName(snap.moonPhaseDeg)} in front of the Sun`
                     : `Moon ${Math.round(moon.phaseFrac * 100)}% lit, ${moonPhaseName(snap.moonPhaseDeg).toLowerCase()}`);
         }
+        const sky = skyDarknessText(snap);
+        if (sky) parts.push(sky);
         return parts.join(' · ');
     }
 
@@ -213,6 +215,23 @@ export function mountSkyNow(root, ctx) {
         update,
         destroy() { offs.forEach((off) => off()); root.textContent = ''; },
     };
+}
+
+/**
+ * The site's sky class and, once the Sun is 15° down, the naked-eye limiting magnitude at the
+ * zenith (Moon and light pollution included; snap.skyglow, js/astro/skyglow.js):
+ * 'Bortle 8 · limiting mag 4.1', by day 'Bortle 8 sky'. Empty without a skyglow.
+ * @param {any} snap
+ * @returns {string}
+ */
+export function skyDarknessText(snap) {
+    const sg = snap?.skyglow;
+    if (!sg || !Number.isFinite(sg.bortle)) return '';
+    const sunAlt = snap.observer?.sunAltDeg;
+    if (Number.isFinite(sunAlt) && sunAlt <= -15 && Number.isFinite(sg.limitMag)) {
+        return `Bortle ${sg.bortle} · limiting mag ${sg.limitMag.toFixed(1)}`;
+    }
+    return `Bortle ${sg.bortle} sky`;
 }
 
 /**

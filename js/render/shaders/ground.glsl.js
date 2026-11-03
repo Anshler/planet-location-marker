@@ -8,6 +8,8 @@
  */
 import { INFINITY_VERT_CHUNK, SMOOTH_FALL_CHUNK } from './sky.glsl.js';
 import { FINITE_CHUNK } from './common.glsl.js';
+// The night sky's own light (moonlit sky, city light dome, airglow): see skyglow.glsl.js.
+import { SKYGLOW_CHUNK } from './skyglow.glsl.js';
 
 /**
  * Azimuthal shape of totality's horizon ring (ground.js, astro/totality.js umbraHorizonGlow):
@@ -43,6 +45,7 @@ uniform float uEclFloor;
 uniform float uLowSun;
 ${SMOOTH_FALL_CHUNK}
 ${ECLIPSE_RING_CHUNK}
+${SKYGLOW_CHUNK}
 vec3 twilightSky(vec3 dir) {
     float h = dot(dir, up);
     // Every argument below is clamped to its function's domain. Two unit vectors' dot can land an
@@ -80,7 +83,9 @@ vec3 twilightSky(vec3 dir) {
     float night = smoothFall(-8.0, -16.0, uSunAltDeg);
     // (ACES' toe crushes these levels about 6x, so the horizon band needs this much to read
     // against the dark ground.)
-    col += (vec3(0.0010, 0.0014, 0.0026) + vec3(0.0105, 0.0140, 0.0180) * exp(-hp / 0.11)) * night;
+    col += skyglowNight(hp) * night;
+    // The moonlit sky and the light dome of nearby cities (skyglow.glsl.js; 0 by day).
+    col += skyglowSky(dir);
     // Solar eclipse: totality's deep-blue sky fades in as the daylight goes (uEclFloor, set by
     // ground.js together with uDayGain so their sum falls steadily to the totality level instead
     // of dipping to black around 2nd/3rd contact): indigo at the zenith, paler toward the horizon.
@@ -258,6 +263,7 @@ uniform vec3 uMoonGlint;
 varying vec3 vDir;
 ${SMOOTH_FALL_CHUNK}
 ${ECLIPSE_RING_CHUNK}
+${SKYGLOW_CHUNK}
 ${LANDSCAPE_CHUNK}
 #ifdef LANDSCAPE_DETAIL
 ${SEA_CHUNK}
@@ -280,6 +286,7 @@ void main() {
     vec3 groundCol = vec3(0.0022, 0.0026, 0.0036) * (1.0 - dayK) + vec3(0.36, 0.35, 0.29) * light
         + vec3(0.038, 0.045, 0.061) * tw + vec3(0.010, 0.0125, 0.017) * uMoonLight
         + vec3(0.006, 0.009, 0.014) * uEclFloor;
+    groundCol += skyglowGround();   // moonlight and city light on the land (skyglow.glsl.js)
     vec3 hazeCol = vec3(0.05, 0.07, 0.12) * (1.0 - dayK) + vec3(0.6, 0.7, 0.85) * dayK * uDayGain
         + vec3(0.03, 0.04, 0.07) * uEclFloor;
     // Warm haze toward the Sun's azimuth around sunrise/sunset.

@@ -243,12 +243,13 @@ from the true Sun direction. The phase you see is therefore correct by construct
   | below | night |
 
 - **Sky-view exposure.** It blends from 1 in orbit view (skyBlend 0) to these curves in sky view:
-  - stars: `max(1 − smoothstep(−18°, −4°, h☉), eclipse term)`;
+  - stars: `min(max(1 − smoothstep(−18°, −4°, h☉), eclipse term), sky term)`;
   - planets: `max(0.15, 1 − 0.85·smoothstep(−8°, 4°, h☉))`;
   - Milky Way: `1 − smoothstep(−20°, −10°, h☉)`.
 
-  Stars fade with the dawn, and Venus and Jupiter stay visible in twilight. The daylight dome is
-  the Preetham–Shirley–Smits analytic sky driven by the true Sun.
+  Stars fade with the dawn, and Venus and Jupiter stay visible in twilight. The sky term is the
+  exposure that puts the star limit at the night sky's own zenith limit (§6a: the Moon and light
+  pollution). The daylight dome is the Preetham–Shirley–Smits analytic sky driven by the true Sun.
 - **Star limit.** The star shader shows stars to `lim = −1 + (m_tier + 1)·√e` for star exposure
   `e`, where `m_tier` is the tier's dark-sky limit (5.0 / 6.0 / 6.5); `starLimitMag` and
   `starExposureForLimit` convert both ways. A star of magnitude m is drawn at
@@ -306,6 +307,85 @@ from the true Sun direction. The phase you see is therefore correct by construct
   mathematical horizon: with the landscape on, the Sun disappears behind a 0.3° ridge about two
   minutes before the printed sunset at mid-latitudes. Turn the layer off to see the flat horizon
   (the old look).
+
+## 6a. Night-sky brightness, light pollution and night vision (`js/astro/skyglow.js`)
+
+The night sky has its own light: airglow, the Moon's scattered light and the glow of cities.
+`computeSkyglow` fills `snap.skyglow` after every snapshot (the frame loop owns the site) and
+`js/render/shaders/skyglow.glsl.js` evaluates the same model per direction. Brightness is kept in
+natural-sky units R = B / B_nat, where B_nat ≈ 54 nL is a dark site's moonless zenith
+(22.0 mag/arcsec²), so a direction's SQM reading is `22.0 − 2.5·log10 R`.
+
+- **Units.** `B(nL) = 34.08·exp(20.7233 − 0.92104·V)` for V in mag/arcsec² (KS91 eq. 1).
+- **Natural sky** (physical). Airglow brightens toward the horizon as it is seen through more of
+  its layer: `R = X·10^(−0.4·k·(X − 1))`, `X = (1 − 0.96·sin²Z)^−½`, k = 0.172 (KS91 eq. 2). That is
+  1 at the zenith and about 2.7 at the horizon.
+- **Moonlit sky** (physical, Krisciunas & Schaefer 1991 eqs. 15–21):
+  `B = f(ρ)·I*·10^(−0.4·k·X(Z_moon))·(1 − 10^(−0.4·k·X(Z)))`, with
+  `f(ρ) = 10^5.36·(1.06 + cos²ρ) + 10^(6.15 − ρ/40)` (Rayleigh plus Mie, ρ ≥ 10°) and
+  `I* = 10^(−0.4·(3.84 + 0.026·|α| + 4·10⁻⁹·α⁴))` for phase angle α. A lunar eclipse scales I* by the
+  Moon's unshadowed light (plus 2·10⁻⁴ for the copper Moon). A full Moon at 60° makes the zenith
+  about 17.9 mag/arcsec²; a quarter Moon about 10× less.
+- **Light pollution** (an estimate). Each city of population P in `data/cities.json` within 300 km
+  adds Walker's law (1977), `I = 0.01·P·d^−2.5` at 45° toward the city, relative to the natural sky.
+  Walker's law diverges near a city, so it is combined harmonically with a city-core cap
+  `40·(P/10⁶)^⅓` (city-centre readings grow slowly with size: about 19.5 for 15 000 people, 18.0 for a
+  million, 17.2 for ten million). With a nearness `n = r²/(r² + d²)` (urban radius
+  `r = 0.006·√P` km), the city adds `W·(n + 0.35·(1 − n))` at the zenith and
+  `W·(1.6·n + (1 − n)·(0.3 + 3.1·lobe))` at the horizon in each of 16 azimuth bins, with
+  `lobe = ((1 + cos Δaz)/2)^(2 + 10·(1 − n))`. Between them the dome falls from the horizon to the
+  zenith value as `(e^(−h/34°) − e^(−90°/34°)) / (1 − e^(−90°/34°))`, which puts a distant city's
+  45° value back on Walker's law. The shape is Garstang-like but fitted, not modelled. Only large
+  cities are listed, so small-town glow is missing. Calibration: Ho Chi Minh City, Paris and New York
+  come out Bortle 9 (SQM 16.6–17.7); Paranal and Mauna Kea come out Bortle 1.
+- **Sky darkness setting.** 'Auto' uses that estimate. A Bortle class 1…9 uses a uniform dome at the
+  class's representative SQM (21.995, 21.94, 21.79, 21.09, 20.0, 19.22, 18.66, 18.09, 17.4), with the
+  horizon 1.6× the zenith. 'Pristine' has no artificial light. The setting is persisted, and a link
+  carries it as `sky=`.
+- **Bortle class** from the moonless zenith SQM, by the lower bounds 21.99, 21.89, 21.69, 20.49,
+  19.50, 18.94, 18.38 and 17.80 for classes 1…8. A reading below 17.80 is class 9.
+- **Limiting magnitude** (`photometry.limitingMag`): `m = 7.93 − 5·log10(10^(4.316 − SQM/5) + 1)`.
+  This is the Schaefer-type fit behind Unihedron's SQM → NELM conversion: 6.6 at 22.0, 6.1 at 21.0,
+  4.1 at 18.2. The zenith value caps the star exposure (above), and the star shader moves each
+  star's limit by its own sky's limit minus the zenith's. So stars near the Moon and under a light
+  dome go first. The Sky panel says 'Bortle 8 · limiting mag 4.1' once the Sun is 15° down, text
+  mode included.
+- **Milky Way and zodiacal light** fade with the local excess over the natural sky,
+  `Δm = 2.5·log10(R / R_nat)`. The Milky Way is scaled by `1 − smoothstep(0.1, 3.4, Δm)`, so it is gone
+  by about Bortle 6–7 or under a full Moon. The zodiacal light uses `1 − smoothstep(0.1, 1.5, Δm)`,
+  so it shows at Bortle 1–4 without the Moon.
+- **Zodiacal light and gegenschein** (illustrative, medium tier and up). These are drawn in the Milky
+  Way pass from a smooth fit to the shape of Leinert et al. (1998, A&AS 127, 1) Table 17, in S10
+  units (1 S10 = 27.78 mag/arcsec², so the natural sky is about 205 S10). On the ecliptic the value
+  is ≈ 230·(90°/Δλ)^1.7 sunward of 90° and ≈ 175 beyond. Off the ecliptic it falls by a 22° Lorentzian
+  in β times cos²β, down to 60 S10 at the poles. The gegenschein adds 50 S10 (9° × 7°) opposite the
+  Sun. The display gain puts the band 90° from the Sun at the edge of visibility and the cone 30°
+  from it near the Milky Way's brightness, faded by extinction toward the horizon and by twilight.
+- **Airglow colour** (illustrative). The horizon airglow band leans from blue-grey toward the green
+  of the 557.7 nm [O I] line under a dark sky (the dark-sky gate at the zenith), subtly, since night
+  vision is nearly colourless.
+- **The dome and the ground** (display mapping, illustrative). In sky view at night, the dome adds
+  the moonlit sky (blue Rayleigh light, a white Mie aureole round the Moon) and the light dome
+  (sodium/LED orange) as `0.0029·R^0.6` in display units. A city's R ≈ 100 reads as a dim orange sky;
+  a full Moon's R ≈ 40 reads as a deep slate blue; R ≲ 5 vanishes in ACES's toe. The ground takes
+  the Moon's and the cities' light at the same scale. Both fade out between h☉ = −12° and −4°.
+- **Night vision** (illustrative). `adaptingLuminance` adds three parts:
+  - the twilight sky's zenith luminance, interpolated in log10 cd/m² through −4.6, −2.6, 0 and 2.2
+    at h☉ = −18°, −12°, −6° and 0° (dimmed by a solar eclipse);
+  - the night sky (1 nL = 10⁻⁵/π cd/m²);
+  - in towns, 0.01 cd/m² per unit of artificial zenith light, for lit streets.
+
+  `scotopicWeight` falls from 1 to 0 across the mesopic range 0.005–3 cd/m² (smoothstep in log L).
+  In sky view the final pass (medium tier and up) mixes dim pixels toward their rod luminance
+  `0.06·R + 0.56·G + 0.38·B`, tinted blue (0.86, 1.0, 1.40), by up to 50 % of that weight. Bright
+  stars, planets and the Moon keep their colour. A dark site is fully scotopic; a city centre stays
+  mesopic. There is no dark-adaptation timer.
+- **Chromatic scintillation** (illustrative, high and max tiers). Dispersion splits each colour's
+  path through the turbulence, so bright low stars flash colours. The star shader adds per-channel
+  phases `(0, 0.9, 1.7)·X` (Kasten–Young airmass) to a ~3 Hz tone, with amplitude
+  `0.45·smoothstep(1.5, 40, F)·(1 − sin h)²` (F = flux relative to magnitude 2.5) around a constant
+  luminance. Sirius on the horizon cycles through green, pink and orange. Reduced motion turns
+  twinkle off, and twinkle-only frames stay capped at 30 Hz.
 
 ---
 
@@ -583,6 +663,16 @@ and AE's contacts to 0.1 s; the shapes are illustrative.
   Cartographic Coordinates and Rotational Elements: 2015", *Celest. Mech. Dyn. Astr.* 130, 22.
 - **Daylight sky.** A. J. Preetham, P. Shirley & B. Smits (1999), "A Practical Analytic Model for
   Daylight", SIGGRAPH '99.
+- **Moonlit and natural night sky.** K. Krisciunas & B. E. Schaefer (1991), "A model of the
+  brightness of moonlight", *PASP* 103, 1033.
+- **Light pollution.** M. F. Walker (1977), "The effects of urban lighting on the brightness of the
+  night sky", *PASP* 89, 405. Shape after R. H. Garstang (1986), *PASP* 98, 364.
+- **Limiting magnitude.** B. E. Schaefer (1990), "Telescopic limiting magnitudes", *PASP* 102, 212,
+  in the SQM → NELM form used by Unihedron.
+- **Bortle scale.** J. E. Bortle (2001), "Introducing the Bortle Dark-Sky Scale", *Sky & Telescope*
+  101(2), 126. SQM bounds as commonly tabulated.
+- **Zodiacal light.** Ch. Leinert et al. (1998), "The 1997 reference of diffuse night sky
+  brightness", *A&AS* 127, 1 (Table 17, shape only).
 - **Star data.** ESA (1997), *The Hipparcos and Tycho Catalogues*, ESA SP-1200, via d3-celestial
   (Olaf Frohn, BSD-3-Clause).
 - **Cities.** GeoNames gazetteer, CC BY 4.0.

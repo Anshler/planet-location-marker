@@ -321,7 +321,10 @@ void main() {
         vec4 P = horizonAt(az);
         float w = clamp(0.75 * fwidth(hDeg), 0.003, 0.3);
         a = 1.0 - smoothstep(-w, w, hDeg - P.a);
-        float above = smoothstep(-w, w, hDeg);
+        // Trees and roofs stand on ground nearer than the horizon (a couple of km out, about 0.06°
+        // below it): their silhouette carries on down to there, so a telescope field does not cut
+        // a roof or crown in two at the mathematical horizon.
+        float above = smoothstep(-w, w, hDeg + min(P.g, 0.06));
 #ifdef LANDSCAPE_DETAIL
         // The far ridge, tens of km out, is washed into the haze; the near band of trees or roofs
         // is a dark, backlit silhouette.

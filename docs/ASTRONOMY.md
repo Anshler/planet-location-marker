@@ -328,11 +328,11 @@ The true-scale Sun, Moon and Earth geometry gives eclipses without special cases
   eclipse, 100.0 % of the Sun covered". The panel now says *Total* exactly while the obscuration
   is 1.
 - **Sky view in a solar eclipse.** The Sun's glare scales with the part of the disc left visible
-  (adapted as `(1 − obscuration)^0.56`, like the daylight), the ground darkens with the sky, and
-  past 98.5 % a compact pearly corona (e-folding 0.2°) takes over. In totality (obscuration
-  exactly 1) the photosphere is not drawn at all. Otherwise the disc's 1 px anti-aliased rim, and
-  its 3 px minimum size in a wide view, left a ring of sunlight around the Moon. The stars follow
-  §6.
+  (adapted as `(1 − obscuration)^0.56`, like the daylight), and the ground darkens with the sky.
+  In totality (obscuration exactly 1) the photosphere is not drawn at all. Otherwise the disc's
+  1 px anti-aliased rim, and its 3 px minimum size in a wide view, left a ring of sunlight around
+  the Moon. The stars follow §6. Totality has its own subsection below.
+
 - **Flags.** The snapshot flags `eclipse.solar` and `eclipse.lunar` when the geocentric Sun–Moon
   separation is under 1.6°, or the Moon–antisun separation is under 1.65°.
 - **Eclipse magnitudes.** `AE.Illumination` ignores shadows, so the snapshot dims the magnitudes
@@ -357,6 +357,55 @@ The true-scale Sun, Moon and Earth geometry gives eclipses without special cases
   of the published point of greatest eclipse (31.3° S, 48.5° W; tested in
   `test/app.actions.test.mjs`).
 
+### Totality from the ground (`js/astro/totality.js`, `render/bodies.js`, `render/totality.js`)
+
+Everything is placed by the snapshot's Sun–Moon `dirS` pair, the discs that give the obscuration
+and AE's contacts to 0.1 s; the shapes are illustrative.
+
+- **The last crescent.** Once it is under ~1.6 px wide, the Sun shader stops drawing the disc's
+  anti-aliased rim (which lit ±45° of limb at FOV 5°) and draws the sliver as a one-pixel ring just
+  outside the limb, carrying its true width `w(θ) = ρ☉ − (b + √(b² − σ² + ρ☾²))`, `b = ê(θ)·δ`
+  (δ the Moon's offset on screen, σ = |δ|): flux-conserving, correctly long.
+- **Display adaptation.** The eye, adapted to the darkening sky, sees the last crescent and the
+  beads dazzle: with `L = (1 − obscuration)^1.4` the photosphere is drawn ×`(L/0.02)^−0.6`
+  (1 until 2 % of the light is left, capped at 40), so the crescent totals ∝ `L^0.4` like the
+  daylight (`photosphereAdapt`).
+- **Baily's beads and the diamond ring.** `bailysBeads` samples the limb ±60° around the contact
+  point every 0.25°, against a fixed 720-entry lunar limb profile (harmonics plus 46 seeded
+  mountains and valleys, ±2.2″, counted from the Moon's IAU north pole). A bead is a run where the
+  profile opens the limb beyond the smooth-limb crescent; its flux uses linear limb darkening.
+  At Luxor the smooth-limb gap closes at 0.39″/s; beads exist from about 20 s before second
+  contact to 5 s after it (and mirror at third), the brightest carrying ~10⁻⁵ of the Sun one
+  second after C2. Up to eight are drawn as HDR point sprites (`render/totality.js`), as the
+  larger of their share of the adapted photosphere and a zoom-independent point-source floor;
+  bloom and the lens flare's starburst (moved to the brightest bead, at most 45 %) make the
+  diamond ring, and the low tier gets six analytic rays. The profile is not LOLA/Watts data and
+  ignores libration: bead count and timing are typical, not predicted.
+- **Corona** (`DISC_FRAG`, `SUN_ECLIPSE`). Baumbach's K+F law
+  `I(ρ) = 0.0532ρ^−2.5 + 1.425ρ^−7 + 2.565ρ^−17` (10⁻⁶ of the mean disc), shown as `1.05·I^0.743`
+  so the 1250:1 range from ρ 1.05 to 4 fits a display. Ludendorff flattening stretches the
+  isophotes along the solar equator, ε from 0.04 at maximum to 0.30 at minimum on an idealised
+  11-year cycle phased to cycle 25 (2027-08-02: ε ≈ 0.17). Four helmet streamers at seeded
+  latitudes (narrower near solar minimum), polar plumes and fibrous noise in (θ, log ρ) are seeded
+  by the UTC date, oriented by the Sun's IAU rotation pole (`AE.RotationAxis('Sun')` →
+  `snap.sunPoleS`) projected on screen. It fades in as `1 / (1 + √(L / 2·10⁻⁵))`, faint with 1 % of
+  the Sun left and full at second contact (`coronaVisibility`). A stylised minimum size, like the
+  planet glyphs': the outer corona is stretched about the limb until its ρ = 3 isophote is at
+  least 30 CSS px from the centre (at FOV 70° the true one is ~9 px); the inner corona stays on
+  the limb.
+- **Chromosphere and prominences.** A pink H-alpha rim at least 2.5 px tall flashes on the
+  contact limb from 3″ before second contact and fades over ~20 s (`chromosphereFlash`); four
+  seeded prominences, one 0.14–0.20 R☉ (it clears this eclipse's 0.07 R☉ lunar overhang), the
+  rest 0.04–0.08 R☉. The Moon's depth pass hides whatever lies behind its disc, so both show only
+  where its limb really uncovers them. Invented, not a prediction.
+- **360° horizon.** In totality the dome is indigo at the zenith and a yellow-orange band shading
+  to rose glows all round the horizon: sunlight scattered from outside the umbra. Its azimuthal
+  shape comes from the umbra's edge distance: walking `t` km along azimuth `az` shifts the Moon's
+  apparent centre by `−t·g⊥/D`, the edge is where `|δ − t·g⊥/D| = ρ☾ − ρ☉`, and the glow per
+  azimuth is `exp(−t / 100 km)`, fitted by its mean and two harmonics (`umbraHorizonGlow`). With
+  a high Sun it is brightest toward the nearest edge; with a low one the stretched shadow darkens
+  the Sun's azimuth. The ground catches a little of the light.
+
 ---
 
 ## 8. Accuracy budget
@@ -368,6 +417,7 @@ The true-scale Sun, Moon and Earth geometry gives eclipses without special cases
 | Frame consistency: our Earth matrix against `Rotation_EQJ_HOR` | 0.007″ measured | The test bound is 0.05″ over 300 random epochs and sites, 1900–2150. |
 | Drawn (astrometric) against tabulated (apparent) direction | ≤ 20.8″ measured | Annual aberration. Refraction is added on top in the tables. The Moon's `dirS` is made astrometric too, so drawn Sun–Moon and star–Moon separations are the apparent ones (§4). |
 | Eclipse contacts at the observer (obscuration, sky-view discs, panel) against `AE.SearchLocalSolarEclipse` | < 0.1 s measured | Same discs and radii as AE. The 0.5 s frame-snapshot cadence bounds the visible lag. |
+| Baily's beads, corona, prominences | illustrative | Placed by the true contact geometry, but the limb profile (±2.2″, no libration) and the corona's streamers, plumes and prominences are invented per date. Bead timing is typical to a few seconds. |
 | Pin on a sphere against the WGS84 ellipsoid | ≤ 21 km in position | ≤ 11″ on the Moon's direction from the pin (globe view, the umbra on the globe), negligible for everything farther. The sky view and the observer's obscuration use AE's WGS84 topocentric directions. The zenith direction is exact (geodetic). |
 | Beam far endpoint at 2000 Earth radii | `camDist / 2000` rad | 0.1° at the default 3.4 ER view. The beam is a line from the pin, so seen from elsewhere it converges at 2000 ER. |
 | Polar motion (ignored) | ≤ 0.5″ (≈ 15 m) | |

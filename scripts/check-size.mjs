@@ -8,7 +8,7 @@
 // Raw bytes on disk are budgeted (1 MB = 10⁶ B); gzip "wire" sizes are informational
 // (GitHub Pages compresses JS/CSS/JSON/SVG/HTML).
 //
-//   low ≤ 3.35 MB · medium ≤ 4.25 MB · high ≤ 5.4 MB · staged site ≤ 12 MB
+//   low ≤ 3.4 MB · medium ≤ 4.25 MB · high ≤ 5.45 MB · staged site ≤ 12 MB
 //   SPEC §E.6 set 3.0 / 3.6 / 4.8 MB from an estimate of ≈ 1.35 MB of JavaScript. The shipped,
 //   unminified-by-design module graph (no build step) measures ≈ 2.0 MB raw incl. CSS
 //   (≈ 0.6 MB gzipped; three.js + astronomy-engine alone are 1.17 MB raw), so the budgets were
@@ -29,7 +29,8 @@ import { siteFiles } from './stage-site.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MB = 1e6, KB = 1e3;
 
-export const TIER_BUDGETS = { low: 3.35 * MB, medium: 4.25 * MB, high: 5.4 * MB };
+// low and high +50 KB for totality (astro/totality.js, render/totality.js and the Sun shader's eclipse branch, ≈ 48 KB raw).
+export const TIER_BUDGETS = { low: 3.4 * MB, medium: 4.25 * MB, high: 5.45 * MB };
 export const STAGING_BUDGET = 12 * MB;
 export const FILE_BUDGETS = {
     'data/milkyway.png': 250 * KB,

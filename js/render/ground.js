@@ -17,6 +17,8 @@ import { Sky } from 'three/addons/objects/Sky.js';
 import { GROUND_VERT, GROUND_FRAG, SKY_PATCHES } from './shaders/ground.glsl.js';
 import { skyViewExposure, groundCover } from './sky.js';
 import { extinctionRGB } from './bodies.js';
+import { AU_KM, BODIES, sunAngularRadius } from '../astro/bodies.js';
+import { umbraHorizonGlow, createHorizonGlow } from '../astro/totality.js';
 
 const DEG = Math.PI / 180;
 const LOW_SUN_TURBIDITY = 3.5;
@@ -77,6 +79,9 @@ export function createGround(rc) {
     su.uDisplay = { value: 1 };
     su.uSunTint = { value: new THREE.Vector3(1, 1, 1) };
     su.uLowSun = { value: 0 };
+    // Totality's 360° glow (umbraHorizonGlow): first harmonic + level, second harmonic axis + amplitude.
+    su.uEclH1 = { value: new THREE.Vector4(0, 0, 0, 1) };
+    su.uEclH2 = { value: new THREE.Vector4(0, 1, 0, 0) };
     group.add(sky);
 
     // --- Ground + haze ----------------------------------------------------------------------------
@@ -90,6 +95,10 @@ export function createGround(rc) {
         // The sky's eclipse terms (eclipseGains): the daylit ground darkens with the sky.
         uDayGain: { value: 1 },
         uEclFloor: { value: 0 },
+        // Totality: the land and haze catch the horizon ring's light (shared with the dome).
+        uObscuration: su.uObscuration,
+        uEclH1: su.uEclH1,
+        uEclH2: su.uEclH2,
     };
     const groundMaterial = new THREE.ShaderMaterial({
         name: 'ground.hemisphere', uniforms: gUniforms, vertexShader: GROUND_VERT, fragmentShader: GROUND_FRAG,
@@ -111,6 +120,7 @@ export function createGround(rc) {
     let obscuration = 0;
     let lastBlend = 0;
     const ext = [1, 1, 1];
+    const glow = createHorizonGlow();
 
     function apply(snap) {
         if (!snap || !snap.observer) return;
@@ -142,6 +152,22 @@ export function createGround(rc) {
         // below the horizon, so twilight keeps its look.
         su.uLowSun.value = low * smooth(-3, 0, sunAltDeg);
         eclipseGains(lastBlend);
+        // Totality's horizon ring: brightest toward the umbra's nearest edge.
+        if (obscuration > 0.98 && snap.bodies) {
+            const s = snap.bodies[0], mo = snap.bodies[1];
+            const moonKm = mo.distAU * AU_KM;
+            umbraHorizonGlow(s.dirS, mo.dirS, sunAngularRadius(s.distAU), Math.asin(Math.min(1, BODIES[1].radiusKm / moonKm)),
+                moonKm, o.northS, o.eastS, glow);
+        } else {
+            glow.inUmbra = false;
+        }
+        if (glow.inUmbra) {
+            su.uEclH1.value.set(glow.h1[0], glow.h1[1], glow.h1[2], glow.level);
+            su.uEclH2.value.set(glow.d2[0], glow.d2[1], glow.d2[2], glow.a2);
+        } else {
+            su.uEclH1.value.set(0, 0, 0, 1);
+            su.uEclH2.value.w = 0;
+        }
     }
 
     /**

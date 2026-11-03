@@ -269,7 +269,7 @@ test('check-size: tier texture selection mirrors keysForTier', () => {
         ['day2k', 'night2k', 'roughness2k', 'clouds2k', 'moon', 'milkyway', 'flare0', 'flare3'], 'medium on a small GPU');
     assert.deepEqual(tierTextureKeys({ dayTex: 'day4k', oceanMask: 'roughness', clouds: 'brc4k', flare: true }),
         ['day4k', 'night4k', 'brc4k', 'moon', 'milkyway', 'flare0', 'flare3']);
-    assert.deepEqual(TIER_BUDGETS, { low: 3.35e6, medium: 4.25e6, high: 5.4e6 });
+    assert.deepEqual(TIER_BUDGETS, { low: 3.4e6, medium: 4.25e6, high: 5.45e6 });
     // SPEC §E.6: every tier stays under 6 MB, and the tiers grow with quality.
     assert.ok(TIER_BUDGETS.low < TIER_BUDGETS.medium && TIER_BUDGETS.medium < TIER_BUDGETS.high && TIER_BUDGETS.high < 6e6);
 });

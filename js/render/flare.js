@@ -6,7 +6,9 @@
  * Moon (so it fades smoothly as the Sun rises over the limb from orbit, and dims through a solar
  * eclipse), times the horizon in sky view and an off-screen fade; changes ease in over ~150 ms.
  * In sky view the Moon's share is the snapshot's obscurationAtObserver, the geometry the bodies
- * module draws there; from orbit it is the geocentric Moon seen from the camera.
+ * module draws there; from orbit it is the geocentric Moon seen from the camera. Near second and
+ * third contact of a total eclipse the starburst moves to the brightest Baily's bead
+ * (snap.eclipse.beads) and shines with the beads' light: the diamond ring.
  */
 import * as THREE from 'three';
 import { MOON_RADIUS_ER, SUN_ANG_RADIUS_1AU_RAD, sunAngularRadius } from '../astro/bodies.js';
@@ -28,6 +30,10 @@ const SUN_COLOR = [1.0, 0.95, 0.85];
 const FLARE_DAY_GAIN = 3;
 /** Cap on the flare's red/green ratio in sky view (3 left it paler than the extincted Sun below ~2.5°). */
 const LOW_SUN_FLARE_RG = 8;
+/** Beads' solar-flux share at which the diamond ring's starburst is at full strength. */
+const RING_FLUX = 3e-5;
+/** The diamond ring's starburst strength (of the full Sun's): the halo otherwise floods the Moon. */
+const RING_FLARE = 0.45;
 const DEG = Math.PI / 180;
 
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
@@ -121,6 +127,9 @@ export function createFlare(rc, deps = {}) {
     let obscuration = 0;
     let vis = 0;
     let haveSnap = false;
+    const beadDir = new THREE.Vector3(1, 0, 0);
+    let beadTotal = 0;
+    let beadGap = Infinity;
     const invalidateSoon = () => { if (rc && rc.invalidate) rc.invalidate(); };
 
     function apply(snap) {
@@ -132,6 +141,10 @@ export function createFlare(rc, deps = {}) {
         obscuration = Number.isFinite(ob) ? clamp(ob, 0, 1) : 0;
         if (snap.moonPosS) moonPos.set(snap.moonPosS[0], snap.moonPosS[1], snap.moonPosS[2]);
         if (snap.observer) up.set(snap.observer.upS[0], snap.observer.upS[1], snap.observer.upS[2]);
+        const b = snap.eclipse && snap.eclipse.beads;
+        beadTotal = b && b.count > 0 && Number.isFinite(b.total) ? b.total : 0;
+        beadGap = beadTotal > 0 ? b.gapArcsec : Infinity;
+        if (beadTotal > 0) beadDir.set(b.dirS[0], b.dirS[1], b.dirS[2]);
         haveSnap = true;
     }
 
@@ -177,7 +190,21 @@ export function createFlare(rc, deps = {}) {
                 const sepM = Math.acos(clamp(toMoon.multiplyScalar(1 / dm).dot(sunDir), -1, 1));
                 visM = discVisible(sunR, moonR, sepM);
             }
+            const unmooned = target;
             target *= visM + (1 - obscuration - visM) * skyBlend;
+            // Diamond ring: the starburst moves onto the brightest bead (sky view), fading in over
+            // the last 8″ → 4″ of crescent.
+            if (skyBlend > 0 && beadTotal > 0) {
+                tmp.copy(beadDir).applyMatrix4(rot);
+                clip.set(tmp.x, tmp.y, tmp.z, 1).applyMatrix4(cam.projectionMatrix);
+                if (clip.w > 1e-6) {
+                    const ring = RING_FLARE * skyBlend * Math.min(1, Math.sqrt(beadTotal / RING_FLUX)) * smooth(8, 4, beadGap);
+                    if (ring > target) {
+                        nx = clip.x / clip.w; ny = clip.y / clip.w;
+                        target = Math.max(target, unmooned * ring);
+                    }
+                }
+            }
             // Sky view: the ground hides the Sun below the astronomical horizon; extinction dims it.
             if (skyBlend > 0) {
                 const sinAlt = sunDir.dot(up);

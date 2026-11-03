@@ -3,6 +3,7 @@
  * Every fragment shader ends with the tonemapping/colorspace includes (SPEC R6).
  */
 import { INFINITY_VERT_CHUNK } from './sky.glsl.js';
+import { FINITE_CHUNK } from './common.glsl.js';
 
 const TONE = /* glsl */`
     #include <tonemapping_fragment>
@@ -27,11 +28,124 @@ void main() {
 `;
 
 /**
+ * Totality in sky view (the Sun's material only, under #define SUN_ECLIPSE; the Moon aureole shares
+ * DISC_FRAG without it). Every term sits behind a uniform branch, so outside eclipses the material
+ * neither recompiles nor pays for it. The Moon's depth pre-pass hides whatever lies behind its disc,
+ * so the chromosphere and prominences show only where its limb uncovers them, near second and third
+ * contact (bodies.js; js/astro/totality.js has the pure parts).
+ * - Thin crescent (uThin): the sub-pixel sliver between the limbs as a one-pixel ring just outside
+ *   the Sun's limb carrying the sliver's true width w(θ) = ρ☉ − far Moon limb (flux-conserving),
+ *   instead of the disc's anti-aliasing fringe, which lit ±45° of limb at FOV 5°.
+ * - Corona (uTotality): Baumbach's K+F radial law I(ρ) = 0.0532ρ^-2.5 + 1.425ρ^-7 + 2.565ρ^-17
+ *   mapped to display as 1.05·I^0.743 (ρ 1.08 → 1.5, ρ 4 → 0.01; the 1250:1 range compressed to
+ *   ~150:1), Ludendorff flattening along the solar equator, four helmet streamers, polar plumes and
+ *   fibrous noise in (θ, log ρ), oriented by the Sun's rotation pole on screen (uPoleUv). The outer
+ *   corona is stretched to a minimum size (uCorStretch). Illustrative: seeded by date, not predicted.
+ * - Chromosphere (uChromo, the flash at the contacts; ≥ 2.5 px) and four prominences, H-alpha pink
+ *   laid over the corona rather than added to it, which ACES turned white.
+ */
+const ECLIPSE_CHUNK = /* glsl */`
+#ifdef SUN_ECLIPSE
+${FINITE_CHUNK}
+uniform float uSunR;        // true angular radius (rad)
+uniform float uTotality;    // corona, prominences: 0 skips the branch
+uniform float uThin;        // thin-crescent ring: 0 skips it
+uniform float uChromo;      // chromosphere flash
+uniform vec3 uMoon;         // Moon centre offset from the Sun (xy, rad, quad axes) and its radius (z)
+uniform vec3 uLimbColor;    // the limb's HDR colour for the thin crescent
+uniform vec3 uCoronaColor;  // corona tint (extinction × display)
+uniform float uCorStretch;  // >= 1
+uniform vec2 uPoleUv;       // solar north on screen (unit, quad axes)
+uniform float uCorFlat;     // Ludendorff flattening
+uniform float uCorSeed;
+uniform vec4 uStrPA;        // helmet streamers: position angle from solar north (rad)
+uniform vec4 uStrW;         //   base half-width (rad)
+uniform vec4 uStrG;         //   gain
+uniform vec4 uPromPA;       // prominences: position angle (rad)
+uniform vec4 uPromH;        //   height (solar radii)
+uniform vec4 uPromW;        //   half-width (rad)
+float eclHash(float n) { return fract(sin(n) * 43758.5453123); }
+// Value noise, periodic in x with period p (cells), seeded by date.
+float eclNoise(vec2 x, float p) {
+    vec2 i = floor(x);
+    vec2 f = x - i;
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    float i0 = mod(i.x, p), i1 = mod(i.x + 1.0, p);
+    float s = uCorSeed * 61.0 + i.y * 157.0;
+    float a = eclHash(i0 + s), b = eclHash(i1 + s);
+    float c = eclHash(i0 + s + 157.0), d = eclHash(i1 + s + 157.0);
+    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
+}
+// Wraps angles to [-pi, pi).
+vec4 eclWrap(vec4 a) { return a - 6.2831853 * floor((a + 3.1415927) / 6.2831853); }
+vec3 eclipseLight(vec2 uv, float q, float r) {
+    vec3 c = vec3(0.0);
+    vec2 n = q > 1e-6 ? uv / q : vec2(0.0, 1.0);
+    if (uThin > 0.0) {
+        float b = dot(n, uMoon.xy);
+        float far = b + sqrt(max(b * b - dot(uMoon.xy, uMoon.xy) + uMoon.z * uMoon.z, 0.0));
+        float w = max(uSunR - far, 0.0);
+        // One-pixel tent (unit integral) centred a quarter pixel outside the drawn limb.
+        float k = max(1.0 - abs(r - uCoreR - 0.25 * uEdge) / uEdge, 0.0) / uEdge;
+        c += uLimbColor * (w * k * uThin);
+    }
+    if (uTotality > 0.0 || uChromo > 0.0) {
+        float rho = max(r / uSunR, 1.0);
+        float cth = dot(n, uPoleUv);
+        float sth = n.x * uPoleUv.y - n.y * uPoleUv.x;
+        float pa = atan(sth, cth);
+        float eq = sth * sth;                         // 1 on the solar equator, 0 at the poles
+        // Chromosphere (0.012 R☉, at least 2 px) and prominences, in drawn radii.
+        float hgt = r / uCoreR - 1.0;
+        float px = uEdge / uCoreR;
+        float hc = max(0.012, 2.5 * px);
+        float chromo = smoothstep(-px, 0.0, hgt) * (1.0 - smoothstep(0.7 * hc, hc, hgt));
+        vec4 dp = eclWrap(pa - uPromPA) / uPromW;
+        vec4 ph = max(uPromH, 2.0 * px) * max(1.0 - 0.5 * dp * dp, 0.0);
+        vec4 prom = exp(-0.7 * dp * dp) * (1.0 - smoothstep(vec4(0.75), vec4(1.0), hgt / max(ph, vec4(1e-4)))) * step(0.0, hgt);
+        float fl = eclNoise(vec2(pa * 29.921129, hgt * 60.0), 188.0);
+        float pink = clamp(chromo * uChromo + dot(prom, vec4(1.0)) * (0.6 + 0.8 * fl) * uTotality, 0.0, 1.0);
+        vec3 cor = vec3(0.0);
+        if (uTotality > 0.0) {
+            // Outer corona stretched to its minimum size, flattened along the equator further out.
+            float rc = 1.0 + (rho - 1.0) / uCorStretch;
+            float re = 1.0 + (rc - 1.0) / (1.0 + 2.2 * uCorFlat * eq * smoothstep(1.1, 2.2, rc));
+            float L = log(max(re, 1.0));
+            float I = 0.0532 * exp(-2.5 * L) + 1.425 * exp(-7.0 * L) + 2.565 * exp(-17.0 * L);
+            // Helmet streamers: lobes in position angle that narrow into stalks outward.
+            float Lc = log(max(rc, 1.0));
+            vec4 d = eclWrap(pa - uStrPA);
+            vec4 wd = uStrW * (0.35 + 0.65 * exp(-0.9 * Lc));
+            float st = dot(uStrG, exp(-(d * d) / (wd * wd)));
+            I *= 1.0 + st * smoothstep(1.03, 1.4, rc) * (0.5 + 1.6 * Lc);
+            // Polar regions: fainter further out, combed into plumes.
+            float pole = (1.0 - eq) * (1.0 - eq);
+            float plume = eclNoise(vec2(pa * 11.459156, 0.0), 72.0);
+            I *= mix(1.0, 0.45 + 1.3 * plume * plume, pole * smoothstep(1.04, 1.5, rc));
+            // Fibrous texture along the field: fine in angle, slow in log ρ, stronger outward.
+            float fib = eclNoise(vec2(pa * 25.464791, Lc * 3.0), 160.0) + 0.5 * eclNoise(vec2(pa * 50.929582, Lc * 6.0 + 7.0), 320.0);
+            I *= 1.0 + (fib - 0.75) * mix(0.25, 0.5, smoothstep(1.1, 2.0, rc));
+            // Display: 1.05·I^0.743 puts the inner corona (ρ 1.08) near 1.5, so only a thin ring
+            // blooms; near 4 it bloomed a grey veil over the Moon and drowned the pink.
+            float disp = 1.05 * exp(0.743 * log(max(I, 1e-9)));
+            vec3 tint = mix(vec3(1.0, 0.94, 0.86), vec3(0.94, 0.96, 1.0), smoothstep(1.2, 3.0, rc));
+            cor = uCoronaColor * tint * (disp * uTotality);
+        }
+        // H-alpha pink over the corona (display-referred: added to the near-white inner corona, ACES
+        // turned it white), saturated and just above the bloom threshold.
+        c += mix(cor, uCoronaColor * vec3(1.9, 0.13, 0.28), pink);
+    }
+    return pcFinite(c);
+}
+#endif
+`;
+
+/**
  * Limb-darkened HDR core (at least a few px wide) plus a two-scale glow that fades at the quad edge.
  * Premultiplied output (blend ONE, ONE_MINUS_SRC_ALPHA): the glow is purely additive, and the core
  * hides uOcclude of the sky behind it. In sky view the real disc outshines the air in front of it
  * many times over; added to a sky of similar display brightness, a low Sun's extinction colour
- * washed out to cream under ACES.
+ * washed out to cream under ACES. The Sun's material adds the totality terms (ECLIPSE_CHUNK).
  */
 export const DISC_FRAG = /* glsl */`
 uniform float uTanR;
@@ -43,6 +157,7 @@ uniform float uGlowScale;
 uniform float uGlowGain;
 uniform float uOcclude;
 varying vec2 vUv;
+${ECLIPSE_CHUNK}
 void main() {
     float q = length(vUv);
     if (q >= 1.0) discard;
@@ -51,8 +166,13 @@ void main() {
     float limb = 1.0 - 0.6 * (1.0 - sqrt(1.0 - x * x));
     float disc = 1.0 - smoothstep(uCoreR - uEdge, uCoreR + uEdge, r);
     float glow = uGlowGain * (exp(-r / uGlowScale) + 0.12 * exp(-r / (4.0 * uGlowScale)));
-    glow *= 1.0 - smoothstep(0.65, 1.0, q);
-    gl_FragColor = vec4(uCoreColor * (disc * limb) + uGlowColor * glow, uOcclude * disc * limb);
+    float win = 1.0 - smoothstep(0.65, 1.0, q);
+    glow *= win;
+    vec3 ecl = vec3(0.0);
+#ifdef SUN_ECLIPSE
+    ecl = eclipseLight(vUv, q, r) * win;
+#endif
+    gl_FragColor = vec4(uCoreColor * (disc * limb) + uGlowColor * glow + ecl, uOcclude * disc * limb);
     ${TONE}
 }
 `;

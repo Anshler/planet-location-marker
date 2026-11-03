@@ -10,6 +10,25 @@ import { INFINITY_VERT_CHUNK, SMOOTH_FALL_CHUNK } from './sky.glsl.js';
 import { FINITE_CHUNK } from './common.glsl.js';
 
 /**
+ * Azimuthal shape of totality's horizon ring (ground.js, astro/totality.js umbraHorizonGlow):
+ * f = level · (1 + h1·d̂ + a2·(2(d2·d̂)² − 1)) for the horizontal direction d̂ = dH / dl, at least
+ * 15 % of the level. uEclH1 = (h1, level), uEclH2 = (d2, a2).
+ */
+const ECLIPSE_RING_CHUNK = /* glsl */`
+uniform vec4 uEclH1;
+uniform vec4 uEclH2;
+float eclipseRing(vec3 dH, float dl) {
+    float f = 1.0;
+    if (dl > 1e-5) {
+        vec3 dn = dH / dl;
+        float c2 = dot(dn, uEclH2.xyz);
+        f += dot(dn, uEclH1.xyz) + uEclH2.w * (2.0 * c2 * c2 - 1.0);
+    }
+    return max(f, 0.15) * uEclH1.w;
+}
+`;
+
+/**
  * Twilight and night sky, added to Preetham's output. Inputs come from Sky.js (`up`,
  * `vSunDirection`) plus `uSunAltDeg`, `uObscuration` and `uEclFloor`. Models: the sunward horizon glow
  * (yellow → orange → red as the Sun sinks), the deep blue twilight dome, Earth's shadow and the
@@ -23,6 +42,7 @@ uniform float uObscuration;
 uniform float uEclFloor;
 uniform float uLowSun;
 ${SMOOTH_FALL_CHUNK}
+${ECLIPSE_RING_CHUNK}
 vec3 twilightSky(vec3 dir) {
     float h = dot(dir, up);
     // Every argument below is clamped to its function's domain. Two unit vectors' dot can land an
@@ -63,10 +83,16 @@ vec3 twilightSky(vec3 dir) {
     col += (vec3(0.0010, 0.0014, 0.0026) + vec3(0.0105, 0.0140, 0.0180) * exp(-hp / 0.11)) * night;
     // Solar eclipse: totality's deep-blue sky fades in as the daylight goes (uEclFloor, set by
     // ground.js together with uDayGain so their sum falls steadily to the totality level instead
-    // of dipping to black around 2nd/3rd contact), and in totality every horizon glows like a
-    // sunset.
+    // of dipping to black around 2nd/3rd contact): indigo at the zenith, paler toward the horizon.
+    // In totality every horizon glows like a sunset, lit from outside the umbra: a yellow-orange
+    // band shading to rose, brightest toward the umbra's nearest edge (eclipseRing).
     float tot = smoothstep(0.985, 1.0, uObscuration);
-    col += vec3(1.0, 0.55, 0.25) * exp(-hp / 0.08) * 0.10 * tot + vec3(0.02, 0.035, 0.07) * uEclFloor;
+    col += mix(vec3(0.012, 0.017, 0.050), vec3(0.035, 0.042, 0.080), exp(-altDeg / 25.0)) * uEclFloor;
+    if (tot > 0.0) {
+        float band = exp(-altDeg / 4.0);
+        vec3 ring = mix(vec3(0.62, 0.20, 0.26), vec3(1.0, 0.46, 0.12), band) * (0.48 * band + 0.035 * exp(-altDeg / 14.0));
+        col += ring * eclipseRing(dH, dl) * tot;
+    }
     return col * smoothstep(-0.03, 0.0, h);
 }
 // Golden-hour grading. Preetham keeps a low Sun's Mie glow nearly white, but light near a low Sun
@@ -157,8 +183,10 @@ uniform float uCover;     // groundCover(skyBlend) in ground.js: 0 in orbit view
 uniform float uDisplay;
 uniform float uDayGain;
 uniform float uEclFloor;
+uniform float uObscuration;
 varying vec3 vDir;
 ${SMOOTH_FALL_CHUNK}
+${ECLIPSE_RING_CHUNK}
 void main() {
     vec3 d = normalize(vDir);
     float h = clamp(dot(d, uUp), -1.0, 1.0);
@@ -182,6 +210,12 @@ void main() {
     sw *= sw;
     hazeCol = mix(hazeCol, vec3(1.0, 0.55, 0.28) * (0.35 + 0.65 * dayK) * uDayGain, low * sw * sw);
     hazeCol *= mix(0.25, 1.0, smoothstep(-14.0, -2.0, uSunAltDeg));
+    // Totality: the horizon ring lights the haze below it and, dimly, the land.
+    float tot = smoothstep(0.985, 1.0, uObscuration);
+    if (tot > 0.0) {
+        hazeCol += vec3(0.30, 0.13, 0.04) * eclipseRing(dH, dl) * tot;
+        groundCol += vec3(0.020, 0.013, 0.009) * uEclH1.w * tot;
+    }
     // Aerial perspective: the far ground fades into the horizon haze (only faintly at night).
     float aer = exp(min(h, 0.0) / 0.07) * mix(0.2, 0.85, dayK);
     vec3 ground = mix(groundCol, hazeCol * mix(0.25, 1.5, dayK), aer);

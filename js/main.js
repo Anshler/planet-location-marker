@@ -322,6 +322,7 @@ async function importRenderStack() {
         atmosphere: import('./render/atmosphere.js'),
         sky: import('./render/sky.js'),
         bodies: import('./render/bodies.js'),
+        totality: import('./render/totality.js'),
         ground: import('./render/ground.js'),
         trails: import('./render/trails.js'),
         beams: import('./render/beams.js'),
@@ -765,6 +766,7 @@ async function bootRender(ctx) {
     create('atmosphere', m.atmosphere && (() => m.atmosphere.createAtmosphere(rc)));
     const sky = create('sky', m.sky && (() => m.sky.createSky(rc, { catalog: catalog ?? emptyCatalog(), textures, reducedMotion: rm })));
     create('bodies', m.bodies && (() => m.bodies.createBodies(rc, { textures })));
+    create('totality', m.totality && (() => m.totality.createTotality(rc)));
     create('ground', m.ground && (() => m.ground.createGround(rc)));
     const trails = create('trails', m.trails && (() => m.trails.createTrails(rc)));
     const beams = create('beams', m.beams && (() => m.beams.createBeams(rc, { reducedMotion: rm })));

@@ -41,11 +41,14 @@
  *   sunDirS:Float64Array,      // 3, geocentric unit vector to the Sun
  *   moonPosS:Float64Array,     // 3, geocentric Moon centre in Earth radii
  *   moonMatrix:Float64Array,   // 16, column-major: moon-geometry-local → world (rotation + translation moonPosS)
+ *   sunPoleS:Float64Array,     // 3, the Sun's north rotation pole (IAU); refreshed at 'full', and at 'frame' while eclipse.solar
  *   moonPhaseDeg:number,
  *   observer:{latDeg:number, lonDeg:number, elevM:number, posS:Float64Array, upS:Float64Array, northS:Float64Array,
  *             eastS:Float64Array, sunAltDeg:number, twilight:'day'|'civil'|'nautical'|'astronomical'|'night'},
  *   bodies:BodyState[],        // always 9, in BODIES order
- *   eclipse:{solar:boolean, lunar:boolean, obscurationAtObserver:number, moonLitFraction:number} }} Snapshot */
+ *   eclipse:{solar:boolean, lunar:boolean, obscurationAtObserver:number, moonLitFraction:number,
+ *            beads:import('../astro/totality.js').Beads}   // Baily's beads near C2/C3 of a total eclipse, else count 0
+ *   }} Snapshot */
 /** @typedef {{ name:'low'|'medium'|'high', dprCap:number, composer:boolean, msaa:number,
  *   bloom:null|{strength:number, radius:number, threshold:number, scale:number},
  *   earthSegments:[number,number], dayTex:'day2k'|'day4k', oceanMask:'derived'|'roughness2k'|'roughness',

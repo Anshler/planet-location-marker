@@ -73,3 +73,39 @@ test('totality stars come from the pure exposureFor, not a render-side term', ()
     assert.match(loop, /exposureFor\(sunAlt, skyBlend, exposure, obscuration, tierMagLimit\)/);
     assert.match(loop, /updateExposure\(snap\.observer\.sunAltDeg, skyBlend, snap\.eclipse\.obscurationAtObserver,/);
 });
+
+test('totality: the Sun material alone carries the SUN_ECLIPSE branch, gated by uniforms and scrubbed', async () => {
+    const bodies = stripComments(read('js/render/bodies.js'));
+    const sunMat = bodies.match(/name: 'bodies\.sun'[\s\S]*?\}\);/)[0];
+    assert.match(sunMat, /defines: \{ SUN_ECLIPSE: '' \}/);
+    const aureoleMat = bodies.match(/name: 'bodies\.aureole'[\s\S]*?\}\);/)[0];
+    assert.doesNotMatch(aureoleMat, /SUN_ECLIPSE/);
+    const { DISC_FRAG } = await import(new URL('../js/render/shaders/bodies.glsl.js', import.meta.url).href);
+    const g = stripComments(DISC_FRAG);
+    assert.match(g, /#ifdef SUN_ECLIPSE[\s\S]*if \(uThin > 0\.0\)[\s\S]*if \(uTotality > 0\.0 \|\| uChromo > 0\.0\)[\s\S]*return pcFinite\(c\);/);
+    assert.match(g, /0\.0532 \* exp\(-2\.5 \* L\) \+ 1\.425 \* exp\(-7\.0 \* L\) \+ 2\.565 \* exp\(-17\.0 \* L\)/, 'Baumbach');
+    const main = g.split('void main()')[1];
+    assert.ok(main.indexOf('#include <tonemapping_fragment>') > main.indexOf('eclipseLight('));
+    // JS side: the corona fades in with the photosphere's light; the pole and the Moon are projected.
+    const update = body(bodies, 'update');
+    assert.match(update, /coronaSky = coronaVisibility\(obscuration\) \* skyBlend/);
+    assert.match(update, /sunUniforms\.uTotality\.value = coronaSky/);
+    assert.match(update, /sunUniforms\.uMoon\.value\.set\(/);
+    assert.match(update, /sunUniforms\.uPoleUv\.value\.set\(/);
+});
+
+test('totality: beads module registered, not depth-tested, flare follows the brightest bead, ring shared', () => {
+    const main = stripComments(read('js/main.js'));
+    assert.match(main, /totality: import\('\.\/render\/totality\.js'\)/);
+    assert.match(main, /create\('totality', m\.totality && \(\(\) => m\.totality\.createTotality\(rc\)\)\)/);
+    const tot = stripComments(read('js/render/totality.js'));
+    assert.match(tot, /depthTest: false/);
+    assert.match(tot, /new Float32Array\(MAX_BEADS \* 3\)/, 'preallocated');
+    assert.doesNotMatch(body(tot, 'update'), /new (Float32Array|THREE\.)/, 'no per-frame allocation');
+    const flare = stripComments(read('js/render/flare.js'));
+    assert.match(body(flare, 'apply'), /snap\.eclipse && snap\.eclipse\.beads/);
+    assert.match(body(flare, 'update'), /tmp\.copy\(beadDir\)/);
+    const ground = stripComments(read('js/render/ground.js'));
+    assert.match(ground, /uEclH1: su\.uEclH1/);
+    assert.match(body(ground, 'apply'), /umbraHorizonGlow\(/);
+});

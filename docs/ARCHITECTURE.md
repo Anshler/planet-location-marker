@@ -77,12 +77,14 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/astro/almanac.js`, `events.js`, `paths.js` | Rise/set, twilight, Tonight; events; retrograde paths. |
 | | `js/astro/worker.js`, `client.js` | Module worker plus a Promise client with a main-thread fallback. |
 | | `js/astro/shadow.js`, `photometry.js` | Eclipse disc overlap; B−V colour, refraction, airmass, exposure. |
+| | `js/astro/totality.js` | Totality from the ground: Baily's beads (lunar limb profile), corona epoch parameters, contact-time display adaptation, the horizon ring's azimuthal shape. Illustrative in detail (ASTRONOMY.md). |
 | Data | `js/data/catalog.js` | Decodes `data/sky.json` into GPU-ready typed arrays in the scene frame. |
 | Render | `js/render/context.js` | Renderer, scene, camera, tier switching, `invalidate`/`onInvalidate`, context loss, stats. |
 | | `js/render/postfx.js` | Composer with bloom and the final pass (FXAA when the scene target has no MSAA). |
 | | `js/render/textures.js` | Placeholder-first texture store with byte-weighted progress. |
 | | `js/render/earth.js`, `atmosphere.js` | Earth shader (day, night lights, glint, twilight, clouds, eclipse shadow, footprint) and atmosphere. |
-| | `js/render/sky.js`, `bodies.js`, `ground.js` | Stars, constellations, Milky Way and grids; Sun, planets and the true-scale Moon; sky-view dome and ground. |
+| | `js/render/sky.js`, `bodies.js`, `ground.js` | Stars, constellations, Milky Way and grids; Sun (with totality's thin crescent, corona, chromosphere and prominences under `SUN_ECLIPSE`), planets and the true-scale Moon; sky-view dome and ground (totality's 360° horizon ring). |
+| | `js/render/totality.js` | Baily's beads and the diamond ring: up to eight HDR point sprites at `snap.eclipse.beads` (the flare's starburst follows the brightest). |
 | | `js/render/beams.js`, `pin.js`, `labels.js` | Signature beams, observer pin and horizon disc, DOM label pool. |
 | | `js/render/trails.js`, `flare.js`, `debug.js` | Retrograde paths, lens flare, `?debug=1` overlay. |
 | Camera | `js/camera/rig.js`, `picking.js` | Orbit and sky-view camera, Earth-lock, fly-to tweens; analytic globe and glyph picking. |
@@ -428,8 +430,8 @@ are applied live through `onExternalChange`.
   `HTMLScriptElement.supports=()=>false` for no import maps), `--fail=data/sky.json,earth_day`
   (those requests get HTTP 404 and are not judged) and `--at=1000,3000` (timed screenshots
   `<out>-<ms>.png`; the run then skips its wait for the intro to finish).
-- **`npm run size`** enforces the per-tier transfer budgets (low 3.35 MB, medium 4.25 MB, high
-  5.4 MB raw, re-baselined from the spec's estimate to the measured unminified module graph; every
+- **`npm run size`** enforces the per-tier transfer budgets (low 3.4 MB, medium 4.25 MB, high
+  5.45 MB raw, re-baselined from the spec's estimate to the measured unminified module graph; every
   tier stays under 6 MB) and the 12 MB deploy limit.
 - **`npm run textures`** (`scripts/build-textures.mjs`) re-encodes the derived textures in headless
   Chrome and rewrites `vendor/DERIVED.json`. Run it after changing a recipe or a source map, and

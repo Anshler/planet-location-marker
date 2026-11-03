@@ -130,6 +130,7 @@ test('computeSnapshot reuses `out` and every nested object and typed array (iden
     const refs = [
         snap.earthMatrix, snap.earthQuat, snap.sunDirS, snap.moonPosS, snap.moonMatrix, snap.observer, snap.observer.posS,
         snap.observer.upS, snap.observer.northS, snap.observer.eastS, snap.bodies, snap.eclipse,
+        snap.sunPoleS, snap.eclipse.beads, snap.eclipse.beads.flux, snap.eclipse.beads.dirS, snap.eclipse.beads.paDeg,
         ...snap.bodies.flatMap((b) => [b, b.dirS, b.geoDirS, b.constellation]),
     ];
     const t0 = Date.parse('2026-10-11T00:00:00Z');
@@ -140,6 +141,7 @@ test('computeSnapshot reuses `out` and every nested object and typed array (iden
     const after = [
         snap.earthMatrix, snap.earthQuat, snap.sunDirS, snap.moonPosS, snap.moonMatrix, snap.observer, snap.observer.posS,
         snap.observer.upS, snap.observer.northS, snap.observer.eastS, snap.bodies, snap.eclipse,
+        snap.sunPoleS, snap.eclipse.beads, snap.eclipse.beads.flux, snap.eclipse.beads.dirS, snap.eclipse.beads.paDeg,
         ...snap.bodies.flatMap((b) => [b, b.dirS, b.geoDirS, b.constellation]),
     ];
     assert.equal(after.length, refs.length);

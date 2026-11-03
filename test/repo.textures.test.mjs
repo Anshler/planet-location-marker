@@ -35,6 +35,7 @@ test('checkDerived reports a changed output, source or recipe, and a missing fil
     const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pc-textures-'));
     const files = [DERIVED_LOCK, ...new Set(RECIPES.flatMap((r) => [r.from, r.path]))];
     for (const f of files) {
+        if (!fs.existsSync(path.join(ROOT, f)) && VENDOR.get(f)?.cache) continue;   // gitignored 8192 source, not fetched
         fs.mkdirSync(path.join(tmp, path.dirname(f)), { recursive: true });
         fs.copyFileSync(path.join(ROOT, f), path.join(tmp, f));
     }
@@ -63,6 +64,25 @@ test('checkDerived reports a changed output, source or recipe, and a missing fil
 
         fs.rmSync(at(r.path));
         assert.match(checkDerived(tmp).join('\n'), new RegExp(`missing ${r.path}`));
+    } finally {
+        fs.rmSync(tmp, { recursive: true, force: true });
+    }
+});
+
+test('a cached 8192 source may be absent (CI), but a present one must match', () => {
+    const r = RECIPES.find((x) => VENDOR.get(x.from)?.cache);
+    assert.ok(r, 'the max tier has a derived map from a cached source');
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'pc-textures-'));
+    try {
+        for (const f of [DERIVED_LOCK, ...RECIPES.flatMap((x) => [x.from, x.path])]) {
+            if (VENDOR.get(f)?.cache || !fs.existsSync(path.join(ROOT, f))) continue;
+            fs.mkdirSync(path.join(tmp, path.dirname(f)), { recursive: true });
+            fs.copyFileSync(path.join(ROOT, f), path.join(tmp, f));
+        }
+        assert.deepEqual(checkDerived(tmp), [], 'absent cached sources are not problems');
+        fs.mkdirSync(path.join(tmp, path.dirname(r.from)), { recursive: true });
+        fs.writeFileSync(path.join(tmp, r.from), 'not the pinned file');
+        assert.match(checkDerived(tmp).join('\n'), /source .* changed since it was built/);
     } finally {
         fs.rmSync(tmp, { recursive: true, force: true });
     }
@@ -108,6 +128,37 @@ test('every tier, and every device adjustment of it, loads only shipped textures
         assert.ok(keys.includes('roughness2k') || keys.includes('brc4k'), `${cfg.name}: loads a water mask`);
     }
     for (const r of RECIPES) assert.ok(Object.values(ASSET_URLS).includes(r.path), `${r.path} is used by the app`);
+});
+
+test('max: 8192 maps of the same imagery, each after its 4096 stand-in; only max loads them; never precached', () => {
+    const MAX_ONLY = ['day8k', 'night8k', 'clouds8k', 'moon4k'];
+    const dims = { day8k: [8192, 4096], night8k: [8192, 4096], clouds8k: [8192, 4096], moon4k: [4096, 2048] };
+    for (const key of MAX_ONLY) {
+        const dim = imageSize(fs.readFileSync(path.join(ROOT, ASSET_URLS[key])));
+        assert.deepEqual([dim.width, dim.height], dims[key], `${key} size`);
+    }
+    // The cloud map goes through the same density window as every other cloud map.
+    assert.deepEqual(recipeFor('clouds8k').recipe.clamp, [0.2, 1]);
+    assert.equal(recipeFor('moon4k').recipe.colour, 'srgb', 'the Moon is filtered in linear light');
+    const keys = tierTextureKeys(TIERS.max);
+    assert.deepEqual(keys, ['day4k', 'night4k', 'brc4k', 'moon', 'milkyway', 'flare0', 'flare3', 'day8k', 'night8k', 'clouds8k', 'moon4k']);
+    for (const [big, small] of [['day8k', 'day4k'], ['night8k', 'night4k'], ['clouds8k', 'brc4k'], ['moon4k', 'moon']]) {
+        assert.ok(keys.indexOf(small) < keys.indexOf(big), `${small} shows while ${big} loads`);
+    }
+    // A GPU under 8192 px keeps the 4096 Earth maps on max, and the 4096 Moon.
+    assert.deepEqual(tierTextureKeys(tierConfig('max', { maxTextureSize: 4096 })),
+        ['day4k', 'night4k', 'brc4k', 'moon', 'milkyway', 'flare0', 'flare3', 'moon4k']);
+    for (const t of ['low', 'medium', 'high']) {
+        for (const cfg of [TIERS[t], tierConfig(t, { maxTextureSize: 4096 })]) {
+            for (const key of MAX_ONLY) assert.ok(!tierTextureKeys(cfg).includes(key), `${t} never loads ${key}`);
+        }
+    }
+    // Cache on first use only (sw.js cache-first): the install step precaches the shell, never these.
+    const sw = fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8');
+    const precache = sw.match(/const PRECACHE = (\[[^\]]*\])/)?.[1] ?? '';
+    assert.ok(precache.length > 2, 'PRECACHE found');
+    for (const key of MAX_ONLY) assert.ok(!precache.includes(path.basename(ASSET_URLS[key])), `${key} not precached`);
+    assert.ok(!/textures/.test(precache), 'no textures precached at all');
 });
 
 test('the cloud and water maps are clamped to the windows the earth shader reads them through', async () => {

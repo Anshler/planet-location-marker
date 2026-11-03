@@ -263,7 +263,8 @@ button.lbl:hover .lbl__dot { transform: scale(1.35); }
 .seg.glass {
     background: linear-gradient(180deg, rgba(255, 255, 255, .035), rgba(255, 255, 255, 0) 34%), var(--panel-solid);
 }
-/* Backdrop blur only where the GPU can afford it (E.6): high tier, or medium on fine pointers. */
+/* Backdrop blur only where the GPU can afford it (E.6): high and max, or medium on fine pointers. */
+body.tier-max .glass,
 body.tier-high .glass,
 body.tier-medium:not(.is-coarse) .glass {
     background: linear-gradient(180deg, rgba(255, 255, 255, .035), rgba(255, 255, 255, 0) 34%), var(--panel);
@@ -569,6 +570,8 @@ body.tier-medium:not(.is-coarse) .glass {
     box-shadow: 0 1px 2px rgba(0, 0, 0, .35), inset 0 1px 0 rgba(255, 255, 255, .07);
 }
 .group .seg { display: flex; width: 100%; }
+/* Full-width groups share the width evenly; slim padding lets five choices (Quality) fit a phone. */
+.group .seg__btn { padding: 0 6px; }
 .seg--radio { display: flex; width: 100%; }
 .seg__opt { position: relative; display: flex; flex: 1; }
 .seg__opt input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }

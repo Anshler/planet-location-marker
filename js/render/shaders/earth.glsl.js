@@ -33,7 +33,7 @@ void main() {
 
 /**
  * Cloud density lookup shared by the surface and the cloud shell. Needs the
- * uniforms uCloudMode (0 none, 1 clouds2k: grey, 2 brc4k: blue channel) and
+ * uniforms uCloudMode (0 none, 1 clouds2k or clouds8k: grey, 2 brc4k: blue channel) and
  * uCloudShift (eastward drift in u).
  *
  * clouds2k is brc4k's blue channel at half size (scripts/build-textures.mjs),
@@ -202,7 +202,15 @@ void main() {
         vec3 ps = normalize(pl + (Ls - pl * dot(Ls, pl)) * (0.006 / c));
         vec2 duv = localDirToUv(ps) - uvRaw;
         duv.x -= floor(duv.x + 0.5);            // keep the offset continuous across the dateline
-        csh = cloudAt(uClouds, uv + duv) * smoothstep(-0.05, 0.1, mu);
+        float c0 = cloudAt(uClouds, uv + duv);
+#ifdef CLOUD_SHADOW_SOFT
+        // Max tier: four more taps 1.5 texels around it soften the shadow's edge (5 taps).
+        vec2 px = 1.5 / vec2(textureSize(uClouds, 0));
+        float ring = cloudAt(uClouds, uv + duv + vec2(px.x, 0.0)) + cloudAt(uClouds, uv + duv - vec2(px.x, 0.0))
+                   + cloudAt(uClouds, uv + duv + vec2(0.0, px.y)) + cloudAt(uClouds, uv + duv - vec2(0.0, px.y));
+        c0 = 0.5 * c0 + 0.125 * ring;
+#endif
+        csh = c0 * smoothstep(-0.05, 0.1, mu);
     }
 #endif
 

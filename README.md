@@ -66,7 +66,8 @@ browser, and nothing needs the network.
   - Online place search is an optional extra.
 - **Deep links.** Every view is a shareable URL: place, time, speed, selection, layers and camera.
 - **Fast everywhere.**
-  - Three quality tiers, with an automatic governor that steps down when frames get slow.
+  - Three automatic quality tiers, with a governor that steps down when frames get slow, plus a
+    manual Max (Settings → Quality) with 8K Earth maps and every effect at full detail, for fast GPUs.
   - The scene renders only when something changes.
   - A text mode with full sky tables on devices without WebGL 2.
 - **Accessible.** Full keyboard control, screen-reader announcements, and support for
@@ -118,7 +119,7 @@ Useful URL options (in the hash):
 
 - `#intro=0` skips the first-visit intro.
 - `#debug=1` shows the performance overlay.
-- `#q=low` forces a quality tier.
+- `#q=low` forces a quality tier (`low`, `medium`, `high` or `max`).
 - `#t=2027-02-06T16:00:00Z&p=0` freezes time at a moment.
 
 ## Accuracy
@@ -171,6 +172,7 @@ Planet Location Marker is MIT-licensed (see [LICENSE](LICENSE)). It bundles:
 | Stars, constellations, Milky Way | ESA Hipparcos, via [d3-celestial](https://github.com/ofrohn/d3-celestial) by Olaf Frohn | BSD-3-Clause |
 | Cities | [GeoNames](https://www.geonames.org/) | CC BY 4.0 |
 | Earth textures (and the 2k maps made from them) | [Solar System Scope](https://www.solarsystemscope.com/textures/), via the three.js examples | CC BY 4.0 |
+| Max quality: 8K Earth day, night and cloud maps, 4K Moon (made from their 8K map) | [Solar System Scope](https://www.solarsystemscope.com/textures/) | CC BY 4.0 |
 | Moon texture | NASA imagery, via the three.js examples | public domain |
 
 Online place search, which is optional, uses [Open-Meteo](https://open-meteo.com/),

@@ -3,6 +3,8 @@
 //
 //   node scripts/build-textures.mjs            rebuild every derived texture and vendor/DERIVED.json
 //                                               (needs Chrome or Edge; CHROME_PATH overrides the search)
+//   node scripts/build-textures.mjs --only=8192,moon_4096   rebuild only outputs whose path contains one
+//                                               of those strings; the other lock entries are kept
 //   node scripts/build-textures.mjs --check    offline: every output matches vendor/DERIVED.json, and
 //                                               its source and recipe are the ones it was built from
 //
@@ -71,7 +73,22 @@ export const RECIPES = [
         path: 'assets/textures/earth_roughness_2048.webp', from: 'assets/textures/earth_bump_roughness_clouds_4096.jpg',
         recipe: { size: [2048, 1024], colour: 'data', channel: 'g', clamp: [0.25, 0.45], type: 'image/webp', quality: 0.9 },
     },
+    // Max-tier clouds: Solar System Scope's 8192 cloud map (the field brc4k.b was made from), grey,
+    // clamped to the same density window. As a 3-channel JPEG it is 11.6 MB.
+    {
+        path: 'assets/textures/earth_clouds_8192.webp', from: 'data/raw/textures/8k_earth_clouds.jpg',
+        recipe: { size: [8192, 4096], colour: 'data', channel: 'r', clamp: [0.2, 1], type: 'image/webp', quality: 0.8 },
+    },
+    // Max-tier Moon: the 8192 map at half size. 4096 px puts ~2000 texels across the disc, more
+    // than the screen shows at the narrowest sky-view field (5 deg); 8192 would only add bytes.
+    {
+        path: 'assets/textures/moon_4096.webp', from: 'data/raw/textures/8k_moon.jpg',
+        recipe: { size: [4096, 2048], colour: 'srgb', channel: 'rgb', type: 'image/webp', quality: 0.85 },
+    },
 ];
+
+/** Sources that are gitignored downloads (fetch-vendor `cache` entries): --check skips them when absent. */
+const isCachedSource = (rel) => rel.startsWith('data/raw/textures/');
 
 /** @param {Buffer} buf @returns {string} hex sha256 */
 const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
@@ -141,8 +158,11 @@ export function checkDerived(root = ROOT) {
             problems.push(`${r.path}: recipe changed since it was built (${rebuild})`);
         }
         const src = readOrNull(r.from, root);
-        if (!src) problems.push(`${r.path}: source ${r.from} is missing`);
-        else if (sha256(src) !== e.fromSha256) problems.push(`${r.path}: source ${r.from} changed since it was built (${rebuild})`);
+        if (!src) {
+            // A cached 8192 source (gitignored) proves itself through its pinned hash in
+            // VENDOR.json when it is fetched; here the output's own hash is the check.
+            if (!isCachedSource(r.from)) problems.push(`${r.path}: source ${r.from} is missing`);
+        } else if (sha256(src) !== e.fromSha256) problems.push(`${r.path}: source ${r.from} changed since it was built (${rebuild})`);
         const out = readOrNull(r.path, root);
         if (!out) {
             problems.push(`missing ${r.path} (${rebuild})`);
@@ -249,9 +269,21 @@ async function build() {
         };
 
         const entries = [];
+        // --only=a,b rebuilds the recipes whose output path contains one of those strings and
+        // keeps every other lock entry as it is (a new map need not re-encode the old ones).
+        const only = process.argv.find((a) => a.startsWith('--only='))?.slice(7).split(',').filter(Boolean) ?? null;
+        const prev = readLockFile(DERIVED_LOCK);
         for (const r of RECIPES) {
+            if (only && !only.some((s) => r.path.includes(s))) {
+                const kept = prev.get(r.path);
+                if (!kept) throw new Error(`${r.path} has no lock entry to keep (include it in --only)`);
+                entries.push(kept);
+                continue;
+            }
             const src = readOrNull(r.from);
             if (!src) throw new Error(`source ${r.from} is missing (run: node scripts/fetch-vendor.mjs)`);
+            const pinned = vendor.get(r.from)?.sha256;
+            if (pinned && sha256(src) !== pinned) throw new Error(`source ${r.from} does not match vendor/VENDOR.json`);
             const t0 = performance.now();
             const job = { b64: src.toString('base64'), w: r.recipe.size[0], h: r.recipe.size[1], ...r.recipe };
             delete job.size;

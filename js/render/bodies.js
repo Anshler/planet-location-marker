@@ -18,6 +18,7 @@ import {
     DISC_VERT, DISC_FRAG, GLYPH_VERT, GLYPH_FRAG, RETICLE_VERT, RETICLE_FRAG, MOON_VERT, MOON_FRAG,
 } from './shaders/bodies.glsl.js';
 import { skyViewExposure } from './sky.js';
+import { moonKeyFor } from './textures.js';
 import { discVisibleFraction } from '../astro/shadow.js';
 import {
     coronaParams, createCoronaParams, coronaVisibility, coronaStretch, chromosphereFlash, photosphereAdapt,
@@ -53,6 +54,12 @@ const LIMB_LD = 0.45;
 const SUN_QUAD_RAD = 6 * DEG;
 const MOON_AUREOLE_RAD = 9 * DEG;
 const SUN_E = 1.6;
+/**
+ * Albedo scale per Moon map, so the full Moon keeps its tuned brightness whichever map draws it.
+ * moon4k (Solar System Scope's albedo map, max tier) has darker maria than the 1024 relief map:
+ * its near-side disc averages 0.220 in linear light against 0.268 (projected-area weighted).
+ */
+const MOON_MAP_GAIN = { moon: 1, moon4k: 1.21 };
 // Lunar eclipse umbra adaptation: uUmbraGain = 1 / (1 + moonLitFraction / UMBRA_ADAPT).
 const UMBRA_ADAPT = 0.015;
 // Selection reticle radius, CSS px: RETICLE_PX, or a disc's radius + RETICLE_GAP_PX for the Sun and
@@ -328,15 +335,40 @@ export function createBodies(rc, deps = {}) {
     moon.frustumCulled = false;
     moon.renderOrder = -58;
     group.add(moon);
+    // The tier's Moon map (max: moon4k). The 1024 map shows until it is ready, and stays bound on
+    // the other tiers.
+    let moonKey = 'moon';
     let offMoon = null;
+    let offMoonTier = null;
+    function showMoon(tex, key) {
+        moonUniforms.uMap.value = tex;
+        moonUniforms.uAlbedo.value = MOON_MAP_GAIN[key] ?? 1;
+        invalidateSoon();
+    }
     if (textures) {
         try {
             offMoon = textures.onReady('moon', (tex) => {
-                moonUniforms.uMap.value = tex;
-                invalidateSoon();
+                if (moonKey !== 'moon' && textures.isReady?.(moonKey)) return;
+                showMoon(tex, 'moon');
             });
         } catch { /* keep the placeholder */ }
     }
+    function bindMoon(key) {
+        if (!textures || key === moonKey) return;
+        moonKey = key;
+        if (offMoonTier) { offMoonTier(); offMoonTier = null; }
+        if (key === 'moon') {
+            if (textures.isReady?.('moon')) showMoon(textures.get('moon'), 'moon');
+            return;
+        }
+        try {
+            offMoonTier = textures.onReady(key, (tex) => {
+                offMoonTier = null;
+                if (moonKey === key) showMoon(tex, key);
+            });
+        } catch { /* keep the 1024 map */ }
+    }
+    bindMoon(moonKeyFor(cfg));
 
     // --- picking -------------------------------------------------------------------------------------
     const candidates = BODIES.map((b, i) => ({ id: b.id, dirS: i === MOON ? moonDirCam : dirs[i] }));
@@ -353,7 +385,7 @@ export function createBodies(rc, deps = {}) {
     }
 
     function writeGlyphParams() {
-        const spikesOn = !!cfg && cfg.name === 'high';
+        const spikesOn = !!cfg && (cfg.name === 'high' || cfg.name === 'max');
         const p = iParams.array;
         for (let k = 0; k < N_PLANETS; k++) {
             const m = mags[FIRST_PLANET + k];
@@ -653,6 +685,7 @@ export function createBodies(rc, deps = {}) {
     function setQuality(c) {
         if (!c) return;
         cfg = c;
+        bindMoon(moonKeyFor(cfg));
         if (haveSnap) writeGlyphParams();
     }
 
@@ -678,6 +711,7 @@ export function createBodies(rc, deps = {}) {
 
     function dispose() {
         if (offMoon) { try { offMoon(); } catch { /* ignore */ } }
+        if (offMoonTier) { try { offMoonTier(); } catch { /* ignore */ } }
         quad.dispose();
         glyphGeo.dispose();
         moonGeometry.dispose();

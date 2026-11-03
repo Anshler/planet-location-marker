@@ -13,7 +13,7 @@ import * as THREE from 'three';
 import { EARTH_SHADER } from './shaders/earth.glsl.js';
 import { CLOUDS_SHADER } from './shaders/clouds.glsl.js';
 import { ATMO_SUN_I, ATMO_EXPOSURE } from './shaders/atmosphere.glsl.js';
-import { dayKeyFor, nightKeyFor, maskKeyFor, cloudsKeyFor } from './textures.js';
+import { dayKeyFor, nightKeyFor, maskKeyFor, cloudsKeyFor, interimKeyFor } from './textures.js';
 import { groundCover } from './sky.js';
 import { BODIES, MOON_RADIUS_ER, SUN_ANG_RADIUS_1AU_RAD, sunAngularRadius } from '../astro/bodies.js';
 
@@ -36,6 +36,10 @@ const TIER_DEFAULTS = {
     low: { name: 'low', earthSegments: [64, 32], dayTex: 'day2k', oceanMask: 'roughness2k', clouds: 'none', cloudShadows: false, bump: false },
     medium: { name: 'medium', earthSegments: [96, 48], dayTex: 'day4k', oceanMask: 'roughness2k', clouds: 'clouds2k', cloudShadows: false, bump: false },
     high: { name: 'high', earthSegments: [128, 64], dayTex: 'day4k', oceanMask: 'roughness', clouds: 'brc4k', cloudShadows: true, bump: true },
+    max: {
+        name: 'max', earthSegments: [256, 128], dayTex: 'day8k', oceanMask: 'roughness', clouds: 'clouds8k', cloudShadows: true, bump: true,
+        cloudShadowTaps: 5,
+    },
 };
 
 function resolveCfg(tier) {
@@ -199,18 +203,35 @@ export function createEarth(rc, { textures } = {}) {
         refreshClouds();
     }
 
+    /** Unsubscribers of a slot's stand-in (max tier: the 4096 map shown while the 8192 one loads). */
+    const pendingInterim = { day: null, night: null, mask: null, clouds: null };
+
     function want(slot, key) {
         if (pending[slot]) { pending[slot](); pending[slot] = null; }
+        if (pendingInterim[slot]) { pendingInterim[slot](); pendingInterim[slot] = null; }
         if (!key) { clearSlot(slot); invalidate(); return; }
         if (active[slot] === key && isReady(key)) return;
         if (isReady(key)) { bindSlot(slot, key); return; }
-        // Not loaded yet: keep any real texture already shown; otherwise fall back.
-        if (!active[slot]) {
-            if (IMAGE_SLOT[slot]) IMAGE_SLOT[slot].value = store.get(key);
-            else clearSlot(slot);
+        // Not loaded yet: show its stand-in once that is ready, keep any real texture already
+        // shown meanwhile, otherwise fall back.
+        const stand = interimKeyFor(key);
+        if (stand && isReady(stand)) {
+            if (active[slot] !== stand) bindSlot(slot, stand);
+        } else {
+            if (!active[slot]) {
+                if (IMAGE_SLOT[slot]) IMAGE_SLOT[slot].value = store.get(stand ?? key);
+                else clearSlot(slot);
+            }
+            if (stand) {
+                pendingInterim[slot] = store.onReady(stand, () => {
+                    pendingInterim[slot] = null;
+                    if (active[slot] !== key) bindSlot(slot, stand);
+                });
+            }
         }
         pending[slot] = store.onReady(key, () => {
             pending[slot] = null;
+            if (pendingInterim[slot]) { pendingInterim[slot](); pendingInterim[slot] = null; }
             bindSlot(slot, key);
         });
     }
@@ -224,7 +245,8 @@ export function createEarth(rc, { textures } = {}) {
 
     function refreshClouds() {
         const key = active.clouds;
-        const mode = key === 'clouds2k' ? 1 : key === 'brc4k' ? 2 : 0;
+        // clouds8k is grey like clouds2k (mode 1); brc4k keeps its clouds in blue (mode 2).
+        const mode = key === 'clouds2k' || key === 'clouds8k' ? 1 : key === 'brc4k' ? 2 : 0;
         u.uCloudMode.value = cloudLayer ? mode : 0;
         clouds.visible = cloudLayer && mode !== 0 && groundCover(skyBlend) < 0.999;
     }
@@ -380,6 +402,7 @@ export function createEarth(rc, { textures } = {}) {
 
         dispose() {
             for (const k of Object.keys(pending)) { if (pending[k]) pending[k](); pending[k] = null; }
+            for (const k of Object.keys(pendingInterim)) { if (pendingInterim[k]) pendingInterim[k](); pendingInterim[k] = null; }
             mesh.geometry.dispose();
             clouds.geometry.dispose();
             material.dispose();
@@ -392,6 +415,10 @@ export function createEarth(rc, { textures } = {}) {
 function definesFor(cfg) {
     const d = {};
     if (cfg.bump) d.BUMP = '';
-    if (cfg.cloudShadows && cfg.clouds && cfg.clouds !== 'none') d.CLOUD_SHADOWS = '';
+    if (cfg.cloudShadows && cfg.clouds && cfg.clouds !== 'none') {
+        d.CLOUD_SHADOWS = '';
+        // Max: a soft shadow edge from a ring of taps (the cloud deck has thickness; one tap draws it razor-thin).
+        if (cfg.cloudShadowTaps > 1) d.CLOUD_SHADOW_SOFT = '';
+    }
     return d;
 }

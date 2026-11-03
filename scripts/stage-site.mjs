@@ -7,7 +7,7 @@
 // Everything in the repo ships EXCEPT development material (SPEC §C.4): test/, scripts/,
 // docs/, data/raw/, .github/, node_modules/, graphify-out/ (at any depth), .claude/, plus
 // .git/, .scratch/, dotfiles (but .nojekyll), package*.json and CLAUDE.md.
-// scripts/check-size.mjs measures the same list, so the 12 MB staging budget is real.
+// scripts/check-size.mjs measures the same list, so the 32 MB staging budget is real.
 
 import fs from 'node:fs';
 import path from 'node:path';

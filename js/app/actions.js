@@ -32,7 +32,7 @@ export const USER_SOURCES = Object.freeze(['click', 'city', 'search', 'geo', 'ma
 const OBSERVER_SOURCES = new Set(['default', 'url', 'saved', 'tzguess', 'click', 'city', 'search', 'geo', 'manual']);
 const VIEW_MODES = new Set(['orbit', 'sky']);
 const TZ_MODES = new Set(['observer', 'device', 'utc']);
-const QUALITY_SETTINGS = new Set(['auto', 'low', 'medium', 'high']);
+const QUALITY_SETTINGS = new Set(['auto', 'low', 'medium', 'high', 'max']);
 const MAX_UNDO = 12;
 const MAX_RECENT = 8;
 const JUMP_ANIMATE_MS = 1400;
@@ -538,7 +538,7 @@ export function createActions(deps) {
         say(`${LAYER_LABELS[key] ?? key} ${next ? 'on' : 'off'}`);
     }
 
-    /** @param {'auto'|'low'|'medium'|'high'} setting */
+    /** @param {'auto'|'low'|'medium'|'high'|'max'} setting */
     function setQuality(setting) {
         if (!QUALITY_SETTINGS.has(setting)) return;
         const q = store.get().quality;

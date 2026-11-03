@@ -18,6 +18,10 @@
 //   lowered to lock that in. The spec's hard line, every tier
 //   under 6 MB, still holds and is asserted in test/repo.tooling.test.mjs.
 //   plus per-file ceilings for generated data, icons and the social image.
+//
+//   max (manual only, "no budget") is reported for information and never fails the check. Its
+//   8192 px maps (≈ 15.2 MB) took the staged site from ≈ 6.4 to ≈ 21.6 MB: the staging budget
+//   went from 12 to 32 MB (≈ 10 MB headroom), still far inside GitHub Pages' 1 GB site limit.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -32,7 +36,10 @@ const MB = 1e6, KB = 1e3;
 // Phase 1 (Eclipse 2027): eclipse path, contacts and framing (≈ 35 KB), totality (≈ 48 KB), and the globe's path ribbon,
 // shadow chase and eclipse-aware pin (≈ 46 KB) raise every tier.
 export const TIER_BUDGETS = { low: 3.5 * MB, medium: 4.35 * MB, high: 5.55 * MB };
-export const STAGING_BUDGET = 12 * MB;
+/** Tiers that are measured and printed but have no budget (max: a deliberate, manual choice). */
+export const INFO_TIERS = ['max'];
+// The max tier's 8192 px maps (≈ 15.2 MB) ship with the site; 32 MB keeps headroom (Pages allows 1 GB).
+export const STAGING_BUDGET = 32 * MB;
 export const FILE_BUDGETS = {
     'data/milkyway.png': 250 * KB,
     'data/sky.json': 200 * KB,
@@ -51,6 +58,8 @@ const FALLBACK_ASSETS = {
     roughness2k: 'assets/textures/earth_roughness_2048.webp', clouds2k: 'assets/textures/earth_clouds_2048.webp',
     brc4k: 'assets/textures/earth_bump_roughness_clouds_4096.jpg', moon: 'assets/textures/moon_1024.jpg',
     flare0: 'assets/textures/lensflare0.png', flare3: 'assets/textures/lensflare3.png', milkyway: 'data/milkyway.png',
+    day8k: 'assets/textures/earth_day_8192.jpg', night8k: 'assets/textures/earth_night_8192.jpg',
+    clouds8k: 'assets/textures/earth_clouds_8192.webp', moon4k: 'assets/textures/moon_4096.webp',
 };
 /** SPEC §E.6 tier table, used only if js/core/quality.js cannot be imported. */
 const FALLBACK_TIERS = {
@@ -95,15 +104,27 @@ export async function readTiers() {
     return { tiers: FALLBACK_TIERS, source: 'SPEC §E.6 (quality.js not importable)' };
 }
 
-/** Texture keys loaded at boot + idle for a tier (mirrors keysForTier: the night map follows the day map). */
+/** A max-tier map's 4096 stand-in, loaded first (mirrors INTERIM in js/render/textures.js). */
+const INTERIM = { day8k: 'day4k', night8k: 'night4k', clouds8k: 'brc4k', moon4k: 'moon' };
+
+/**
+ * Texture keys loaded at boot + idle for a tier (mirrors keysForTier: the night map follows the
+ * day map, and a max map comes after its 4096 stand-in, which takes its place in the order).
+ */
 export function tierTextureKeys(cfg) {
-    const small = cfg.dayTex === 'day2k';
-    const keys = [small ? 'day2k' : 'day4k', small ? 'night2k' : 'night4k'];
-    const mask = { roughness2k: 'roughness2k', roughness: 'brc4k' }[cfg.oceanMask];
-    if (mask) keys.push(mask);
-    if ((cfg.clouds === 'clouds2k' || cfg.clouds === 'brc4k') && !keys.includes(cfg.clouds)) keys.push(cfg.clouds);
-    keys.push('moon', 'milkyway');
-    if (cfg.flare) keys.push('flare0', 'flare3');
+    const day = cfg.dayTex === 'day2k' ? 'day2k' : cfg.dayTex === 'day8k' ? 'day8k' : 'day4k';
+    const night = { day2k: 'night2k', day4k: 'night4k', day8k: 'night8k' }[day];
+    const clouds = ['clouds2k', 'brc4k', 'clouds8k'].includes(cfg.clouds) ? cfg.clouds : null;
+    const moon = cfg.moonTex === 'moon4k' ? 'moon4k' : 'moon';
+    const stand = (k) => INTERIM[k] ?? k;
+    const keys = [stand(day), stand(night)];
+    const push = (k) => { if (k && !keys.includes(k)) keys.push(k); };
+    push({ roughness2k: 'roughness2k', roughness: 'brc4k' }[cfg.oceanMask]);
+    push(stand(clouds));
+    push(stand(moon));
+    push('milkyway');
+    if (cfg.flare) { push('flare0'); push('flare3'); }
+    for (const k of [day, night, clouds, moon]) if (INTERIM[k]) push(k);
     return keys;
 }
 
@@ -148,15 +169,17 @@ async function main() {
     const baseBytes = sum(base);
 
     const rows = [];
-    for (const name of ['low', 'medium', 'high']) {
+    for (const name of ['low', 'medium', 'high', ...INFO_TIERS]) {
+        if (!tiers[name]) continue;
         const keys = tierTextureKeys(tiers[name]);
         const tex = keys.map((k) => assets[k]).filter(Boolean);
         for (const k of keys) if (!assets[k]) problems.push(`${name}: no ASSETS entry for texture key "${k}"`);
         for (const t of tex) if (size(t) === null) problems.push(`${name}: missing ${t}`);
         const raw = baseBytes + sum(tex);
         const gz = sumWire(base) + sumWire(tex);
-        rows.push({ name, raw, gz, budget: TIER_BUDGETS[name], keys });
-        if (raw > TIER_BUDGETS[name]) problems.push(`${name} tier: ${fmt(raw)} > budget ${fmt(TIER_BUDGETS[name])}`);
+        const budget = TIER_BUDGETS[name] ?? null;
+        rows.push({ name, raw, gz, budget, keys });
+        if (budget !== null && raw > budget) problems.push(`${name} tier: ${fmt(raw)} > budget ${fmt(budget)}`);
     }
 
     const staged = siteFiles(ROOT);
@@ -177,7 +200,9 @@ async function main() {
         console.log(`textures: ${assetSource}; tiers: ${tierSource}`);
         console.log(`  base (shell + JS + sky/cities data)  ${fmt(baseBytes)}`);
         for (const r of rows) {
-            console.log(`  ${r.raw <= r.budget ? 'ok  ' : 'FAIL'}  ${r.name.padEnd(6)} ${fmt(r.raw).padStart(9)} raw / ${fmt(r.budget)}`
+            const verdict = r.budget === null ? 'info' : r.raw <= r.budget ? 'ok  ' : 'FAIL';
+            const limit = r.budget === null ? 'no budget' : fmt(r.budget);
+            console.log(`  ${verdict}  ${r.name.padEnd(6)} ${fmt(r.raw).padStart(9)} raw / ${limit}`
                 + `   ≈ ${fmt(r.gz)} wire   [${r.keys.join(', ')}]`);
         }
         console.log(`  ${stagedBytes <= STAGING_BUDGET ? 'ok  ' : 'FAIL'}  staged ${fmt(stagedBytes).padStart(9)} / ${fmt(STAGING_BUDGET)} (${staged.length} files)`);

@@ -13,7 +13,7 @@ test('DEFAULT_STATE matches the spec and is deeply frozen', () => {
     assert.deepEqual(DEFAULT_STATE.layers, {
         beams: true, ghostBeams: true, sunMoonBeams: true, stars: true, constellations: true, constellationNames: true, starNames: true,
         milkyWay: true, clouds: true, atmosphere: true, ecliptic: false, eqGrid: false, altAzGrid: true, horizon: true, footprint: false,
-        subpoints: false, trails: false, labels: true,
+        subpoints: false, trails: false, labels: true, landscape: true,
     });
     assert.deepEqual(DEFAULT_STATE.display, { tzMode: 'observer', hour12: false });
     assert.deepEqual(DEFAULT_STATE.quality, { setting: 'auto', active: 'medium', ceiling: 'medium' });

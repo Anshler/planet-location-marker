@@ -27,13 +27,16 @@
 
 import { BODIES, BODY_INDEX } from '../astro/bodies.js';
 import { starVisibility } from '../astro/photometry.js';
+import { horizonAltDeg } from '../geo/horizon.js';
 
 /** @typedef {import('../core/types.js').LabelAnchor} LabelAnchor */
 /** @typedef {import('../core/types.js').AppState} AppState */
 /** @typedef {import('../core/types.js').Snapshot} Snapshot */
 /** @typedef {{bodyOrbit:Float64Array[], pinHead:Float64Array, cardinal:Float64Array[], rim:Float64Array[]}} LiveVectors */
-/** sync() inputs: star-field exposure (photometry.starExposure), tier magnitude limit, viewport CSS height.
- * @typedef {{starExposure?:number, magLimit?:number, viewportH?:number}} LabelView */
+/** sync() inputs: star-field exposure (photometry.starExposure), tier magnitude limit, viewport CSS height,
+ * and the shared landscape profile (geo/horizon.js; sky-view `below` flags follow its silhouette).
+ * @typedef {{starExposure?:number, magLimit?:number, viewportH?:number,
+ *   horizon?:import('../geo/horizon.js').HorizonProfile|null}} LabelView */
 
 export const PRIORITY = Object.freeze({ selected: 100, sunMoon: 90, planet: 80, observer: 70, cardinal: 60, starBase: 50, constellation: 20 });
 /** Star names shown in sky view (SPEC: mag ≤ 2.5) and, more sparingly, around the globe. */
@@ -89,17 +92,24 @@ const glyphSizePx = (mag) => clamp(3.0 + (1.5 - mag) * 1.4, 3, 12);
 const isBelow = (altDeg) => !(Number.isFinite(altDeg) && altDeg >= 0);
 
 /**
- * A body label's below-the-horizon flag. Orbit view follows the beams and the Sky panel (the
- * refraction- and limb-aware `above`); sky view keeps the geometric altitude, because bodies are
- * drawn unrefracted there (a setting Sun's disc is under the ground while refraction holds it "up").
- * @param {{above?:boolean, altGeomDeg?:number}|null|undefined} st BodyState
+ * A body label's below-the-horizon flag: the Sky panel's refraction- and limb-aware `above`, in
+ * both views (sky view draws bodies refracted, so a setting Sun sits on the horizon exactly while
+ * `above` holds). In sky view with the illustrative landscape on, the horizon is the silhouette:
+ * the body's apparent altitude (plus the Sun's or Moon's semi-diameter) against the profile at its
+ * azimuth, the same test the ground shader, picking and the flare use.
+ * @param {{id?:string, above?:boolean, altDeg?:number, azDeg?:number, altGeomDeg?:number, angDiamArcsec?:number}|null|undefined} st BodyState
  * @param {boolean} sky
+ * @param {import('../geo/horizon.js').HorizonProfile|null} [horizon] the shared landscape profile
  * @returns {boolean}
  */
-export function labelBelow(st, sky) {
+export function labelBelow(st, sky, horizon = null) {
     if (!st) return true;
-    if (!sky && typeof st.above === 'boolean') return !st.above;
-    return isBelow(st.altGeomDeg);
+    if (typeof st.above !== 'boolean') return isBelow(st.altGeomDeg);
+    if (!sky || !horizon || !horizon.enabled || !Number.isFinite(st.altDeg)) return !st.above;
+    const hAlt = horizonAltDeg(horizon, st.azDeg);
+    if (!(hAlt > 0)) return !st.above;
+    const semi = (st.id === 'sun' || st.id === 'moon') && Number.isFinite(st.angDiamArcsec) ? st.angDiamArcsec / 7200 : 0;
+    return !(st.altDeg + semi > hAlt);
 }
 
 /** Body anchors (one per BODIES entry that is not hidden). */
@@ -503,7 +513,7 @@ export function createLabelsFeed({ labels, store, snap, getCatalog = () => null,
         }
         for (let i = 0; i < BODIES.length; i++) {
             const a = bodyAnchor[i];
-            if (a) a.below = labelBelow(snap.bodies[i], sky);
+            if (a) a.below = labelBelow(snap.bodies[i], sky, view && view.horizon);
         }
         syncNames(view);
     }

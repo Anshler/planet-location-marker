@@ -427,9 +427,11 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         setFov(sky.fov);
     }
 
+    // Default sky look: toward the equator, 15° up; 25° on a portrait screen, where the tall field
+    // would otherwise give the ground almost half the view (only without a cam in the link).
     function defaultLook(out) {
         out.az = obsLat.v >= 0 ? 180 : 0;
-        out.alt = 15;
+        out.alt = camera.aspect > 0 && camera.aspect < 1 ? 25 : 15;
         return out;
     }
 

@@ -15,7 +15,8 @@
  *   source:'default'|'url'|'saved'|'tzguess'|'click'|'city'|'search'|'geo'|'manual'}} Observer */
 /** @typedef {{beams:boolean, ghostBeams:boolean, sunMoonBeams:boolean, stars:boolean, constellations:boolean,
  *   constellationNames:boolean, starNames:boolean, milkyWay:boolean, clouds:boolean, atmosphere:boolean, ecliptic:boolean,
- *   eqGrid:boolean, altAzGrid:boolean, horizon:boolean, footprint:boolean, subpoints:boolean, trails:boolean, labels:boolean}} Layers */
+ *   eqGrid:boolean, altAzGrid:boolean, horizon:boolean, footprint:boolean, subpoints:boolean, trails:boolean, labels:boolean,
+ *   landscape:boolean}} Layers `landscape`: the sky view's illustrative landscape (geo/horizon.js) */
 /** The solar eclipse in focus: set by actions.jumpToEvent for a solar eclipse event, cleared by any
  * other jump and once simulated time is more than a day from `peakMs` (main.js, eclipseFocusExpired).
  * `peakMs` is the event's instant (global greatest eclipse, or the local maximum when `local`);

@@ -51,12 +51,15 @@ function normalize3(v) {
 export function createTrails(rc) {
     const group = new THREE.Group();
     group.name = 'trails';
+    // Sky view draws the path at apparent (refracted) positions, like the bodies on it.
+    const refr = { uRefrUp: { value: new THREE.Vector3(0, 1, 0) }, uRefrK: { value: 0 } };
     const path = createLineLayer({
         name: 'trails.path', capacity: 400, color: [1, 1, 1], alpha: 0.85, halfWidthPx: 0.9,
-        renderOrder: -60, defines: { TRAIL: '' },
+        renderOrder: -60, defines: { TRAIL: '' }, refraction: refr,
     });
     const marks = createLineLayer({
         name: 'trails.marks', capacity: 512, color: [1, 1, 1], alpha: 0.75, halfWidthPx: 0.75, renderOrder: -60,
+        refraction: refr,
     });
     group.add(path.mesh, marks.mesh);
 
@@ -225,7 +228,10 @@ export function createTrails(rc) {
     function anchors() { return has && enabled ? list : []; }
 
     function apply(snap) {
-        if (!snap || !has) return;
+        if (!snap) return;
+        const up = snap.observer && snap.observer.upS;
+        if (up) refr.uRefrUp.value.set(up[0], up[1], up[2]);
+        if (!has) return;
         path.uniforms.uNow.value = indexAt(snap.tMs);
     }
 
@@ -233,6 +239,7 @@ export function createTrails(rc) {
         const visible = enabled && has;
         path.mesh.visible = marks.mesh.visible = visible;
         if (!visible || !fi) return;
+        refr.uRefrK.value = Number.isFinite(fi.skyBlend) ? Math.min(1, Math.max(0, fi.skyBlend)) : 0;
         const r = rc && rc.renderer;
         let w = 1, h = 1, dpr = 1;
         if (r) { r.getDrawingBufferSize(tmpSize); w = tmpSize.x; h = tmpSize.y; dpr = r.getPixelRatio(); }

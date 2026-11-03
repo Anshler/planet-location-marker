@@ -1,7 +1,7 @@
 // Deep links in the URL hash (SPEC §C.3, §F.4).
 //
 //   #loc=21.0285,105.8542&n=Hanoi&cc=VN&tz=Asia/Ho_Chi_Minh&el=15&t=2027-08-02T10:07:00Z&r=3600&p=1
-//    &view=orbit&lock=1&sel=moon&ly=bgoscCnmkazhl&q=auto&cam=o:21.0,105.8,3.2|s:142.3,25.0,60&intro=0&debug=1
+//    &view=orbit&lock=1&sel=moon&ly=bgoscCnmkazhld&q=auto&cam=o:21.0,105.8,3.2|s:142.3,25.0,60&intro=0&debug=1
 //
 // parseHash never throws: values are validated, clamped (time, elevation, camera) or dropped, and
 // every key that was present but not usable as written is listed in `invalid` (for the
@@ -20,7 +20,7 @@ export const LAYER_CODES = Object.freeze([
     ['b', 'beams'], ['g', 'ghostBeams'], ['o', 'sunMoonBeams'], ['s', 'stars'], ['c', 'constellations'],
     ['C', 'constellationNames'], ['n', 'starNames'], ['m', 'milkyWay'], ['k', 'clouds'], ['a', 'atmosphere'],
     ['e', 'ecliptic'], ['q', 'eqGrid'], ['z', 'altAzGrid'], ['h', 'horizon'], ['f', 'footprint'],
-    ['p', 'subpoints'], ['t', 'trails'], ['l', 'labels'],
+    ['p', 'subpoints'], ['t', 'trails'], ['l', 'labels'], ['d', 'landscape'],
 ].map((pair) => Object.freeze(pair)));
 const LAYER_BY_CODE = new Map(LAYER_CODES);
 const KNOWN_KEYS = new Set(['loc', 'n', 'cc', 'tz', 'el', 't', 'r', 'p', 'view', 'lock', 'sel', 'ly', 'q', 'cam', 'intro', 'debug']);
@@ -33,7 +33,7 @@ const CAM = Object.freeze({ distMin: 1.08, distMax: 150, altMin: -10, altMax: 89
 const NUM_RE = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d{1,3})?$/;
 const ISO_RE = /^(\d{4})(?:-(\d{2})(?:-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?)?)?)?(Z|[+-]\d{2}(?::?\d{2})?)?$/i;
 
-/** The `ly` value for DEFAULT_STATE.layers ('bgoscCnmkazhl'). */
+/** The `ly` value for DEFAULT_STATE.layers ('bgoscCnmkazhld'). */
 export const DEFAULT_LAYER_CODE = layersToCode(DEFAULT_STATE.layers);
 
 /** @param {string} s */
@@ -82,7 +82,7 @@ function cleanName(s) {
 }
 
 /**
- * Layers object → `ly` code ('bgoscCnmkazhl'), or null when `layers` is not an object.
+ * Layers object → `ly` code ('bgoscCnmkazhld'), or null when `layers` is not an object.
  * @param {Partial<import('./types.js').Layers>|null|undefined} layers
  * @returns {string|null}
  */

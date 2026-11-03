@@ -12,6 +12,7 @@ import {
 import { createSnapshot, computeSnapshot } from '../js/astro/snapshot.js';
 import { exposureFor } from '../js/astro/photometry.js';
 import { BODY_INDEX } from '../js/astro/bodies.js';
+import { createHorizon } from '../js/geo/horizon.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const read = (rel) => fs.readFileSync(path.join(ROOT, rel), 'utf8');
@@ -66,24 +67,50 @@ test('the sunset fixture: the Sun is "above" (refracted, upper limb) while geome
     assert.ok(sun.altGeomDeg < -0.3 && sun.altGeomDeg > -1, `altGeom ${sun.altGeomDeg}`);
 });
 
-test('labelBelow: orbit view follows the beams (above), sky view the geometric altitude', () => {
+/** A landscape profile with a flat silhouette of `deg` everywhere (enabled). */
+function flatHills(deg) {
+    const h = createHorizon();
+    h.alt.fill(deg);
+    h.enabled = true;
+    return h;
+}
+
+test('labelBelow: both views follow the refraction-aware above (sky view draws bodies refracted)', () => {
     const sun = SUNSET.bodies[BODY_INDEX.sun];
     assert.equal(labelBelow(sun, false), false, 'orbit: the beam is solid, so the label is not "below"');
-    assert.equal(labelBelow(sun, true), true, 'sky: the unrefracted disc is drawn under the ground');
+    assert.equal(labelBelow(sun, true), false, 'sky: the refracted disc still touches the horizon');
     assert.equal(labelBelow({ altGeomDeg: -2 }, false), true, 'no above flag: geometric fallback');
     assert.equal(labelBelow({ altGeomDeg: NaN }, true), true, 'NaN-safe');
     assert.equal(labelBelow(null, false), true);
 });
 
+test('labelBelow: with the landscape on, sky view tests the apparent upper limb against the silhouette', () => {
+    const sun = SUNSET.bodies[BODY_INDEX.sun];
+    const upper = sun.altDeg + sun.angDiamArcsec / 7200;
+    assert.ok(upper > 0 && upper < 0.3, `upper limb ${upper}°`);
+    assert.equal(labelBelow(sun, true, flatHills(upper + 0.05)), true, 'behind the hills');
+    assert.equal(labelBelow(sun, true, flatHills(upper - 0.05)), false, 'just above them');
+    assert.equal(labelBelow(sun, false, flatHills(5)), false, 'orbit view ignores the landscape');
+    const off = flatHills(5);
+    off.enabled = false;
+    assert.equal(labelBelow(sun, true, off), false, 'layer off: the mathematical horizon');
+    // A planet has no semi-diameter allowance.
+    const jup = { id: 'jupiter', above: true, altDeg: 0.4, azDeg: 100, angDiamArcsec: 40 };
+    assert.equal(labelBelow(jup, true, flatHills(0.39)), false);
+    assert.equal(labelBelow(jup, true, flatHills(0.41)), true);
+});
+
 test('buildAnchors and the per-frame sync agree with the beams in orbit view and with the drawing in sky view', () => {
     assert.equal(buildAnchors(state(), SUNSET, null, null, { mode: 'orbit' }).find((a) => a.id === 'sun').below, false);
-    assert.equal(buildAnchors(state(), SUNSET, null, null, { mode: 'sky' }).find((a) => a.id === 'sun').below, true);
+    assert.equal(buildAnchors(state(), SUNSET, null, null, { mode: 'sky' }).find((a) => a.id === 'sun').below, false);
     const { f, byId } = feed(state(), SUNSET);
     f.sync(camera(50), 'orbit', { starExposure: 1, magLimit: 6, viewportH: 900 });
     assert.equal(byId('sun').below, false);
     assert.equal(byId('mercury').below, !SUNSET.bodies[BODY_INDEX.mercury].above);
     f.sync(camera(70, [0.66, 0.75, 0.05]), 'sky', { starExposure: 0.5, magLimit: 6, viewportH: 900 });
-    assert.equal(byId('sun').below, true);
+    assert.equal(byId('sun').below, false, 'sky view: refracted, on the horizon');
+    f.sync(camera(70, [0.66, 0.75, 0.05]), 'sky', { starExposure: 0.5, magLimit: 6, viewportH: 900, horizon: flatHills(1) });
+    assert.equal(byId('sun').below, true, 'sky view with the landscape: behind a 1° ridge');
 });
 
 test('star names follow their own star: gone by day, back one by one at dusk, with hysteresis', () => {

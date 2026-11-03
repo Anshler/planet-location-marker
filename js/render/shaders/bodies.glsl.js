@@ -2,7 +2,7 @@
  * GLSL for the Sun, Moon, planet glyphs, selection reticle and lens flare (G5, SPEC E.5).
  * Every fragment shader ends with the tonemapping/colorspace includes (SPEC R6).
  */
-import { INFINITY_VERT_CHUNK } from './sky.glsl.js';
+import { INFINITY_VERT_CHUNK, REFRACT_CHUNK } from './sky.glsl.js';
 import { FINITE_CHUNK } from './common.glsl.js';
 
 const TONE = /* glsl */`
@@ -146,6 +146,11 @@ vec3 eclipseLight(vec2 uv, float q, float r) {
  * hides uOcclude of the sky behind it. In sky view the real disc outshines the air in front of it
  * many times over; added to a sky of similar display brightness, a low Sun's extinction colour
  * washed out to cream under ACES. The Sun's material adds the totality terms (ECLIPSE_CHUNK).
+ *
+ * Refraction (sky view, uRefrV.w > 0): the quad is centred on the lifted direction (DISC_VERT's
+ * infinityClip); each fragment's apparent altitude is mapped back to true altitude with Bennett's
+ * formula (photometry.js refractionFromApparentDeg) before the disc test, so a low Sun is a
+ * flattened ellipse whose lower limb is squeezed most. The glow stays round.
  */
 export const DISC_FRAG = /* glsl */`
 uniform float uTanR;
@@ -156,21 +161,37 @@ uniform vec3 uGlowColor;
 uniform float uGlowScale;
 uniform float uGlowGain;
 uniform float uOcclude;
+// xy: the local vertical on screen (unit, quad axes); z: apparent altitude of the centre (deg);
+// w: refraction strength (the view blend; 0 = a round disc).
+uniform vec4 uRefrV;
 varying vec2 vUv;
 ${ECLIPSE_CHUNK}
+float bennettDeg(float h) {
+    float hd = max(h, -1.0);
+    return 1.0 / (60.0 * tan(radians(hd + 7.31 / (hd + 4.4))));
+}
 void main() {
     float q = length(vUv);
     if (q >= 1.0) discard;
+    vec2 uv = vUv;
+    if (uRefrV.w > 0.0) {
+        float va = dot(vUv, uRefrV.xy) * uTanR;
+        float ha = uRefrV.z + degrees(va);
+        float vt = radians(ha - uRefrV.w * bennettDeg(ha) - (uRefrV.z - uRefrV.w * bennettDeg(uRefrV.z)));
+        uv += uRefrV.xy * ((vt - va) / uTanR);
+    }
+    float qt = length(uv);
     float r = q * uTanR;
-    float x = clamp(r / uCoreR, 0.0, 1.0);
+    float rt = qt * uTanR;
+    float x = clamp(rt / uCoreR, 0.0, 1.0);
     float limb = 1.0 - 0.6 * (1.0 - sqrt(1.0 - x * x));
-    float disc = 1.0 - smoothstep(uCoreR - uEdge, uCoreR + uEdge, r);
+    float disc = 1.0 - smoothstep(uCoreR - uEdge, uCoreR + uEdge, rt);
     float glow = uGlowGain * (exp(-r / uGlowScale) + 0.12 * exp(-r / (4.0 * uGlowScale)));
     float win = 1.0 - smoothstep(0.65, 1.0, q);
     glow *= win;
     vec3 ecl = vec3(0.0);
 #ifdef SUN_ECLIPSE
-    ecl = eclipseLight(vUv, q, r) * win;
+    ecl = eclipseLight(uv, qt, rt) * win;
 #endif
     gl_FragColor = vec4(uCoreColor * (disc * limb) + uGlowColor * glow + ecl, uOcclude * disc * limb);
     ${TONE}
@@ -278,16 +299,24 @@ void main() {
 }
 `;
 
-/** Moon (true scale, IAU orientation): standard mesh transform; world normal and position out. */
+/**
+ * Moon (true scale, IAU orientation): standard mesh transform; world normal and position out. In
+ * sky view each vertex's direction from the camera is lifted by refraction (REFRACT_CHUNK), which
+ * also flattens a low Moon; vPw keeps the true position for the lighting and the umbra.
+ */
 export const MOON_VERT = /* glsl */`
 varying vec2 vUv;
 varying vec3 vNw;
 varying vec3 vPw;
+${REFRACT_CHUNK}
 void main() {
     vUv = uv;
     vNw = normalize(mat3(modelMatrix) * normal);
     vec4 pw = modelMatrix * vec4(position, 1.0);
     vPw = pw.xyz;
+    vec3 rel = pw.xyz - cameraPosition;
+    float L = length(rel);
+    if (uRefrK > 0.0 && L > 1e-6) pw.xyz = cameraPosition + refractLift(rel / L) * L;
     gl_Position = projectionMatrix * viewMatrix * pw;
 }
 `;

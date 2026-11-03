@@ -56,6 +56,9 @@ export function createTotality(rc) {
         uDpr: { value: 1 },
         uTint: { value: new THREE.Color(1, 1, 1) },
         uRayGain: { value: 1 },
+        // Beads sit on the refracted limb (REFRACT_CHUNK), like the Sun and the Moon.
+        uRefrUp: { value: new THREE.Vector3(0, 1, 0) },
+        uRefrK: { value: 0 },
     };
     const material = new THREE.ShaderMaterial({
         name: 'totality.beads', uniforms, vertexShader: BEAD_VERT, fragmentShader: BEAD_FRAG,
@@ -101,6 +104,7 @@ export function createTotality(rc) {
         const s = snap.bodies[0];
         sunR = sunAngularRadius(s.distAU);
         const up = snap.observer && snap.observer.upS;
+        if (up) uniforms.uRefrUp.value.set(up[0], up[1], up[2]);
         sinAlt = up ? s.dirS[0] * up[0] + s.dirS[1] * up[1] + s.dirS[2] * up[2] : 1;
         sunAltDeg = snap.observer && Number.isFinite(snap.observer.sunAltDeg) ? snap.observer.sunAltDeg : -90;
         obscuration = Number.isFinite(ecl.obscurationAtObserver) ? clamp(ecl.obscurationAtObserver, 0, 1) : 0;
@@ -110,6 +114,7 @@ export function createTotality(rc) {
         const skyBlend = fi && Number.isFinite(fi.skyBlend) ? clamp(fi.skyBlend, 0, 1) : 0;
         const cam = fi && (fi.camera || (rc && rc.camera));
         if (count === 0 || skyBlend <= 0.001 || !cam) { mesh.visible = false; return; }
+        uniforms.uRefrK.value = skyBlend;
         const r = rc && rc.renderer;
         let w = 1, h = 1, dpr = 1;
         if (r) { r.getDrawingBufferSize(tmpSize); w = tmpSize.x; h = tmpSize.y; dpr = r.getPixelRatio(); }

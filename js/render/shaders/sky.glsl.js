@@ -7,15 +7,48 @@
  */
 
 /**
+ * Atmospheric refraction as the sky view draws it (sky-view-refraction): refractLift(d) raises a
+ * world direction's altitude above the plane normal to uRefrUp by uRefrK · R(altitude), keeping its
+ * azimuth. R is Saemundsson's formula, clamped at −1° and tapered to 0 at the nadir: exactly
+ * js/astro/photometry.js refractionDeg (and astronomy-engine's 'normal' refraction, which the Sky
+ * panel's altitudes and `above` flags use), mirrored in JS by liftByRefraction for picking, labels
+ * and the flare. uRefrK is the view blend, 0 in orbit view; a material that does not set these
+ * uniforms gets 0 (no lift). Low discs come out flattened: the Moon's vertices are lifted one by one
+ * (MOON_VERT) and the Sun's disc is mapped back to true altitude per fragment (DISC_FRAG).
+ * @type {string}
+ */
+export const REFRACT_CHUNK = /* glsl */`
+uniform vec3 uRefrUp;
+uniform float uRefrK;
+float refractionDeg(float h) {
+    float hd = max(h, -1.0);
+    float r = 1.02 / (60.0 * tan(radians(hd + 10.3 / (hd + 5.11))));
+    return h < -1.0 ? r * (h + 90.0) / 89.0 : r;
+}
+vec3 refractLift(vec3 d) {
+    if (uRefrK <= 0.0) return d;
+    float s = clamp(dot(d, uRefrUp), -1.0, 1.0);
+    vec3 hz = d - uRefrUp * s;
+    float l = length(hz);
+    if (l < 1e-6) return d;
+    float h = degrees(asin(s));
+    float a = radians(min(h + uRefrK * refractionDeg(h), 90.0));
+    return hz * (cos(a) / l) + uRefrUp * sin(a);
+}
+`;
+
+/**
  * At-infinity projection (SPEC E.1). Directions are projected with the view rotation only, so the
  * camera's translation is ignored, and the depth is pinned just inside the far plane: anything at a
- * finite distance (Earth, Moon) occludes the sky through the ordinary depth test.
+ * finite distance (Earth, Moon) occludes the sky through the ordinary depth test. The direction is
+ * first lifted by refraction (REFRACT_CHUNK; a no-op unless the material sets uRefrK).
  * Usage in a vertex shader: `gl_Position = infinityClip(normalize(mat3(modelMatrix) * position));`
  * @type {string}
  */
 export const INFINITY_VERT_CHUNK = /* glsl */`
+${REFRACT_CHUNK}
 vec4 infinityClip(vec3 dirW) {
-    vec4 p = projectionMatrix * vec4(mat3(viewMatrix) * dirW, 1.0);
+    vec4 p = projectionMatrix * vec4(mat3(viewMatrix) * refractLift(dirW), 1.0);
     return vec4(p.xy, p.w * 0.999999, p.w);
 }
 `;
@@ -339,9 +372,11 @@ ${INFINITY_VERT_CHUNK}
 void main() {
     vStyle = iStyle.xy;
     vParam = mix(iStyle.z, iStyle.w, position.x);
-    mat3 R = mat3(viewMatrix) * mat3(modelMatrix);
-    vec3 a0 = R * normalize(iA);
-    vec3 b0 = R * normalize(iB);
+    // Endpoints lifted by refraction (sky view; the alt-az grid passes uRefrK = 0: it is drawn in
+    // apparent coordinates already).
+    mat3 M = mat3(modelMatrix);
+    vec3 a0 = mat3(viewMatrix) * refractLift(normalize(M * iA));
+    vec3 b0 = mat3(viewMatrix) * refractLift(normalize(M * iB));
     const float ZC = -1e-3;
     if ((a0.z > ZC && b0.z > ZC) || iStyle.x <= 0.0) {
         gl_Position = vec4(2.0, 2.0, 2.0, 1.0);

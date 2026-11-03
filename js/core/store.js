@@ -38,7 +38,7 @@ export const DEFAULT_STATE = deepFreeze({
     layers: {
         beams: true, ghostBeams: true, sunMoonBeams: true, stars: true, constellations: true, constellationNames: true, starNames: true,
         milkyWay: true, clouds: true, atmosphere: true, ecliptic: false, eqGrid: false, altAzGrid: true, horizon: true, footprint: false,
-        subpoints: false, trails: false, labels: true,
+        subpoints: false, trails: false, labels: true, landscape: true,
     },
     display: { tzMode: 'observer', hour12: false }, quality: { setting: 'auto', active: 'medium', ceiling: 'medium' },
     ui: { panel: 'sky', sheet: 'peek', cinema: false, help: false, palette: false, eclipse: null },

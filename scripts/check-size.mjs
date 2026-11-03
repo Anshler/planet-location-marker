@@ -8,7 +8,7 @@
 // Raw bytes on disk are budgeted (1 MB = 10⁶ B); gzip "wire" sizes are informational
 // (GitHub Pages compresses JS/CSS/JSON/SVG/HTML).
 //
-//   low ≤ 3.5 MB · medium ≤ 4.35 MB · high ≤ 5.55 MB · staged site ≤ 12 MB
+//   low ≤ 3.526 MB · medium ≤ 4.351 MB · high ≤ 5.568 MB · staged site ≤ 32 MB
 //   SPEC §E.6 set 3.0 / 3.6 / 4.8 MB from an estimate of ≈ 1.35 MB of JavaScript. The shipped,
 //   unminified-by-design module graph (no build step) measures ≈ 2.0 MB raw incl. CSS
 //   (≈ 0.6 MB gzipped; three.js + astronomy-engine alone are 1.17 MB raw), so the budgets were
@@ -35,7 +35,9 @@ const MB = 1e6, KB = 1e3;
 
 // Phase 1 (Eclipse 2027): eclipse path, contacts and framing (≈ 35 KB), totality (≈ 48 KB), and the globe's path ribbon,
 // shadow chase and eclipse-aware pin (≈ 46 KB) raise every tier.
-export const TIER_BUDGETS = { low: 3.5 * MB, medium: 4.35 * MB, high: 5.55 * MB };
+// Phase 2 (sky view 2.0): the illustrative landscape, twilight-lit ground and drawn refraction (≈ 45 KB of JS on every tier)
+// put low 25 KB, medium 0.04 KB and high 16 KB over: each raised by that plus ≈ 5 %.
+export const TIER_BUDGETS = { low: 3.526 * MB, medium: 4.351 * MB, high: 5.568 * MB };
 /** Tiers that are measured and printed but have no budget (max: a deliberate, manual choice). */
 export const INFO_TIERS = ['max'];
 // The max tier's 8192 px maps (≈ 15.2 MB) ship with the site; 32 MB keeps headroom (Pages allows 1 GB).

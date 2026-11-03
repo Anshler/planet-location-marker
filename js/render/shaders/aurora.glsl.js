@@ -167,7 +167,8 @@ void main() {
     vec3 col = vec3(0.0);
     vec2 to = raySphere(ro, rd, AUR_TOP);
     if (uAur.x > 0.0 && to.y > 0.0) {
-        bool hit = raySphere(ro, rd, 1.0).x > 0.0;
+        vec2 tp = raySphere(ro, rd, 1.0);
+        bool hit = tp.x > 0.0 && tp.y > tp.x;   // a miss is (1e9, -1e9): x > 0 alone is no hit
         // Over the disc the surface shaders draw the face-on share (same 110 km point and weight).
         float w = 1.0;
         if (hit) w = 1.0 - smoothstep(0.15, 0.45, dot(normalize(ro + rd * raySphere(ro, rd, AUR_R).x), -rd));

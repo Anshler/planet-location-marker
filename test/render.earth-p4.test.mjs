@@ -58,6 +58,10 @@ test('aurora: one column model, face-on in the surface and cloud shaders, handed
     const frag = stripComments(AURORA_SHADER.fragment);
     assert.match(frag, /w = 1\.0 - smoothstep\(0\.15, 0\.45, dot\(normalize\(ro \+ rd \* raySphere\(ro, rd, AUR_R\)\.x\), -rd\)\)/,
         'the shell takes exactly the complement, at the same 110 km point');
+    // raySphere returns (1e9, -1e9) on a miss: a hit needs t1 > t0 too, or every ray passing above
+    // the planet would lose the far half of its chord (curtains behind the limb).
+    assert.match(frag, /vec2 tp = raySphere\(ro, rd, 1\.0\);\s*bool hit = tp\.x > 0\.0 && tp\.y > tp\.x;/);
+    assert.doesNotMatch(frag, /raySphere\([^;]*\)\.x > 0\.0/, 'no bare .x > 0.0 hit test');
     const main = frag.split('void main()')[1];
     assert.ok(main.indexOf('#include <tonemapping_fragment>') < main.indexOf('#include <colorspace_fragment>'));
     // fwidth before any non-uniform early return.

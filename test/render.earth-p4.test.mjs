@@ -113,6 +113,12 @@ test('sculpted clouds: cloudAt untouched (ground shadows stay registered); self-
     const frag = stripComments(CLOUDS_SHADER.fragment);
     assert.match(frag, /float cloud = cloudAt\(uClouds, uv\);/);
     assert.match(frag, /#ifdef CLOUD_SELF_SHADOW/);
+    // Erosion: gradient noise off the texel grid (a lattice in step with the texels drew a block
+    // mosaic), a whole number of cells per turn, its noise on the edges only.
+    assert.match(frag, /float w1 = floor\(csz\.x \* 2\.37 \+ 0\.5\), w2 = floor\(csz\.x \* 8\.93 \+ 0\.5\);/);
+    assert.match(frag, /return mix\(mix\(a, b, u\.x\), mix\(c, d, u\.x\), u\.y\);/);
+    assert.match(frag, /float thin = 0\.15 \* \(1\.0 - cloud\) \+ 0\.6 \* g \* cloud \* \(1\.0 - cloud\);/);
+    assert.doesNotMatch(frag, /csz \* 2\.0;/);
     assert.match(frag, /float beer = \(1\.0 - exp\(-tau\)\) \* \(1\.0 - 0\.5 \* exp\(-2\.0 \* tau\)\);/);
     const earth = stripComments(read('js/render/earth.js'));
     assert.match(earth, /if \(cfg\.name === 'high' \|\| cfg\.name === 'max'\) d\.CLOUD_SELF_SHADOW = '';/);

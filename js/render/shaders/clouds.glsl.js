@@ -20,8 +20,9 @@
  *  - Beer-powder albedo: thin cloud reflects less than its cover suggests (grey wisps over ocean);
  *  - a Henyey-Greenstein forward lobe (g = 0.6), soft-capped, on thin cloud: silver linings when
  *    the Sun is behind the clouds near the limb;
- *  - sub-texel erosion when magnified: 2-octave value noise at 8x texel frequency, moving with the
- *    clouds, crisps the edges of the B-spline blobs.
+ *  - sub-texel erosion when magnified: 2-octave gradient noise at about 2.4x and 8.9x the texel
+ *    frequency (off the texel grid, so no block mosaic), moving with the clouds, works the edges
+ *    of the B-spline blobs.
  * At home distance the brc4k texels are ~10 km, so this reads as texture in the terminator band,
  * not an orbital-photo landscape. cloudAt (CLOUD_LOOKUP) is untouched, so the ground's cloud
  * shadows stay registered.
@@ -70,15 +71,21 @@ float cloudLod(sampler2D tex, vec2 st, float lod) {
     return cloudDensity(uCloudMode < 1.5 ? t.r : t.b);
 }
 
-// Value noise, periodic in x with period w (the map wraps at the dateline).
+// Gradient noise in about ±0.5, periodic in x with period w (whole cells: the map wraps at the
+// dateline). Value noise drew its lattice as squares.
+vec2 cloudGrad(vec2 c) {
+    float a = 6.2831853 * hash12(c);
+    return vec2(cos(a), sin(a));
+}
 float cloudNoise(vec2 q, float w) {
     vec2 i = floor(q);
     vec2 f = q - i;
-    f = f * f * (3.0 - 2.0 * f);
+    vec2 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
     float x0 = mod(i.x, w), x1 = mod(i.x + 1.0, w);
-    float a = hash12(vec2(x0, i.y)), b = hash12(vec2(x1, i.y));
-    float c = hash12(vec2(x0, i.y + 1.0)), d = hash12(vec2(x1, i.y + 1.0));
-    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+    float a = dot(cloudGrad(vec2(x0, i.y)), f), b = dot(cloudGrad(vec2(x1, i.y)), f - vec2(1.0, 0.0));
+    float c = dot(cloudGrad(vec2(x0, i.y + 1.0)), f - vec2(0.0, 1.0));
+    float d = dot(cloudGrad(vec2(x1, i.y + 1.0)), f - vec2(1.0, 1.0));
+    return mix(mix(a, b, u.x), mix(c, d, u.x), u.y);
 }
 
 void main() {
@@ -119,17 +126,21 @@ void main() {
         Nc = normalize(Ng - grad.x * eW - grad.y * nW);
     }
 
-    // --- sub-texel erosion when magnified: crisp, noisy edges instead of blobs. Two octaves (2 and
-    //     8 cells per texel), each faded in only once its cells span 2+ pixels (no salt noise) ---
+    // --- sub-texel erosion when magnified: crisp, noisy edges instead of blobs. Two octaves (about
+    //     2.4 and 8.9 cells per texel: off the texel grid, or the lattice lines up with the blobs as
+    //     a block mosaic; a whole number of cells per turn), each faded in only once its cells span
+    //     2+ pixels (no salt noise). The mean thinning is (1 − cloud)-weighted as ever; the noise
+    //     works the edges, 2·cloud·(1 − cloud), so thin cloud and cores stay smooth ---
     float ero = 1.0 - smoothstep(-1.5, -0.5, lod);
     float dens = cloud;
     if (ero > 0.0 && cloud > 0.0) {
         float texPx = exp2(-lod);   // pixels per texel
-        vec2 q = vec2(fract(st.x), st.y) * csz * 2.0;
-        float w2 = csz.x * 2.0;
-        float n = 0.5 + 0.6 * smoothstep(3.0, 6.0, texPx) * (cloudNoise(q, w2) - 0.5)
-                      + 0.4 * smoothstep(12.0, 24.0, texPx) * (cloudNoise(q * 4.0, 4.0 * w2) - 0.5);
-        dens = mix(cloud, clamp((cloud - n * 0.3 * (1.0 - cloud)) / 0.7, 0.0, 1.0) * polar, ero);
+        float w1 = floor(csz.x * 2.37 + 0.5), w2 = floor(csz.x * 8.93 + 0.5);
+        vec2 q = vec2(fract(st.x), st.y * csz.y / csz.x);
+        float g = 0.6 * smoothstep(3.0, 6.0, texPx) * cloudNoise(q * w1 + vec2(0.0, 0.37), w1)
+                + 0.4 * smoothstep(12.0, 24.0, texPx) * cloudNoise(q * w2 + vec2(0.0, 0.71), w2);
+        float thin = 0.15 * (1.0 - cloud) + 0.6 * g * cloud * (1.0 - cloud);
+        dens = mix(cloud, clamp((cloud - thin) / 0.7, 0.0, 1.0) * polar, ero);
     }
 
     float sunVis = 1.0;

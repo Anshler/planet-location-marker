@@ -199,6 +199,34 @@ export function shadowPoint(snap) {
 }
 
 /**
+ * The sky look at the selected body when it is above the horizon, else undefined (the rig's
+ * default look).
+ * @param {string|null|undefined} selection
+ * @param {import('../core/types.js').Snapshot|null|undefined} snap
+ * @returns {{azDeg:number, altDeg:number}|undefined}
+ */
+export function selectionLook(selection, snap) {
+    if (!selection || !isBodyId(selection)) return undefined;
+    const b = snap?.bodies?.[BODY_INDEX[selection]];
+    return b && b.altGeomDeg > 0 ? { azDeg: b.azGeomDeg, altDeg: b.altGeomDeg } : undefined;
+}
+
+/**
+ * The look a view-mode change asks the rig for (main.js's view.mode subscriber): entering sky view
+ * turns to the selected body. An event jump (store source 'event') has already aimed the rig at the
+ * event's own instant (jumpToEvent); a look from the pre-sweep frame would queue a second move
+ * after it, so it gets none.
+ * @param {string} mode the new view.mode
+ * @param {string|undefined} source the store.set source of the change
+ * @param {string|null|undefined} selection
+ * @param {import('../core/types.js').Snapshot|null|undefined} snap
+ * @returns {{azDeg:number, altDeg:number}|undefined}
+ */
+export function viewModeLook(mode, source, selection, snap) {
+    return mode === 'sky' && source !== 'event' ? selectionLook(selection, snap) : undefined;
+}
+
+/**
  * Creates the action API.
  *
  * @param {{store:any, bus:any, clock:any, prefs:any, tz?:any,
@@ -356,7 +384,8 @@ export function createActions(deps) {
     /**
      * Brings a body into view ('Center'): in sky view the camera turns to it; in globe view the
      * camera moves to the far side of the globe, so the body sits just past the limb with the
-     * observer's beam crossing the globe toward it.
+     * observer's beam crossing the globe toward it. The Moon is framed where its mesh is drawn,
+     * ~60 R out, so parallax from the camera cannot tuck it behind the limb.
      * @param {string} id
      */
     function flyToBody(id) {
@@ -366,7 +395,8 @@ export function createActions(deps) {
         if (store.get().view.mode === 'sky') {
             settle(rig().setMode?.('sky', { animate, look: { azDeg: b.azGeomDeg, altDeg: Math.max(-5, b.altGeomDeg) } }));
         } else {
-            settle(rig().frameDir?.(b.dirS, { animate }));
+            const point = id === 'moon' ? getSnap()?.moonPosS ?? null : null;
+            settle(rig().frameDir?.(b.dirS, { animate, point }));
         }
     }
 

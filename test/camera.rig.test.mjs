@@ -9,7 +9,7 @@ import { register } from 'node:module';
 import { createSnapshot, computeSnapshot } from '../js/astro/snapshot.js';
 import { BODY_INDEX } from '../js/astro/bodies.js';
 import { createStore } from '../js/core/store.js';
-import { createActions } from '../js/app/actions.js';
+import { createActions, selectionLook, viewModeLook } from '../js/app/actions.js';
 
 register('./helpers/three-hooks.mjs', import.meta.url);
 const THREE = await import('three');
@@ -121,9 +121,9 @@ test('sky view entered from a placed globe still returns to that globe pose', ()
 // ---- bug-event-jump-double-flight ----------------------------------------------------------------
 
 /**
- * The actions API on a real store and rig, with main.js's view.mode subscriber mirrored (its
- * source check is asserted against main.js below). `frame()` is the loop's snapshot at the
- * clock's current instant; the clock sweeps linearly over the action's animateMs.
+ * The actions API on a real store and rig, with main.js's view.mode subscriber mirrored (the same
+ * viewModeLook decision; main.js is checked to call it below). `frames()` advances the loop with a
+ * snapshot at the clock's current instant; the clock sweeps linearly over the action's animateMs.
  */
 function makeApp({ observer, t0, view, cam }) {
     const h = makeRig();
@@ -140,14 +140,8 @@ function makeApp({ observer, t0, view, cam }) {
         },
     };
     let snap = snapAt(t0, observer);
-    const lookFor = () => {
-        const id = store.get().selection;
-        const b = id ? snap.bodies[BODY_INDEX[id]] : null;
-        return b && b.altGeomDeg > 0 ? { azDeg: b.azGeomDeg, altDeg: b.altGeomDeg } : undefined;
-    };
     store.subscribe((s) => s.view.mode, (mode, _prev, _state, source) => {
-        const look = mode === 'sky' && source !== 'event' ? lookFor() : undefined;
-        h.rig.setMode(mode, { animate: true, look });
+        h.rig.setMode(mode, { animate: true, look: viewModeLook(mode, source, store.get().selection, snap) });
     });
     const actions = createActions({
         store, clock: clockApi, bus: { emit() {} },
@@ -166,10 +160,29 @@ function makeApp({ observer, t0, view, cam }) {
     return { ...h, store, actions, frames };
 }
 
-test('main.js: the view.mode subscriber leaves the look to an event jump', () => {
+test('viewModeLook: entering sky view turns to the selected body, except after an event jump', () => {
+    const snap = snapAt(Date.parse('2027-08-02T10:05:00Z'), LUXOR);
+    const jup = snap.bodies[BODY_INDEX.jupiter];
+    assert.ok(jup.altGeomDeg > 0, 'Jupiter is up');
+    assert.deepEqual(viewModeLook('sky', 'actions', 'jupiter', snap), { azDeg: jup.azGeomDeg, altDeg: jup.altGeomDeg });
+    assert.deepEqual(viewModeLook('sky', undefined, 'jupiter', snap), selectionLook('jupiter', snap));
+    // The jump has already aimed the rig at the event's instant: no second look from this frame.
+    assert.equal(viewModeLook('sky', 'event', 'jupiter', snap), undefined);
+    assert.equal(viewModeLook('orbit', 'actions', 'jupiter', snap), undefined);
+    // Nothing selected, an unknown id, or a body below the horizon: the rig's default look.
+    assert.equal(viewModeLook('sky', 'actions', null, snap), undefined);
+    assert.equal(viewModeLook('sky', 'actions', 'pluto', snap), undefined);
+    const down = ['sun', 'moon', 'mercury', 'venus', 'mars', 'saturn', 'uranus', 'neptune']
+        .find((id) => snap.bodies[BODY_INDEX[id]].altGeomDeg < 0);
+    assert.ok(down, 'some body is below the horizon');
+    assert.equal(selectionLook(down, snap), undefined);
+    assert.equal(selectionLook('jupiter', null), undefined);
+});
+
+test('main.js: the view.mode subscriber takes its look from viewModeLook (with the store source)', () => {
     const src = fs.readFileSync(new URL('../js/main.js', import.meta.url), 'utf8');
-    assert.match(src, /store\.subscribe\(\(s\) => s\.view\.mode, \(mode, _prev, _state, source\) =>/);
-    assert.match(src, /const look = mode === 'sky' && source !== 'event' \? lookFor\(store, snap\) : undefined;/);
+    assert.match(src, /s\.view\.mode,\s*\(mode,[^)]*\bsource\)\s*=>/);
+    assert.match(src, /viewModeLook\(\s*mode,\s*source\b/);
 });
 
 test('an eclipse jump from sky view is one sky → globe flight that lands over the shadow', () => {
@@ -242,28 +255,55 @@ test('a sky event jump inside sky view turns once to the body at the event', () 
 
 // ---- bug-center-behind-camera ---------------------------------------------------------------------
 
-/** Checks the 'Center' framing of body `id`; returns the body's NDC. */
+/**
+ * Checks the 'Center' framing of body `id`, made the way the UI asks for it (actions.flyToBody).
+ * Bodies are checked where they are drawn: the Moon's mesh at snap.moonPosS (~60 R, so parallax
+ * from the camera counts), the others at infinity along dirS.
+ * @returns {{off:number, r:number, px:number, py:number, cx:number, cy:number}} the body's angle
+ *   off the view axis, the camera distance, and the body's and free area's centre in CSS px
+ */
 function checkFrame({ w, h, insets, observer, iso, id }) {
     const { rig, camera, run, rc } = makeRig({ w, h });
     const snap = snapAt(Date.parse(iso), observer);
     rig.update(0, snap);
     if (insets) rig.setViewInsets(insets);
+    const store = createStore({ observer, view: { mode: 'orbit', earthLock: true }, status: { reducedMotion: true } });
+    const actions = createActions({
+        store, clock: { pause() {}, setTime() {} }, bus: { emit() {} },
+        prefs: { load: (_k, d) => d, save() {}, remove() {} }, render: { rig }, getSnap: () => snap,
+    });
     const b = snap.bodies[BODY_INDEX[id]];
-    rig.frameDir(b.dirS, { animate: false });
+    actions.flyToBody(id);
     run(32, snap);
     const dir = vec(b.dirS).normalize();
     const fwd = camera.getWorldDirection(new THREE.Vector3());
     const r = camera.position.length();
-    const off = Math.acos(fwd.dot(dir)) / D;
+    const P = id === 'moon' ? vec(snap.moonPosS) : camera.position.clone().addScaledVector(dir, 1e3);
+    const toP = P.clone().sub(camera.position);
+    const radius = id === 'moon' ? Math.asin(0.2724 / toP.length()) / D : 0;
+    const off = Math.acos(fwd.dot(toP.normalize())) / D;
     const limb = Math.asin(1 / r) / D;
-    assert.ok(off > limb + 1, `${id} ${off.toFixed(1)}° from the axis is past the ${limb.toFixed(1)}° limb`);
+    assert.ok(off - radius > limb + (id === 'moon' ? 0.5 : 1),
+        `${id} ${off.toFixed(2)}° (radius ${radius.toFixed(2)}°) from the axis is past the ${limb.toFixed(2)}° limb`);
+    near(limb, 0.85 * off, 0.02, `${id}: the limb at 0.85 of the body's angle`);
     // Inside the free area (the screen the panels leave), with a margin.
-    const p = ndcOfDir(camera, dir);
+    const p = P.clone().project(camera);
     assert.ok(p.z < 1, `${id} is in front of the camera`);
     const px = (p.x + 1) / 2 * rc.size.w, py = (1 - p.y) / 2 * rc.size.h;
     const ins = { left: 0, right: 0, top: 0, bottom: 0, ...insets };
     assert.ok(px > ins.left + 20 && px < w - ins.right - 20 && py > ins.top + 20 && py < h - ins.bottom - 20,
         `${id} at (${px.toFixed(0)}, ${py.toFixed(0)}) px is inside the free area`);
+    // 70% of the way from the free area's centre to its edge on the body's side, unless the globe
+    // would then not fit across: its disc spans at most 75% of the free area's narrower side.
+    const hx = (w - ins.left - ins.right) / 2, hy = (h - ins.top - ins.bottom) / 2;
+    const cx = ins.left + hx, cy = ins.top + hy;
+    const dx = Math.abs(px - cx), dy = Math.abs(py - cy), d = Math.hypot(dx, dy);
+    const edge = Math.min(dx > 1e-6 ? hx * d / dx : Infinity, dy > 1e-6 ? hy * d / dy : Infinity);
+    const rGlobe = Math.tan(limb * D) * (h / 2) / Math.tan(22.5 * D);
+    const fit = 0.75 * Math.min(hx, hy);
+    assert.ok(rGlobe < fit + 1, `${id}: the ${rGlobe.toFixed(0)} px globe fits across the free area`);
+    if (rGlobe < fit - 1) near(d, 0.7 * edge, 2, `${id}: px from the centre, 70% of the way to the edge`);
+    else assert.ok(d < 0.7 * edge + 2, `${id}: within 70% of the way to the edge`);
     // The observer's beam crosses the globe: from the observer's side of the disc (the far side
     // of the centre unless the body is within ~74° of the zenith) to the body past the limb.
     const toPx = (v) => ({ x: (v.x + 1) / 2 * w, y: (1 - v.y) / 2 * h });
@@ -273,11 +313,19 @@ function checkFrame({ w, h, insets, observer, iso, id }) {
     if (b.altGeomDeg < 70) {
         assert.ok((o.x - c.x) * (q.x - c.x) + (o.y - c.y) * (q.y - c.y) < 0, `${id}: observer and body on opposite sides of the globe`);
     }
-    return { off, r, p };
+    return { off, r, px, py, cx, cy };
 }
 
 test("'Center' puts the body just past the limb in view, not behind the camera (body below the horizon)", () => {
-    const { off, r } = checkFrame({ w: 1600, h: 900, observer: HCMC, iso: '2026-11-03T14:00:00Z', id: 'mars' });
+    // Mars is off to the lower left: the globe grows until it spans 75% of the screen height.
+    const { r } = checkFrame({ w: 1600, h: 900, observer: HCMC, iso: '2026-11-03T14:00:00Z', id: 'mars' });
+    near(r, 1 / Math.sin(Math.atan(0.75 * Math.tan(22.5 * D))), 0.01, 'distance');
+});
+
+test("'Center' on a body straight above the globe: 70% of the way to the screen edge, 4.2 R out", () => {
+    // The Sun crosses the meridian at Paris at 11:34 UTC, so it sits straight above the centre.
+    const { off, r, px, cx } = checkFrame({ w: 1600, h: 900, observer: PARIS, iso: '2026-11-03T11:34:00Z', id: 'sun' });
+    near(px, cx, 1, 'x px');
     near(off, Math.atan(0.7 * Math.tan(22.5 * D)) / D, 0.01, 'angle from the view axis');
     near(r, 4.2, 0.01, 'distance');
 });
@@ -287,7 +335,27 @@ test("'Center' frames bodies above the horizon and the Sun, with panels and on a
     checkFrame({ w: 1600, h: 900, insets: { right: 380, bottom: 110 }, observer: HCMC, iso: '2026-11-03T14:00:00Z', id: 'mars' });
     checkFrame({ w: 1600, h: 900, insets: { right: 380, bottom: 110 }, observer: PARIS, iso: '2026-11-03T12:00:00Z', id: 'sun' });
     checkFrame({ w: 390, h: 844, insets: { bottom: 340 }, observer: LUXOR, iso: '2027-08-02T10:05:00Z', id: 'jupiter' });
-    checkFrame({ w: 390, h: 844, insets: { bottom: 340 }, observer: LUXOR, iso: '2027-08-02T10:05:00Z', id: 'moon' });
+    checkFrame({ w: 390, h: 844, insets: { bottom: 340 }, observer: LUXOR, iso: '2027-08-02T10:05:00Z', id: 'sun' });
+    checkFrame({ w: 390, h: 844, observer: HCMC, iso: '2026-11-03T14:00:00Z', id: 'mars' });
+});
+
+test("'Center' frames the Moon where its mesh is drawn: parallax never tucks it behind the limb", () => {
+    // Its mesh sits ~60 R out; from a camera 4–9 R behind the globe it shows 1–1.5° nearer the
+    // view axis than its direction, which on a phone was inside the limb (fully hidden).
+    for (const c of [
+        { w: 390, h: 844, observer: HCMC, iso: '2026-11-03T14:00:00Z' },
+        { w: 390, h: 844, insets: { bottom: 340 }, observer: LUXOR, iso: '2027-08-02T10:05:00Z' },
+        { w: 1600, h: 900, insets: { right: 380, bottom: 110 }, observer: HCMC, iso: '2026-11-03T14:00:00Z' },
+        { w: 1600, h: 900, observer: LUXOR, iso: '2027-08-02T10:05:00Z' },
+        { w: 1600, h: 900, insets: { right: 380, bottom: 110 }, observer: PARIS, iso: '2026-11-03T12:00:00Z' },
+    ]) checkFrame({ ...c, id: 'moon' });
+});
+
+test("'Center' on a portrait phone uses the tall side for a body above or below the globe", () => {
+    // The old framing sized everything from the 390 px width: 8.85 R out, the globe 60% of it.
+    const { r, px, py, cx, cy } = checkFrame({ w: 390, h: 844, insets: { bottom: 340 }, observer: LUXOR, iso: '2027-08-02T10:05:00Z', id: 'sun' });
+    assert.ok(Math.abs(py - cy) > 2 * Math.abs(px - cx), 'the Sun is above or below the globe');
+    assert.ok(r < 7.1, `distance ${r.toFixed(2)}`);
 });
 
 test("'View from <body>' keeps the old pose: the camera on the body's direction", () => {

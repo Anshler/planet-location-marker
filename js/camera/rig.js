@@ -5,7 +5,7 @@
  *
  *   createRig(rc, {dom, reducedMotion}) → { camera, mode, skyBlend, tweening, dragging,
  *     setMode(mode, {animate, look}) → Promise, setEarthLock(on), flyToDir(dirS, {distance, animate, durationMs}) → Promise,
- *     frameDir(dirS, {animate, durationMs}) → Promise, centerAt(ndcX, ndcY, {animate, fovFactor}) → Promise,
+ *     frameDir(dirS, {animate, durationMs, point}) → Promise, centerAt(ndcX, ndcY, {animate, fovFactor}) → Promise,
  *     flyToLatLon(latDeg, lonDeg, {distance=3.2, animate, durationMs}) → Promise, home({animate}) → Promise,
  *     update(dtMs, snap) → boolean, getView() → CamView, setView(cam), onInteract(cb) → off, onClick(cb) → off,
  *     nudge(dxDeg, dyDeg), zoom(factor), zoomAt(factor, ndcX, ndcY), setViewInsets({left, right, top, bottom}),
@@ -70,10 +70,12 @@ const CLICK_MS = 350;
 const DOUBLE_MS = 320;
 const DOUBLE_PX = 10;
 // 'Center' framing (frameDir): the body sits this fraction of the way from the middle of the free
-// screen area to its nearer edge, and the globe's limb at this fraction of the body's angle from
-// the view axis (full screen: 16.2° and 13.8°, a distance of 4.2 R).
+// screen area to its edge on the body's side, and the globe's limb at this fraction of the body's
+// angle from the view axis; the globe's disc spans at most FRAME_FIT of the free area's narrower
+// side (full screen, body above or below the globe: 16.2° and 13.8°, a distance of 4.2 R).
 const FRAME_FILL = 0.7;
 const FRAME_LIMB = 0.85;
+const FRAME_FIT = 0.75;
 // Sky view: a double-click on empty sky glides there and narrows the field by this factor.
 const SKY_DBL_ZOOM = 0.6;
 
@@ -93,6 +95,11 @@ const _bU = new THREE.Vector3();
 const _bF = new THREE.Vector3();
 const _ray = new THREE.Vector3();
 const _look = { az: 0, alt: 0 };
+const _fF = new THREE.Vector3();
+const _fG = new THREE.Vector3();
+const _fR = new THREE.Vector3();
+const _fU = new THREE.Vector3();
+const _fP = new THREE.Vector3();
 
 function clamp(x, a, b) { return x < a ? a : x > b ? b : x; }
 function easeInOutCubic(t) { return t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2; }
@@ -1123,30 +1130,78 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
     /**
      * World camera position of the 'Center' framing for a body in direction dirW (unit): on the
      * far side of the globe, the view axis tilted from the body toward the observer's zenith, so
-     * the body sits just past the limb (FRAME_*, measured in the free area the panels leave) on the
-     * side of the screen away from the observer, and the observer's beam crosses the globe to it.
+     * the body sits just past the limb on the side of the screen away from the observer, and the
+     * observer's beam crosses the globe to it. FRAME_* are measured in the free area the panels
+     * leave, along the body's side of the screen: on a portrait phone a body above or below the
+     * globe gets the tall side, not the width.
+     *
+     * pointW (world, Earth radii) is where the body is drawn when it is not at infinity: the Moon,
+     * ~60 R out, seen from a camera 4–9 R behind the globe, is pulled 1–1.5° toward the view axis
+     * by parallax, behind the limb on a phone. The tilt is then solved so that the point, not the
+     * direction, sits at the framing angle.
+     * @param {THREE.Vector3} dirW
+     * @param {THREE.Vector3} out
+     * @param {THREE.Vector3|null} [pointW]
      */
-    function framePos(dirW, out) {
+    function framePos(dirW, out, pointW = null) {
         const W = rc.size?.w || 1, H = rc.size?.h || 1;
-        const free = Math.max(1, Math.min(W - insets.left - insets.right, H - insets.top - insets.bottom));
-        const beta = Math.atan(FRAME_FILL * Math.tan(ORBIT_FOV * DEG / 2) * free / H);
-        const dist = clamp(1 / Math.sin(FRAME_LIMB * beta), MIN_DIST, MAX_DIST);
+        const hx = Math.max(1, W - insets.left - insets.right) / 2, hy = Math.max(1, H - insets.top - insets.bottom) / 2;
+        const px = (H / 2) / Math.tan(ORBIT_FOV * DEG / 2);    // pixels per unit tangent off the axis
         // Tilt axis: the observer's zenith, else world north, square to the body's direction.
-        _v3.copy(upW).addScaledVector(dirW, -upW.dot(dirW));
-        if (_v3.lengthSq() < 1e-8) _v3.copy(Y).addScaledVector(dirW, -dirW.y);
-        if (_v3.lengthSq() < 1e-8) _v3.set(1, 0, 0);
-        _v3.normalize();
-        return out.copy(dirW).multiplyScalar(Math.cos(beta)).addScaledVector(_v3, Math.sin(beta)).multiplyScalar(-dist);
+        const perp = _v3.copy(upW).addScaledVector(dirW, -upW.dot(dirW));
+        if (perp.lengthSq() < 1e-8) perp.copy(Y).addScaledVector(dirW, -dirW.y);
+        if (perp.lengthSq() < 1e-8) perp.set(1, 0, 0);
+        perp.normalize();
+        // The body's angle from the axis: FRAME_FILL of the free half-extent along its direction on
+        // screen (_fG in the camera's north-up basis, as orbitQuat builds it), which turns a little
+        // with the angle itself, so two passes; capped so that the globe fits across.
+        const bMax = Math.atan(FRAME_FIT * Math.min(hx, hy) / px) / FRAME_LIMB;
+        let beta = Math.atan(FRAME_FILL * Math.min(hx, hy) / px);
+        for (let pass = 0; pass < 2; pass++) {
+            tiltAxis(dirW, perp, beta);
+            _fR.crossVectors(_fF, Y);
+            if (_fR.lengthSq() < 1e-10) break;     // looking along the pole: keep the narrower side
+            _fR.normalize();
+            _fU.crossVectors(_fR, _fF);
+            const ux = Math.abs(_fG.dot(_fR)), uy = Math.abs(_fG.dot(_fU));
+            const e = Math.min(ux > 1e-9 ? hx / ux : Infinity, uy > 1e-9 ? hy / uy : Infinity);
+            if (!Number.isFinite(e)) break;
+            beta = Math.min(Math.atan(FRAME_FILL * e / px), bMax);
+        }
+        const dist = clamp(1 / Math.sin(FRAME_LIMB * beta), MIN_DIST, MAX_DIST);
+        let tilt = beta;
+        if (pointW) {
+            // Fixed point on the tilt: the point's angle grows ~0.9° per degree, so four steps
+            // leave well under 0.01°.
+            for (let k = 0; k < 4; k++) {
+                tiltAxis(dirW, perp, tilt);
+                _fR.copy(pointW).addScaledVector(_fF, dist);   // point − camera
+                const len = _fR.length();
+                if (!(len > 1e-6)) break;
+                tilt = clamp(tilt + beta - Math.acos(clamp(_fR.dot(_fF) / len, -1, 1)), 0, Math.PI / 2);
+            }
+        }
+        tiltAxis(dirW, perp, tilt);
+        return out.copy(_fF).multiplyScalar(-dist);
     }
 
-    function frameDirNow(dirS, { animate = true, durationMs } = {}) {
+    /** framePos: the view axis _fF, tilted by b from dirW toward perp, and its in-plane normal _fG. */
+    function tiltAxis(dirW, perp, b) {
+        const c = Math.cos(b), s = Math.sin(b);
+        _fF.copy(dirW).multiplyScalar(c).addScaledVector(perp, s);
+        _fG.copy(perp).multiplyScalar(c).addScaledVector(dirW, -s);
+    }
+
+    function frameDirNow(dirS, { animate = true, durationMs, point } = {}) {
         if (!dirS || !hasSnap) return Promise.resolve(false);
         _v1.set(dirS[0], dirS[1], dirS[2]);
         if (!(_v1.lengthSq() > 0)) return Promise.resolve(false);
         _v1.normalize();
         if (mode === 'sky') return flyToDirNow(dirS, { animate, durationMs });
+        const p = point && Number.isFinite(point[0]) && Number.isFinite(point[1]) && Number.isFinite(point[2])
+            ? _fP.set(point[0], point[1], point[2]) : null;
         // Earth-fixed (local) endpoints while locked; startFly converts back to world otherwise.
-        const targetL = toLocal(framePos(_v1, _v2), new THREE.Vector3());
+        const targetL = toLocal(framePos(_v1, _v2, p), new THREE.Vector3());
         return startFly(targetL, { earthFixed: earthLock, durationMs, animate });
     }
 
@@ -1260,9 +1315,11 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         /**
          * Brings direction dirS into view ('Center'). Orbit: flies to the far side of the globe so
          * dirS sits just past the limb, the observer's beam crossing the globe toward it. Sky: aims
-         * the view at dirS.
+         * the view at dirS. `point` is where the body is drawn when it is not at infinity (the
+         * Moon's snap.moonPosS): orbit framing then places that point, parallax included.
          * @param {ArrayLike<number>} dirS world unit vector (read when the flight starts)
-         * @param {{animate?:boolean, durationMs?:number}} [opts]
+         * @param {{animate?:boolean, durationMs?:number, point?:ArrayLike<number>|null}} [opts]
+         *   point: world position in Earth radii (read when the flight starts)
          * @returns {Promise<boolean>}
          */
         frameDir(dirS, opts = {}) {

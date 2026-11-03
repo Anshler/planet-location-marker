@@ -82,12 +82,14 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/astro/shadow.js`, `photometry.js` | Eclipse disc overlap; B−V colour, refraction (and `liftByRefraction`, the sky view's drawn positions), airmass, limiting magnitude, adapting luminance (night vision), exposure. |
 | | `js/astro/skyglow.js` | The night sky's own brightness: KS91 moonlight, van Rhijn airglow, Walker's-law light pollution from `data/cities.json` (16-bin azimuth dome), SQM, Bortle, limiting magnitude; `computeSkyglow` fills `snap.skyglow`. |
 | | `js/astro/disc.js`, `moons.js` | A body's disc as seen from the observer: the sky-plane frame and pole/prime meridian/Sun in it (`discFrame`, `discView`), shapes, Saturn's ring radii, the moons' log spacing; Jupiter's Galilean moons at Jupiter's light time with transit/occultation/eclipse/shadow flags (`computeGalilean`), the libration's limb feature, Saturn's next edge-on run. Shared by the medallions and the eyepiece card (ASTRONOMY.md §4). |
+| | `js/astro/geomag.js` | The IGRF centred dipole (1900–2030, held outside) and the Starkov auroral ovals for an activity setting (quiet / typical / storm = Kp 1 / 3 / 7, never live data); `computeAurora` fills `snap.aurora` (pole, magnetic noon, the 48-float boundary table, the animation phase); `auroraText` for the Sky panel. |
 | | `js/astro/totality.js` | Totality from the ground: Baily's beads (lunar limb profile), corona epoch parameters, contact-time display adaptation, the horizon ring's azimuthal shape. Illustrative in detail (ASTRONOMY.md). |
 | Data | `js/data/catalog.js` | Decodes `data/sky.json` into GPU-ready typed arrays in the scene frame. |
 | Render | `js/render/context.js` | Renderer, scene, camera, tier switching, `invalidate`/`onInvalidate`, context loss, stats. |
 | | `js/render/postfx.js` | Composer with bloom and the final pass (FXAA when the scene target has no MSAA; the night-vision grade, `rc.setVision`). |
 | | `js/render/textures.js` | Placeholder-first texture store with byte-weighted progress. |
-| | `js/render/earth.js`, `atmosphere.js` | Earth shader (day, night lights, glint, twilight, clouds, eclipse shadow, footprint) and atmosphere. |
+| | `js/render/earth.js`, `atmosphere.js` | Earth shader (day, night lights with close-zoom filtering, sun glint and moonglint, moonlight, twilight, sculpted clouds, the face-on aurora, eclipse shadow, footprint) and atmosphere. |
+| | `js/render/aurora.js` | The aurora's limb-curtain shell (High and Max) and the driver of `AURORA_CHUNK` (`shaders/aurora.glsl.js`), whose uniforms the Earth and cloud materials also carry for the face-on oval on every tier. |
 | | `js/render/skyglow.js` | Uniforms of `SKYGLOW_CHUNK` (`shaders/skyglow.glsl.js`), filled from `snap.skyglow`: the moonlit sky and the city light dome per direction, for the dome, ground, stars and Milky Way. |
 | | `js/render/sky.js`, `bodies.js`, `ground.js` | Stars, constellations, Milky Way and grids; Sun (with totality's thin crescent, corona, chromosphere and prominences under `SUN_ECLIPSE`), planets and the true-scale Moon; sky-view dome and ground (totality's 360° horizon ring, the illustrative landscape and sea, twilight- and moonlit land). |
 | | `js/render/planets.js` | Planet medallions: each orbit-view beam ends in a magnified (~26 px) mini-globe at its label anchor, drawn by the shared impostor `PLANET_CHUNK` (`shaders/planets.glsl.js`: oblate spheroid on the IAU pole, true phase, Saturn's rings and their shadows, Jupiter's moons and shadows; reusable at true scale via `writeDiscInstance`/`writeJupiterMoons`). |
@@ -222,6 +224,7 @@ frame(now):  dt = min(now − last, 100)
   t = clock.tick(now)                            // the clock caps wall dt itself (hidden tabs)
   if observer or sky site changed or clock jumped or |t − snap.tMs| ≥ 500 ms:
       computeSnapshot(t, obs, snap, 'frame');  computeSkyglow(snap, site, snap.skyglow)
+      computeAurora(snap, activity, snap.aurora)
       module.apply(snap) for every module
   if now − lastFull ≥ 250 ms and something changed:
       computeSnapshot(t, obs, snapFull, 'full');  computeSkyglow(…);  bus.emit('readout', snapFull)
@@ -231,7 +234,7 @@ frame(now):  dt = min(now − last, 100)
   held = governor.probe()                        // before a step with no fresh cadence: frames off to measure it
   if !held && (dirty || motion || twinkleDue):
       dirty = false                              // cleared first: invalidate() during update requests the next frame
-      module.update(fi) for every module         // fi: dt, time, camera, viewMode, skyBlend, snap, pulses, exposure
+      module.update(fi) for every module         // fi: dt, time, camera, viewMode, skyBlend, snap, pulses, simRate, exposure
       rc.render();  labelsFeed.sync(camera, mode, view);  labels.update(camera, viewport, {cap, skyLum})
       governor.sample(dt) if the previous frame also rendered
   else:
@@ -258,6 +261,13 @@ frame(now):  dt = min(now − last, 100)
   too, so the Sky panel's "Bortle 8 · limiting mag 4.1" works in text mode. `fi.exposure` gains the
   sky term (zenith limiting magnitude) and `vision` (the night-vision weight, sky view only), which
   the sky module passes to `rc.setVision`.
+- **Aurora.** `main.js` hands the Aurora activity setting (`display.aurora`) to
+  `loop.setAuroraActivity`, and the loop fills `snap.aurora` next to `snap.skyglow` (headless too,
+  for the Sky panel's "Under the aurora oval" line). The curtains move with simulated time only (the
+  phase in `snap.aurora`), so they add no frames of their own: at Live 1× they step with the
+  half-second snapshots, which is imperceptible at their drift speed. `fi.simRate` (the clock's
+  rate while playing, else 0) lets them drop their fine structure at fast time-lapse rates, where it
+  would only flicker. With reduced motion the phase is frozen.
 
 ---
 
@@ -309,7 +319,9 @@ The render order is fixed in SPEC §E.1. From back to front:
 - −50: ground and haze
 - 0: Earth and Moon
 - 10: clouds
-- 15 and 16: the eclipse path ribbon and its umbra marker (above the cloud shell, no depth write)
+- 15 and 16: the eclipse path ribbon and its umbra marker (above the cloud shell, no depth write);
+  15 is also the aurora's limb-curtain shell (High and Max: FrontSide r = 1.05, additive, depth
+  test on, no depth write; the march stops at the 90 km shell, so the planet is clipped analytically)
 - 20: atmosphere
 - 30 and 31: beams, normal and x-ray
 - 33: planet medallions (`render/planets.js`, depth-tested, over the beams that end in them)
@@ -392,6 +404,9 @@ change.
 | Composer / MSAA | none (context antialias) | yes / 4 (0 + FXAA on touch) | yes / 4 | yes / as many as `MAX_SAMPLES` allows (FXAA if that is 0) |
 | Bloom | none | 0.55 / 0.4 / 0.9 @ ½ res | 0.6 / 0.45 / 0.9 | as High (full resolution) |
 | Earth | 64×32, `day2k` + `night2k`, 2k roughness mask, no clouds | 96×48, `day4k`, 2k roughness mask, 2k clouds | 128×64, `day4k`, 4k roughness, 4k clouds + shadows + bump | 256×128, `day8k` + `night8k` + `clouds8k` (4k first), 4k roughness + bump, soft 5-tap cloud shadows |
+| Clouds (sculpted) | — | relief, Beer-powder, silver lining, erosion | as Medium + self-shadow march | as High, relief from the 8192 map |
+| Night side | moonlight, close-zoom lights | + moonglint | + moonglint | + moonglint |
+| Aurora | face-on oval | face-on oval | + limb-curtain shell (24 samples) | + shell (48 samples) |
 | Moon map / anisotropy | 1k / 8× | 1k / 8× | 1k / 8× | `moon4k` (1k first) / 16× |
 | Atmosphere | analytic | analytic | ray-marched (8 steps) | ray-marched (32 steps) |
 | Stars to mag | 5.0 | 6.0 | 6.5 | 6.5 (the whole catalog) |
@@ -486,6 +501,7 @@ change.
 - `cam` is `o:lat,lon,dist` (the sub-camera point) or `s:az,alt,fov`.
 - `sel` selects a body and opens its card (the Details tab), as a click on it would.
 - `sky` is the Sky darkness setting (`display.skyDark`): `auto` (omitted), `pristine` or a Bortle class `1`–`9`.
+- `au` is the Aurora activity setting (`display.aurora`): `quiet`, `typical` (omitted) or `storm`.
 
 `bindUrl` writes the hash at most every 500 ms and leaves a fresh visit's URL clean. Hand edits
 are applied live through `onExternalChange`.

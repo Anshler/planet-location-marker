@@ -3,7 +3,8 @@
 //   frame(now): dt = min(now − last, 100)
 //     t = clock.tick(now)
 //     snapshot ('frame' detail) when the observer or the sky site changed, the clock jumped or sim
-//         time moved ≥ 0.5 s → snap.skyglow (the night sky at the site) → every module.apply(snap)
+//         time moved ≥ 0.5 s → snap.skyglow (the night sky at the site) and snap.aurora (the
+//         auroral ovals for the activity setting) → every module.apply(snap)
 //     readout ('full' detail) at most every 250 ms when sim time or the observer changed → bus 'readout'
 //     moving = rig.update(dt, snap)
 //     render when something is dirty or in motion (camera motion, tweens, time-lapse, intro,
@@ -30,6 +31,7 @@
 import { createSnapshot, computeSnapshot } from '../astro/snapshot.js';
 import { exposureFor, skyBrightness } from '../astro/photometry.js';
 import { computeSkyglow } from '../astro/skyglow.js';
+import { computeAurora } from '../astro/geomag.js';
 
 /** Recompute the 'frame' snapshot when simulated time has moved this far (ms). */
 export const SNAP_STALE_MS = 500;
@@ -60,6 +62,7 @@ const OPT_FULL = Object.freeze({ detail: 'full' });
 const FEATURE_NAMES = Object.freeze({
     earth: 'The Earth surface',
     atmosphere: 'The atmosphere glow',
+    aurora: 'The aurora curtains',
     sky: 'The star field',
     bodies: 'The Sun, Moon and planet markers',
     ground: 'The sky-view ground',
@@ -95,7 +98,7 @@ const FEATURE_NAMES = Object.freeze({
  *            attach(renderDeps:object):void, broadcast(method:string, a?:any, b?:any):void,
  *            callModule(m:RenderModule, method:string, a?:any, b?:any, c?:any):boolean, isDisabled(m:RenderModule):boolean,
  *            replaceModule(prev:RenderModule|null, next:RenderModule, name?:string):void,
- *            setDebug(overlay:any):void, setRenderPaused(paused:boolean):void, setSkySite(site:object|null):void, refreshReadout():void,
+ *            setDebug(overlay:any):void, setRenderPaused(paused:boolean):void, setSkySite(site:object|null):void, setAuroraActivity(activity:string):void, refreshReadout():void,
  *            stats():object, dispose():void, readonly running:boolean, readonly rendering:boolean}}
  */
 export function createLoop(deps) {
@@ -109,6 +112,8 @@ export function createLoop(deps) {
     const snapFull = deps.snapFull ?? createSnapshot();
     // The observer's light pollution (astro/skyglow.js SkySite; null = pristine), set by setSkySite.
     let skySite = deps.skySite ?? null;
+    // Aurora activity (astro/geomag.js AURORA_SETTINGS), set by setAuroraActivity.
+    let auroraActivity = deps.auroraActivity ?? 'typical';
 
     // Render stack (attached later in the normal boot).
     let rc = null;
@@ -177,7 +182,7 @@ export function createLoop(deps) {
     /** @type {FrameInfo} */
     const fi = {
         dtMs: 0, timeS: 0, camera: null, viewMode: 'orbit', skyBlend: 0, snap,
-        pulsesActive: false, exposure,
+        pulsesActive: false, simRate: 0, exposure,
     };
     // upS is the snapshot's live zenith: the label pool derives is-below for direction anchors from it,
     // and in sky view (horizon) hides star and constellation names that the ground covers — the
@@ -281,9 +286,10 @@ export function createLoop(deps) {
         }
     }
 
-    /** snap.skyglow for a freshly computed snapshot (snapshots without one are left alone). */
+    /** snap.skyglow and snap.aurora for a freshly computed snapshot (snapshots without them are left alone). */
     function fillSkyglow(s) {
         if (s.skyglow) computeSkyglow(s, skySite, s.skyglow);
+        if (s.aurora) computeAurora(s, auroraActivity, s.aurora);
     }
 
     function frame(now) {
@@ -384,6 +390,7 @@ export function createLoop(deps) {
                 fi.skyBlend = skyBlend;
                 fi.snap = snap;
                 fi.pulsesActive = (clock.playing && Math.abs(clock.rate) > 1) || introPlaying;
+                fi.simRate = clock.playing && Number.isFinite(clock.rate) ? clock.rate : 0;
 
                 for (let i = 0; i < modules.length; i++) callModule(modules[i], 'update', fi);
 
@@ -635,6 +642,19 @@ export function createLoop(deps) {
          */
         setSkySite(site) {
             skySite = site ?? null;
+            snapValid = false;
+            fullValid = false;
+            lastFull = -Infinity;
+            dirty = true;
+        },
+        /**
+         * Aurora activity ('quiet' | 'typical' | 'storm'; astro/geomag.js). Both snapshots' aurora is
+         * recomputed on the next frame.
+         * @param {string} activity
+         */
+        setAuroraActivity(activity) {
+            if (activity === auroraActivity) return;
+            auroraActivity = activity;
             snapValid = false;
             fullValid = false;
             lastFull = -Infinity;

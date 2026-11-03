@@ -35,6 +35,12 @@ function isPlainObject(v) {
 export const SKY_DARK_SETTINGS = Object.freeze(['auto', 'pristine', '1', '2', '3', '4', '5', '6', '7', '8', '9']);
 
 /**
+ * display.aurora choices ('Aurora activity' in Settings, `au=` in the URL): the Kp the modelled
+ * auroral ovals are drawn for (astro/geomag.js AURORA_KP: 1, 3, 7). A setting, never live data.
+ */
+export const AURORA_SETTINGS = Object.freeze(['quiet', 'typical', 'storm']);
+
+/**
  * The initial application state (SPEC §C.3). Frozen: copy before modifying.
  * @type {Readonly<AppState>}
  */
@@ -46,7 +52,7 @@ export const DEFAULT_STATE = deepFreeze({
         milkyWay: true, clouds: true, atmosphere: true, ecliptic: false, eqGrid: false, altAzGrid: true, horizon: true, footprint: false,
         subpoints: false, trails: false, labels: true, landscape: true,
     },
-    display: { tzMode: 'observer', hour12: false, skyDark: 'auto' }, quality: { setting: 'auto', active: 'medium', ceiling: 'medium' },
+    display: { tzMode: 'observer', hour12: false, skyDark: 'auto', aurora: 'typical' }, quality: { setting: 'auto', active: 'medium', ceiling: 'medium' },
     ui: { panel: 'sky', sheet: 'peek', cinema: false, help: false, palette: false, eclipse: null },
     status: { phase: 'boot', progress: 0, webgl: true, onlineSearch: 'unknown', reducedMotion: false, coarse: false, introPlaying: false },
 });

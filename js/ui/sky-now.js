@@ -14,6 +14,7 @@
  */
 
 import { BODIES } from '../astro/bodies.js';
+import { auroraText } from '../astro/geomag.js';
 import { h, s, on, setText, setAttr } from './dom.js';
 import { icon } from './icons.js';
 
@@ -203,6 +204,8 @@ export function mountSkyNow(root, ctx) {
         }
         const sky = skyDarknessText(snap);
         if (sky) parts.push(sky);
+        const aur = auroraText(snap);
+        if (aur) parts.push(aur);
         return parts.join(' · ');
     }
 

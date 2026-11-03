@@ -3,7 +3,7 @@
 // a stub render context and the real store, clock and snapshot.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createLoop, TWINKLE_FRAME_MS } from '../js/app/loop.js';
+import { createLoop, TWINKLE_FRAME_MS, FINE_FOV_DEG } from '../js/app/loop.js';
 import { createStore } from '../js/core/store.js';
 import { createClock } from '../js/core/clock.js';
 
@@ -21,7 +21,7 @@ const TOTALITY = Date.parse('2027-08-02T10:07:00Z'); // Sun +82°, fully covered
  */
 function run({
     tMs, frameMs = 1000 / 60, ms = 2000, twinkle = true, mode = 'sky', reducedMotion = false, stars = true, headless = false,
-    rate = 1, probeTicks = 0,
+    rate = 1, probeTicks = 0, playing = rate !== 1, fov = 60,
 }) {
     let queue = [];
     const win = {
@@ -36,8 +36,8 @@ function run({
         layers: { stars },
         status: { phase: 'ready', reducedMotion, introPlaying: false },
     });
-    const clock = createClock({ tMs, playing: rate !== 1, rate });
-    const counts = { renders: 0, idle: [], samples: [] };
+    const clock = createClock({ tMs, playing, rate });
+    const counts = { renders: 0, idle: [], samples: [], applies: 0 };
     let probeLeft = 0;
     const governor = {
         idle(dt) { counts.idle.push(dt); },
@@ -45,8 +45,9 @@ function run({
         probe() { return probeLeft-- > 0; },
     };
     const rc = { renderer: null, camera: {}, size: { w: 100, h: 100 }, render() { counts.renders++; } };
-    const rig = { mode, skyBlend: mode === 'sky' ? 1 : 0, tweening: false, camera: {}, update() { return false; } };
-    const render = headless ? {} : { rc, rig, modules: [], getTierCfg: () => ({ twinkle, labelCap: 40 }) };
+    const rig = { mode, skyBlend: mode === 'sky' ? 1 : 0, tweening: false, camera: { fov }, update() { return false; } };
+    const probe = { object3d: {}, apply() { counts.applies++; } };
+    const render = headless ? {} : { rc, rig, modules: [probe], getTierCfg: () => ({ twinkle, labelCap: 40 }) };
     const loop = createLoop({ clock, store, bus: { emit() {} }, win, doc, governor, ...render });
     loop.start();
     // Let the boot frames (first snapshot, view mode) settle, then count.
@@ -59,6 +60,7 @@ function run({
     };
     for (let i = 0; i < 5; i++) step();
     counts.renders = 0;
+    counts.applies = 0;
     counts.idle.length = 0;
     counts.samples.length = 0;
     probeLeft = probeTicks;
@@ -119,4 +121,18 @@ test('the governor\'s cadence probe holds frames back even while animating', () 
     assert.equal(probed.renders, probed.ticks - 8, 'eight ticks held back');
     assert.equal(probed.idle.length, 7, 'the first held tick follows a render; the other seven are cadence');
     assert.equal(probed.samples.length, lapse.samples.length - 9, 'and the first frame after them is not consecutive');
+});
+
+test('telescope zoom: below FINE_FOV_DEG a running clock recomputes the snapshot and draws every frame', () => {
+    // Live 1× at a 1° field: the sky turns 15″/s, pixels per second, so every frame moves it.
+    const fine = run({ tMs: NIGHT, rate: 1, playing: true, twinkle: false, fov: FINE_FOV_DEG / 2, ms: 1000 });
+    assert.equal(fine.applies, fine.ticks, 'a fresh snapshot on every tick');
+    assert.equal(fine.renders, fine.ticks, 'a frame on every tick');
+    // At a wide field the same clock refreshes twice a second (SNAP_STALE_MS) and draws only then.
+    const wide = run({ tMs: NIGHT, rate: 1, playing: true, twinkle: false, fov: 30, ms: 1000 });
+    assert.ok(wide.applies <= 3 && wide.renders <= 3, `wide: ${wide.applies} applies, ${wide.renders} renders`);
+    // Paused at a narrow field: nothing to do.
+    const paused = run({ tMs: NIGHT, rate: 1, playing: false, twinkle: false, fov: 1, ms: 1000 });
+    assert.equal(paused.applies, 0);
+    assert.equal(paused.renders, 0);
 });

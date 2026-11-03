@@ -28,6 +28,7 @@ export const SHORTCUTS = [
     { title: 'View', rows: [
         ['V', 'Globe / Sky view'],
         ['L', 'Lock view to Earth'],
+        ['K', 'Sky view: track the body, then the stars'],
         ['←|→|↑|↓', 'Rotate the globe / look around'],
         ['+|−', 'Zoom'],
         ['Home', 'Reset camera'],

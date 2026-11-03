@@ -11,7 +11,7 @@
 // geolocation errors, Undo for non-click moves, failures).
 
 import { APP_NAME } from '../version.js';
-import { BODY_INDEX, isBodyId } from '../astro/bodies.js';
+import { BODIES, BODY_INDEX, isBodyId } from '../astro/bodies.js';
 import { createSnapshot, computeSnapshot } from '../astro/snapshot.js';
 import { eclipsePath, citiesInPath, nearestCentrePoint, shadowPoint } from '../astro/eclipse-path.js';
 import { createEclipseChase } from './eclipse-chase.js';
@@ -32,6 +32,9 @@ const AT_CITY_KM = 15;
 export const USER_SOURCES = Object.freeze(['click', 'city', 'search', 'geo', 'manual']);
 const OBSERVER_SOURCES = new Set(['default', 'url', 'saved', 'tzguess', 'click', 'city', 'search', 'geo', 'manual']);
 const VIEW_MODES = new Set(['orbit', 'sky']);
+const TRACK_KINDS = new Set(['none', 'body', 'stars']);
+/** The telescope's narrowest framing (the rig's sky-view floor). */
+export const TELESCOPE_FOV_MIN = 0.2;
 const TZ_MODES = new Set(['observer', 'device', 'utc']);
 const QUALITY_SETTINGS = new Set(['auto', 'low', 'medium', 'high', 'max']);
 const MAX_UNDO = 12;
@@ -309,6 +312,38 @@ export function viewModeLook(mode, source, selection, snap) {
 }
 
 /**
+ * The 'Telescope' field of view (degrees, vertical) for a body: Jupiter with all four moons in the
+ * narrower side of the view, Saturn with its rings, the Sun and the Moon with a margin; the small
+ * planets go to the 0.2° floor. `aspect` is the view's width / height (portrait phones fit the
+ * width). Null without the body.
+ * @param {string} id
+ * @param {import('../core/types.js').Snapshot|null|undefined} snap
+ * @param {number} [aspect]
+ * @returns {number|null}
+ */
+export function telescopeFov(id, snap, aspect = 16 / 9) {
+    const b = isBodyId(id) ? snap?.bodies?.[BODY_INDEX[id]] : null;
+    if (!b || !(b.angDiamArcsec > 0)) return null;
+    const r = b.angDiamArcsec / 7200;   // angular radius, degrees
+    let half = r * 6;
+    if (id === 'sun' || id === 'moon') half = r * 1.3;
+    else if (id === 'saturn') half = r * 2.27 * 2;
+    else if (id === 'jupiter' && snap.galilean) {
+        // The widest moon across the line of sight, in Jupiter radii.
+        const d = b.dirS, o = snap.galilean.offS;
+        let m = 1;
+        for (let k = 0; k < 4; k++) {
+            const x = o[k * 3], y = o[k * 3 + 1], z = o[k * 3 + 2];
+            const along = x * d[0] + y * d[1] + z * d[2];
+            m = Math.max(m, Math.sqrt(Math.max(0, x * x + y * y + z * z - along * along)));
+        }
+        half = r * (m * 1.12 + 1.5);
+    }
+    const fit = Math.min(1, aspect > 0 ? aspect : 1);
+    return clamp(2 * half / fit, TELESCOPE_FOV_MIN, 20);
+}
+
+/**
  * Creates the action API.
  *
  * @param {{store:any, bus:any, clock:any, prefs:any, tz?:any,
@@ -515,6 +550,62 @@ export function createActions(deps) {
 
     function cycleView() {
         setViewMode(store.get().view.mode === 'orbit' ? 'sky' : 'orbit');
+    }
+
+    /**
+     * Sky-view tracking (the rig's sidereal-tracking modes; url `trk`): 'body' keeps the selected
+     * body centred, 'stars' holds the star field still while the horizon turns, 'none' stops.
+     * 'body' needs a selection.
+     * @param {'none'|'body'|'stars'} kind
+     * @returns {boolean} applied
+     */
+    function setTracking(kind) {
+        if (!TRACK_KINDS.has(kind)) return false;
+        const st = store.get();
+        if (kind === 'body' && !st.selection) {
+            toast('Select a body to track it.', 'info');
+            return false;
+        }
+        if ((st.view.track ?? 'none') === kind) return true;
+        store.set({ view: { ...st.view, track: kind } }, 'actions');
+        const name = kind === 'body' ? BODIES[BODY_INDEX[st.selection]].name : '';
+        say(kind === 'body' ? `Tracking ${name}` : kind === 'stars' ? 'Locked to the stars: the Earth turns beneath them' : 'Tracking off');
+        return true;
+    }
+
+    /** K: none → the selected body (if any) → the stars → none. @returns {'none'|'body'|'stars'} */
+    function cycleTracking() {
+        const st = store.get();
+        const cur = st.view.track ?? 'none';
+        const next = cur === 'none' ? (st.selection ? 'body' : 'stars') : cur === 'body' ? 'stars' : 'none';
+        setTracking(next);
+        return store.get().view.track ?? 'none';
+    }
+
+    /**
+     * 'Telescope': sky view on the body at a field that frames it (telescopeFov), tracking it.
+     * @param {string} [id] defaults to the selection
+     * @returns {boolean} started
+     */
+    function telescope(id = store.get().selection) {
+        if (!has3d()) {
+            toast('The telescope needs the 3D view.', 'info');
+            return false;
+        }
+        const b = bodyNow(id);
+        if (!b) return false;
+        if (b.altGeomDeg < -2) {
+            toast(`${BODIES[BODY_INDEX[id]].name} is below the horizon now.`, 'info');
+            return false;
+        }
+        const fov = telescopeFov(id, getSnap(), rig().camera?.aspect);
+        if (fov === null) return false;
+        if (store.get().selection !== id) store.set({ selection: id }, 'actions');
+        rig().telescope?.(fov);
+        const view = store.get().view;
+        store.set({ view: { ...view, mode: 'sky', track: 'body' } }, 'actions');
+        say(`Telescope on ${BODIES[BODY_INDEX[id]].name}`);
+        return true;
     }
 
     /** @param {boolean} on */
@@ -920,7 +1011,7 @@ export function createActions(deps) {
 
     return {
         setObserver, undoObserver, locateMe,
-        select, flyToBody, setViewMode, cycleView, setEarthLock,
+        select, flyToBody, setViewMode, cycleView, setEarthLock, setTracking, cycleTracking, telescope,
         toggleLayer, setQuality, setTzMode, setSkyDark, setAuroraActivity, share,
         toggleFullscreen, toggleCinema, resetCamera, replayIntro, jumpToEvent,
         // Extensions beyond SPEC §C.9 (used by shortcuts / the shell when present).

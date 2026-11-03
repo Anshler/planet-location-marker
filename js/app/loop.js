@@ -3,12 +3,13 @@
 //   frame(now): dt = min(now − last, 100)
 //     t = clock.tick(now)
 //     snapshot ('frame' detail) when the observer or the sky site changed, the clock jumped or sim
-//         time moved ≥ 0.5 s → snap.skyglow (the night sky at the site) and snap.aurora (the
+//         time moved ≥ 0.5 s (any amount in a sky view narrower than FINE_FOV_DEG, where 0.5 s of
+//         diurnal motion is pixels) → snap.skyglow (the night sky at the site) and snap.aurora (the
 //         auroral ovals for the activity setting) → every module.apply(snap)
 //     readout ('full' detail) at most every 250 ms when sim time or the observer changed → bus 'readout'
 //     moving = rig.update(dt, snap)
 //     render when something is dirty or in motion (camera motion, tweens, time-lapse, intro,
-//     pointer held): module.update(fi) → rc.render() → labels
+//     pointer held, running time in a telescope-narrow sky view): module.update(fi) → rc.render() → labels
 //     star twinkle alone (sky view, stars actually visible) renders at most at ~30 Hz
 //     governor.sample(dt) on consecutive rendered frames only; consecutive idle ticks feed
 //     governor.idle(dt), its estimate of the display's own frame interval; while governor.probe()
@@ -35,6 +36,11 @@ import { computeAurora } from '../astro/geomag.js';
 
 /** Recompute the 'frame' snapshot when simulated time has moved this far (ms). */
 export const SNAP_STALE_MS = 500;
+/**
+ * Sky views narrower than this (degrees) recompute the frame snapshot on every frame that sim time
+ * moved, and keep drawing while the clock runs: the sky turns 7.5″ in 0.5 s, 4–15 px at 0.2–0.5°.
+ */
+export const FINE_FOV_DEG = 2;
 /** Readout period (ms): the panels refresh at 4 Hz. */
 export const FULL_INTERVAL_MS = 250;
 /** Frame dt cap (ms): long gaps (tab switches, hitches) never produce giant steps. */
@@ -309,7 +315,9 @@ export function createLoop(deps) {
         const rendering = rc !== null && !renderPaused && !renderFailed;
 
         // 1. Frame-detail snapshot for the renderers.
-        if (rendering && (observerDirty || jumped || !snapValid || Math.abs(t - snap.tMs) >= SNAP_STALE_MS)) {
+        const fine = rendering && rig !== null && rig.mode === 'sky' && !!rig.camera && rig.camera.fov < FINE_FOV_DEG;
+        if (rendering && (observerDirty || jumped || !snapValid
+            || (fine ? t !== snap.tMs : Math.abs(t - snap.tMs) >= SNAP_STALE_MS))) {
             try {
                 computeSnapshot(t, obs, snap, OPT_FRAME);
                 fillSkyglow(snap);
@@ -372,7 +380,7 @@ export function createLoop(deps) {
             updateExposure(snap.observer.sunAltDeg, skyBlend, snap.eclipse.obscurationAtObserver,
                 cfg && Number.isFinite(cfg.starMagLimit) ? cfg.starMagLimit : 6, snap.skyglow);
             const motion = moving || !!(rig && rig.tweening) || clock.isAnimating() || introPlaying
-                || pointers.size > 0;
+                || pointers.size > 0 || (fine && clock.playing && clock.rate !== 0);
             // Twinkle alone: only while stars are actually shown, and at most ~30 Hz.
             const twinkleDue = !motion && !dirty && now - lastRenderAt >= TWINKLE_FRAME_MS && twinkling(cfg, skyBlend);
             // Before a step with no fresh cadence, the governor holds a few frames back to measure it.

@@ -10,6 +10,7 @@ import {
 } from '../js/astro/moons.js';
 import {
     SHAPES, createDiscFrame, createDiscView, discFrame, discView, toFrame, compressRadius, ringAt, RING_OUTER,
+    scopeBlend, eqAngRadius, SCOPE_FROM_PX, SCOPE_TO_PX,
 } from '../js/astro/disc.js';
 
 const FULL = { detail: 'full' };
@@ -219,4 +220,23 @@ test('snapshot: new fields keep their typed arrays, and frame detail fills poles
     const m = g.bodies[BODY_INDEX.moon], mm = g.moonMatrix;
     close(m.poleS[0], mm[4], 1e-12); close(m.poleS[1], mm[5], 1e-12); close(m.poleS[2], mm[6], 1e-12);
     close(m.primeS[0], mm[0], 1e-12); close(m.primeS[1], mm[1], 1e-12); close(m.primeS[2], mm[2], 1e-12);
+});
+
+test('telescope hand-over: scopeBlend runs 0 → 1 over the glyph core; eqAngRadius is the true radius', () => {
+    assert.equal(scopeBlend(0), 0);
+    assert.equal(scopeBlend(SCOPE_FROM_PX), 0);
+    assert.equal(scopeBlend(SCOPE_TO_PX), 1);
+    assert.equal(scopeBlend(100), 1);
+    assert.equal(scopeBlend(NaN), 0);
+    let prev = 0;
+    for (let r = SCOPE_FROM_PX; r <= SCOPE_TO_PX; r += 0.1) {
+        const w = scopeBlend(r);
+        assert.ok(w >= prev - 1e-15, 'monotonic');
+        prev = w;
+    }
+    // Jupiter at 4.2 AU: 71,492 km → 23.5″ of equatorial radius.
+    const r = eqAngRadius('jupiter', 4.2) * 180 / Math.PI * 3600;
+    assert.ok(Math.abs(r - 71492 / (4.2 * AU_KM) * 206264.806) < 1e-6);
+    assert.equal(eqAngRadius('pluto', 30), 0);
+    assert.equal(eqAngRadius('mars', 0), 0);
 });

@@ -107,3 +107,43 @@ test('the module: RenderModule shape, footprints sent to the beams, no medallion
     m.dispose();
     assert.deepEqual(fp.get('saturn'), [0, 0]);
 });
+
+test('telescope: true-scale discs replace the glyphs in a narrow sky view; Jupiter\'s moons as their own discs', () => {
+    const rc = {
+        tier: { name: 'high' }, invalidate() {},
+        renderer: { getDrawingBufferSize: (v) => v.set(1600, 900), getPixelRatio: () => 1 },
+    };
+    const m = createPlanets(rc, { beams: null });
+    const s = createSnapshot();
+    computeSnapshot(Date.parse('2026-11-04T03:00:00Z'), { latDeg: 48.85, lonDeg: 2.35, elevM: 0 }, s);
+    m.apply(s);
+    const jup = s.bodies[BODY_INDEX.jupiter];
+    const cam = new THREE.PerspectiveCamera(0.3, 16 / 9, 0.01, 4000);
+    cam.lookAt(jup.dirS[0], jup.dirS[1], jup.dirS[2]);
+    cam.updateMatrixWorld();
+    const fi = { dtMs: 16, skyBlend: 1, camera: cam, exposure: { planets: 1, stars: 1 } };
+    m.update(fi);
+    assert.equal(m.scope.visible, true);
+    const tint = m.scope.geometry.getAttribute('iTint').array;
+    const shape = m.scope.geometry.getAttribute('iShape').array;
+    const J = BODY_INDEX.jupiter - 2;
+    assert.equal(tint[J * 4 + 3], 1, 'Jupiter: all disc');
+    // Its radius in device px: 0.5·h/tan(fov/2) per radian.
+    const rpx = 71492 / (jup.distAU * 149597870.7) * 450 / Math.tan(0.15 * Math.PI / 180);
+    assert.ok(Math.abs(shape[J * 4 + 3] - rpx) < 0.01 * rpx, `${shape[J * 4 + 3]} vs ${rpx}`);
+    for (let k = 0; k < 4; k++) {
+        const hidden = s.galilean.state[k] & (MOON_OCCULTED | 4 | 1);
+        assert.equal(tint[(7 + k) * 4 + 3] > 0, !hidden, `moon ${k}`);
+    }
+    // A wide field: glyphs only.
+    cam.fov = 60;
+    cam.updateProjectionMatrix();
+    m.update(fi);
+    assert.equal(m.scope.visible, false);
+    // The globe never shows it.
+    cam.fov = 0.3;
+    cam.updateProjectionMatrix();
+    m.update({ ...fi, skyBlend: 0 });
+    assert.equal(m.scope.visible, false);
+    m.dispose();
+});

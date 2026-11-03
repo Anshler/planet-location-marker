@@ -8,7 +8,7 @@
 // Raw bytes on disk are budgeted (1 MB = 10⁶ B); gzip "wire" sizes are informational
 // (GitHub Pages compresses JS/CSS/JSON/SVG/HTML).
 //
-//   low ≤ 3.72 MB · medium ≤ 4.47 MB · high ≤ 5.7 MB · staged site ≤ 32 MB
+//   low ≤ 3.76 MB · medium ≤ 4.52 MB · high ≤ 5.73 MB · staged site ≤ 32 MB
 //   SPEC §E.6 set 3.0 / 3.6 / 4.8 MB from an estimate of ≈ 1.35 MB of JavaScript. The shipped,
 //   unminified-by-design module graph (no build step) measures ≈ 2.0 MB raw incl. CSS
 //   (≈ 0.6 MB gzipped; three.js + astronomy-engine alone are 1.17 MB raw), so the budgets were
@@ -39,7 +39,8 @@ const MB = 1e6, KB = 1e3;
 // night-sky model (skyglow, ≈ 40 KB) on every tier; medium and high also dropped the two lens-flare textures (68 KB).
 // Phase 3 (planets): medallions, the shared impostor shader, the eyepiece card, Galilean moons and libration (≈ 80 KB of JS)
 // and Phase 4 (globe): aurora, moonlight, close-zoom lights and sculpted clouds (≈ 48 KB of JS and GLSL, no textures).
-export const TIER_BUDGETS = { low: 3.72 * MB, medium: 4.47 * MB, high: 5.7 * MB };
+// Phase 3 (sky): sidereal tracking, the telescope zoom (true-scale impostors, Jupiter's moons, aperture gain) and the retrograde time-lapse (≈ 43 KB of JS).
+export const TIER_BUDGETS = { low: 3.76 * MB, medium: 4.52 * MB, high: 5.73 * MB };
 /** Tiers that are measured and printed but have no budget (max: a deliberate, manual choice). */
 export const INFO_TIERS = ['max'];
 // The max tier's 8192 px maps (≈ 15.2 MB) ship with the site; 32 MB keeps headroom (Pages allows 1 GB).

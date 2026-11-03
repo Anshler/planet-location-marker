@@ -5,6 +5,8 @@
 //
 // `sky` is the Sky darkness setting: auto (light pollution estimated from nearby cities), pristine,
 // or a Bortle class 1–9. `au` is the Aurora activity setting: quiet, typical (default) or storm.
+// `trk` is sky-view tracking: b (the selected body) or s (the stars); absent = none. A sky `cam`
+// keeps its field to 0.2° (the telescope zoom) with three significant digits.
 //
 // parseHash never throws: values are validated, clamped (time, elevation, camera) or dropped, and
 // every key that was present but not usable as written is listed in `invalid` (for the
@@ -26,11 +28,12 @@ export const LAYER_CODES = Object.freeze([
     ['p', 'subpoints'], ['t', 'trails'], ['l', 'labels'], ['d', 'landscape'],
 ].map((pair) => Object.freeze(pair)));
 const LAYER_BY_CODE = new Map(LAYER_CODES);
-const KNOWN_KEYS = new Set(['loc', 'n', 'cc', 'tz', 'el', 't', 'r', 'p', 'view', 'lock', 'sel', 'ly', 'q', 'sky', 'au', 'cam', 'intro', 'debug']);
+const KNOWN_KEYS = new Set(['loc', 'n', 'cc', 'tz', 'el', 't', 'r', 'p', 'view', 'lock', 'sel', 'ly', 'q', 'sky', 'au', 'cam', 'trk', 'intro', 'debug']);
 const MAX_HASH_LEN = 4096;
 const NAME_MAX = 80;
 const ELEV_MIN = -500, ELEV_MAX = 9000;
-const CAM = Object.freeze({ distMin: 1.08, distMax: 150, altMin: -10, altMax: 89, fovMin: 5, fovMax: 100 });
+const CAM = Object.freeze({ distMin: 1.08, distMax: 150, altMin: -10, altMax: 89, fovMin: 0.2, fovMax: 100 });
+const TRACK_CODES = Object.freeze({ b: 'body', s: 'stars' });
 // Unambiguous (the dot must be present to reach the fraction), so matching is linear even on
 // pathological 4 KB digit runs.
 const NUM_RE = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d{1,3})?$/;
@@ -204,7 +207,8 @@ export function camToCode(cam) {
         const fov = pick(c, ['fovDeg', 'fov']);
         if (![az, alt, fov].every(Number.isFinite)) return '';
         const a = ((az % 360) + 360) % 360;
-        return `s:${fmtNum(a, 2)},${fmtNum(clamp(alt, CAM.altMin, CAM.altMax), 2)},${fmtNum(clamp(fov, CAM.fovMin, CAM.fovMax), 1)}`;
+        const f = clamp(fov, CAM.fovMin, CAM.fovMax);
+        return `s:${fmtNum(a, 2)},${fmtNum(clamp(alt, CAM.altMin, CAM.altMax), 2)},${fmtNum(f, f < 1 ? 3 : f < 10 ? 2 : 1)}`;
     }
     return '';
 }
@@ -363,6 +367,11 @@ function parseViewKeys(params, out, invalid) {
         if (!views.length) invalid.push('cam');
         else out.cam = views.find((c) => c.mode === (out.view ?? 'orbit')) ?? views[0];
     }
+    if (params.has('trk')) {
+        const v = params.get('trk').trim().toLowerCase();
+        if (Object.hasOwn(TRACK_CODES, v)) out.track = TRACK_CODES[v];
+        else if (v !== '' && v !== '0' && v !== 'none') invalid.push('trk');
+    }
     if (params.has('intro')) {
         const f = parseFlag(params.get('intro'), undefined);
         if (f === undefined) invalid.push('intro');
@@ -432,6 +441,8 @@ export function serializeHash({ state, clock, cam, extra } = {}) {
         }
         if (s.view?.mode === 'sky') parts.push('view=sky');
         if (s.view?.earthLock === false) parts.push('lock=0');
+        const trk = s.view?.track;
+        if (trk === 'body' || trk === 'stars') parts.push(`trk=${trk[0]}`);
         if (typeof s.selection === 'string' && BODY_IDS.includes(s.selection)) parts.push(`sel=${s.selection}`);
         const ly = layersToCode(s.layers);
         if (ly !== null && ly !== DEFAULT_LAYER_CODE) parts.push(`ly=${ly}`);

@@ -6,8 +6,9 @@
  * - the light-time sentence ("The light you see from Mars left 12 min 31 s ago.");
  * - Moon extras: phase name and age;
  * - the eyepiece portrait (ui/eyepiece.js): the body as a small telescope shows it now;
- * - actions: Look from here · Center · View from <body> (globe view) · Path ±6 months ·
- *   Show where it's visible;
+ * - actions: Look from here · Center · Telescope (sky view at a field that frames it, tracked) ·
+ *   Track (sky view: keep it centred as time runs) · View from <body> (globe view) ·
+ *   Path ±6 months · Show where it's visible;
  * - fact grid: altitude/azimuth (refracted), rise · transit · set, distance,
  *   magnitude, phase, elongation, angular size, constellation, RA/Dec J2000 and
  *   of date, sub-point.
@@ -78,10 +79,12 @@ export function mountBodyCard(root, ctx) {
 
     const actLook = actionBtn('sky', 'Look from here', 'Stand at the observer and look toward it');
     const actCenter = actionBtn('target', 'Center', 'Turn the view toward it');
+    const actScope = actionBtn('eye', 'Telescope', 'Zoom in on it at its true size and orientation, tracking it');
+    const actTrack = actionBtn('crosshair', 'Track', 'Keep it centred as time runs (K)', true);
     const actFrom = actionBtn('globe', 'View from it', 'See the Earth from its direction: the side where it is overhead');
     const actPath = actionBtn('path', 'Path ±6 months', 'Show its apparent path for six months either side', true);
     const actFoot = actionBtn('footprint', 'Show where it’s visible', 'Highlight where on Earth it is above the horizon', true);
-    const actions = h('div', { class: 'card__actions' }, actLook, actCenter, actFrom, actPath, actFoot);
+    const actions = h('div', { class: 'card__actions' }, actLook, actCenter, actScope, actTrack, actFrom, actPath, actFoot);
 
     const facts = {};
     const fact = (key, label, { wide = false, hint } = {}) => {
@@ -143,6 +146,8 @@ export function mountBodyCard(root, ctx) {
     }));
     offs.push(on(actCenter, 'click', () => { const id = sel(); if (id) ui.act('flyToBody', id); }));
     offs.push(on(actFrom, 'click', () => { const id = sel(); if (id) ui.act('viewFromBody', id); }));
+    offs.push(on(actScope, 'click', () => { const id = sel(); if (id) ui.act('telescope', id); }));
+    offs.push(on(actTrack, 'click', () => ui.act('setTracking', store.get().view?.track === 'body' ? 'none' : 'body')));
     offs.push(on(actPath, 'click', () => ui.act('toggleLayer', 'trails', !store.get().layers?.trails)));
     offs.push(on(actFoot, 'click', () => ui.act('toggleLayer', 'footprint', !store.get().layers?.footprint)));
 
@@ -173,7 +178,11 @@ export function mountBodyCard(root, ctx) {
         const sky = store.get().view?.mode === 'sky';
         actLook.lastChild.textContent = sky ? 'Aim here' : 'Look from here';
         // A globe view: in sky view 'Center' already turns to the body, and text mode has no globe.
-        actFrom.hidden = sky || store.get().status?.webgl === false;
+        const noGl = store.get().status?.webgl === false;
+        actFrom.hidden = sky || noGl;
+        actScope.hidden = noGl;
+        actTrack.hidden = !sky || noGl;
+        setAttr(actTrack, 'aria-pressed', String(sky && store.get().view?.track === 'body'));
     }
 
     function update(snap) {

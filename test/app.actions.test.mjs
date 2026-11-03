@@ -3,6 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     shadowPoint, eventFraming, eclipseFocusExpired, createActions, ECLIPSE_LEAD_MS, eclipsePlayRange, lookSpanning,
+    telescopeFov, TELESCOPE_FOV_MIN,
 } from '../js/app/actions.js';
 import { createSnapshot, computeSnapshot } from '../js/astro/snapshot.js';
 import { localSolarEclipseAt, upcomingEvents } from '../js/astro/events.js';
@@ -158,4 +159,25 @@ test('standInPath moves the observer onto the centre line and frames the eclipse
     const before = store.get().observer;
     assert.equal(await actions.standInPath(Date.parse('2025-09-21T19:42:00Z')), null);
     assert.equal(store.get().observer, before);
+});
+
+test('telescopeFov: Jupiter with all four moons, the Moon whole, small planets at the 0.2° floor; portrait fits the width', () => {
+    const s = createSnapshot();
+    computeSnapshot(Date.parse('2026-11-04T03:00:00Z'), { latDeg: 48.85, lonDeg: 2.35, elevM: 0 }, s);
+    const jup = s.bodies[5];
+    const fov = telescopeFov('jupiter', s, 16 / 9);
+    // Every moon's offset across the line of sight fits in half the (vertical) field.
+    const rDeg = jup.angDiamArcsec / 7200;
+    for (let k = 0; k < 4; k++) {
+        const o = s.galilean.offS.subarray(k * 3, k * 3 + 3), d = jup.dirS;
+        const along = o[0] * d[0] + o[1] * d[1] + o[2] * d[2];
+        const across = Math.sqrt(o[0] ** 2 + o[1] ** 2 + o[2] ** 2 - along * along) * rDeg;
+        assert.ok(across < fov / 2, `moon ${k}: ${across.toFixed(3)}° inside ${fov.toFixed(3)}°`);
+    }
+    assert.ok(fov > 0.2 && fov < 1, `Jupiter ${fov}`);
+    assert.ok(telescopeFov('jupiter', s, 0.5) > fov * 1.9, 'portrait: the width decides');
+    const moon = telescopeFov('moon', s);
+    assert.ok(moon > s.bodies[1].angDiamArcsec / 3600 && moon < 1, `the Moon ${moon}`);
+    assert.equal(telescopeFov('mars', s), TELESCOPE_FOV_MIN);
+    assert.equal(telescopeFov('pluto', s), null);
 });

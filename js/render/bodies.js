@@ -4,7 +4,9 @@
  * - Sun: an HDR, limb-darkened billboard at infinity (true angular size, at least 3 px) with a
  *   glow; bloom does the rest.
  * - Planets: seven instanced glyph quads at infinity, sized and brightened by live magnitude, with
- *   diffraction spikes for the brightest on the high tier.
+ *   diffraction spikes for the brightest on the high tier. In a narrow sky view each glyph fades
+ *   out as the planet's true disc grows past a few pixels (astro/disc.js scopeBlend), handing over
+ *   to render/planets.js's true-scale impostor; the reticle then rings the disc (and the rings).
  * - Moon: a true-scale textured sphere 60 Earth radii away, oriented by the IAU model (libration),
  *   lit with Lommel–Seeliger photometry, earthshine and lunar-eclipse reddening. Orbit view puts it
  *   at its geocentric position; sky view along the snapshot's topocentric astrometric `dirS` at its
@@ -26,6 +28,7 @@ import { moonKeyFor } from './textures.js';
 import { discVisibleFraction } from '../astro/shadow.js';
 import { liftByRefraction, refractionDeg } from '../astro/photometry.js';
 import { clearanceDeg } from '../geo/horizon.js';
+import { scopeBlend, eqAngRadius, RING_OUTER } from '../astro/disc.js';
 import {
     coronaParams, createCoronaParams, coronaVisibility, coronaStretch, chromosphereFlash, photosphereAdapt,
 } from '../astro/totality.js';
@@ -156,6 +159,9 @@ export function createBodies(rc, deps = {}) {
     const dirs = BODIES.map(() => new Float64Array([1, 0, 0]));
     const sinAlt = new Float64Array(BODIES.length);
     const mags = Float64Array.from(FALLBACK_MAG);
+    // Telescope zoom: true equatorial angular radius (rad) and the glyph → disc hand-over weight.
+    const eqR = new Float64Array(BODIES.length);
+    const scopeW = new Float64Array(BODIES.length);
     let sunR = SUN_ANG_RADIUS_1AU_RAD;  // true angular radius of the Sun (sunAngularRadius)
     let moonDistER = 60;                // topocentric Moon distance (sky view)
     let moonPhaseFrac = 0.5;
@@ -411,10 +417,11 @@ export function createBodies(rc, deps = {}) {
         const p = iParams.array;
         for (let k = 0; k < N_PLANETS; k++) {
             const m = mags[FIRST_PLANET + k];
+            const w = scopeW[FIRST_PLANET + k];
             p[k * 4] = glyphSizePx(m);
-            p[k * 4 + 1] = glyphIntensity(m);
+            p[k * 4 + 1] = glyphIntensity(m) * (1 - w);
             p[k * 4 + 2] = spikesOn && m < -1.5 ? 1 : 0;
-            p[k * 4 + 3] = haveSnap ? 1 : 0;
+            p[k * 4 + 3] = haveSnap && w < 0.998 ? 1 : 0;
         }
         iParams.needsUpdate = true;
     }
@@ -466,6 +473,7 @@ export function createBodies(rc, deps = {}) {
             dirs[i][0] = d[0]; dirs[i][1] = d[1]; dirs[i][2] = d[2];
             sinAlt[i] = up ? d[0] * up[0] + d[1] * up[1] + d[2] * up[2] : 1;
             mags[i] = Number.isFinite(b.mag) ? b.mag : FALLBACK_MAG[i];
+            eqR[i] = i >= FIRST_PLANET ? eqAngRadius(b.id, b.distAU) : 0;
         }
         sunR = sunAngularRadius(snap.bodies[SUN].distAU);
         moonUniforms.uSunR.value = sunR;
@@ -525,6 +533,13 @@ export function createBodies(rc, deps = {}) {
         const pxPerRad = cam ? 0.5 * h * cam.projectionMatrix.elements[5] : 1000;
         const planetsExp = fi.exposure && Number.isFinite(fi.exposure.planets) ? fi.exposure.planets : 1;
         const display = skyViewExposure(sunAltDeg, skyBlend, obscuration);
+        // Telescope zoom: glyphs give way to true discs (render/planets.js draws them by the same weight).
+        let scopeChanged = false;
+        for (let i = FIRST_PLANET; i < BODIES.length; i++) {
+            const w = skyBlend > 0.01 ? scopeBlend(eqR[i] * pxPerRad) * Math.min(1, skyBlend) : 0;
+            if (Math.abs(w - scopeW[i]) > 1e-3 || (w === 0) !== (scopeW[i] === 0)) { scopeW[i] = w; scopeChanged = true; }
+        }
+        if (scopeChanged && haveSnap) writeGlyphParams();
 
         // Moon placement. Orbit view: the geocentric position. Sky view: where the observer sees
         // it, along the snapshot's dirS (WGS84 topocentric, aberration-matched to the Sun and the
@@ -695,7 +710,11 @@ export function createBodies(rc, deps = {}) {
             reticleUniforms.uDir.value.set(d[0], d[1], d[2]);
             let radiusPx = RETICLE_PX * dpr;
             if (selIndex === MOON) radiusPx = Math.max(radiusPx, moonAngR * pxPerRad + RETICLE_GAP_PX * dpr);
-            else if (selIndex === SUN) {
+            else if (selIndex >= FIRST_PLANET && scopeW[selIndex] > 0) {
+                // A true disc (Saturn: its rings) is ringed outside its limb.
+                const ext = BODIES[selIndex].id === 'saturn' ? RING_OUTER : 1;
+                radiusPx = Math.max(radiusPx, eqR[selIndex] * ext * pxPerRad + RETICLE_GAP_PX * dpr);
+            } else if (selIndex === SUN) {
                 // In a solar eclipse the Moon's disc is often the larger one: frame whichever disc is
                 // bigger, or the ring hugs the Moon's limb (labels-feed mirrors this for the label).
                 const sd = dirs[SUN];

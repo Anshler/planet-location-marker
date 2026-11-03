@@ -18,6 +18,7 @@
  * @module astro/disc
  */
 import { RAD2DEG } from './frames.js';
+import { AU_KM } from './bodies.js';
 
 /**
  * Oblateness (1 − polar/equatorial radius) and equatorial radius (km) by body id. The Sun, the
@@ -209,4 +210,34 @@ export function ringAt(r, out = [0, 0]) {
     out[0] = tau;
     out[1] = alb;
     return out;
+}
+
+/**
+ * Sky-view telescope zoom: a planet's magnitude glyph hands over to its true-scale disc (the shared
+ * impostor) while the disc's equatorial radius grows from SCOPE_FROM_PX to SCOPE_TO_PX device
+ * pixels, about the glyph's own core. render/bodies.js fades the glyph by 1 − w and
+ * render/planets.js the disc in by w.
+ */
+export const SCOPE_FROM_PX = 1.5;
+export const SCOPE_TO_PX = 4;
+
+/**
+ * @param {number} radiusPx the disc's true equatorial radius on screen, device px
+ * @returns {number} 0 (glyph) … 1 (disc), smoothstep
+ */
+export function scopeBlend(radiusPx) {
+    if (!(radiusPx > SCOPE_FROM_PX)) return 0;
+    const t = Math.min(1, (radiusPx - SCOPE_FROM_PX) / (SCOPE_TO_PX - SCOPE_FROM_PX));
+    return t * t * (3 - 2 * t);
+}
+
+/**
+ * True angular equatorial radius (radians) of body `id` at `distAU` ({@link SHAPES}), or 0.
+ * @param {string} id
+ * @param {number} distAU
+ * @returns {number}
+ */
+export function eqAngRadius(id, distAU) {
+    const s = SHAPES[id];
+    return s && distAU > 0 ? Math.asin(Math.min(1, s.eqRadiusKm / (distAU * AU_KM))) : 0;
 }

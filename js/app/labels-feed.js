@@ -28,6 +28,7 @@
 import { BODIES, BODY_INDEX } from '../astro/bodies.js';
 import { starVisibility } from '../astro/photometry.js';
 import { horizonAltDeg } from '../geo/horizon.js';
+import { eqAngRadius, RING_OUTER, SCOPE_FROM_PX } from '../astro/disc.js';
 
 /** @typedef {import('../core/types.js').LabelAnchor} LabelAnchor */
 /** @typedef {import('../core/types.js').AppState} AppState */
@@ -289,7 +290,11 @@ export function bodyLabelOffsets(snap, pxPerRad, selIndex, offsets) {
             disc = moonR;
         } else {
             const m = snap.bodies[i].mag;
-            disc = 0.5 * glyphSizePx(Number.isFinite(m) ? m : 6);
+            // At telescope zoom the true disc (Saturn: its rings) outgrows the glyph.
+            const b = snap.bodies[i];
+            const trueR = eqAngRadius(b.id, b.distAU) * (b.id === 'saturn' ? RING_OUTER : 1) * k;
+            disc = Math.max(0.5 * glyphSizePx(Number.isFinite(m) ? m : 6), trueR);
+            if (trueR > SCOPE_FROM_PX) ring = Math.max(RETICLE_PX, trueR + RETICLE_GAP_PX);
         }
         const r = i === selIndex
             ? Math.max(LABEL_MIN_R, disc + LABEL_CLEAR_SEL_PX, ring + LABEL_CLEAR_SEL_PX)

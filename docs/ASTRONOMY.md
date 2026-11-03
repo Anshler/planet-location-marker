@@ -347,7 +347,9 @@ libration = AE.Libration(t)                               // 'full' only: it fee
     minutes against the panel);
   - a near band of tree crowns, or of rooftops (flat or gabled, chimneys, the odd tower or dome)
     where the cities within 30 km (data/cities.json, weighted by `e^(−d/6 km)`) add up to a town,
-    at most 1.2°;
+    at most 1.2°. Trees thin out past the Arctic tree line (66–72° N) and stop south of 60° S, where
+    the far ridge of ice or rock is the horizon. Deserts still get trees: there is no land-cover
+    data;
   - flat sea in the azimuths whose far ground (6–30 km out) is water on the ocean mask the globe
     already loads, with a Fresnel sky reflection and an analytic glitter path under the Sun and the
     Moon (Cox–Munk slopes, variance 0.02: one calm wind).

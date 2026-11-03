@@ -69,6 +69,18 @@ test('towns are wall-to-wall roofs, open country has fields between the woods', 
     assert.ok(cover(1) > cover(0) + 0.15, `urban ${cover(1)} vs rural ${cover(0)}`);
 });
 
+test('no trees beyond the tree line: the polar plateaus keep only the far ridge, towns their roofs', () => {
+    const cover = (lat, lon, urban = 0) => {
+        const h = buildHorizon(createHorizon(), lat, lon, { urban });
+        return h.near.reduce((s, v) => s + (v > 0.05 ? 1 : 0), 0) / h.n;
+    };
+    for (const [lat, lon] of [[-90, 0], [-75.1, 123.3], [-64.8, -64.1], [78.2, 15.6], [82.5, -62.3]]) {
+        assert.equal(cover(lat, lon), 0, `${lat},${lon}`);
+    }
+    assert.ok(cover(78.2, 15.6, 1) > 0.3, 'a polar town still has roofs');
+    for (const [lat, lon] of [[60.2, 24.9], [-54.8, -68.3], [45.1, 7.3]]) assert.ok(cover(lat, lon) > 0.15, `${lat},${lon}`);
+});
+
 test('sea sectors: flat (no hills, no trees) where the far ground is water, land elsewhere', () => {
     // Water east of the observer's meridian (a north–south coast through the observer).
     const lon0 = 151.21;

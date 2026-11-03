@@ -8,7 +8,8 @@
  *   - a low far ridge, at most FAR_RIDGE_MAX_DEG (a 1.5° ridge would delay sunset by minutes
  *     against the Sky panel's time), from periodic value noise;
  *   - a near band of tree crowns, or of rooftops where cities are dense (urbanIndex over
- *     data/cities.json), at most NEAR_BAND_MAX_DEG;
+ *     data/cities.json), at most NEAR_BAND_MAX_DEG; no trees beyond the tree line (the high Arctic,
+ *     everything south of 60° S), where the far ridge of ice or rock is the horizon;
  *   - flat sea in the sectors that look out over water (`water`, sampled by the caller from the
  *     ocean mask the globe already loads), where the shader draws a sky reflection and glitter.
  * Everything random is seeded by the place rounded to 0.1° (horizonSeed), so a place keeps its own
@@ -267,8 +268,10 @@ export function buildHorizon(out, latDeg, lonDeg, ctx = {}) {
     const relief = 0.16 + 0.30 * rand();
     for (let i = 0; i < n; i++) out.far[i] = clamp(relief * (0.55 + 0.75 * fbm[i]), 0.02, FAR_RIDGE_MAX_DEG);
 
-    // Near band: tree clumps across fields, or rooftops with narrow gaps in town.
+    // Near band: tree clumps across fields, or rooftops with narrow gaps in town. Trees thin out
+    // past the Arctic tree line (66–72° N) and stop south of 60° S (Antarctica, ice and rock).
     out.near.fill(0);
+    const treeK = (1 - smooth(66, 72, latDeg)) * smooth(-60, -56, latDeg);
     const start = rand() * 360;
     let az = start;
     while (az < start + 360) {
@@ -280,7 +283,7 @@ export function buildHorizon(out, latDeg, lonDeg, ctx = {}) {
         const end = Math.min(az + w, start + 360);
         if (end - az > 0.3) {
             if (roof) building(out.near, rand, az, end - az);
-            else trees(out.near, rand, az, end - az);
+            else if (treeK >= 1 || rand() < treeK) trees(out.near, rand, az, end - az);
         }
         az += w;
     }

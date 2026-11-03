@@ -1,19 +1,25 @@
-# Graph Report - mars-location-marker  (2026-10-11)
+# Graph Report - mars-location-marker  (2026-11-04)
 
 ## Corpus Check
-- 47 files · ~200,773 words
+- 168 files · ~330,356 words
 - Verdict: corpus is large enough that graph structure adds value.
+- Unclassified: 7 file(s) not represented in the graph (top: (none) 5, .css 1, .webmanifest 1)
 
 ## Summary
-- 1797 nodes · 4318 edges · 74 communities
-- Extraction: 92% EXTRACTED · 8% INFERRED · 0% AMBIGUOUS · INFERRED: 330 edges (avg confidence: 0.86)
-- Token cost: 140,485 input · 0 output
+- 2502 nodes · 6288 edges · 101 communities (99 shown, 2 thin omitted)
+- Extraction: 95% EXTRACTED · 5% INFERRED · 0% AMBIGUOUS · INFERRED: 323 edges (avg confidence: 0.86)
+- Token cost: 0 input · 0 output
+
+## Graph Freshness
+- Built from commit: `d6ff7e0c`
+- Run `git rev-parse HEAD` and compare to check if the graph is stale.
+- Run `graphify update .` after code changes (no API cost).
 
 ## Community Hubs (Navigation)
-- Camera Rig & Transitions
-- Docs & Design Concepts
+- createRig
+- The astronomy behind Planet Location Marker (ASTRONOMY.md)
 - Formatting & Time Zones
-- Bodies, Shadows & Flare
+- render/bodies.js
 - Beams & Labels
 - Events & Trails
 - UI Hub & Shortcuts
@@ -22,7 +28,7 @@
 - App Actions API
 - Body Card & Sky Now
 - Shell, Icons & About
-- Repo Hygiene Tests
+- repo.purity.test.mjs
 - Labels Feed & Event Bus
 - URL Hash State
 - Render Context & PostFX
@@ -30,24 +36,24 @@
 - Milky Way Build
 - Frames & Moon Orientation
 - Snapshot & Eclipse Geometry
-- Size Budget & Pages Staging
+- check-size.mjs
 - DOM Helpers & Help
 - City Data Build
-- Astronomy Engine & Catalog Tests
+- data.catalog.test.mjs
 - Vendor Pinning
 - Sky Lines & Exposure
 - Almanac & Verdicts
 - Simulation Clock
 - Quality Tiers & Governor
 - Icon Generator
-- Earth Textures by Tier
+- earth.js
 - Location Palette
 - Cinematic Intro
-- Astro Worker Ops
+- worker.js
 - Observer Pin
 - Loader & Failure Handling
 - Offline Cities
-- PNG/ZIP Tooling
+- astro/eclipse-path.js
 - Preferences Storage
 - Online Geocoder
 - Star Catalogue Build
@@ -56,354 +62,376 @@
 - Package Scripts
 - Static Dev Server
 - Geocoder Tests
-- Sky-View Ground
+- ground.js
 - Globe Picking
-- Photometry & Star Colour
+- photometry.js
 - Coordinate Parsing
-- Render Boot & State Binding
+- main.js
 - Frame Loop & Strikes
 - State Store
-- Transition Margin Test
+- ref_node_assert
 - Retrograde Paths
-- Almanac & Worker Tests
+- ae.js
 - Worker Client
-- Purity Rules Test
+- astro/skyglow.js
 - Layout Shell
 - Event Search Tests
 - Shader Domain Test
-- Fallback & Context Loss
+- Planet Location Marker architecture (ARCHITECTURE.md)
 - Snapshot Detail Levels
 - Snapshot Tests
-- URL State Tests
+- rig.js
 - City Search Matching
-- Earth Module
-- Atmosphere & Ground Cover
-- Shared Shader Chunks
-- Texture Store
-- Frame Math Tests
+- eyepiece.js
+- astro.shadow.test.mjs
+- geomag.js
+- tz.js
+- actions.js
 - Service Worker
 - Airmass & Visibility
 - Debug Overlay
+- camera.rig.test.mjs
+- astro/totality.js
+- stepToOrbit
+- horizon.js
+- planets.js
+- clamp
+- app.eclipse-chase.test.mjs
+- createBodies
+- eclipse-hud.js
+- app.labels-feed.test.mjs
+- astro/bodies.js
+- moons.js
+- Planet Location Marker
+- render/totality.js
+- trails.js
+- planets.glsl.js
+- createGovernor
+- createLabels
+- Roadmap: v2.1 "breathtaking"
+- flare.js
+- astro.eclipse-path.test.mjs
+- render/eclipse-path.js
+- labels.js
+- createEyepiece
+- createBus
+- astro.skyglow.test.mjs
+- three-hooks.mjs
 
 ## God Nodes (most connected - your core abstractions)
-1. `h()` - 49 edges
-2. `createRig()` - 48 edges
-3. `The astronomy behind Planet Location Marker (ASTRONOMY.md)` - 46 edges
-4. `mountTimebar()` - 42 edges
-5. `createActions()` - 31 edges
-6. `Planet Location Marker architecture (ARCHITECTURE.md)` - 31 edges
-7. `icon()` - 30 edges
-8. `createUiHub()` - 30 edges
-9. `boot()` - 30 edges
-10. `createClock()` - 28 edges
+1. `createRig()` - 70 edges
+2. `computeSnapshot()` - 57 edges
+3. `createActions()` - 55 edges
+4. `h()` - 54 edges
+5. `boot()` - 47 edges
+6. `mountTimebar()` - 44 edges
+7. `The astronomy behind Planet Location Marker (ASTRONOMY.md)` - 44 edges
+8. `setText()` - 35 edges
+9. `icon()` - 35 edges
+10. `createSnapshot()` - 34 edges
 
 ## Surprising Connections (you probably didn't know these)
-- `S mapping EQJ -> scene ((x,y,z) -> (x,z,-y))` --references--> `eqjToScene()`  [INFERRED]
-  docs/ASTRONOMY.md → js/astro/frames.js
-- `S mapping EQJ -> scene ((x,y,z) -> (x,z,-y))` --references--> `S`  [INFERRED]
-  docs/ASTRONOMY.md → js/astro/frames.js
-- `window.__app debug API (ready, snapshot, stats)` --references--> `app`  [INFERRED]
-  docs/ARCHITECTURE.md → js/main.js
 - `Three-strikes module guard` --references--> `STRIKES_TO_DISABLE`  [INFERRED]
   docs/ARCHITECTURE.md → js/app/loop.js
-- `createBeams()` --implements--> `RenderModule contract (object3d, apply, update, setLayers, setViewMode, setSelection, setQuality, dispose)`  [INFERRED]
-  js/render/beams.js → docs/ARCHITECTURE.md
+- `Text mode (no WebGL2 / no import maps fallback)` --references--> `showFallback()`  [INFERRED]
+  docs/ARCHITECTURE.md → js/app/fallback.js
+- `WebGL context-loss pause and restore` --references--> `showContextLost()`  [INFERRED]
+  docs/ARCHITECTURE.md → js/app/fallback.js
+- `Frame vs full snapshot detail (0.5 s staleness, 4 Hz readout)` --references--> `SNAP_STALE_MS`  [INFERRED]
+  docs/ARCHITECTURE.md → js/app/loop.js
+- `Frame vs full snapshot detail (0.5 s staleness, 4 Hz readout)` --references--> `FULL_INTERVAL_MS`  [INFERRED]
+  docs/ARCHITECTURE.md → js/app/loop.js
 
 ## Import Cycles
 - None detected.
 
 ## Hyperedges (group relationships)
+- **Earth orientation pipeline (GAST + precession/nutation through S)** — docs_astronomy_gast, docs_astronomy_iau2006_precession, docs_astronomy_iau2000b_nutation, docs_astronomy_s_mapping, docs_astronomy_earth_matrix, docs_astronomy_earth_fixed_frame, docs_astronomy_static_sky [EXTRACTED 1.00]
 - **Hard repo rules R1–R7 enforced by tests** — docs_architecture_rule_pure_modules, docs_architecture_rule_three_confinement, docs_architecture_rule_ui_isolation, docs_architecture_rule_relative_urls, docs_architecture_rule_no_per_frame_allocation, docs_architecture_rule_shader_tonemapping, docs_architecture_rule_vector_conventions [EXTRACTED 1.00]
 - **Boot-time failure and text-mode fallback chain** — index_global_error_capture, index_pcloader, index_pcenv, docs_architecture_text_mode, js_app_fallback, js_main_entertextmode, docs_architecture_failure_matrix [INFERRED 0.85]
-- **Hard repo rules R1–R7 enforced by tests** — docs_architecture_rule_pure_modules, docs_architecture_rule_three_confinement, docs_architecture_rule_ui_isolation, docs_architecture_rule_relative_urls, docs_architecture_rule_no_per_frame_allocation, docs_architecture_rule_shader_tonemapping, docs_architecture_rule_vector_conventions, claude_hard_rules [EXTRACTED 1.00]
 - **Boot-time failure and text-mode fallback chain** — index_pcenv, index_global_error_capture, index_inline_loader, index_pcloader, docs_architecture_text_mode, docs_architecture_failure_matrix, docs_architecture_dynamic_import_split [INFERRED 0.85]
-- **Earth orientation pipeline (GAST + precession/nutation through S)** — docs_astronomy_gast, docs_astronomy_iau2006_precession, docs_astronomy_iau2000b_nutation, docs_astronomy_s_mapping, docs_astronomy_earth_matrix, docs_astronomy_earth_fixed_frame, docs_astronomy_static_sky [EXTRACTED 1.00]
 
-## Communities (74 total, 0 thin omitted)
+## Communities (101 total, 2 thin omitted)
 
-### Community 0 - "Camera Rig & Transitions"
-Cohesion: 0.08
-Nodes (68): basisQuat(), _bF, _bR, _bU, clamp(), createRig(), advance(), afterTransition() (+60 more)
+### Community 0 - "createRig"
+Cohesion: 0.16
+Nodes (28): createRig(), afterTransition(), applyViewNow(), cancelTween(), centerAtNow(), defaultLook(), emitInteract(), flyToDirNow() (+20 more)
 
-### Community 1 - "Docs & Design Concepts"
-Cohesion: 0.07
-Nodes (54): CLAUDE.md (Claude Code guidance), graphify knowledge-graph workflow (query first, --update after changes), Planet Location Marker architecture (ARCHITECTURE.md), Globe <-> sky transition (skyBlend, groundCover, descent pitch-up), RenderModule contract (object3d, apply, update, setLayers, setViewMode, setSelection, setQuality, dispose), Fixed render order (SPEC §E.1), Headless Chrome smoke test (all external hosts blocked), window.__app debug API (ready, snapshot, stats) (+46 more)
+### Community 1 - "The astronomy behind Planet Location Marker (ASTRONOMY.md)"
+Cohesion: 0.12
+Nodes (28): Globe <-> sky transition (skyBlend, groundCover, descent pitch-up), The astronomy behind Planet Location Marker (ASTRONOMY.md), Accuracy budget, IAU WGCCRE rotational elements (Archinal et al. 2018), Ballesteros (2012) black-body colours, Disc-overlap eclipse model (discVisible), Earth-fixed frame (EF), earthMatrix = S·(PN·Rz(GAST))·Sᵀ (+20 more)
 
 ### Community 2 - "Formatting & Time Zones"
-Cohesion: 0.08
-Nodes (61): COMPASS16, COMPASS8_WORDS, compassWord(), dms(), fmtAlt(), fmtAngSize(), fmtAz(), fmtDate() (+53 more)
+Cohesion: 0.14
+Nodes (35): compass16, COMPASS8_WORDS, compassWord(), dms(), fmtAlt(), fmtAngSize(), fmtAz(), fmtDate() (+27 more)
 
-### Community 3 - "Bodies, Shadows & Flare"
-Cohesion: 0.06
-Nodes (52): BODIES, EARTH_RADIUS_KM, MOON_RADIUS_ER, SUN_ANG_RADIUS_RAD, clamp(), discVisibleFraction(), EARTH_SHADOW_RADIUS_ER, GL3 (+44 more)
+### Community 3 - "render/bodies.js"
+Cohesion: 0.13
+Nodes (19): ATM_BETA_R, DISC_BLENDING, EXT_K, FALLBACK_MAG, MOON_MAP_GAIN, SUN_CORE, SUN_CORONA, SUN_GLOW (+11 more)
 
 ### Community 4 - "Beams & Labels"
-Cohesion: 0.06
-Nodes (54): Label anchors, priorities and UI occluders, ORBIT_LABEL_CAP, buildStrip(), createBeams(), apply(), boxAt(), computeAnchors(), labelAnchor() (+46 more)
+Cohesion: 0.09
+Nodes (38): Label anchors, priorities and UI occluders, ORBIT_LABEL_CAP, shadowAxisPoint(), umbraNear(), buildStrip(), createBeams(), apply(), boxAt() (+30 more)
 
 ### Community 5 - "Events & Trails"
 Cohesion: 0.09
-Nodes (51): Events search (quarters, oppositions, elongations, eclipses, seasons), bodyById(), appulseEvent(), cap(), constellationOf(), dailyDirections(), describeOpposition(), dirAt() (+43 more)
+Nodes (57): Events search (quarters, oppositions, elongations, eclipses, seasons), appulseEvent(), cap(), centralDurS(), centralPhaseUp(), clockFormatter(), clockFormatters, constellationOf() (+49 more)
 
 ### Community 6 - "UI Hub & Shortcuts"
 Cohesion: 0.07
-Nodes (51): mountAnnouncer(), flush(), say(), createEmitter(), prefersReducedMotion(), COMPASS16, COMPASS_WORDS, createUiHub() (+43 more)
+Nodes (50): mountAnnouncer(), flush(), say(), createEmitter(), prefersReducedMotion(), COMPASS16, COMPASS_WORDS, createUiHub() (+42 more)
 
 ### Community 7 - "Time Bar & Scrubber"
-Cohesion: 0.08
-Nodes (50): clamp(), openPopover(), buildLut(), C_ASTRO, C_CIVIL, C_DAY, C_NAUT, C_NIGHT (+42 more)
+Cohesion: 0.07
+Nodes (58): clamp(), openPopover(), buildLut(), C_ASTRO, C_CIVIL, C_DAY, C_NAUT, C_NIGHT (+50 more)
 
 ### Community 8 - "Headless Smoke Harness"
-Cohesion: 0.07
-Nodes (38): CdpClient, findChrome(), launchChrome(), sleep(), acceptance(), args, argText(), ASSERT (+30 more)
+Cohesion: 0.06
+Nodes (49): build(), checkDerived(), imageSize(), isCachedSource(), main(), readLockFile(), readOrNull(), ROOT (+41 more)
 
 ### Community 9 - "App Actions API"
 Cohesion: 0.08
-Nodes (41): clamp(), countryFor(), createActions(), camDistance(), copyText(), cycleView(), flyToBody(), jumpToEvent() (+33 more)
+Nodes (38): clamp(), createActions(), aimAtEvent(), bodyNow(), camDistance(), copyText(), cycleTracking(), cycleView() (+30 more)
 
 ### Community 10 - "Body Card & Sky Now"
-Cohesion: 0.10
-Nodes (40): AU_KM, BODY_INDEX, angSize(), drawPhaseDisc(), EQUIPMENT, hexRgb(), KIND_LABEL, mixRgb() (+32 more)
+Cohesion: 0.15
+Nodes (33): angSize(), drawPhaseDisc(), EQUIPMENT, hexRgb(), KIND_LABEL, mixRgb(), mountBodyCard(), renderRts() (+25 more)
 
 ### Community 11 - "Shell, Icons & About"
-Cohesion: 0.13
-Nodes (30): CREDITS, mountAbout(), on(), s(), svgNS(), F, icon(), ICON_NAMES (+22 more)
+Cohesion: 0.08
+Nodes (44): CREDITS, mountAbout(), actionBtn(), kbd(), on(), close(), svgNS(), trapFocus() (+36 more)
 
-### Community 12 - "Repo Hygiene Tests"
-Cohesion: 0.10
-Nodes (22): blank(), findImports(), KEYWORDS_BEFORE_REGEX, lineAt(), PUNCT_BEFORE_REGEX, scanJs(), crawlModules(), pageEntries() (+14 more)
+### Community 12 - "repo.purity.test.mjs"
+Cohesion: 0.13
+Nodes (17): blank(), findImports(), KEYWORDS_BEFORE_REGEX, lineAt(), PUNCT_BEFORE_REGEX, scanJs(), ALLOWED_FILES, files() (+9 more)
 
 ### Community 13 - "Labels Feed & Event Bus"
-Cohesion: 0.09
-Nodes (31): bodyAnchors(), buildAnchors(), cardinalAnchors(), CARDINALS, clamp(), constellationAnchors(), createLabelsFeed(), beamPointFn() (+23 more)
+Cohesion: 0.15
+Nodes (22): bodyAnchors(), bodyLabelOffsets(), buildAnchors(), cardinalAnchors(), CARDINALS, clamp(), constellationAnchors(), sync() (+14 more)
 
 ### Community 14 - "URL Hash State"
-Cohesion: 0.13
-Nodes (33): URL hash format (loc, t, r, sel, ly, cam, q), snapRate(), bindUrl(), schedule(), write(), BODY_IDS, CAM, camToCode() (+25 more)
+Cohesion: 0.10
+Nodes (37): URL hash format (loc, t, r, sel, ly, cam, q), bindUrl(), schedule(), write(), BODY_IDS, CAM, camToCode(), clamp() (+29 more)
 
 ### Community 15 - "Render Context & PostFX"
-Cohesion: 0.11
-Nodes (27): createRenderContext(), compile(), dispose(), ensurePostFx(), invalidate(), measure(), presentIfCleared(), render() (+19 more)
+Cohesion: 0.10
+Nodes (32): Development, createRenderContext(), chainCfg(), compile(), dispose(), ensurePostFx(), invalidate(), measure() (+24 more)
 
 ### Community 16 - "Boot Sequence"
-Cohesion: 0.12
-Nodes (29): Boot sequence (10 steps), Observer fallback chain (hash -> prefs -> largest city in device tz -> Greenwich), app, applyHash(), bindMedia(), bindPreferences(), boot(), createCitiesProxy() (+21 more)
+Cohesion: 0.13
+Nodes (20): Boot sequence (10 steps), Observer fallback chain (hash -> prefs -> largest city in device tz -> Greenwich), eclipseFocusExpired(), placeToObserver(), createLruCache(), applyHash(), bindMedia(), bindPreferences() (+12 more)
 
 ### Community 17 - "Milky Way Build"
-Cohesion: 0.11
-Nodes (27): addSpan(), blur(), buildEdges(), distanceField(), dt1d(), fillLevel(), gaussianKernel(), H (+19 more)
+Cohesion: 0.09
+Nodes (38): addSpan(), blur(), buildEdges(), distanceField(), dt1d(), fillLevel(), gaussianKernel(), H (+30 more)
 
 ### Community 18 - "Frames & Moon Orientation"
-Cohesion: 0.08
-Nodes (16): IAU WGCCRE rotational elements (Archinal et al. 2018), True-scale Moon (IAU rotation, libration, Lommel–Seeliger lighting), COS_OBL, DEG2RAD, dirToAltAz(), dot3(), earthFixedToEqj(), earthRotationM3() (+8 more)
+Cohesion: 0.09
+Nodes (14): EQJ frame (J2000 mean equator and equinox), S mapping EQJ -> scene ((x,y,z) -> (x,z,-y)), Scene frame (+Y = J2000 pole, 1 unit = Earth radius), COS_OBL, dirToAltAz(), dot3(), earthFixedToEqj(), eqjToScene() (+6 more)
 
 ### Community 19 - "Snapshot & Eclipse Geometry"
-Cohesion: 0.09
-Nodes (28): Shadow-axis point P = m − t·ŝ (shadowPoint), Topocentric directions (Moon parallax ~1°), shadowPoint(), LIGHT_S_PER_AU, m3ToSceneM4(), m4MulDir(), m4MulDirT(), m4ToQuat() (+20 more)
+Cohesion: 0.07
+Nodes (37): Light-time correction, Topocentric directions (Moon parallax ~1°), LIGHT_S_PER_AU, angleBetween3(), m3ToSceneM4(), m4MulDirT(), m4ToQuat(), createGalilean() (+29 more)
 
-### Community 20 - "Size Budget & Pages Staging"
-Cohesion: 0.11
-Nodes (25): Per-tier transfer budgets (3.8 / 4.3 / 5.4 MB, 12 MB deploy), CI workflow (ci.yml), Generated-data freshness check (build-sky / build-milkyway --check), Deploy to GitHub Pages workflow (pages.yml), FALLBACK_ASSETS, FALLBACK_TIERS, FILE_BUDGETS, fmt() (+17 more)
+### Community 20 - "check-size.mjs"
+Cohesion: 0.07
+Nodes (38): DERIVED_LOCK, RECIPES, FALLBACK_ASSETS, FALLBACK_TIERS, FILE_BUDGETS, fmt(), INFO_TIERS, INTERIM (+30 more)
 
 ### Community 21 - "DOM Helpers & Help"
 Cohesion: 0.13
-Nodes (22): instances, append(), applyAttrs(), BOOL_ATTRS, FOCUSABLE, focusables(), h(), kbd() (+14 more)
+Nodes (16): ovalSummary(), instances, append(), applyAttrs(), BOOL_ATTRS, FOCUSABLE, focusables(), kebab() (+8 more)
 
 ### Community 22 - "City Data Build"
-Cohesion: 0.12
-Nodes (24): buildCities(), byPopDesc(), CACHE, ensureSources(), FIELDS, main(), normaliseZones(), OUT (+16 more)
-
-### Community 23 - "Astronomy Engine & Catalog Tests"
-Cohesion: 0.10
-Nodes (7): AE, mars, marsStations, FILES, ROOT, cat, SKY
+Cohesion: 0.11
+Nodes (25): buildCities(), byPopDesc(), CACHE, ensureSources(), FIELDS, main(), normaliseZones(), OUT (+17 more)
 
 ### Community 24 - "Vendor Pinning"
-Cohesion: 0.12
-Nodes (22): addon(), AE, checkEntry(), D3C, listFiles(), LOCK, main(), MANIFEST (+14 more)
+Cohesion: 0.14
+Nodes (22): addon(), AE, checkEntry(), D3C, DERIVED_LOCK, listFiles(), LOCK, main() (+14 more)
 
 ### Community 25 - "Sky Lines & Exposure"
-Cohesion: 0.12
-Nodes (24): raDecToScene(), EXTINCTION_CHUNK, LINE_FRAG, LINE_VERT, MW_FRAG, MW_VERT, SMOOTH_FALL_CHUNK, STAR_FRAG (+16 more)
+Cohesion: 0.09
+Nodes (28): ZL_S10, GROUND_FRAG, GROUND_VERT, LANDSCAPE_CHUNK, SEA_CHUNK, SKY_PATCHES, TWILIGHT_CHUNK, EXTINCTION_CHUNK (+20 more)
 
 ### Community 26 - "Almanac & Verdicts"
-Cohesion: 0.13
-Nodes (24): classifySamples(), COMPASS, compass16(), DAYTIME_CAPABLE, decideVerdict(), equipmentFor(), fmtMag(), GLARE_LIMIT_DEG (+16 more)
+Cohesion: 0.12
+Nodes (35): aeObserverOf(), attempt(), classifySamples(), COMPASS, compass16(), DAYTIME_CAPABLE, decideVerdict(), equipmentFor() (+27 more)
 
 ### Community 27 - "Simulation Clock"
-Cohesion: 0.25
-Nodes (23): clamp01(), clampT(), createClock(), advanceRange(), clampStop(), effRate(), endRange(), flush() (+15 more)
+Cohesion: 0.24
+Nodes (24): clamp01(), clampT(), createClock(), advanceRange(), clampStop(), effRate(), endRange(), flush() (+16 more)
 
 ### Community 28 - "Quality Tiers & Governor"
-Cohesion: 0.17
-Nodes (18): Quality tiers (low / medium / high), createGovernor(), config(), pin(), resetMeasure(), sample(), setTier(), stepDown() (+10 more)
+Cohesion: 0.16
+Nodes (19): Quality tiers (low / medium / high), ALL_TIERS, autoStartTier(), CADENCE_PROBE_TICKS, CADENCE_STALE_MS, deepFreeze(), detectTier(), isAutoTier() (+11 more)
 
 ### Community 29 - "Icon Generator"
 Cohesion: 0.14
 Nodes (20): compilePaint(), compileShape(), design(), DIR, EARTH, ellipseDistance(), fmt(), hexRgb() (+12 more)
 
-### Community 30 - "Earth Textures by Tier"
-Cohesion: 0.13
-Nodes (19): CLOUD_DRIFT_EPOCH_MS, DAY_GAIN, DERIVED_WINDOW, LOOK, nullStore(), resolveCfg(), TIER_DEFAULTS, ATMO_SUN_I (+11 more)
+### Community 30 - "earth.js"
+Cohesion: 0.07
+Nodes (52): auroraShellFor(), createAurora(), refresh(), createAuroraDriver(), createAuroraUniforms(), STEPS, STORM, STRENGTH (+44 more)
 
 ### Community 31 - "Location Palette"
 Cohesion: 0.21
-Nodes (20): uid(), EXAMPLES, fold(), highlight(), mountLocation(), choose(), cityModel(), dedupe() (+12 more)
+Nodes (22): debounce(), h(), uid(), EXAMPLES, fold(), highlight(), mountLocation(), choose() (+14 more)
 
 ### Community 32 - "Cinematic Intro"
 Cohesion: 0.22
 Nodes (19): easeInOutCubic(), easeOutQuart(), INTRO_TIMING, introStartDir(), mulDir(), mulDirT(), normalize(), playIntro() (+11 more)
 
-### Community 33 - "Astro Worker Ops"
-Cohesion: 0.23
-Nodes (18): aeObserverOf(), attempt(), horizontal(), requireBody(), requireMs(), riseTransitSet(), statusWithoutCrossing(), sunAltitudeSeries() (+10 more)
+### Community 33 - "worker.js"
+Cohesion: 0.22
+Nodes (10): BODY_IDS, handleMessage(), OPS, riseSetAll(), runOp(), serializeError(), transferablesOf(), DAY_START (+2 more)
 
 ### Community 34 - "Observer Pin"
 Cohesion: 0.19
-Nodes (17): enuLocal(), ACCENT, createPin(), apply(), dropPin(), setObserver(), settleDrop(), stepAnimation() (+9 more)
+Nodes (18): enuLocal(), latLonToLocal(), ACCENT, createPin(), apply(), dropPin(), setObserver(), settleDrop() (+10 more)
 
 ### Community 35 - "Loader & Failure Handling"
-Cohesion: 0.19
-Nodes (17): Body classes (is-ready, is-sky, tier-*, no-webgl, is-intro), Failure handling matrix, Text mode (no WebGL2 / no import maps fallback), index.html (entry page), Inline critical CSS (loader, no-webgl, is-intro body classes), fatal(), Global error capture (error / unhandledrejection before __pcBooted), Inline loader screen (#loader, progress bar, rotating tips) (+9 more)
+Cohesion: 0.20
+Nodes (14): Body classes (is-ready, is-sky, tier-*, no-webgl, is-intro), index.html (entry page), Inline critical CSS (loader, no-webgl, is-intro body classes), fatal(), Inline loader screen (#loader, progress bar, rotating tips), modulepreload/preload hints (three, astronomy-engine, main.js, cities.json), nomodule unsupported-browser fallback, window.__pcEnv feature detection (importmap, webgl2, renderer, maxTex) (+6 more)
 
 ### Community 36 - "Offline Cities"
-Cohesion: 0.12
-Nodes (15): ALIASES, boundedDistance(), DEFAULT_FIELDS, placeLabel(), placeToObserver(), QUALIFIER_ALIASES, rowA, rowB (+7 more)
+Cohesion: 0.14
+Nodes (12): ALIASES, boundedDistance(), DEFAULT_FIELDS, placeLabel(), QUALIFIER_ALIASES, rowA, rowB, rowC (+4 more)
 
-### Community 37 - "PNG/ZIP Tooling"
-Cohesion: 0.19
-Nodes (15): CHANNELS_BY_COLOR_TYPE, chunk(), COLOR_TYPE_BY_CHANNELS, crc32(), CRC_TABLE, decodePng(), encodePng(), filterRow() (+7 more)
+### Community 37 - "astro/eclipse-path.js"
+Cohesion: 0.08
+Nodes (39): eclipsePathFor(), SUN_RADIUS_KM, aeTime(), axisHit(), axisW, bisectEdge(), cA, cB (+31 more)
 
 ### Community 38 - "Preferences Storage"
 Cohesion: 0.25
 Nodes (15): clearAll(), isPlainObject(), kindOf(), load(), memory, persistent(), PREF_KEYS, PREFIX (+7 more)
 
 ### Community 39 - "Online Geocoder"
-Cohesion: 0.23
-Nodes (15): createGeocoder(), query(), search(), setStatus(), createLruCache(), finite(), makePlace(), nominatim (+7 more)
+Cohesion: 0.22
+Nodes (14): createGeocoder(), query(), search(), setStatus(), finite(), makePlace(), nominatim, openMeteo (+6 more)
 
 ### Community 40 - "Star Catalogue Build"
-Cohesion: 0.21
-Nodes (14): buildCons(), buildNames(), buildSky(), buildStars(), main(), OUT, packPolyline(), packRa() (+6 more)
+Cohesion: 0.16
+Nodes (15): CI workflow (ci.yml), Generated-data freshness check (build-sky / build-milkyway --check), Deploy to GitHub Pages workflow (pages.yml), buildCons(), buildNames(), buildSky(), buildStars(), main() (+7 more)
 
 ### Community 41 - "Clock Rates & Limits"
-Cohesion: 0.19
-Nodes (11): BIT, EVENT_ORDER, logEase(), MAX_MS, MAX_RATE, MIN_MS, nextRate(), RATES (+3 more)
+Cohesion: 0.16
+Nodes (14): BIT, easeRange(), EVENT_ORDER, logEase(), MAX_MS, MAX_RATE, MIN_MS, nextRate() (+6 more)
 
 ### Community 42 - "Sky Module"
-Cohesion: 0.21
-Nodes (12): createSky(), apply(), applyMagLimit(), dispose(), refreshDetail(), setCatalog(), setHighlight(), setQuality() (+4 more)
+Cohesion: 0.15
+Nodes (17): raDecToScene(), altAzLocal(), createSky(), apply(), applyMagLimit(), buildStaticLines(), dispose(), refreshDetail() (+9 more)
 
 ### Community 43 - "Package Scripts"
-Cohesion: 0.12
-Nodes (15): name, private, scripts, data, icons, size, smoke, smoke:mobile (+7 more)
+Cohesion: 0.11
+Nodes (17): name, private, scripts, data, icons, size, smoke, smoke:mobile (+9 more)
 
 ### Community 44 - "Static Dev Server"
-Cohesion: 0.18
-Nodes (11): npm scripts (start, test, smoke, size, vendor, data), createStaticServer(), MIME, mimeFor(), normalisePrefix(), resolveRequest(), statOrNull(), app (+3 more)
+Cohesion: 0.11
+Nodes (16): Per-tier transfer budgets (3.8 / 4.3 / 5.4 MB, 12 MB deploy), STAGING_BUDGET, TIER_BUDGETS, createStaticServer(), MIME, mimeFor(), normalisePrefix(), resolveRequest() (+8 more)
 
 ### Community 45 - "Geocoder Tests"
 Cohesion: 0.15
 Nodes (8): PROVIDERS, EMPTY, fakeFetch(), hostOf(), NOMINATIM, ok(), OPEN_METEO, PHOTON
 
-### Community 46 - "Sky-View Ground"
-Cohesion: 0.24
-Nodes (13): clamp(), createGround(), apply(), dispose(), eclipseGains(), setViewMode(), update(), smooth() (+5 more)
+### Community 46 - "ground.js"
+Cohesion: 0.21
+Nodes (23): liftByRefraction(), createHorizonGlow(), umbraHorizonGlow(), urbanIndex(), extinctionRGB(), clamp(), createGround(), apply() (+15 more)
 
 ### Community 47 - "Globe Picking"
 Cohesion: 0.21
 Nodes (13): localToLatLon(), raySphere(), _d, _l, _ll, ndcXY(), _o, pickDir() (+5 more)
 
-### Community 48 - "Photometry & Star Colour"
-Cohesion: 0.25
-Nodes (12): buildBvLut(), bvToKelvin(), bvToRgb(), cieX(), cieY(), cieZ(), exposureFor(), kelvinToRgb() (+4 more)
+### Community 48 - "photometry.js"
+Cohesion: 0.14
+Nodes (23): adaptingLuminance(), buildBvLut(), bvToKelvin(), bvToRgb(), cieX(), cieY(), cieZ(), clamp01() (+15 more)
 
 ### Community 49 - "Coordinate Parsing"
 Cohesion: 0.25
 Nodes (11): decimalCommas(), fromHemisphereGroups(), groupByHemisphere(), groupPlain(), groupValue(), normalise(), parseLatLon(), tokenize() (+3 more)
 
-### Community 50 - "Render Boot & State Binding"
-Cohesion: 0.20
-Nodes (14): bindRenderState(), bindViewInsets(), bootRender(), delay(), handleSceneClick(), idle(), lookFor(), noop() (+6 more)
+### Community 50 - "main.js"
+Cohesion: 0.11
+Nodes (35): selectionLook(), viewModeLook(), COPY, el(), ensureStyle(), hideContextLost(), showContextLost(), showFallback() (+27 more)
 
 ### Community 51 - "Frame Loop & Strikes"
-Cohesion: 0.29
-Nodes (10): createLoop(), broadcast(), callModule(), disable(), frame(), nameOf(), reportOnce(), resume() (+2 more)
+Cohesion: 0.24
+Nodes (14): createLoop(), broadcast(), callModule(), disable(), feedCadence(), fillSkyglow(), frame(), nameOf() (+6 more)
 
 ### Community 52 - "State Store"
-Cohesion: 0.28
-Nodes (9): createStore(), deliver(), notify(), sourceFor(), deepFreeze(), DEFAULT_STATE, freezeShallow(), isPlainObject() (+1 more)
+Cohesion: 0.18
+Nodes (14): AURORA_SETTINGS, createStore(), deliver(), notify(), sourceFor(), deepFreeze(), DEFAULT_STATE, freezeShallow() (+6 more)
 
-### Community 53 - "Transition Margin Test"
-Cohesion: 0.15
-Nodes (6): ALTS, ASPECTS, C, rig, ROOT, sky
+### Community 53 - "ref_node_assert"
+Cohesion: 0.05
+Nodes (21): HORIZON_SAMPLES, MANIFEST, randomSkyCases(), rng(), FILES, ROOT, iso(), SKY (+13 more)
 
 ### Community 54 - "Retrograde Paths"
-Cohesion: 0.38
-Nodes (11): Retrograde paths and stationary points, wrap180(), apparentPath(), bisectStation(), eclLonAt(), geoVector(), interpolatedDir(), interpolatedStation() (+3 more)
+Cohesion: 0.21
+Nodes (15): Retrograde paths and stationary points, wrap180(), apparentPath(), bisectStation(), eclLonAt(), geoVector(), GHOST_DAYS, interpolatedDir() (+7 more)
 
-### Community 55 - "Almanac & Worker Tests"
-Cohesion: 0.17
-Nodes (7): BODY_IDS, GREENWICH, HANOI, TROMSO, DAY_START, HANOI, NEAR
+### Community 55 - "ae.js"
+Cohesion: 0.22
+Nodes (5): AE, BODIES, GREENWICH, HANOI, TROMSO
 
 ### Community 56 - "Worker Client"
-Cohesion: 0.33
-Nodes (11): abortError(), createAstroClient(), call(), dispose(), ensureWorker(), onMessage(), pump(), runNext() (+3 more)
+Cohesion: 0.31
+Nodes (12): abortError(), createAstroClient(), call(), dispose(), eclipsePath(), ensureWorker(), onMessage(), pump() (+4 more)
 
-### Community 57 - "Purity Rules Test"
-Cohesion: 0.20
-Nodes (8): allApp, jsFiles(), PURE_DIRS, pureFiles, ROOT, source(), specifiers(), V1_LEFTOVERS
+### Community 57 - "astro/skyglow.js"
+Cohesion: 0.09
+Nodes (34): limitingMag(), BORTLE_SQM, BORTLE_SQM_MIN, bortleFromSqm(), cityCoreGlow(), cityRadiusKm(), computeSkyglow(), createSite() (+26 more)
 
 ### Community 58 - "Layout Shell"
-Cohesion: 0.42
-Nodes (11): mountShell(), applyLayout(), computeLayout(), measureSheet(), measureTimebar(), openPanel(), placeInk(), selectTab() (+3 more)
+Cohesion: 0.41
+Nodes (12): mountShell(), applyLayout(), computeLayout(), measureSheet(), measureTimebar(), openPanel(), placeInk(), selectTab() (+4 more)
 
 ### Community 59 - "Event Search Tests"
-Cohesion: 0.18
-Nodes (9): from2024, from2026, fromJune2027, HANOI, hanoi2024, hanoi2026, KINDS, MADRID (+1 more)
+Cohesion: 0.13
+Nodes (12): upcomingEvents(), eclipseAt(), from2024, from2026, fromJune2027, HANOI, hanoi2024, hanoi2026 (+4 more)
 
 ### Community 60 - "Shader Domain Test"
 Cohesion: 0.24
 Nodes (10): firstArgs(), KNOWN_CLAMPED_TRIG_ARGS, KNOWN_POSITIVE_BASES, KNOWN_SAFE_LOG_ARGS, ourGlsl(), read(), ROOT, SHADER_DIR (+2 more)
 
-### Community 61 - "Fallback & Context Loss"
-Cohesion: 0.33
-Nodes (9): WebGL context-loss pause and restore, COPY, el(), ensureStyle(), hideContextLost(), showContextLost(), showFallback(), showFatal() (+1 more)
+### Community 61 - "Planet Location Marker architecture (ARCHITECTURE.md)"
+Cohesion: 0.13
+Nodes (17): Architecture, graphify, What this is, Planet Location Marker architecture (ARCHITECTURE.md), WebGL context-loss pause and restore, Failure handling matrix, RenderModule contract (object3d, apply, update, setLayers, setViewMode, setSelection, setQuality, dispose), Fixed render order (SPEC §E.1) (+9 more)
 
 ### Community 62 - "Snapshot Detail Levels"
-Cohesion: 0.22
-Nodes (9): Frame vs full snapshot detail (0.5 s staleness, 4 Hz readout), State and data flow (UI -> actions -> store -> render modules; clock -> loop), FEATURE_NAMES, FULL_INTERVAL_MS, MAX_DT_MS, OPT_FRAME, OPT_FULL, SNAP_STALE_MS (+1 more)
+Cohesion: 0.13
+Nodes (16): Frame vs full snapshot detail (0.5 s staleness, 4 Hz readout), State and data flow (UI -> actions -> store -> render modules; clock -> loop), FEATURE_NAMES, FINE_FOV_DEG, FULL_INTERVAL_MS, MAX_DT_MS, OPT_FRAME, OPT_FULL (+8 more)
 
 ### Community 63 - "Snapshot Tests"
-Cohesion: 0.20
-Nodes (4): AU_ER, FULL, HONOLULU, numbersIn()
+Cohesion: 0.15
+Nodes (5): AU_ER, CONTACT_CASES, FULL, HONOLULU, numbersIn()
 
-### Community 64 - "URL State Tests"
-Cohesion: 0.20
-Nodes (5): DEFAULT_LAYER_CODE, LAYER_CODES, ALLOWED_KEYS, BODY_IDS, LAYER_KEYS
+### Community 64 - "rig.js"
+Cohesion: 0.05
+Nodes (35): _bF, _bR, _bU, DESCENT_BLEND, DESCENT_PITCH, DESCENT_TURN, _fF, _fG (+27 more)
 
 ### Community 65 - "City Search Matching"
-Cohesion: 0.36
-Nodes (10): foldText(), loadCities(), aliasTargets(), byTz(), fuzzyDistance(), nearest(), qualifies(), search() (+2 more)
-
-### Community 66 - "Earth Module"
-Cohesion: 0.33
-Nodes (9): createEarth(), bindSlot(), bindTier(), clearSlot(), refreshClouds(), refreshVisibility(), want(), definesFor() (+1 more)
-
-### Community 67 - "Atmosphere & Ground Cover"
-Cohesion: 0.33
-Nodes (8): createAtmosphere(), refresh(), definesFor(), modelOf(), SEGMENTS_BY_TIER, ATMO_EXPOSURE, ATMOSPHERE_SHADER, groundCover()
-
-### Community 68 - "Shared Shader Chunks"
-Cohesion: 0.56
-Nodes (5): ATMO_MODEL, COMMON, SURFACE_FRAG, CLOUD_LOOKUP, SURFACE_VERTEX
-
-### Community 69 - "Texture Store"
 Cohesion: 0.42
-Nodes (8): createTextureStore(), decode(), emit(), entryOf(), fetchBlob(), makeTexture(), progress(), startLoad()
+Nodes (9): foldText(), loadCities(), aliasTargets(), fuzzyDistance(), nearest(), qualifies(), search(), tierOf() (+1 more)
 
-### Community 70 - "Frame Math Tests"
-Cohesion: 0.25
-Nodes (3): randomSkyCases(), rng(), iso()
+### Community 66 - "eyepiece.js"
+Cohesion: 0.09
+Nodes (29): ringAt(), librationDirection(), ALB, albedo(), band(), C_BELT, C_GRS, C_POLE (+21 more)
+
+### Community 67 - "astro.shadow.test.mjs"
+Cohesion: 0.13
+Nodes (20): EARTH_RADIUS_KM, MOON_RADIUS_ER, SUN_ANG_RADIUS_1AU_RAD, clamp(), discVisibleFraction(), EARTH_SHADOW_RADIUS_ER, GL3, lunarEclipseLight() (+12 more)
+
+### Community 68 - "geomag.js"
+Cohesion: 0.12
+Nodes (27): m4MulDir(), AURORA_KP, AURORA_PERIOD_S, AURORA_SETTINGS, auroraText(), boundaryLat(), COEF, computeAurora() (+19 more)
+
+### Community 69 - "tz.js"
+Cohesion: 0.16
+Nodes (26): approxTzForLon(), canonMemo, canonTz(), daysInMonth(), deviceTz(), displayTz(), FALLBACK_ZONES, fromDatetimeLocal() (+18 more)
+
+### Community 70 - "actions.js"
+Cohesion: 0.10
+Nodes (27): Shadow-axis point P = m − t·ŝ (shadowPoint), countryFor(), telescope(), ECLIPSE_FOV_DEG, ECLIPSE_LEAD_MS, ECLIPSE_PLAY_MARGIN_MS, ECLIPSE_PLAY_S, LAYER_LABELS (+19 more)
 
 ### Community 71 - "Service Worker"
 Cohesion: 0.46
@@ -417,24 +445,129 @@ Nodes (7): Airmass and extinction (Kasten–Young, k = 0.2 mag), Kasten & Young 
 Cohesion: 0.38
 Nodes (6): setDebug(), toggleDebug(), createDebugOverlay(), drawSpark(), refresh(), formatCount()
 
+### Community 74 - "camera.rig.test.mjs"
+Cohesion: 0.10
+Nodes (13): checkFrame(), FakeCanvas, HCMC, LUXOR, makeApp(), makeRig(), near(), PARIS (+5 more)
+
+### Community 75 - "astro/totality.js"
+Cohesion: 0.12
+Nodes (23): DEG2RAD, bailysBeads(), coronaFlattening(), coronaParams(), createCoronaParams(), CYCLE_MAX_MS, GLOW_EDGE_KM, GLOW_W (+15 more)
+
+### Community 76 - "stepToOrbit"
+Cohesion: 0.19
+Nodes (26): basisQuat(), advance(), applyInsets(), applyRelease(), applySkyCamera(), finishTween(), followPose(), headingOf() (+18 more)
+
+### Community 77 - "horizon.js"
+Cohesion: 0.17
+Nodes (19): buildHorizon(), building(), clamp(), FAR_RIDGE_MAX_DEG, horizonKey(), horizonSeed(), NEAR_BAND_MAX_DEG, periodicFbm() (+11 more)
+
+### Community 78 - "planets.js"
+Cohesion: 0.14
+Nodes (20): createDiscFrame(), eqAngRadius(), scopeBlend(), createPlanets(), syncFootprints(), tintFor(), update(), updateScope() (+12 more)
+
+### Community 79 - "clamp"
+Cohesion: 0.19
+Nodes (22): clamp(), altCeil(), anchoredLook(), applyBlend(), camRay(), endTrack(), lookFromForward(), nudge() (+14 more)
+
+### Community 80 - "app.eclipse-chase.test.mjs"
+Cohesion: 0.21
+Nodes (18): CHASE_DURATION_S, CHASE_HOLD_MS, CHASE_OVERVIEW_DIST, CHASE_POSE, chaseLegs(), chaseTarget(), createEclipseChase(), end() (+10 more)
+
+### Community 81 - "createBodies"
+Cohesion: 0.19
+Nodes (19): refractionDeg(), chromosphereFlash(), coronaStretch(), coronaVisibility(), clamp(), createBodies(), apply(), bindMoon() (+11 more)
+
+### Community 82 - "eclipse-hud.js"
+Cohesion: 0.20
+Nodes (18): eclipseContacts(), fmtCountdown(), HUD_LEAD_MS, HUD_TRAIL_MS, hudCountdown(), isCentral(), build(), resolve() (+10 more)
+
+### Community 83 - "app.labels-feed.test.mjs"
+Cohesion: 0.13
+Nodes (15): createLabelsFeed(), beamPointFn(), rebuild(), syncNames(), gateConstellationName(), gateStarName(), createHorizon(), anchors() (+7 more)
+
+### Community 84 - "astro/bodies.js"
+Cohesion: 0.16
+Nodes (15): AU_KM, BODY_INDEX, createDiscView(), MARS_SPOTS, MOON_LOG_K, projectUp(), RING_OUTER, SCOPE_FROM_PX (+7 more)
+
+### Community 85 - "moons.js"
+Cohesion: 0.16
+Nodes (17): AE_KEYS, arcDeg(), bestLimbFeature(), computeGalilean(), crossing(), E, EDGE_CACHE, edgeRunFrom() (+9 more)
+
+### Community 86 - "Planet Location Marker"
+Cohesion: 0.11
+Nodes (16): Accuracy, Credits and licences, Deploying, Features, How it is built, Keyboard shortcuts, [→ Open Planet Location Marker](https://anshler.github.io/planet-location-marker/), Planet Location Marker (+8 more)
+
+### Community 87 - "render/totality.js"
+Cohesion: 0.18
+Nodes (15): MAX_BEADS, photosphereAdapt(), SUN_INTENSITY, INFINITY_VERT_CHUNK, BEAD_FRAG, BEAD_VERT, BEAD_CORE, clamp() (+7 more)
+
+### Community 88 - "trails.js"
+Cohesion: 0.21
+Nodes (15): glyphIntensity(), glyphSizePx(), createLineLayer(), createTrails(), apply(), clear(), dirAt(), dispose() (+7 more)
+
+### Community 89 - "planets.glsl.js"
+Cohesion: 0.17
+Nodes (11): SATURN_RINGS, f(), MARS_GLSL, MARS_K, MEDALLION_FRAG, MEDALLION_VERT, PLANET_CHUNK, PLANET_KIND (+3 more)
+
+### Community 90 - "createGovernor"
+Cohesion: 0.27
+Nodes (13): createGovernor(), budget(), cadenceMs(), config(), dprCanStep(), pin(), resetMeasure(), restartCadence() (+5 more)
+
+### Community 91 - "createLabels"
+Cohesion: 0.27
+Nodes (15): createLabels(), acquire(), applyAnchorToEl(), declutter(), makeEl(), measure(), refreshOccluders(), relayout() (+7 more)
+
+### Community 92 - "Roadmap: v2.1 "breathtaking""
+Cohesion: 0.15
+Nodes (12): Dropped at review, How to continue, Log, Phase 0: Bug sweep & quick wins, Phase 1: Eclipse 2027, Phase 2: Sky view 2.0, Phase 3: Planets that are planets, Phase 4: Living Earth (+4 more)
+
+### Community 93 - "flare.js"
+Cohesion: 0.28
+Nodes (11): sunAngularRadius(), limbTransmittance(), clamp(), createFlare(), apply(), dispose(), update(), discVisible() (+3 more)
+
+### Community 94 - "astro.eclipse-path.test.mjs"
+Cohesion: 0.17
+Nodes (10): PATH_COL, PATH_STRIDE, UMBRA_NEAR_RAD, apr2023, aug2026, aug2027, checkShape(), col() (+2 more)
+
+### Community 95 - "render/eclipse-path.js"
+Cohesion: 0.28
+Nodes (12): ribbonMesh(), slerpUnit(), ANNULAR, createEclipsePath(), apply(), clear(), placeMarker(), show() (+4 more)
+
+### Community 96 - "labels.js"
+Cohesion: 0.23
+Nodes (10): azimuthDeg(), clearanceDeg(), horizonAltDeg(), pickCandidates(), project(), EXTENTS, KIND_RANK, OCCLUDERS (+2 more)
+
+### Community 97 - "createEyepiece"
+Cohesion: 0.38
+Nodes (11): compressRadius(), discFrame(), discView(), grsLongitudeDeg(), toFrame(), apply(), writeDiscInstance(), writeJupiterMoons() (+3 more)
+
+### Community 98 - "createBus"
+Cohesion: 0.33
+Nodes (8): BUS_EVENTS, createBus(), add(), clear(), off(), on(), once(), remove()
+
+### Community 99 - "astro.skyglow.test.mjs"
+Cohesion: 0.20
+Nodes (4): col(), fullMoonNight(), json, PLACES
+
 ## Knowledge Gaps
-- **2 isolated node(s):** `./lazy.js`, `graphify knowledge-graph workflow (query first, --update after changes)`
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 458 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **2 isolated node(s):** `./lazy.js`, `modulepreload/preload hints (three, astronomy-engine, main.js, cities.json)`
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 722 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **2 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `BODIES` connect `Bodies, Shadows & Flare` to `Cinematic Intro`, `Beams & Labels`, `UI Hub & Shortcuts`, `Time Bar & Scrubber`, `Body Card & Sky Now`, `Labels Feed & Event Bus`, `Boot Sequence`, `Snapshot & Eclipse Geometry`, `Almanac & Worker Tests`, `Almanac & Verdicts`, `Earth Textures by Tier`, `Snapshot Tests`?**
-  _High betweenness centrality (0.061) - this node is a cross-community bridge._
-- **Are the 3 inferred relationships involving `mountTimebar()` (e.g. with `arrange()` and `openDate()`) actually correct?**
-  _`mountTimebar()` has 3 INFERRED edges - model-reasoned connections that need verification._
-- **What connects `./lazy.js`, `graphify knowledge-graph workflow (query first, --update after changes)` to the rest of the system?**
+- **Why does `createRig()` connect `createRig` to `rig.js`, `stepToOrbit`, `ground.js`, `clamp`?**
+  _High betweenness centrality (0.043) - this node is a cross-community bridge._
+- **Are the 29 inferred relationships involving `createActions()` (e.g. with `cycleTracking()` and `cycleView()`) actually correct?**
+  _`createActions()` has 29 INFERRED edges - model-reasoned connections that need verification._
+- **What connects `./lazy.js`, `modulepreload/preload hints (three, astronomy-engine, main.js, cities.json)` to the rest of the system?**
   _2 weakly-connected nodes found - possible documentation gaps or missing edges._
-- **Should `Camera Rig & Transitions` be split into smaller, more focused modules?**
-  _Cohesion score 0.08215962441314555 - nodes in this community are weakly interconnected._
-- **Why does `createClock()` connect `Simulation Clock` to `URL State Tests`, `Docs & Design Concepts`, `Clock Rates & Limits`, `Boot Sequence`, `Snapshot Detail Levels`?**
-  _High betweenness centrality (0.032) - this node is a cross-community bridge._
-- **Should `Docs & Design Concepts` be split into smaller, more focused modules?**
-  _Cohesion score 0.06521739130434782 - nodes in this community are weakly interconnected._
+- **Should `The astronomy behind Planet Location Marker (ASTRONOMY.md)` be split into smaller, more focused modules?**
+  _Cohesion score 0.11742424242424243 - nodes in this community are weakly interconnected._
+- **Why does `BODIES` connect `ae.js` to `Cinematic Intro`, `astro.shadow.test.mjs`, `Beams & Labels`, `render/bodies.js`, `actions.js`, `UI Hub & Shortcuts`, `Time Bar & Scrubber`, `Body Card & Sky Now`, `Shell, Icons & About`, `Labels Feed & Event Bus`, `ground.js`, `planets.js`, `main.js`, `Snapshot & Eclipse Geometry`, `astro/bodies.js`, `Almanac & Verdicts`, `earth.js`, `Snapshot Tests`?**
+  _High betweenness centrality (0.033) - this node is a cross-community bridge._
 - **Should `Formatting & Time Zones` be split into smaller, more focused modules?**
-  _Cohesion score 0.07553143374038897 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.14114114114114115 - nodes in this community are weakly interconnected._
+- **Why does `h()` connect `Location Palette` to `createEyepiece`, `eyepiece.js`, `UI Hub & Shortcuts`, `Time Bar & Scrubber`, `Body Card & Sky Now`, `Shell, Icons & About`, `Render Context & PostFX`, `eclipse-hud.js`, `DOM Helpers & Help`, `Layout Shell`?**
+  _High betweenness centrality (0.029) - this node is a cross-community bridge._

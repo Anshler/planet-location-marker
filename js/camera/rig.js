@@ -1001,7 +1001,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
     /**
      * The tracked pose for this frame (sky view, no tween). 'body': forward on the body's refracted
      * direction (plus the drag offset), zenith up. 'stars': forward on the held direction, the J2000
-     * pole up (zenith within 2° of the pole). Releases when the aim sinks below TRACK_SET_ALT.
+     * pole up (on the pole itself, the last pose's up). Releases when the aim sinks below TRACK_SET_ALT.
      * @returns {boolean} moved
      */
     function stepTrack(dt, snap) {
@@ -1012,6 +1012,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
             else startBlend();
             track.cut = false;
             if (track.kind === 'stars') track.dirW.copy(FWD).applyQuaternion(camera.quaternion);
+            track.last.copy(camera.quaternion);
             if (Number.isFinite(track.fov)) sky.fovT = clamp(track.fov, SKY_FOV_MIN, SKY_FOV_MAX);
             track.fov = NaN;
             anchor.on = false;
@@ -1049,7 +1050,10 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         } else {
             F.copy(track.dirW);
             if (F.dot(upW) < TRACK_SET_SIN) { endTrack('set'); return true; }
-            basisQuat(F, Math.abs(F.y) > Math.cos(2 * DEG) ? upW : Y, camera.quaternion);
+            // On the pole itself the pole leaves the roll undefined: the last pose's up (fixed in
+            // the sky as well) keeps it. Anywhere else the pole: a zenith hint would turn the field.
+            _v2.crossVectors(F, Y);
+            basisQuat(F, _v2.lengthSq() > 1e-10 ? Y : _v2.set(0, 1, 0).applyQuaternion(track.last), camera.quaternion);
         }
         camera.position.copy(posW).multiplyScalar(EYE_R);
         camera.up.copy(upW);

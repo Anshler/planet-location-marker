@@ -728,6 +728,30 @@ test('star-lock holds the star field still, celestial north up, while the horizo
     assert.ok(Math.abs(roll0 - zenithRoll(h.camera, s)) > 20, `the horizon swings (${roll0.toFixed(1)}° → ${zenithRoll(h.camera, s).toFixed(1)}°)`);
 });
 
+test('star-lock near the celestial pole (Polaris, the pole itself) still holds the field', () => {
+    const t0 = Date.parse('2026-11-03T19:00:00Z');
+    const s0 = snapAt(t0, PARIS);
+    const pole = new THREE.Vector3(0, 1, 0);
+    const up = vec(s0.observer.upS), north = vec(s0.observer.northS), east = vec(s0.observer.eastS);
+    const k = up.clone().addScaledVector(pole, -up.dot(pole)).normalize();
+    for (const [offDeg, fov] of [[0.74, 60], [1.5, 0.5], [0, 1]]) {
+        const h = makeRig({ dom: true });
+        const F = pole.clone().multiplyScalar(Math.cos(offDeg * D)).addScaledVector(k, Math.sin(offDeg * D));
+        h.rig.setView(`s:${Math.atan2(F.dot(east), F.dot(north)) / D},${Math.asin(F.dot(up)) / D},${fov}`);
+        h.rig.update(0, s0);
+        h.rig.setTracking('stars');
+        h.run(800, s0);
+        const probes = [[0.6, 0.6], [-0.5, 0.2]].map(([x, y]) => [x, y, dirAtNdc(h.camera, x, y)]);
+        for (let m = 1; m <= 4; m++) {
+            h.run(16, snapAt(t0 + m * 30 * 60e3, PARIS));
+            for (const [x, y, d] of probes) {
+                const p = ndcOfInf(h.camera, d);
+                near(Math.hypot((p.x - x) * 800, (p.y - y) * 450), 0, 1e-3, `${offDeg}° from the pole: (${x}, ${y}) after ${m * 30} min`);
+            }
+        }
+    }
+});
+
 test('tracking ends by itself when the aim sets below −8° (listeners told), and the view rights itself', () => {
     const h = makeRig({ dom: true });
     const t0 = Date.parse('2026-11-03T19:00:00Z');

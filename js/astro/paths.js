@@ -8,17 +8,21 @@
  * @module astro/paths
  */
 import { AE } from './ae.js';
-import { bodyById } from './bodies.js';
+import { bodyById, AU_KM } from './bodies.js';
 import { wrap180 } from './frames.js';
 
 const HOUR_MS = 3600000;
 const MAX_SAMPLES = 20000;
+/** Retrograde time-lapse: one planet image every GHOST_DAYS along the path (at most MAX_GHOSTS). */
+export const GHOST_DAYS = 10;
+const MAX_GHOSTS = 64;
 const REFINE_MS = 10 * 60000;   // bisect stationary points to 10 minutes
 const RATE_PROBE_MS = HOUR_MS;  // dλ/dt from a central difference over ±30 min
 
 /**
  * @typedef {{bodyId:string|null, centerMs:number, stepHours:number,
- *            tMs:Float64Array, dirS:Float32Array, eclLonDeg:Float64Array}} ApparentPath
+ *            tMs:Float64Array, dirS:Float32Array, eclLonDeg:Float64Array,
+ *            ghosts:{index:Uint32Array, mag:Float32Array, diamArcsec:Float32Array}}} ApparentPath
  * @typedef {{tMs:number, kind:'retrograde-start'|'retrograde-end', dirS:number[], eclLonDeg:number}} StationaryPoint
  */
 
@@ -46,7 +50,8 @@ function lonRate(b, tMs) {
  * Samples a body's apparent geocentric position every `stepHours` across
  * centerMs ± halfSpanDays: `GeoVector(body, t, true)` (GeoMoon for the Moon)
  * mapped through S to unit scene directions, plus the true ecliptic longitude
- * of date from `AE.Ecliptic()`.
+ * of date from `AE.Ecliptic()`. Planets also get `ghosts`, the time-lapse composite's images:
+ * every GHOST_DAYS the sample index, magnitude (AE.Illumination) and angular diameter.
  * @param {string} bodyId
  * @param {number} centerMs
  * @param {number} [halfSpanDays=180]
@@ -63,6 +68,9 @@ export function apparentPath(bodyId, centerMs, halfSpanDays = 180, stepHours = 2
     const tMs = new Float64Array(n);
     const dirS = new Float32Array(3 * n);
     const eclLonDeg = new Float64Array(n);
+    const every = Math.max(1, Math.round(GHOST_DAYS * 24 / stepHours));
+    const nG = b.kind === 'planet' ? Math.min(MAX_GHOSTS, Math.floor((n - 1) / every) + 1) : 0;
+    const ghosts = { index: new Uint32Array(nG), mag: new Float32Array(nG), diamArcsec: new Float32Array(nG) };
     for (let i = 0; i < n; i++) {
         const t = startMs + i * stepMs;
         const g = geoVector(b, t);
@@ -72,8 +80,14 @@ export function apparentPath(bodyId, centerMs, halfSpanDays = 180, stepHours = 2
         dirS[3 * i + 1] = g.z / len;
         dirS[3 * i + 2] = -g.y / len;
         eclLonDeg[i] = AE.Ecliptic(g).elon;
+        const k = i / every;
+        if (k < nG && i % every === 0) {
+            ghosts.index[k] = i;
+            ghosts.mag[k] = AE.Illumination(b.ae, AE.MakeTime(new Date(t))).mag;
+            ghosts.diamArcsec[k] = 2 * Math.asin(Math.min(1, b.radiusKm / (len * AU_KM))) * 206264.806;
+        }
     }
-    return { bodyId: b.id, centerMs, stepHours, tMs, dirS, eclLonDeg };
+    return { bodyId: b.id, centerMs, stepHours, tMs, dirS, eclLonDeg, ghosts };
 }
 
 // Without a known body (a path built elsewhere), interpolate the zero of the

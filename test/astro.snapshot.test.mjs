@@ -183,12 +183,29 @@ test('rendered directions are the topocentric astrometric J2000 vectors; J2000 R
     computeSnapshot(tMs, observer, snap, FULL);
     const time = AE.MakeTime(new Date(tMs));
     const obs = new AE.Observer(observer.latDeg, observer.lonDeg, observer.elevM);
+    // The Moon: AE's geometric (≈ apparent) direction minus the annual aberration a star there has,
+    // with v/c taken from the Sun's apparent − astrometric direction (see moonToAstrometric).
+    const unit = (body, ab) => F.normalize3(F.eqjToScene(AE.Equator(body, time, obs, false, ab).vec));
+    const sAst = unit('Sun', false), sApp = unit('Sun', true);
+    const v = [0, 1, 2].map((k) => sApp[k] - sAst[k]);
+    const mGeo = unit('Moon', false);
+    const mv = F.dot3(mGeo, v);
+    const moonAst = F.normalize3([0, 1, 2].map((k) => mGeo[k] - (v[k] - mGeo[k] * mv)));
     for (const [i, b] of BODIES.entries()) {
         const st = snap.bodies[i];
         const eq = AE.Equator(b.ae, time, obs, false, false);
-        assert.ok(F.angleBetween3(st.dirS, F.normalize3(F.eqjToScene(eq.vec))) < 1e-12);
-        close(st.raJ2000H, eq.ra, 1e-9);
-        close(st.decJ2000Deg, eq.dec, 1e-9);
+        if (b.id === 'moon') {
+            assert.ok(F.angleBetween3(st.dirS, moonAst) < 1e-12);
+            const shift = F.angleBetween3(st.dirS, F.normalize3(F.eqjToScene(eq.vec))) / ARCSEC;
+            assert.ok(shift > 1 && shift < 20.6, `aberration removed from the Moon: ${shift}″`);
+            const rd = F.sceneToRaDec(st.dirS);
+            close(st.raJ2000H, rd.raDeg / 15, 1e-9);
+            close(st.decJ2000Deg, rd.decDeg, 1e-9);
+        } else {
+            assert.ok(F.angleBetween3(st.dirS, F.normalize3(F.eqjToScene(eq.vec))) < 1e-12);
+            close(st.raJ2000H, eq.ra, 1e-9);
+            close(st.decJ2000Deg, eq.dec, 1e-9);
+        }
         close(st.distAU, eq.dist, 1e-15);
         const geo = b.id === 'moon' ? AE.GeoMoon(time) : AE.GeoVector(b.ae, time, true);
         assert.ok(F.angleBetween3(st.geoDirS, F.normalize3(F.eqjToScene(geo))) < 1e-12);
@@ -198,7 +215,7 @@ test('rendered directions are the topocentric astrometric J2000 vectors; J2000 R
         const hor = AE.Horizon(time, obs, eqd.ra, eqd.dec, 'normal');
         close(st.altDeg, hor.altitude, 1e-12);
         close(st.azDeg, hor.azimuth, 1e-12);
-        assert.equal(st.constellation.symbol, AE.Constellation(eq.ra, eq.dec).symbol);
+        assert.equal(st.constellation.symbol, AE.Constellation(st.raJ2000H, st.decJ2000Deg).symbol);
         const ill = AE.Illumination(b.ae, time);
         close(st.mag, ill.mag, 1e-12);
         close(st.phaseFrac, ill.phase_fraction, 1e-12);
@@ -206,7 +223,7 @@ test('rendered directions are the topocentric astrometric J2000 vectors; J2000 R
             close(st.elongDeg, AE.AngleFromSun(b.ae, time), 1e-9, `${b.id} elongation`);
             assert.equal(st.elongSide, AE.Elongation(b.ae, time).visibility, `${b.id} side`);
         }
-        close(st.angDiamArcsec, 2 * Math.atan(b.radiusKm / (eq.dist * 149597870.7)) / ARCSEC, 1e-9);
+        close(st.angDiamArcsec, 2 * Math.asin(b.radiusKm / (eq.dist * 149597870.7)) / ARCSEC, 1e-9);
         // Sub-point: geocentric declination of date and RA − GAST (within aberration/parallax noise).
         close(st.subLatDeg, AE.EquatorFromVector(AE.RotateVector(AE.Rotation_EQJ_EQD(time), geo)).dec, 1e-6);
     }
@@ -281,6 +298,97 @@ test('eclipse flags: annular 2027-02-06, total 2027-08-02 at Luxor, total lunar 
     assert.equal(snap.eclipse.obscurationAtObserver, 0);
     computeSnapshot(Date.parse('2026-10-20T12:00:00Z'), { latDeg: 35, lonDeg: -120, elevM: 0 }, snap);
     assert.equal(snap.eclipse.solar || snap.eclipse.lunar, false);
+});
+
+// One eclipse geometry: obscurationAtObserver and the discs the sky view draws (render/bodies.js:
+// the Sun at dirS with sunAngularRadius, the Moon mesh at eye + dirS·distER, so seen from the eye
+// it sits at dirS with radius asin(R/d)) switch at AE.SearchLocalSolarEclipse's contacts. Before,
+// the drawn discs reached totality 35 s late at Luxor and the obscuration 17.5 s early.
+const CONTACT_CASES = [
+    ['Burgos 2026-08-12', 42.34, -3.70, '2026-08-01'],
+    ['Reykjavik 2026-08-12', 64.15, -21.94, '2026-08-01'],
+    ['Luxor 2027-08-02', 25.7, 32.6, '2027-07-01'],
+    ['Sydney 2028-07-22', -33.87, 151.21, '2028-07-01'],
+    ['Accra 2027-02-06 (annular)', 5.6, -0.19, '2027-02-01'],
+];
+const EYE_R = 1.0005;
+
+/** First time in (t0, t1] at which pred differs from pred(t0), to 1 ms (one switch assumed). */
+function switchTime(pred, t0, t1) {
+    const p0 = pred(t0);
+    assert.notEqual(pred(t1), p0, 'no switch in the window');
+    let a = t0, b = t1;
+    while (b - a > 1) {
+        const m = (a + b) / 2;
+        if (pred(m) === p0) a = m; else b = m;
+    }
+    return b;
+}
+
+/** The sky view's drawn discs from a snapshot, as render/bodies.js builds them (arcseconds). */
+function drawnDiscs(snap) {
+    const s = snap.bodies[0], m = snap.bodies[1], p = snap.observer.posS;
+    const eye = [p[0] * EYE_R, p[1] * EYE_R, p[2] * EYE_R];
+    const mesh = [0, 1, 2].map((k) => eye[k] + m.dirS[k] * m.distER);
+    const toMoon = [0, 1, 2].map((k) => mesh[k] - eye[k]);
+    const d = Math.hypot(...toMoon);
+    return {
+        sep: F.angleBetween3(s.dirS, toMoon) / ARCSEC,
+        rS: Math.asin(695700 / (s.distAU * 149597870.7)) / ARCSEC,
+        rM: Math.asin((1737.4 / 6378.137) / d) / ARCSEC,
+    };
+}
+
+test('eclipse contacts: obscuration and the drawn discs turn central within 1 s of AE C2/C3 (2026, 2027, 2028; annular 2027)', () => {
+    const snap = createSnapshot();
+    for (const [name, lat, lon, from] of CONTACT_CASES) {
+        const o = { latDeg: lat, lonDeg: lon, elevM: 0 };
+        const ls = AE.SearchLocalSolarEclipse(AE.MakeTime(new Date(from)), new AE.Observer(lat, lon, 0));
+        assert.ok(ls.total_begin && ls.total_end, `${name}: AE finds a central phase`);
+        const c2 = ls.total_begin.time.date.getTime(), c3 = ls.total_end.time.date.getTime();
+        const central = (t) => {
+            computeSnapshot(t, o, snap);
+            const g = drawnDiscs(snap);
+            // Panel geometry (angDiamArcsec) and drawn geometry are the same discs.
+            assert.ok(Math.abs(g.rS - snap.bodies[0].angDiamArcsec / 2) < 1e-6 && Math.abs(g.rM - snap.bodies[1].angDiamArcsec / 2) < 1e-6);
+            return g.sep <= Math.abs(g.rM - g.rS);
+        };
+        const total = (t) => {
+            computeSnapshot(t, o, snap);
+            return snap.eclipse.obscurationAtObserver >= 1;
+        };
+        const tag = (what, t, ref) => `${name} ${what} ${((t - ref) / 1000).toFixed(2)} s from AE`;
+        const d2 = switchTime(central, c2 - 30e3, c2 + 30e3), d3 = switchTime(central, c3 - 30e3, c3 + 30e3);
+        assert.ok(Math.abs(d2 - c2) < 1000, tag('drawn C2', d2, c2));
+        assert.ok(Math.abs(d3 - c3) < 1000, tag('drawn C3', d3, c3));
+        if (ls.kind === 'total') {
+            const o2 = switchTime(total, c2 - 30e3, c2 + 30e3), o3 = switchTime(total, c3 - 30e3, c3 + 30e3);
+            assert.ok(Math.abs(o2 - c2) < 1000, tag('obscuration C2', o2, c2));
+            assert.ok(Math.abs(o3 - c3) < 1000, tag('obscuration C3', o3, c3));
+            assert.ok(Math.abs(o2 - d2) < 50 && Math.abs(o3 - d3) < 50, `${name}: obscuration and drawn discs agree`);
+        } else {
+            // Annular: never total; inside the ring the obscuration is (rM/rS)², AE's value.
+            computeSnapshot((c2 + c3) / 2, o, snap);
+            const ob = snap.eclipse.obscurationAtObserver;
+            assert.ok(ob < 1);
+            close(ob, (snap.bodies[1].angDiamArcsec / snap.bodies[0].angDiamArcsec) ** 2, 1e-9, `${name} annular obscuration`);
+            close(ob, ls.obscuration, 0.002, `${name} AE obscuration`);
+        }
+    }
+});
+
+test('eclipse geometry at Luxor greatest eclipse: the dirS separation is the apparent one (≈9″, not the astrometric 19″)', () => {
+    const obs = new AE.Observer(25.7, 32.6, 0);
+    const ls = AE.SearchLocalSolarEclipse(AE.MakeTime(new Date('2027-07-01')), obs);
+    const time = ls.peak.time;
+    const snap = createSnapshot();
+    computeSnapshot(time.date.getTime(), { latDeg: 25.7, lonDeg: 32.6, elevM: 0 }, snap);
+    const app = (body) => F.normalize3(F.eqjToScene(AE.Equator(body, time, obs, false, true).vec));
+    const apparent = F.angleBetween3(app('Sun'), app('Moon')) / ARCSEC;
+    const drawn = F.angleBetween3(snap.bodies[0].dirS, snap.bodies[1].dirS) / ARCSEC;
+    assert.ok(apparent < 12, `apparent separation ${apparent}″`);
+    assert.ok(Math.abs(drawn - apparent) < 0.1, `drawn ${drawn}″ vs apparent ${apparent}″`);
+    assert.equal(snap.eclipse.obscurationAtObserver, 1);
 });
 
 test('Moon orientation: the sub-Earth point lies near the texture centre (u = 0.5) within libration limits', () => {

@@ -252,8 +252,10 @@ export function lunarEclipseState(snap) {
 /**
  * The Sun's solar-eclipse state seen from the observer, or null when the Moon covers none of it
  * (snap.eclipse.obscurationAtObserver is 0 while the Sun is down). `covered` is the obscured
- * fraction of the Sun's disc; `kind` ('total' | 'annular' | 'partial') comes from the topocentric
- * disc sizes and separation, `geo` (arcseconds) when the snapshot carries them.
+ * fraction of the Sun's disc. `kind` is 'total' exactly while that is 1 (the snapshot computes it
+ * from the same topocentric discs as `geo`, so this is between second and third contact), else
+ * 'annular' while the Moon's disc sits inside the Sun's, else 'partial'; a partial phase therefore
+ * never reads 100 %. `geo` (arcseconds) when the snapshot carries the discs.
  * @param {any} snap
  * @returns {{kind:string, covered:number, pct:string, text:string, geo:{sep:number, rS:number, rM:number, pa:number}|null} | null}
  */
@@ -263,7 +265,7 @@ export function solarEclipseState(snap) {
     const covered = Math.min(1, Math.max(0, o));
     const geo = solarDiscGeometry(snap);
     let kind = 'partial';
-    if (geo ? geo.rM >= geo.rS && geo.sep <= geo.rM - geo.rS : covered >= 0.99995) kind = 'total';
+    if (covered >= 1) kind = 'total';
     else if (geo && geo.rM < geo.rS && geo.sep <= geo.rS - geo.rM) kind = 'annular';
     // Never round a partial phase up to 100 %: 99.96 % reads "99.9 %".
     const pct = covered > 0.99 ? (Math.floor(covered * 1000) / 10).toFixed(1) : String(Math.round(covered * 100));
@@ -275,7 +277,8 @@ export function solarEclipseState(snap) {
 /**
  * Topocentric Sun and Moon discs: separation, radii (arcsec) and the Moon's position angle from
  * the Sun's centre on the observer's sky (0 = up toward the zenith, 90° = toward the right when
- * facing the Sun), or null without directions and sizes.
+ * facing the Sun), or null without directions and sizes. Both `dirS` are astrometric (the Moon's
+ * is aberration-matched in the snapshot), so the separation is the apparent one.
  * @param {any} snap
  */
 export function solarDiscGeometry(snap) {

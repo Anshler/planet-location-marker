@@ -6,12 +6,14 @@
  * - Planets: seven instanced glyph quads at infinity, sized and brightened by live magnitude, with
  *   diffraction spikes for the brightest on the high tier.
  * - Moon: a true-scale textured sphere 60 Earth radii away, oriented by the IAU model (libration),
- *   lit with Lommel–Seeliger photometry, earthshine and lunar-eclipse reddening.
+ *   lit with Lommel–Seeliger photometry, earthshine and lunar-eclipse reddening. Orbit view puts it
+ *   at its geocentric position; sky view along the snapshot's topocentric astrometric `dirS` at its
+ *   topocentric distance from the eye, the same discs as `obscurationAtObserver` (snapshot.js).
  * - Selection reticle around the selected body, with a short "acquire" animation.
  * In sky view everything is dimmed and reddened by atmospheric extinction toward the horizon.
  */
 import * as THREE from 'three';
-import { BODIES, MOON_RADIUS_ER, SUN_ANG_RADIUS_RAD } from '../astro/bodies.js';
+import { BODIES, MOON_RADIUS_ER, SUN_ANG_RADIUS_1AU_RAD, sunAngularRadius } from '../astro/bodies.js';
 import {
     DISC_VERT, DISC_FRAG, GLYPH_VERT, GLYPH_FRAG, RETICLE_VERT, RETICLE_FRAG, MOON_VERT, MOON_FRAG,
 } from './shaders/bodies.glsl.js';
@@ -121,10 +123,12 @@ export function createBodies(rc, deps = {}) {
     const dirs = BODIES.map(() => new Float64Array([1, 0, 0]));
     const sinAlt = new Float64Array(BODIES.length);
     const mags = Float64Array.from(FALLBACK_MAG);
-    let sunDistAU = 1;
+    let sunR = SUN_ANG_RADIUS_1AU_RAD;  // true angular radius of the Sun (sunAngularRadius)
+    let moonDistER = 60;                // topocentric Moon distance (sky view)
     let moonPhaseFrac = 0.5;
     let moonLit = 1;    // direct-sunlight fraction of the Moon's disc (0 in a total lunar eclipse)
-    const moonPos = new THREE.Vector3(60, 0, 0);
+    const moonPos = new THREE.Vector3(60, 0, 0);        // geocentric (orbit view, lighting)
+    const moonDrawPos = new THREE.Vector3(60, 0, 0);    // where the mesh is drawn this frame
     const moonDirCam = new Float64Array([1, 0, 0]);
     const linColors = BODIES.map(b => new THREE.Color(b.color));
     let skyBlend = 0;
@@ -136,7 +140,7 @@ export function createBodies(rc, deps = {}) {
     const sunUniforms = {
         uDir: { value: new THREE.Vector3(1, 0, 0) },
         uTanR: { value: Math.tan(SUN_QUAD_RAD) },
-        uCoreR: { value: SUN_ANG_RADIUS_RAD },
+        uCoreR: { value: SUN_ANG_RADIUS_1AU_RAD },
         uEdge: { value: 1e-3 },
         uCoreColor: { value: new THREE.Color() },
         uGlowColor: { value: new THREE.Color() },
@@ -242,6 +246,8 @@ export function createBodies(rc, deps = {}) {
         uTint: { value: new THREE.Vector3(1, 1, 1) },
         // Umbra exposure during a lunar eclipse: 1 in totality, dimmer while a sunlit cap remains.
         uUmbraGain: { value: 1 },
+        // The Sun's angular radius seen from the Moon (sunAngularRadius; within 0.3 % of Earth's).
+        uSunR: { value: SUN_ANG_RADIUS_1AU_RAD },
     };
     if (!moonUniforms.uMap.value) {
         const grey = new THREE.DataTexture(new Uint8Array([136, 136, 136, 255]), 1, 1, THREE.RGBAFormat);
@@ -289,6 +295,16 @@ export function createBodies(rc, deps = {}) {
     const candidates = BODIES.map((b, i) => ({ id: b.id, dirS: i === MOON ? moonDirCam : dirs[i] }));
     const pickList = [];
 
+    /** Moves the Moon mesh and its depth pass to world point `p` (orientation kept). */
+    function placeMoon(p) {
+        if (p !== moonDrawPos) moonDrawPos.copy(p);
+        const e = moon.matrix.elements;
+        e[12] = moonDrawPos.x; e[13] = moonDrawPos.y; e[14] = moonDrawPos.z;
+        moonDepth.matrix.copy(moon.matrix);
+        moon.matrixWorldNeedsUpdate = true;
+        moonDepth.matrixWorldNeedsUpdate = true;
+    }
+
     function writeGlyphParams() {
         const spikesOn = !!cfg && cfg.name === 'high';
         const p = iParams.array;
@@ -314,7 +330,9 @@ export function createBodies(rc, deps = {}) {
             sinAlt[i] = up ? d[0] * up[0] + d[1] * up[1] + d[2] * up[2] : 1;
             mags[i] = Number.isFinite(b.mag) ? b.mag : FALLBACK_MAG[i];
         }
-        sunDistAU = snap.bodies[SUN].distAU > 0 ? snap.bodies[SUN].distAU : 1;
+        sunR = sunAngularRadius(snap.bodies[SUN].distAU);
+        moonUniforms.uSunR.value = sunR;
+        moonDistER = snap.bodies[MOON].distER > MOON_RADIUS_ER ? snap.bodies[MOON].distER : 60;
         moonPhaseFrac = Number.isFinite(snap.bodies[MOON].phaseFrac) ? snap.bodies[MOON].phaseFrac : 0.5;
         moonLit = snap.eclipse && Number.isFinite(snap.eclipse.moonLitFraction) ? clamp(snap.eclipse.moonLitFraction, 0, 1) : 1;
         // The copper umbra is exposed for totality; with 6 % of the disc's sunlight left it shows
@@ -333,13 +351,10 @@ export function createBodies(rc, deps = {}) {
         iDir.needsUpdate = true;
         writeGlyphParams();
 
-        if (snap.moonMatrix) {
-            moon.matrix.fromArray(snap.moonMatrix);
-            moonDepth.matrix.copy(moon.matrix);
-            moon.matrixWorldNeedsUpdate = true;
-            moonDepth.matrixWorldNeedsUpdate = true;
-        }
+        // Orientation from the snapshot; update() sets the translation (moonDrawPos) every frame.
+        if (snap.moonMatrix) moon.matrix.fromArray(snap.moonMatrix);
         if (snap.moonPosS) moonPos.set(snap.moonPosS[0], snap.moonPosS[1], snap.moonPosS[2]);
+        placeMoon(moonPos);
         if (snap.sunDirS) moonUniforms.uSunDir.value.set(snap.sunDirS[0], snap.sunDirS[1], snap.sunDirS[2]);
     }
 
@@ -354,8 +369,19 @@ export function createBodies(rc, deps = {}) {
         const planetsExp = fi.exposure && Number.isFinite(fi.exposure.planets) ? fi.exposure.planets : 1;
         const display = skyViewExposure(sunAltDeg, skyBlend, obscuration);
 
+        // Moon placement. Orbit view: the geocentric position. Sky view: where the observer sees
+        // it, along the snapshot's dirS (WGS84 topocentric, aberration-matched to the Sun and the
+        // stars) at its topocentric distance from the eye, so the drawn discs are exactly the ones
+        // obscurationAtObserver uses. The two differ by ≤ 0.01 ER and blend through the transitions.
+        if (cam && skyBlend > 0) {
+            const md = dirs[MOON], c = cam.position;
+            tmpV.set(c.x + md[0] * moonDistER, c.y + md[1] * moonDistER, c.z + md[2] * moonDistER);
+            placeMoon(moonDrawPos.copy(moonPos).lerp(tmpV, skyBlend));
+        } else {
+            placeMoon(moonPos);
+        }
+
         // Sun: true angular radius, but never smaller than 3 px; dimmed/reddened near the horizon.
-        const sunR = SUN_ANG_RADIUS_RAD / sunDistAU;
         sunUniforms.uCoreR.value = Math.max(sunR, (3 * dpr) / pxPerRad);
         sunUniforms.uEdge.value = 1 / pxPerRad;
         extinctionRGB(sinAlt[SUN], tint);
@@ -382,7 +408,7 @@ export function createBodies(rc, deps = {}) {
                 if (sep < Math.PI / 2) limbTransmittance(dc * Math.sin(sep) - 1, limbT);
             }
             let visM = 1;
-            tmpV.copy(moonPos).sub(c);
+            tmpV.copy(moonDrawPos).sub(c);
             const dm = tmpV.length();
             if (dm > MOON_RADIUS_ER) {
                 const sepM = Math.acos(clamp(tmpV.dot(sd) / dm, -1, 1));
@@ -402,10 +428,14 @@ export function createBodies(rc, deps = {}) {
             occl *= 1 + (skyVis - 1) * skyBlend;
             coronaSky = smooth(0.985, 1, obscuration) * skyBlend;
         }
+        // Totality (obscuration is exactly 1 only between second and third contact): no photosphere
+        // is left. Without this the disc's anti-aliased rim, and its 3 px minimum size in a wide
+        // view, kept a ring of HDR sunlight around the Moon for the whole of totality.
+        const photo = obscuration >= 1 ? 1 - skyBlend : 1;
         sunUniforms.uCoreColor.value.setRGB(
-            SUN_CORE[0] * SUN_INTENSITY * tr * limbT[0],
-            SUN_CORE[1] * SUN_INTENSITY * tg * limbT[1],
-            SUN_CORE[2] * SUN_INTENSITY * tb * limbT[2]);
+            SUN_CORE[0] * SUN_INTENSITY * tr * limbT[0] * photo,
+            SUN_CORE[1] * SUN_INTENSITY * tg * limbT[1] * photo,
+            SUN_CORE[2] * SUN_INTENSITY * tb * limbT[2] * photo);
         // Warmth: how much of the green the limb took out, or the hidden-Sun corona's share.
         const glare = 1.5 * occl * (0.35 + 0.65 * Math.sqrt(limbT[1]));
         const cg = SUN_CORONA_GAIN * corona + SUN_ECL_CORONA_GAIN * coronaSky;
@@ -452,7 +482,7 @@ export function createBodies(rc, deps = {}) {
             (1 + (tint[2] - 1) * skyBlend) * display);
         let moonAngR = 0.0045;
         if (cam) {
-            tmpV.copy(moonPos).sub(cam.position);
+            tmpV.copy(moonDrawPos).sub(cam.position);
             const dist = tmpV.length();
             if (dist > 1e-6) {
                 tmpV.multiplyScalar(1 / dist);

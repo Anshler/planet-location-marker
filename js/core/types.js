@@ -26,7 +26,7 @@
  *           reducedMotion:boolean, coarse:boolean, introPlaying:boolean} }} AppState */
 /** BodyState: every vector is in SCENE frame (see section D).
  * @typedef {{ id:BodyId,
- *   dirS:Float64Array,      // topocentric astrometric J2000 unit vector (beams, glyphs, labels)
+ *   dirS:Float64Array,      // topocentric (WGS84) astrometric J2000 unit vector (beams, glyphs, labels, sky-view Moon)
  *   geoDirS:Float64Array,   // geocentric unit vector (sub-points, footprint)
  *   distAU:number, distER:number, lightTimeS:number,
  *   altGeomDeg:number, azGeomDeg:number,          // from dirS against the observer ENU, unrefracted (always filled)

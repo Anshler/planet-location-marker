@@ -17,8 +17,24 @@ export const AU_ER = AU_KM / EARTH_RADIUS_KM;
 export const LIGHT_S_PER_AU = 499.004784;
 /** Mean lunar radius in Earth radii (1737.4 km / 6378.137 km ≈ 0.27240). */
 export const MOON_RADIUS_ER = 1737.4 / 6378.137;
-/** Nominal angular radius of the Sun's disc at 1 AU, in radians (≈ 960″). */
-export const SUN_ANG_RADIUS_RAD = 0.0046542;
+/** Solar radius in km (IAU 2015 nominal; astronomy-engine's SUN_RADIUS_KM for its eclipse contacts). */
+export const SUN_RADIUS_KM = 695700;
+/**
+ * Angular radius of the Sun's disc seen from exactly 1 AU, in radians: asin(R☉ / 1 AU) ≈ 959.2″.
+ * The true radius varies ±1.7 % over the year; use {@link sunAngularRadius} for it.
+ */
+export const SUN_ANG_RADIUS_1AU_RAD = Math.asin(SUN_RADIUS_KM / AU_KM);
+
+/**
+ * True angular radius of the Sun's disc at a distance, in radians: asin(R☉ / d). The one rule
+ * shared by the snapshot's obscuration, the globe's umbra and the drawn disc, so all three agree
+ * with astronomy-engine's contact times. Non-positive or non-finite input gives the 1 AU value.
+ * @param {number} distAU Distance to the Sun in AU (a snapshot's `bodies[0].distAU`).
+ * @returns {number} Radians (≈ 0.004585 at aphelion, 0.004742 at perihelion).
+ */
+export function sunAngularRadius(distAU) {
+    return distAU > 0 && distAU < Infinity ? Math.asin(Math.min(1, SUN_RADIUS_KM / (distAU * AU_KM))) : SUN_ANG_RADIUS_1AU_RAD;
+}
 
 /**
  * @typedef {'sun'|'moon'|'mercury'|'venus'|'mars'|'jupiter'|'saturn'|'uranus'|'neptune'} BodyId
@@ -34,7 +50,7 @@ export const SUN_ANG_RADIUS_RAD = 0.0046542;
  * @type {ReadonlyArray<BodyInfo>}
  */
 export const BODIES = Object.freeze([
-    { id: 'sun', ae: 'Sun', name: 'Sun', kind: 'star', color: '#ffd36b', radiusKm: 695700, key: '1' },
+    { id: 'sun', ae: 'Sun', name: 'Sun', kind: 'star', color: '#ffd36b', radiusKm: SUN_RADIUS_KM, key: '1' },
     { id: 'moon', ae: 'Moon', name: 'Moon', kind: 'moon', color: '#d8dde6', radiusKm: 1737.4, key: '2' },
     { id: 'mercury', ae: 'Mercury', name: 'Mercury', kind: 'planet', color: '#b9b2aa', radiusKm: 2439.7, key: '3' },
     { id: 'venus', ae: 'Venus', name: 'Venus', kind: 'planet', color: '#fff4d6', radiusKm: 6051.8, key: '4' },

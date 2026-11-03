@@ -13,11 +13,9 @@ import { CLOUDS_SHADER } from './shaders/clouds.glsl.js';
 import { ATMO_SUN_I, ATMO_EXPOSURE } from './shaders/atmosphere.glsl.js';
 import { dayKeyFor, maskKeyFor, cloudsKeyFor } from './textures.js';
 import { groundCover } from './sky.js';
-import { BODIES } from '../astro/bodies.js';
+import { BODIES, MOON_RADIUS_ER, SUN_ANG_RADIUS_1AU_RAD, sunAngularRadius } from '../astro/bodies.js';
 
 const CLOUD_RADIUS = 1.006;
-const MOON_RADIUS_ER = 1737.4 / 6378.137;
-const SUN_ANG_RADIUS_RAD = 0.0046542;
 
 /** Look tuning (linear HDR). Diffuse peaks stay under the 0.9 bloom threshold. */
 const LOOK = {
@@ -113,7 +111,8 @@ export function createEarth(rc, { textures } = {}) {
         uCloudMode: { value: 0 },
         uCloudShift: { value: 0 },
         uAtmo: { value: 1 },
-        uEclipse: { value: new THREE.Vector4(0, MOON_RADIUS_ER, SUN_ANG_RADIUS_RAD, 0) },
+        // (on, Moon radius ER, the Sun's true angular radius — set per snapshot, see apply(), _)
+        uEclipse: { value: new THREE.Vector4(0, MOON_RADIUS_ER, SUN_ANG_RADIUS_1AU_RAD, 0) },
         uMoonPosW: { value: new THREE.Vector3(0, 0, 60) },
         uFoot: { value: new THREE.Vector4(0, 1, 0, 0) },
         uFootColor: { value: new THREE.Color(0xffffff) },
@@ -296,6 +295,9 @@ export function createEarth(rc, { textures } = {}) {
             const mp = snap.moonPosS;
             if (mp) u.uMoonPosW.value.set(mp[0], mp[1], mp[2]);
             u.uEclipse.value.x = snap.eclipse?.solar ? 1 : 0;
+            // The true solar radius (±1.7 % over the year): a constant drew the umbra ~19 % too
+            // narrow in August 2027 and the antumbra too wide in February.
+            u.uEclipse.value.z = sunAngularRadius(snap.bodies?.[0]?.distAU);
             const bodies = snap.bodies;
             if (bodies) {
                 for (let i = 0; i < 9; i++) {

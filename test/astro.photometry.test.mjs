@@ -101,6 +101,18 @@ test('exposureFor limits: orbit view is 1; deep night is full; daylight hides st
     assert.deepEqual(P.exposureFor(NaN, NaN), { stars: 1, planets: 1, milkyWay: 1 });
 });
 
+test('eclipseStarExposure: stars come out only near totality, in sky view', () => {
+    assert.equal(P.eclipseStarExposure(1, 1), 0.8);
+    assert.equal(P.eclipseStarExposure(0.97, 1), 0);
+    assert.equal(P.eclipseStarExposure(0.5, 1), 0);
+    close(P.eclipseStarExposure(0.985, 1), 0.4, 1e-12);
+    close(P.eclipseStarExposure(1, 0.5), 0.4, 1e-12);
+    assert.equal(P.eclipseStarExposure(1, 0), 0, 'orbit view');
+    assert.equal(P.eclipseStarExposure(1, 2), 0.8, 'skyBlend clamped');
+    assert.equal(P.eclipseStarExposure(NaN, 1), 0);
+    assert.equal(P.eclipseStarExposure(1, NaN), 0);
+});
+
 test('smoothstep matches GLSL', () => {
     assert.equal(P.smoothstep(0, 1, -1), 0);
     assert.equal(P.smoothstep(0, 1, 2), 1);

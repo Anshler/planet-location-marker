@@ -8,6 +8,7 @@
  */
 import * as THREE from 'three';
 import { AE } from '../astro/ae.js';
+import { eclipseStarExposure } from '../astro/photometry.js';
 import { STAR_VERT, STAR_FRAG, MW_VERT, MW_FRAG, LINE_VERT, LINE_FRAG } from './shaders/sky.glsl.js';
 
 const DEG = Math.PI / 180;
@@ -505,9 +506,8 @@ export function createSky(rc, deps = {}) {
         const fov = cam && cam.fov ? cam.fov : 45;
         starUniforms.uPx.value = dpr;
         starUniforms.uZoom.value = Math.min(2.5, Math.max(1, Math.sqrt(60 / fov)));
-        // Totality brings the brighter stars out even in daytime.
-        const eclipseStars = 0.8 * smooth(0.97, 1.0, obscuration) * skyBlend;
-        const starExp = Math.max(exposure.stars, eclipseStars);
+        // Totality brings the brighter stars out even in daytime (the loop's twinkle test agrees).
+        const starExp = Math.max(exposure.stars, eclipseStarExposure(obscuration, skyBlend));
         const display = skyViewExposure(sunAltDeg, skyBlend, obscuration);
         starUniforms.uExposure.value = starExp;
         starUniforms.uDisplay.value = display;

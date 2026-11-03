@@ -210,7 +210,10 @@ from the true Sun direction. The phase you see is therefore correct by construct
   - Milky Way: `1 − smoothstep(−20°, −10°, h☉)`.
 
   Stars fade with the dawn, and Venus and Jupiter stay visible in twilight. The daylight dome is
-  the Preetham–Shirley–Smits analytic sky driven by the true Sun.
+  the Preetham–Shirley–Smits analytic sky driven by the true Sun. Totality adds its own star
+  exposure, `0.8·smoothstep(0.97, 1, obscuration)·skyBlend` (`eclipseStarExposure`); the star
+  field shows the larger of the two, and the frame loop uses the same value to decide whether
+  twinkle needs frames.
 
 ---
 

@@ -204,3 +204,18 @@ export function exposureFor(sunAltDeg, skyBlend, out) {
     o.milkyWay = 1 + (milkyWay - 1) * k;
     return o;
 }
+
+/**
+ * Star exposure that totality alone provides in sky view: the brighter stars come out in a
+ * daytime sky when the Sun is at least 97 % covered. The star field shows
+ * max(exposureFor(…).stars, this).
+ *   0.8 · smoothstep(0.97, 1, obscuration) · skyBlend
+ * @param {number} obscuration Fraction of the solar disc covered at the observer (0 … 1; NaN → 0).
+ * @param {number} skyBlend 0 = orbit view, 1 = sky view.
+ * @returns {number} 0 … 0.8
+ */
+export function eclipseStarExposure(obscuration, skyBlend) {
+    const o = Number.isFinite(obscuration) ? obscuration : 0;
+    const k = Math.min(1, Math.max(0, Number.isFinite(skyBlend) ? skyBlend : 0));
+    return 0.8 * smoothstep(0.97, 1.0, o) * k;
+}

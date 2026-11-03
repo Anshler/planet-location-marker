@@ -6,8 +6,9 @@
 //         → every module.apply(snap)
 //     readout ('full' detail) at most every 250 ms when sim time or the observer changed → bus 'readout'
 //     moving = rig.update(dt, snap)
-//     render when something is dirty or continuously animating (camera motion, tweens, time-lapse,
-//     intro, pointer held, twinkle in sky view): module.update(fi) → rc.render() → labels
+//     render when something is dirty or in motion (camera motion, tweens, time-lapse, intro,
+//     pointer held): module.update(fi) → rc.render() → labels
+//     star twinkle alone (sky view, stars actually visible) renders at most at ~30 Hz
 //     governor.sample(dt) on consecutive rendered frames only
 //
 // Live 1× therefore redraws about twice a second; a paused, idle app draws nothing. The loop stops
@@ -25,7 +26,7 @@
 // and indexed loops (R5).
 
 import { createSnapshot, computeSnapshot } from '../astro/snapshot.js';
-import { exposureFor } from '../astro/photometry.js';
+import { exposureFor, eclipseStarExposure } from '../astro/photometry.js';
 
 /** Recompute the 'frame' snapshot when simulated time has moved this far (ms). */
 export const SNAP_STALE_MS = 500;
@@ -37,6 +38,17 @@ export const MAX_DT_MS = 100;
 export const STRIKES_TO_DISABLE = 3;
 /** Orbit view keeps the globe uncluttered: at most this many labels, whatever the tier allows. */
 export const ORBIT_LABEL_CAP = 18;
+/**
+ * Star exposure below which twinkle no longer keeps frames flowing. At 0.005 the star shader
+ * shows only Sirius and Canopus, as faint dots whose scintillation cannot be seen. In daylight
+ * (Sun above −4°) the exposure is 0, so a daytime sky view idles like the orbit view.
+ */
+export const TWINKLE_MIN_STARS = 0.005;
+/**
+ * Minimum interval (ms) between frames drawn only for twinkle: 30 Hz with 4 ms of vsync slack, so
+ * a 60 Hz display draws every second frame and a 120/144 Hz display every fourth/fifth.
+ */
+export const TWINKLE_FRAME_MS = 1000 / 30 - 4;
 
 const OPT_FRAME = Object.freeze({ detail: 'frame' });
 const OPT_FULL = Object.freeze({ detail: 'full' });
@@ -142,6 +154,7 @@ export function createLoop(deps) {
     let fpsWindowStart = 0;
     let fpsWindowFrames = 0;
     let lastRenderMs = 0;
+    let lastRenderAt = -Infinity;
 
     // Preallocated per-frame objects.
     const exposure = { stars: 1, planets: 1, milkyWay: 1 };
@@ -307,11 +320,13 @@ export function createLoop(deps) {
             }
 
             const cfg = getTierCfg();
-            const twinkle = !!(cfg && cfg.twinkle) && skyBlend > 0.5 && !reducedMotion;
-            const continuous = moving || !!(rig && rig.tweening) || clock.isAnimating() || introPlaying
-                || pointers.size > 0 || twinkle;
+            updateExposure(snap.observer.sunAltDeg, skyBlend);
+            const motion = moving || !!(rig && rig.tweening) || clock.isAnimating() || introPlaying
+                || pointers.size > 0;
+            // Twinkle alone: only while stars are actually shown, and at most ~30 Hz.
+            const twinkleDue = !motion && !dirty && now - lastRenderAt >= TWINKLE_FRAME_MS && twinkling(cfg, skyBlend);
 
-            if (dirty || continuous) {
+            if (dirty || motion || twinkleDue) {
                 // Cleared before the updates so a module that calls rc.invalidate() while animating
                 // (texture swap, launch tween, reticle) gets the next frame too.
                 dirty = false;
@@ -323,7 +338,6 @@ export function createLoop(deps) {
                 fi.skyBlend = skyBlend;
                 fi.snap = snap;
                 fi.pulsesActive = (clock.playing && Math.abs(clock.rate) > 1) || introPlaying;
-                updateExposure(snap.observer.sunAltDeg, skyBlend);
 
                 for (let i = 0; i < modules.length; i++) callModule(modules[i], 'update', fi);
 
@@ -377,6 +391,7 @@ export function createLoop(deps) {
                     if (result != null && hooks.onGovernor) hooks.onGovernor(result);
                 }
                 renderedLastFrame = true;
+                lastRenderAt = now;
             } else {
                 renderedLastFrame = false;
                 if (fpsWindowStart !== 0 && now - fpsWindowStart >= 1000) {
@@ -388,6 +403,18 @@ export function createLoop(deps) {
         }
 
         handle = raf(frame);
+    }
+
+    /**
+     * True when star twinkle needs frames: the tier twinkles, sky view, no reduced motion, the star
+     * layer on, and stars actually visible (the sky module's own exposure, totality included).
+     */
+    function twinkling(cfg, skyBlend) {
+        if (!(cfg && cfg.twinkle) || skyBlend <= 0.5 || reducedMotion) return false;
+        if (!store.get().layers?.stars) return false;
+        const ecl = snap.eclipse;
+        const obscuration = ecl && Number.isFinite(ecl.obscurationAtObserver) ? ecl.obscurationAtObserver : 0;
+        return Math.max(exposure.stars, eclipseStarExposure(obscuration, skyBlend)) > TWINKLE_MIN_STARS;
     }
 
     // Pointer tracking: a held pointer keeps frames flowing (OrbitControls damping, drags).

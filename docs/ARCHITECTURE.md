@@ -323,7 +323,9 @@ change.
   islands a few texels wide as sea and they vanish under the sun glint.
 - **Known limit of the 2k maps.** Lossy WebP always stores chroma at 4:2:0, so isolated city
   lights in `night2k` are less saturated than in the 4k map. They are paler and whiter-yellow,
-  with the same brightness. The shader's orange tint hides part of it. Encodes that keep the
+  with the same brightness. The shader's orange tint hides part of it. For the same reason,
+  islands a few texels wide in `day2k` take on some of the sea's blue. They keep their shape,
+  because the water mask comes from `roughness2k`. Encodes that keep the
   chroma cost 2.5 to 9 times the 75 KB: 4:4:4 JPEG is 190 to 700 KB and lossless WebP about
   434 KB.
 

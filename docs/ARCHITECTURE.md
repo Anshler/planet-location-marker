@@ -365,7 +365,9 @@ are applied live through `onExternalChange`.
 - **`npm run smoke`** opens the app in headless Chrome (SwiftShader) with every non-local host
   blocked. It waits for `__app.ready` and asserts no console errors, `phase === 'ready'`,
   `frames > 10`, `beamsVisible ≥ 7`, and stable geometry and texture counts while time runs at
-  1 day/s. Useful flags: `--mobile`, `--tz=UTC`, `--reduced-motion`, `--subpath=/repo/`,
+  1 day/s. A `--url` with `sel=` must open the Details tab, and with `--mobile` the time-bar date
+  and time must fit unclipped on 14 consecutive days (every weekday, one- and two-digit days).
+  Useful flags: `--mobile`, `--tz=UTC`, `--reduced-motion`, `--subpath=/repo/`,
   `--url=/#…`, `--out=shot.png`, `--eval="js"` (awaited before the screenshot). For the failure
   matrix and the intro: `--no-webgl` (text mode), `--init="js"` (runs before the page, e.g.
   `HTMLScriptElement.supports=()=>false` for no import maps), `--fail=data/sky.json,earth_day`

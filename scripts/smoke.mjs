@@ -378,6 +378,7 @@ async function acceptance({ evaluate, stats }) {
         if (s.geometries !== prev.geometries || s.textures !== prev.textures) stableSince = Date.now();
         prev = s;
     }
+    await interfaceChecks(evaluate);
     const started = await evaluate('(() => { const c = window.__app.clock; c.setRate(86400); c.play(); return true; })()')
         .catch((e) => `threw: ${e.message}`);
     check('clock.setRate(86400); play()', started === true, started === true ? 'ok' : String(started));
@@ -402,6 +403,36 @@ async function acceptance({ evaluate, stats }) {
         else check('beamsVisible ≥ 7', s10.beamsVisible >= 7, `beamsVisible=${s10.beamsVisible}`);
     }
     return s10;
+}
+
+// Layout checks that need a live page: a shared link's selection opens its card, and the phone
+// time bar shows the whole date (with its year) on every weekday, including two-digit days.
+async function interfaceChecks(evaluate) {
+    if (/[#&]sel=[a-z]/.test(OPT.url)) {
+        const tab = await evaluate(`document.getElementById('tab-details')?.getAttribute('aria-selected') ?? 'missing'`)
+            .catch((e) => `threw: ${e.message}`);
+        check('sel= opens Details', tab === 'true', `#tab-details aria-selected=${tab}`);
+    }
+    const layout = await evaluate(`document.getElementById('ui-root')?.dataset.layout ?? ''`).catch(() => '');
+    if (layout !== 'mobile') return;
+    // 4–17 Nov 2026 holds every weekday with one- and two-digit days ("Wed 11 Nov", "Mon 16 Nov").
+    const clipped = await evaluate(`(async () => {
+        const c = window.__app.clock, t0 = c.tMs, wasLive = c.live, wasPlaying = c.playing;
+        const frame = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        const bad = [];
+        c.pause();
+        for (let k = 0; k < 14; k += 1) {
+            c.setTime(Date.UTC(2026, 10, 4, 12) + k * 864e5);
+            await frame();
+            for (const el of document.querySelectorAll('.tb-date .stamp__day, .tb-date .stamp__time')) {
+                if (el.scrollWidth > el.clientWidth) bad.push(el.textContent + ' (' + el.scrollWidth + '>' + el.clientWidth + ')');
+            }
+        }
+        if (wasLive) c.goLive(); else { c.setTime(t0); if (wasPlaying) c.play(); }
+        return bad;
+    })()`).catch((e) => [`threw: ${e.message}`]);
+    check('phone date unclipped (14 days)', Array.isArray(clipped) && clipped.length === 0,
+        Array.isArray(clipped) && clipped.length ? clipped.slice(0, 3).join(', ') : 'all fit');
 }
 
 function judgeLogs() {

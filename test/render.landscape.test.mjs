@@ -62,6 +62,13 @@ test('materials sharing a program all declare the lift; the alt-az grid passes n
     assert.match(read('js/render/totality.js'), /uRefrK: \{ value: 0 \}/);
 });
 
+test("time-lapse ghosts take the live planet glyph's exposure, the daytime display factor included", () => {
+    const trails = read('js/render/trails.js');
+    assert.match(trails, /gUniforms\.uExposure\.value = planetsExp \* skyViewExposure\(sunAltDeg, refr\.uRefrK\.value, obscuration\);/);
+    assert.match(read('js/render/bodies.js'), /glyphUniforms\.uExposure\.value = planetsExp \* display;/);
+    assert.match(read('js/render/bodies.js'), /const display = skyViewExposure\(sunAltDeg, skyBlend, obscuration\);/);
+});
+
 test('the profile texture is read exactly like horizonAltDeg (two texels, linear in azimuth)', () => {
     const g = strip(ground.LANDSCAPE_CHUNK);
     assert.match(g, /float x = azDeg \/ 360\.0 \* fn;/);

@@ -14,7 +14,7 @@
  * skipped (the pile-up at the stations), and so is the one where the planet itself is now.
  */
 import * as THREE from 'three';
-import { createLineLayer } from './sky.js';
+import { createLineLayer, skyViewExposure } from './sky.js';
 import { bodyById } from '../astro/bodies.js';
 import { GLYPH_VERT, GLYPH_FRAG } from './shaders/bodies.glsl.js';
 import { glyphSizePx, glyphIntensity } from './bodies.js';
@@ -101,6 +101,8 @@ export function createTrails(rc) {
     const gBase = new THREE.Color();
     let nGhosts = 0;
     let nowMs = NaN;
+    let sunAltDeg = -90;
+    let obscuration = 0;
 
     let enabled = true;
     let has = false;
@@ -330,6 +332,9 @@ export function createTrails(rc) {
         if (!snap) return;
         const up = snap.observer && snap.observer.upS;
         if (up) refr.uRefrUp.value.set(up[0], up[1], up[2]);
+        sunAltDeg = snap.observer && Number.isFinite(snap.observer.sunAltDeg) ? snap.observer.sunAltDeg : -90;
+        obscuration = snap.eclipse && Number.isFinite(snap.eclipse.obscurationAtObserver)
+            ? snap.eclipse.obscurationAtObserver : 0;
         nowMs = snap.tMs;
         if (!has) return;
         path.uniforms.uNow.value = indexAt(snap.tMs);
@@ -349,7 +354,10 @@ export function createTrails(rc) {
         if (ghosts.visible) {
             gUniforms.uViewport.value.set(w, h);
             gUniforms.uDpr.value = dpr;
-            gUniforms.uExposure.value = fi.exposure && Number.isFinite(fi.exposure.planets) ? fi.exposure.planets : 1;
+            // The live glyph's exposure, daytime display factor included (render/bodies.js), so the
+            // ghosts stay fainter than the planet they trace by day too.
+            const planetsExp = fi.exposure && Number.isFinite(fi.exposure.planets) ? fi.exposure.planets : 1;
+            gUniforms.uExposure.value = planetsExp * skyViewExposure(sunAltDeg, refr.uRefrK.value, obscuration);
             const cam = fi.camera;
             writeGhosts(cam ? 0.5 * h * cam.projectionMatrix.elements[5] : 1000);
         }

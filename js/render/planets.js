@@ -313,13 +313,16 @@ export function createPlanets(rc, deps = {}) {
             tintFor(ds, up, expP * SCOPE_SB[ids[i]]);
             t[i * 4] = tint[0]; t[i * 4 + 1] = tint[1]; t[i * 4 + 2] = tint[2]; t[i * 4 + 3] = w;
         }
-        if (jupOn) {
-            writeJupiterMoons(snap, jupFrameS, sUniforms, false);
-            // The moons are instances of their own here: the disc keeps only their shadows.
-            for (let m = 0; m < 4; m++) sUniforms.uPlMoon.value[m].z = 0;
-        }
         const mk = k * (1 - smooth(SCOPE_MOONS_FOV[0], SCOPE_MOONS_FOV[1], cam.fov));
         const g = snap.galilean;
+        if (jupOn) {
+            writeJupiterMoons(snap, jupFrameS, sUniforms, false);
+            // The moons are instances of their own here: the disc keeps their shadows, and draws
+            // only a moon crossing it (whose instance is skipped below), once the moons show.
+            for (let m = 0; m < 4; m++) {
+                if (!(mk > 0.5 && g && (g.state[m] & MOON_TRANSIT))) sUniforms.uPlMoon.value[m].z = 0;
+            }
+        }
         if (mk > 0.002 && g) {
             const jst = snap.bodies[FIRST_PLANET + JUP];
             const rJ = eqAngRadius('jupiter', jst.distAU);

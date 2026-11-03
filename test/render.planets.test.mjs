@@ -5,7 +5,7 @@ import { register } from 'node:module';
 import { SATURN_RINGS, ringAt, grsLongitudeDeg, createDiscFrame, createDiscView } from '../js/astro/disc.js';
 import { createSnapshot, computeSnapshot } from '../js/astro/snapshot.js';
 import { BODY_INDEX } from '../js/astro/bodies.js';
-import { MOON_OCCULTED } from '../js/astro/moons.js';
+import { MOON_OCCULTED, MOON_TRANSIT } from '../js/astro/moons.js';
 
 register('./helpers/three-hooks.mjs', import.meta.url);
 const THREE = await import('three');
@@ -145,5 +145,32 @@ test('telescope: true-scale discs replace the glyphs in a narrow sky view; Jupit
     cam.updateProjectionMatrix();
     m.update({ ...fi, skyBlend: 0 });
     assert.equal(m.scope.visible, false);
+    m.dispose();
+});
+
+test('telescope: a moon crossing Jupiter is drawn on the disc (its own instance is skipped), the others only as instances', () => {
+    const rc = {
+        tier: { name: 'high' }, invalidate() {},
+        renderer: { getDrawingBufferSize: (v) => v.set(1600, 900), getPixelRatio: () => 1 },
+    };
+    const m = createPlanets(rc, { beams: null });
+    const s = createSnapshot();
+    // Hanoi: Europa in transit, with its shadow on the disc.
+    computeSnapshot(Date.parse('2027-02-06T17:30:00Z'), { latDeg: 21.03, lonDeg: 105.85, elevM: 0 }, s);
+    assert.ok(s.galilean.state[1] & MOON_TRANSIT, 'Europa crossing');
+    m.apply(s);
+    const jup = s.bodies[BODY_INDEX.jupiter];
+    const cam = new THREE.PerspectiveCamera(0.3, 16 / 9, 0.01, 4000);
+    cam.lookAt(jup.dirS[0], jup.dirS[1], jup.dirS[2]);
+    cam.updateMatrixWorld();
+    m.update({ dtMs: 16, skyBlend: 1, camera: cam, exposure: { planets: 1, stars: 1 } });
+    const u = m.scope.material.uniforms;
+    const tint = m.scope.geometry.getAttribute('iTint').array;
+    for (let k = 0; k < 4; k++) {
+        const transit = (s.galilean.state[k] & MOON_TRANSIT) !== 0;
+        assert.equal(u.uPlMoon.value[k].z, transit ? 1 : 0, `moon ${k} on the disc`);
+        assert.equal(tint[(7 + k) * 4 + 3] > 0, !transit, `moon ${k} instance`);
+    }
+    assert.equal(u.uPlShadow.value[1].z, 1, "Europa's shadow");
     m.dispose();
 });

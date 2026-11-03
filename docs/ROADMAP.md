@@ -201,3 +201,9 @@ Use the 1000–3000 range and the unused Astronomy Engine APIs.
   the usage limit with no work saved; restarted from da679f0.
 - 2026-11-05: Telescope/tracking merged at 828f82a; npm test (594), size, smoke, smoke:mobile, text mode pass. Budgets low 3.76 /
   medium 4.52 / high 5.73 MB (high has ~3 KB headroom under its budget, 0.27 MB under the 6 MB hard line).
+- 2026-11-05: Review of Phases 2–4 + max (3 lens reviewers, 1 fixer): 14 findings, 3 blocking; 12 fixed (46b4515 aurora
+  limb shell miss test, 76b74a8 star-lock at the pole, 858cb40 zodiacal light from Leinert Table 17, plus 9 minor fixes up to
+  f0545b2); npm test (600), size, smoke, smoke:mobile pass. Open follow-ups: (1) Auto Bortle under-estimates rural towns —
+  cities.json has only 1,621 large cities; needs a light-pollution raster or a denser town list (max-only data is fine);
+  (2) leaving max keeps the 8K maps on the GPU — needs a texture-store release() and rebinding. High tier has ~1.4 KB of
+  budget headroom and is 0.27 MB under the 6 MB hard line: new features should lazy-load or live on max.

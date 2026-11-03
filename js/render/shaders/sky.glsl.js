@@ -376,13 +376,15 @@ void main() {
 
 /**
  * @see LINE_VERT. Defines: TRAIL (fade/dash by vParam against uNow; vParam is the sample index),
- * HIGHLIGHT (iStyle.y > 0.5 switches to uHighlightColor).
+ * HIGHLIGHT (iStyle.y > 0.5 switches to uHighlightColor and uHighlightAlpha, so the highlighted
+ * figure keeps its strength when the rest recede).
  */
 export const LINE_FRAG = /* glsl */`
 uniform vec3 uColor;
 uniform float uAlpha;
 uniform float uHalfWidth;
 uniform vec3 uHighlightColor;
+uniform float uHighlightAlpha;
 uniform float uNow;
 uniform float uSpan;
 uniform float uDpr;
@@ -402,7 +404,7 @@ void main() {
     vec3 col = uColor;
     float a = uAlpha * vStyle.x;
 #ifdef HIGHLIGHT
-    if (vStyle.y > 0.5) { col = uHighlightColor; }
+    if (vStyle.y > 0.5) { col = uHighlightColor; a = uHighlightAlpha * vStyle.x; }
 #endif
 #ifdef TRAIL
     // Past (before uNow) is dimmer and dashed; both ends fade out.

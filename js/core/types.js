@@ -67,8 +67,8 @@
  *   setQuality?:(cfg:TierCfg)=>void, dispose:()=>void }} RenderModule */
 /** Label anchor fed to the label pool (SPEC §C.6).
  * @typedef {{ id:string, text:string, kind:'body'|'observer'|'star'|'constellation'|'cardinal'|'trail', priority:number,
- *   color?:string, dirS?:Float64Array|Float32Array, posS?:Float64Array, offsetPx?:[number,number], ariaLabel?:string,
- *   interactive:boolean }} LabelAnchor */
+ *   color?:string, dirS?:Float64Array|Float32Array, posS?:Float64Array, offsetPx?:ArrayLike<number>, ariaLabel?:string,
+ *   interactive:boolean, selected?:boolean, below?:boolean, hidden?:boolean, faint?:boolean }} LabelAnchor */
 
 /** Store returned by `createStore` (js/core/store.js).
  * @typedef {{ get:()=>AppState,

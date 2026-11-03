@@ -263,3 +263,33 @@ export function exposureFor(sunAltDeg, skyBlend, out, obscuration = 0, tierMagLi
     o.milkyWay = 1 + (milkyWay - 1) * k;
     return o;
 }
+
+const clamp01 = (x) => Math.min(1, Math.max(0, Number.isFinite(x) ? x : 0));
+
+/**
+ * How visible a star of magnitude `mag` is drawn, 0…1: STAR_VERT's
+ * smoothFall(lim + 0.35, lim − 0.45, mag) · smoothstep(0, 0.04, e).
+ * @param {number} mag
+ * @param {number} e star exposure, 0…1
+ * @param {number} magLimit the tier's limiting magnitude
+ * @returns {number}
+ */
+export function starVisibility(mag, e, magLimit) {
+    const ee = clamp01(e);
+    const lim = starLimitMag(ee, magLimit);
+    return smoothstep(lim + 0.35, lim - 0.45, mag) * smoothstep(0, 0.04, ee);
+}
+
+/**
+ * Brightness of the sky behind the labels, 0…1 (their halo style): smoothstep(−6°, 10°, h☉) in sky
+ * view, dark again in totality (smoothstep(0.9, 1, obscuration)), 0 from orbit.
+ * @param {number} sunAltDeg
+ * @param {number} obscuration solar-eclipse obscuration at the observer, 0…1
+ * @param {number} skyBlend 0 = orbit view, 1 = sky view
+ * @returns {number}
+ */
+export function skyBrightness(sunAltDeg, obscuration, skyBlend) {
+    const a = Number.isFinite(sunAltDeg) ? sunAltDeg : -90;
+    const ecl = smoothstep(0.9, 1.0, Number.isFinite(obscuration) ? obscuration : 0);
+    return smoothstep(-6, 10, a) * (1 - ecl) * clamp01(skyBlend);
+}

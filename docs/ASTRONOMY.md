@@ -159,7 +159,9 @@ moonPhaseDeg  = AE.MoonPhase(time)
 - **Elongation side.** "Morning" when the body's ecliptic longitude is west of the Sun's, otherwise
   "evening".
 - **Up.** The Sun and Moon count as up while their upper limb clears the horizon: refracted
-  altitude plus the semi-diameter, above 0.
+  altitude plus the semi-diameter, above 0. The beams, the Sky panel and orbit-view labels use
+  this flag. Sky-view labels use the geometric altitude instead, because bodies are drawn there
+  without refraction: for a few minutes around sunset the drawn Sun is already below the ground.
 
 ### Why the drawing uses astrometric J2000 and the tables use apparent of-date
 
@@ -231,7 +233,9 @@ from the true Sun direction. The phase you see is therefore correct by construct
   the Preetham–Shirley–Smits analytic sky driven by the true Sun.
 - **Star limit.** The star shader shows stars to `lim = −1 + (m_tier + 1)·√e` for star exposure
   `e`, where `m_tier` is the tier's dark-sky limit (5.0 / 6.0 / 6.5); `starLimitMag` and
-  `starExposureForLimit` convert both ways.
+  `starExposureForLimit` convert both ways. A star of magnitude m is drawn at
+  `smoothstep(lim + 0.35, lim − 0.45, m)·smoothstep(0, 0.04, e)` (`starVisibility`). Star names use
+  the same curve, so a name never outlives its star; constellation names need `e ≳ 0.3`.
 - **Totality's stars.** The eclipse term is specified in magnitudes, so every tier shows the same
   stars. The photosphere left shines `L = (1 − obscuration)^1.4` of full (limb darkening makes the
   last crescent dimmer than its area). On top of the totality sky's own 10⁻⁵ of daylight, the limit

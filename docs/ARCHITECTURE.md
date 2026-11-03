@@ -182,7 +182,7 @@ frame(now):  dt = min(now − last, 100)
   if dirty || continuous:
       dirty = false                              // cleared first: invalidate() during update requests the next frame
       module.update(fi) for every module         // fi: dt, time, camera, viewMode, skyBlend, snap, pulses, exposure
-      rc.render();  labelsFeed.sync();  labels.update(camera, viewport, {cap})
+      rc.render();  labelsFeed.sync(camera, mode, view);  labels.update(camera, viewport, {cap, skyLum})
       governor.sample(dt) if the previous frame also rendered
   requestAnimationFrame(frame)                   // stops while the tab is hidden; resumes dirty
 ```
@@ -268,11 +268,23 @@ only when selection, layers, observer name, view mode, catalog, trails or the in
 change.
 
 - **Bodies** use the beams module's `labelAnchor(id)`. In orbit view that is the farthest on-screen,
-  unoccluded point of the beam. In sky view it is the direction at infinity. It reads NaN until the
-  beam lands, so labels appear as the launch completes.
+  unoccluded point of the beam. In sky view it is the direction at infinity, with the label dot on
+  the upper-right diagonal just outside the glyph, the Sun or Moon disc (the larger one in a solar
+  eclipse) and the selection reticle, recomputed each frame from the zoom (`bodyLabelOffsets`). It
+  reads NaN until the beam lands, so labels appear as the launch completes.
+- **Below the horizon** (`is-below`): orbit view uses the snapshot's refraction- and limb-aware
+  `above`, like the beams and the Sky panel. Sky view uses the geometric altitude, because bodies
+  are drawn unrefracted there.
 - **Orbit view** adds the observer label at the pin head and N/E/S/W on the horizon-disc rim.
 - **Sky view** adds the cardinal points just above the horizon, bright star names (mag ≤ 2.5) and
   constellation names.
+- **Daylight.** Star names follow their own star: `photometry.starVisibility` mirrors the star
+  shader's fade, so names leave at dawn and return one by one at dusk or in totality (with
+  hysteresis, `is-faint` while dim). Constellation names need a star-field exposure of about 0.3.
+  The feed sets these flags in `sync()`, every frame, without rebuilding. `labels.update` gets the
+  sky brightness (`photometry.skyBrightness`) and writes it as `--sky-lum` on `#labels-root`. The
+  dark text halo softens with it, and from 0.6 (`is-daysky`) labels switch to dark text on a light
+  halo.
 - **Priorities:** selected 100, Sun and Moon 90, planets 80, observer 70, cardinal 60, stars 50 − mag,
   constellations 20.
 - **Free area.** `rc.size` is `{w, h, insets}`; `rig.setViewInsets` keeps `insets` in sync with the

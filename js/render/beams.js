@@ -38,6 +38,11 @@ const MOON_GAP = 0.30;
 /** Beam origin is lifted slightly off the unit sphere so it never z-fights the surface. */
 const ORIGIN_LIFT = 1.002;
 const LAUNCH_MS = 700;
+// Glow half-width against camera distance: the tier's width at the home view (rig.js HOME_DIST)
+// and closer, ×sqrt(GLOW_REF_DIST / distance) beyond, down to GLOW_MIN_K, so a zoomed-out globe
+// is not crossed by bars as wide as the planet.
+const GLOW_REF_DIST = 3.4;
+const GLOW_MIN_K = 0.45;
 /** Phase speed of the light-time pulses, cycles per second. */
 const PULSE_HZ = 0.6;
 /** Labels start this far along a beam so they never sit on the pin itself. */
@@ -294,7 +299,7 @@ export function createBeams(rc, deps = {}) {
             uniforms.uViewport.value.copy(_size);
             const dpr = r.getPixelRatio();
             uniforms.uDpr.value = dpr;
-            uniforms.uGlowPx.value = glowPx * dpr;
+            uniforms.uGlowPx.value = glowPx * dpr * glowScale(cam);
         }
 
         // Pulses ease in and out over ~250 ms; the phase lives on the CPU so it never loses precision.
@@ -685,6 +690,18 @@ function narrow(iv, a, b) {
 function smoothstep(e0, e1, x) {
     const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
     return t * t * (3 - 2 * t);
+}
+
+/**
+ * Glow-width factor for the camera's distance from the Earth's centre (see GLOW_REF_DIST).
+ * @param {{position?:{x:number,y:number,z:number}}|null|undefined} cam
+ * @returns {number} GLOW_MIN_K … 1
+ */
+function glowScale(cam) {
+    const p = cam && cam.position;
+    const d = p ? Math.hypot(p.x, p.y, p.z) : GLOW_REF_DIST;
+    if (!(d > GLOW_REF_DIST)) return 1;
+    return Math.max(GLOW_MIN_K, Math.sqrt(GLOW_REF_DIST / d));
 }
 
 /**

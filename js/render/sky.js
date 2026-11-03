@@ -16,6 +16,14 @@ const OBLIQUITY_DEG = 23.4392911;
 /** Milky Way brightness: kept subtle from orbit, fuller from a dark site in sky view. */
 const MW_GAIN_ORBIT = 0.18;
 const MW_GAIN_SKY = 0.27;
+// Constellation figures: full strength in sky view; from orbit quieter, behind the beams, and
+// receding as the camera pulls back (×clamp(REF / distance, MIN, 1)). The highlighted figure keeps
+// the sky-view strength. The twilight floor goes with the last stars (e < 0.1).
+const CONS_ALPHA_SKY = 0.28;
+const CONS_ALPHA_ORBIT = 0.17;
+const CONS_ORBIT_REF = 4;
+const CONS_ORBIT_MIN = 0.45;
+const CONS_FLOOR = 0.15;
 
 // EQJ → galactic rotation (IAU 1958), rows of gal = M·eqj; from astronomy-engine's Rotation_EQJ_GAL.
 const EQJ_TO_GAL = [
@@ -122,6 +130,7 @@ export function createLineLayer(opts) {
         uColor: { value: new THREE.Color().setRGB(color[0], color[1], color[2]) },
         uHighlightColor: { value: new THREE.Color(0.75, 0.85, 1.0) },
         uAlpha: { value: alpha },
+        uHighlightAlpha: { value: alpha },
         uNow: { value: 0 },
         uSpan: { value: 1 },
         uDpr: { value: 1 },
@@ -311,7 +320,7 @@ export function createSky(rc, deps = {}) {
 
     // --- Lines ------------------------------------------------------------------------------------
     const cons = createLineLayer({
-        name: 'sky.constellations', capacity: 1024, color: [0.35, 0.50, 0.80], alpha: 0.28,
+        name: 'sky.constellations', capacity: 1024, color: [0.35, 0.50, 0.80], alpha: CONS_ALPHA_SKY,
         halfWidthPx: 0.55, gapPx: 5.0, renderOrder: -80, defines: { HIGHLIGHT: '' },
     });
     cons.uniforms.uHighlightColor.value.setRGB(0.62, 0.78, 1.0);
@@ -516,7 +525,8 @@ export function createSky(rc, deps = {}) {
         starUniforms.uPx.value = dpr;
         starUniforms.uZoom.value = Math.min(2.5, Math.max(1, Math.sqrt(60 / fov)));
         // exposure.stars already carries totality's stars (photometry.js exposureFor: the brightest
-        // stars and the planets, rising over the last ~20 s before second contact).
+        // stars and the planets, rising over the last ~20 s before second contact). The label feed
+        // gates star names with the same value.
         const starExp = exposure.stars;
         const display = skyViewExposure(sunAltDeg, skyBlend, obscuration);
         starUniforms.uExposure.value = starExp;
@@ -534,7 +544,12 @@ export function createSky(rc, deps = {}) {
         stars.visible = layers.stars && starExp > 0.001 && starGeometry.drawRange.count > 0;
         milkyWay.visible = layers.milkyWay && mwReady && exposure.milkyWay > 0.001;
         const e = Math.max(0, Math.min(1, starExp));
-        cons.uniforms.uAlpha.value = 0.28 * Math.max(e, 0.15);
+        // No figure floats on a blue daytime sky.
+        const consE = Math.max(e, CONS_FLOOR * smooth(0.02, 0.1, e));
+        const camDist = cam && cam.position ? cam.position.length() : CONS_ORBIT_REF;
+        const orbitA = CONS_ALPHA_ORBIT * Math.min(1, Math.max(CONS_ORBIT_MIN, CONS_ORBIT_REF / Math.max(camDist, 1e-6)));
+        cons.uniforms.uAlpha.value = (orbitA + (CONS_ALPHA_SKY - orbitA) * skyBlend) * consE;
+        cons.uniforms.uHighlightAlpha.value = CONS_ALPHA_SKY * consE;
         cons.mesh.visible = layers.constellations && consCount > 0;
         eqGrid.uniforms.uAlpha.value = 0.18 * (0.5 + 0.5 * e);
         eqGrid.mesh.visible = layers.eqGrid;

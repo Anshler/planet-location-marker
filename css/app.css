@@ -184,9 +184,15 @@ button.lbl { pointer-events: auto; cursor: pointer; border-radius: 6px; }
     background: var(--c, #fff);
     box-shadow: 0 0 0 1px rgba(0, 0, 0, .4), 0 0 8px var(--c, #fff);
 }
+/* Night halo, softened as the sky brightens (--sky-lum, labels.js) but kept for the bright horizon
+   band; is-daysky (below) switches to dark text. Over the ground (is-below) it stays full. */
 .lbl__text {
-    text-shadow: 0 0 2px rgba(0, 0, 0, .95), 0 1px 3px rgba(0, 0, 0, .85), 0 0 12px rgba(0, 0, 0, .6);
+    --halo: calc(1 - .4 * var(--sky-lum, 0));
+    text-shadow: 0 0 2px rgba(0, 0, 0, calc(.95 * var(--halo))), 0 1px 3px rgba(0, 0, 0, calc(.85 * var(--halo))),
+        0 0 12px rgba(0, 0, 0, calc(.6 * var(--halo)));
+    transition: color var(--t2) ease, text-shadow var(--t2) ease;
 }
+.lbl.is-below .lbl__text { --halo: 1; }
 .lbl--body .lbl__text { color: #eef3fb; color: color-mix(in srgb, var(--c, #fff) 38%, #fff); }
 .lbl--body .lbl__text { font-size: 12.5px; }
 .lbl--observer .lbl__text { font-weight: 700; }
@@ -215,6 +221,24 @@ button.lbl:hover .lbl__dot { transform: scale(1.35); }
 .lbl.is-selected .lbl__text { color: #fff; font-weight: 750; }
 .lbl.is-selected .lbl__dot { box-shadow: 0 0 0 2px rgba(0, 0, 0, .45), 0 0 0 4px var(--c, #fff), 0 0 16px var(--c, #fff); }
 .lbl.is-below { opacity: .55; font-style: italic; }
+.lbl.is-faint { opacity: .5; }
+/* Bright sky (#labels-root.is-daysky): dark tinted text on a soft light halo, not black-embossed. */
+#labels-root.is-daysky .lbl:not(.is-below) .lbl__text {
+    color: #182538;
+    text-shadow: 0 0 2px rgba(255, 255, 255, .55), 0 0 9px rgba(255, 255, 255, .5);
+}
+#labels-root.is-daysky .lbl--body:not(.is-below) .lbl__text,
+#labels-root.is-daysky .lbl--trail:not(.is-below) .lbl__text {
+    color: #182538;
+    color: color-mix(in srgb, var(--c, #182538) 24%, #0c1424);
+}
+#labels-root.is-daysky .lbl--cardinal:not(.is-below) .lbl__text { color: #6e3d0c; }
+#labels-root.is-daysky .lbl.is-selected:not(.is-below) .lbl__text,
+#labels-root.is-daysky button.lbl:not(.is-below):hover .lbl__text { color: #070d18; }
+#labels-root.is-daysky .lbl:not(.is-below) .lbl__dot { box-shadow: 0 0 0 1px rgba(16, 26, 42, .55), 0 0 5px rgba(255, 255, 255, .7); }
+#labels-root.is-daysky .lbl.is-selected:not(.is-below) .lbl__dot {
+    box-shadow: 0 0 0 2px rgba(255, 255, 255, .7), 0 0 0 4px var(--c, #fff), 0 0 0 5px rgba(16, 26, 42, .45);
+}
 .lbl.is-hidden {
     visibility: hidden;
     opacity: 0;

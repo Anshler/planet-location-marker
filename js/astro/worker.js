@@ -18,6 +18,7 @@
 import { riseTransitSet, twilight, tonight, sunAltitudeSeries, aeObserverOf } from './almanac.js';
 import { upcomingEvents } from './events.js';
 import { apparentPath, stationaryPoints } from './paths.js';
+import { eclipsePath, citiesInPath } from './eclipse-path.js';
 import { BODY_IDS } from './bodies.js';
 
 function riseSetAll({ bodyIds, observer, fromMs, toMs }) {
@@ -29,12 +30,31 @@ function riseSetAll({ bodyIds, observer, fromMs, toMs }) {
 }
 
 /**
+ * The eclipse path, plus the largest cities in the band when `cities` is given: packed
+ * [lat, lon, pop] triples (Float64Array or number[]), or {lat, lon, pop} objects. Each city
+ * result names its position in that list (`index`).
+ */
+function eclipsePathOp({ peakMs, stepS, cities, nCities }) {
+    const path = eclipsePath(peakMs, { stepS });
+    if (!path || !cities) return path;
+    let list = cities;
+    if (ArrayBuffer.isView(cities) || (Array.isArray(cities) && typeof cities[0] === 'number')) {
+        list = [];
+        for (let i = 0; i + 2 < cities.length; i += 3) list.push({ lat: cities[i], lon: cities[i + 1], pop: cities[i + 2] });
+    }
+    path.cities = citiesInPath(path, list, nCities ?? 12);
+    return path;
+}
+
+/**
  * Operation table. Each op takes one plain-object argument and returns a
  * structured-cloneable result.
  *  - riseSet   {bodyIds?, observer, fromMs, toMs}        → {[id]: RTS} (all bodies when bodyIds is omitted)
  *  - twilight  {observer, nearMs}                        → Twilight
  *  - tonight   {observer, nearMs, tz?, hour12?}          → {nightStartMs, nightEndMs, reports, twilight}
- *  - events    {observer, fromMs, days?}                 → AstroEvent[]
+ *  - events    {observer, fromMs, days?, tz?, hour12?}   → AstroEvent[]
+ *  - eclipsePath {peakMs, stepS?, cities?, nCities?}     → EclipsePath & {cities?: CityInPath[]} | null
+ *              (eclipse-path.js; samples are transferred)
  *  - path      {bodyId, centerMs, halfSpanDays?, stepHours?} → ApparentPath & {stations: StationaryPoint[]}
  *  - sunSeries {observer, fromMs, toMs, n}               → Float32Array(n)
  *  - almanac   {observer, dayStartMs, dayEndMs?, nearMs?, sunFromMs?, sunToMs?, n?, tz?, hour12?}
@@ -46,7 +66,8 @@ export const OPS = Object.freeze({
     riseSet: riseSetAll,
     twilight: ({ observer, nearMs }) => twilight(observer, nearMs),
     tonight: ({ observer, nearMs, tz, hour12 }) => tonight(observer, nearMs, { tz, hour12 }),
-    events: ({ observer, fromMs, days }) => upcomingEvents(observer, fromMs, days ?? 365),
+    events: ({ observer, fromMs, days, tz, hour12 }) => upcomingEvents(observer, fromMs, days ?? 365, { tz, hour12 }),
+    eclipsePath: eclipsePathOp,
     path: ({ bodyId, centerMs, halfSpanDays, stepHours }) => {
         const path = apparentPath(bodyId, centerMs, halfSpanDays ?? 180, stepHours ?? 24);
         return { ...path, stations: stationaryPoints(path) };

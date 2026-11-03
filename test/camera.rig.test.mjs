@@ -9,7 +9,8 @@ import { register } from 'node:module';
 import { createSnapshot, computeSnapshot } from '../js/astro/snapshot.js';
 import { BODY_INDEX } from '../js/astro/bodies.js';
 import { createStore } from '../js/core/store.js';
-import { createActions, selectionLook, viewModeLook } from '../js/app/actions.js';
+import { createActions, selectionLook, viewModeLook, eventFraming } from '../js/app/actions.js';
+import { localSolarEclipseAt, upcomingEvents } from '../js/astro/events.js';
 
 register('./helpers/three-hooks.mjs', import.meta.url);
 const THREE = await import('three');
@@ -251,6 +252,44 @@ test('a sky event jump inside sky view turns once to the body at the event', () 
     const v = app.rig.getView();
     near(angDiff(v.azDeg, at.azGeomDeg), 0, 0.05, 'az');
     near(v.altDeg, at.altGeomDeg, 0.05, 'alt');
+});
+
+// ---- eclipse-local-circumstances-and-framing ------------------------------------------------------
+
+test('a total eclipse jump from the globe descends to the Sun, then narrows the field to 5°', () => {
+    const ev = localSolarEclipseAt(LUXOR, Date.parse('2027-08-02T10:05:00Z'));
+    const plan = eventFraming(ev);
+    const app = makeApp({ observer: LUXOR, t0: Date.parse('2027-08-02T07:00:00Z'), view: 'orbit' });
+    app.actions.jumpToEvent(ev);
+    assert.equal(app.store.get().view.mode, 'sky');
+    let atDescent = null;
+    app.frames(5000, (ms) => {
+        if (ms === 1808) atDescent = app.rig.getView();
+    });
+    assert.equal(app.rig.tweening, false, 'descent and zoom both done');
+    // The descent still lands at the usual 70°; the zoom follows it.
+    assert.equal(atDescent.mode, 'sky');
+    near(atDescent.fovDeg, 70, 1, 'field at the end of the descent');
+    const v = app.rig.getView();
+    near(v.fovDeg, 5, 1e-6, 'framed at 5°');
+    const sun = snapAt(plan.aimMs, LUXOR).bodies[BODY_INDEX.sun];
+    near(angDiff(v.azDeg, sun.azGeomDeg) * Math.cos(sun.altGeomDeg * D), 0, 0.05, 'az (on the sky)');
+    near(v.altDeg, sun.altGeomDeg, 0.05, 'alt');
+});
+
+test('an eclipse jump inside sky view turns and zooms in one look (lunar eclipse at 5°)', () => {
+    const HANOI = { latDeg: 21.03, lonDeg: 105.85, elevM: 0, name: 'Hanoi', country: 'Vietnam', tz: 'Asia/Ho_Chi_Minh', tzApprox: false, source: 'url' };
+    const ev = upcomingEvents(HANOI, Date.parse('2026-03-01T00:00:00Z'), 4).find((e) => e.kind === 'lunar-eclipse');
+    assert.equal(ev.view, 'sky');
+    const app = makeApp({ observer: HANOI, t0: Date.parse('2026-03-03T08:00:00Z'), view: 'sky', cam: 's:200,40,60' });
+    app.actions.jumpToEvent(ev);
+    app.frames(3500);
+    assert.equal(app.rig.tweening, false);
+    const v = app.rig.getView();
+    near(v.fovDeg, 5, 1e-6, 'framed at 5°');
+    const moon = snapAt(ev.visibleMs, HANOI).bodies[BODY_INDEX.moon];
+    near(angDiff(v.azDeg, moon.azGeomDeg), 0, 0.05, 'az');
+    near(v.altDeg, moon.altGeomDeg, 0.05, 'alt');
 });
 
 // ---- bug-center-behind-camera ---------------------------------------------------------------------

@@ -54,7 +54,7 @@ the UI and the render stack with literal `import('./…')` calls, so:
 |---|---|---|
 | Entry | `index.html` | Import map (`three`, `three/addons/`). `modulepreload` for three, astronomy-engine and `main.js`. Preload for `data/cities.json`. Inline loader. Classic scripts for error capture (`window.__pcLoader`) and feature detection (`window.__pcEnv`). |
 | | `js/main.js` | Boot sequence, service wiring, store-to-module subscriptions, click picking, tier switching, the intro runner, `window.__app`. |
-| App glue | `js/app/actions.js` | `createActions(deps)`: the only API the UI calls besides `store` and `clock`. Also `normalizeObserver` and `shadowPoint`. |
+| App glue | `js/app/actions.js` | `createActions(deps)`: the only API the UI calls besides `store` and `clock`. Also `normalizeObserver`, `eventFraming` (how a jump frames its event) and `eclipseFocusExpired`. |
 | | `js/app/loop.js` | `createLoop(deps)`: the frame loop with render-on-demand, guarded module calls and strikes, governor sampling and the 4 Hz readout. |
 | | `js/app/labels-feed.js` | `buildAnchors(state, snap, catalog, trails)` and `createLabelsFeed(deps)`: label anchors with live vectors. |
 | | `js/app/intro.js` | `playIntro(opts)`: the first-visit camera flight, pin drop and beam launch. |
@@ -74,7 +74,8 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/astro/bodies.js` | `BODIES`. Its order is a contract. |
 | | `js/astro/frames.js` | The S mapping, Earth orientation, ENU, alt/az, matrix helpers. |
 | | `js/astro/snapshot.js` | `computeSnapshot`: everything about one instant, into preallocated arrays. |
-| | `js/astro/almanac.js`, `events.js`, `paths.js` | Rise/set, twilight, Tonight; events; retrograde paths. |
+| | `js/astro/almanac.js`, `events.js`, `paths.js` | Rise/set, twilight, Tonight; events (with eclipse contacts, `localSolarEclipseAt`); retrograde paths. |
+| | `js/astro/eclipse-path.js` | `eclipsePath`: the centre line and limits of a central solar eclipse; `citiesInPath`, `nearestCentrePoint`, `pathAt`, `shadowPoint`. |
 | | `js/astro/worker.js`, `client.js` | Module worker plus a Promise client with a main-thread fallback. |
 | | `js/astro/shadow.js`, `photometry.js` | Eclipse disc overlap; B−V colour, refraction, airmass, exposure. |
 | Data | `js/data/catalog.js` | Decodes `data/sky.json` into GPU-ready typed arrays in the scene frame. |
@@ -159,6 +160,19 @@ critical CSS read them.
   (normalised, with timezone and name from the nearest city), selection, view changes, share,
   fullscreen, quality, intro replay, event jumps. The UI's narrator announces state changes, so
   actions only report what the UI cannot infer, such as geolocation errors.
+- **Event jumps** (`jumpToEvent`, framed by the pure `eventFraming`). A local total or annular
+  solar eclipse lands 20 s before second contact with the clock playing at 1×, in sky view on the
+  Sun at a 5° field; a partial one paused on its `visibleMs` at 10°; a lunar eclipse seen from
+  here on the Moon at 5°. The field rides on the rig's look (`setMode('sky', {look: {azDeg,
+  altDeg, fovDeg}})`): one look tween in sky view; from the globe a zoom chained after the descent,
+  which lands at 70° as before. `SKY_FOV_MIN` stays 5°.
+- **The eclipse in focus**, `ui.eclipse = {peakMs, kind, local, eventId}`: set by a jump to a solar
+  eclipse, cleared by any other jump and once simulated time is more than a day from `peakMs`
+  (`main.js`, on `readout`, never during the jump's sweep). Render and HUD modules key their
+  eclipse extras on it. `actions.eclipsePath(peakMs)` is the shared, cached worker request for
+  that eclipse's path and the largest cities in its band, and `actions.standInPath(peakMs | event)`
+  moves the observer onto the centre line (nearest point, or `{at: 'greatest'}`) like any observer
+  change (named, saved, Undo) and then jumps to the eclipse as seen from there.
 - **`bus`** carries transient events. `readout` is the full-detail snapshot at 4 Hz, published
   only when time or the observer changed. The UI requests its own almanac data through
   `services.astro`. `main.js` pushes one almanac and events set at boot as a head start.
@@ -428,7 +442,7 @@ are applied live through `onExternalChange`.
   `HTMLScriptElement.supports=()=>false` for no import maps), `--fail=data/sky.json,earth_day`
   (those requests get HTTP 404 and are not judged) and `--at=1000,3000` (timed screenshots
   `<out>-<ms>.png`; the run then skips its wait for the intro to finish).
-- **`npm run size`** enforces the per-tier transfer budgets (low 3.35 MB, medium 4.25 MB, high
+- **`npm run size`** enforces the per-tier transfer budgets (low 3.38 MB, medium 4.25 MB, high
   5.4 MB raw, re-baselined from the spec's estimate to the measured unminified module graph; every
   tier stays under 6 MB) and the 12 MB deploy limit.
 - **`npm run textures`** (`scripts/build-textures.mjs`) re-encodes the derived textures in headless

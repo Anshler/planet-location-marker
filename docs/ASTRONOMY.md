@@ -282,12 +282,23 @@ from the true Sun direction. The phase you see is therefore correct by construct
   - greatest elongations of Mercury and Venus;
   - lunar eclipses. A partial or total one is *visible here* when the Moon's centre is above the
     horizon at any time between U1 and U4 (sampled every 5 minutes, crossings bisected), so
-    eclipses at moonrise and moonset count; a penumbral one is judged at mid-eclipse;
-  - global solar eclipses, with the point of greatest eclipse;
-  - local solar eclipses with the obscuration here. "Total" or "annular … visible here" needs the
-    central phase itself above the horizon, by Astronomy Engine's refracted Sun-centre altitude
-    plus 0.27° for the upper limb. Only part of it above gives "at sunrise" or "at sunset"; none of
-    it gives a partial eclipse with the central phase below the horizon;
+    eclipses at moonrise and moonset count; a penumbral one is judged at mid-eclipse. Contacts
+    P1, U1, U2, U3, U4 and P4 are the peak ∓ `sd_penum`, `sd_partial`, `sd_total`. `visibleMs`,
+    where a jump lands, is mid-eclipse when the Moon is up then, else 15 minutes inside the visible
+    part nearest it (after moonrise or before moonset), so a jump never lands on a Moon below
+    the horizon;
+  - global solar eclipses, with the point of greatest eclipse and the central duration there
+    (`SearchLocalSolarEclipse` at that point);
+  - local solar eclipses with the obscuration here and all of Astronomy Engine's local
+    circumstances: C1–C4 and maximum, the central duration, and the Sun's altitude at each. The
+    detail reads "Totality 13:01:49–13:08:14 (6 m 25 s), Sun 82° up. Partial phases 11:40–14:26."
+    in the observer's zone (seconds truncated, like a clock). "Total" or "annular … visible here"
+    needs the central phase itself above the horizon, by Astronomy Engine's refracted Sun-centre
+    altitude plus 0.27° for the upper limb. Only part of it above gives "at sunrise" or "at
+    sunset"; none of it gives a partial eclipse with the central phase below the horizon. The
+    obscuration is quoted only when maximum itself is above the horizon ("Partial solar eclipse
+    visible here at sunrise" otherwise), and `visibleMs` is then 10 minutes after sunrise (or
+    before sunset), bisected on the upper limb;
   - equinoxes and solstices (`Seasons`).
 - **Retrograde paths.** ±180 days of geocentric `GeoVector(…, true)` through S, one sample per
   day (the Moon: ±14 days at 2 h). The stationary points are the sign changes of dλ/dt in ecliptic
@@ -350,12 +361,45 @@ The true-scale Sun, Moon and Earth geometry gives eclipses without special cases
   - **Accuracy.** The quadrature is within 0.03 mag of a brute-force grid. The real umbra's
     brightness varies with the atmosphere by a few magnitudes (Danjon L 0–4), and the model
     ignores solar limb darkening.
-- **Jumping to an eclipse.** The camera flies over the event's point of greatest eclipse (from
-  Astronomy Engine), or, when there is none (a partial eclipse), over the point where the shadow
-  axis meets the Earth: `P = m − t·ŝ` with `|P| = 1`, solved for the nearer root (`shadowPoint` in
-  `js/app/actions.js`). For 2027-02-06 15:59:33 UTC the axis gives 31.1° S, 48.5° W, within 30 km
-  of the published point of greatest eclipse (31.3° S, 48.5° W; tested in
-  `test/app.actions.test.mjs`).
+- **Jumping to an eclipse.** In globe view the camera flies over the event's point of greatest
+  eclipse (from Astronomy Engine), or, when there is none (a partial eclipse), over the point where
+  the shadow axis meets the Earth: `P = m − t·ŝ` with `|P| = 1`, solved for the nearer root
+  (`shadowPoint` in `js/astro/eclipse-path.js`, re-exported by `js/app/actions.js`). For
+  2027-02-06 15:59:33 UTC the axis gives 31.1° S, 48.5° W, within 30 km of the published point of
+  greatest eclipse (31.3° S, 48.5° W; tested in `test/app.actions.test.mjs`). In sky view a local
+  total or annular eclipse lands 20 s before C2 (C3 when only C3 is above the horizon), playing at
+  1×, at a 5° field aimed at the Sun's place half-way to C3, so the Sun's drift (≈ 0.25°/min)
+  keeps it in the field through totality; a partial lands on `visibleMs` at 10°.
+- **Path of a central eclipse** (`eclipsePath`, `js/astro/eclipse-path.js`, the astro worker's
+  `eclipsePath` op). Astronomy Engine's own shadow model, so it agrees with its local
+  circumstances:
+  - The axis runs from the geocentric aberrated Sun through the geometric Moon. Both are taken to
+    the Earth-fixed frame of date with `E(t)ᵀ` (§2, Earth orientation), and the axis is intersected with AE's
+    ellipsoid (a = 6378.1366 km, b/a = 0.996647) by dilating z, nearer root. Geodetic latitude
+    is `atan(z / ((b/a)²·ρ))`.
+  - The umbra's radius at axial distance τ from the Moon is `k(τ) = R☾ − τ·(R☉ − R☾)/|S→M|`
+    (R☾ = 1737.4 km, AE's mean radius; R☉ = 695 700 km). A negative k is the antumbra (annular);
+    a sign change along the path makes it hybrid.
+  - Each limit is where an edge ray of the cone meets the ellipsoid. The ray is the cone's
+    generator in the plane of the axis and ê: it leaves the Moon's limb at ±R☾·ê and closes on
+    the axis at the cone's half-angle, so it is exactly |k(τ)| from the axis at every τ. ê is
+    square to the axis and to the shadow's motion over the ground (the centre point ±5 s,
+    projected square to the axis), the envelope condition of the moving footprint.
+  - The ends, where the axis first and last touches the Earth, are bisected to 20 ms. Rows are a
+    minute apart and split wherever consecutive points are more than 120 km apart, which happens
+    near the ends, where the ground speed diverges. There the footprint stretches along the horizon
+    and a limit ray that misses the Earth is clamped to the limb, so the limits fan out into the
+    sunrise and sunset curves.
+  - Results against NASA's *Five Millennium Canon*: 2027-08-02 greatest 25.49° N 33.19° E (NASA
+    25.50° N 33.18° E), width 261 km (258); 2026-08-12 65.22° N 25.25° W, 299 km (294);
+    2027-02-06 annular 31.29° S 48.47° W, 278 km (282); 2023-04-20 hybrid, 52 km (49). The
+    widths run about 1.5 % from NASA's, which shrinks the Moon's radius for the umbral limits
+    (k = 0.272281); the duration at greatest eclipse and for cities is AE's
+    `SearchLocalSolarEclipse` C2–C3, the event card's number (Luxor 384.7 s).
+  - `citiesInPath` screens the offline cities by cross-track distance against the local
+    half-width plus 25 km, then confirms the largest with `SearchLocalSolarEclipse` (≈ 1.4 ms
+    each, at most 4n + 8): a city counts when its central phase has the Sun's upper limb up at
+    C2 or C3. Aswan, 99.8 % covered, is just outside on 2027-08-02; Luxor and Qena are inside.
 
 ---
 
@@ -390,7 +434,10 @@ The true-scale Sun, Moon and Earth geometry gives eclipses without special cases
 - second and third contacts of the snapshot's obscuration and drawn discs within 1 s of
   `AE.SearchLocalSolarEclipse` for the eclipses of 2026, 2027 (total and annular) and 2028, and a
   Sky panel that never reads "Partial … 100.0 %";
-- the globe's umbra half-width on 2027-08-02 (≈ 129 km) and totality's star limit (≤ 2.5).
+- the globe's umbra half-width on 2027-08-02 (≈ 129 km) and totality's star limit (≤ 2.5);
+- eclipse paths against NASA (greatest point within 15 km, width within 8–10 km) for 2027-08-02,
+  2026-08-12, 2027-02-06 and 2023-04-20, date-line-safe longitudes (2028-07-22), and Luxor's
+  contacts and totality in the event card within 1 s of `AE.SearchLocalSolarEclipse`.
 
 ---
 

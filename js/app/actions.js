@@ -13,7 +13,11 @@
 import { APP_NAME } from '../version.js';
 import { BODY_INDEX, isBodyId } from '../astro/bodies.js';
 import { createSnapshot, computeSnapshot } from '../astro/snapshot.js';
+import { eclipsePath, citiesInPath, nearestCentrePoint, shadowPoint } from '../astro/eclipse-path.js';
+import { localSolarEclipseAt } from '../astro/events.js';
 import { serializeHash } from '../core/url-state.js';
+
+export { shadowPoint };
 
 /** @typedef {import('../core/types.js').Observer} Observer */
 /** @typedef {import('../core/types.js').AstroEvent} AstroEvent */
@@ -33,6 +37,15 @@ const MAX_RECENT = 8;
 const JUMP_ANIMATE_MS = 1400;
 /** An event flight lasts the time sweep plus this (the globe ↔ sky transitions take 1.8 s). */
 const EVENT_FLY_EXTRA_MS = 400;
+const DAY_MS = 864e5;
+/** A total or annular eclipse jump lands this long before second contact, playing at 1×. */
+export const ECLIPSE_LEAD_MS = 20e3;
+/** Sky-view fields of view of eclipse framings: the central phase and lunar eclipses fill 5°. */
+export const ECLIPSE_FOV_DEG = 5;
+export const PARTIAL_ECLIPSE_FOV_DEG = 10;
+/** AE eclipse altitudes are the refracted centre; the Sun's upper limb is this much higher. */
+const SUN_LIMB_DEG = 0.27;
+const MAX_PATHS = 4;
 
 /** Human names of the layer switches (announcements). */
 export const LAYER_LABELS = Object.freeze({
@@ -175,27 +188,44 @@ function sameSpot(a, b) {
 }
 
 /**
- * Where the Moon's shadow axis meets the Earth at a snapshot instant (lat/lon), or the point of
- * closest approach when the axis misses (partial eclipse).
- * @param {import('../core/types.js').Snapshot} snap
- * @returns {{latDeg:number, lonDeg:number}}
+ * How an event jump frames its event (pure; jumpToEvent applies it):
+ * - a local total or annular solar eclipse whose central phase is (partly) above the horizon
+ *   lands 20 s before second contact (before third when only C3 is up: totality at sunrise) and
+ *   plays at 1×, looking at the Sun mid-way through what follows at a 5° field;
+ * - any other local solar eclipse lands paused on its `visibleMs` (maximum, or the visible part
+ *   nearest it) at 10°; a lunar eclipse seen from here on its `visibleMs` at 5° on the Moon;
+ * - everything else lands paused on its instant with the current field.
+ * `aimMs` is the instant whose sky the look is aimed at (equal to `tMs` unless playing).
+ * @param {AstroEvent & Record<string, any>} ev
+ * @returns {{tMs:number, aimMs:number, play:boolean, fovDeg:number|undefined}|null}
  */
-export function shadowPoint(snap) {
-    const m = snap.moonPosS, s = snap.sunDirS;
-    // Axis: P(t) = m − t·s (from the Moon, away from the Sun). |P|² = 1 → t² − 2t(m·s) + |m|² − 1 = 0.
-    const ms = m[0] * s[0] + m[1] * s[1] + m[2] * s[2];
-    const mm = m[0] * m[0] + m[1] * m[1] + m[2] * m[2];
-    const disc = ms * ms - mm + 1;
-    const t = disc >= 0 ? ms - Math.sqrt(disc) : ms;
-    let x = m[0] - t * s[0], y = m[1] - t * s[1], z = m[2] - t * s[2];
-    const l = Math.hypot(x, y, z) || 1;
-    x /= l; y /= l; z /= l;
-    // Earth-fixed (geometry-local) direction: Eᵀ·P, then localToLatLon (SPEC §D.3).
-    const e = snap.earthMatrix;
-    const lx = e[0] * x + e[1] * y + e[2] * z;
-    const ly = e[4] * x + e[5] * y + e[6] * z;
-    const lz = e[8] * x + e[9] * y + e[10] * z;
-    return { latDeg: Math.asin(clamp(ly, -1, 1)) * 180 / Math.PI, lonDeg: Math.atan2(-lz, lx) * 180 / Math.PI };
+export function eventFraming(ev) {
+    const t = Number(ev?.tMs);
+    if (!Number.isFinite(t)) return null;
+    const vis = Number.isFinite(ev.visibleMs) ? ev.visibleMs : t;
+    if (ev.kind === 'local-solar-eclipse') {
+        const c2 = ev.c2Ms, c3 = ev.c3Ms, alt = ev.sunAltDeg ?? {};
+        const up = (a) => Number.isFinite(a) && a + SUN_LIMB_DEG > 0;
+        if (ev.eclipseKind !== 'partial' && Number.isFinite(c2) && Number.isFinite(c3) && (up(alt.c2) || up(alt.c3))) {
+            const land = (up(alt.c2) ? c2 : c3) - ECLIPSE_LEAD_MS;
+            return { tMs: land, aimMs: (land + c3) / 2, play: true, fovDeg: ECLIPSE_FOV_DEG };
+        }
+        return { tMs: vis, aimMs: vis, play: false, fovDeg: PARTIAL_ECLIPSE_FOV_DEG };
+    }
+    if (ev.kind === 'lunar-eclipse' && ev.view === 'sky') return { tMs: vis, aimMs: vis, play: false, fovDeg: ECLIPSE_FOV_DEG };
+    return { tMs: t, aimMs: t, play: false, fovDeg: undefined };
+}
+
+/**
+ * The solar eclipse in focus (store `ui.eclipse`, set by an eclipse jump) lapses once simulated
+ * time is more than a day from its peak, but never during the jump's own time sweep.
+ * @param {{peakMs:number}|null|undefined} focus
+ * @param {number} tMs
+ * @param {boolean} tweening the clock is sweeping (clock.tweening)
+ * @returns {boolean}
+ */
+export function eclipseFocusExpired(focus, tMs, tweening) {
+    return !!focus && !tweening && Number.isFinite(tMs) && Math.abs(tMs - focus.peakMs) > DAY_MS;
 }
 
 /**
@@ -230,7 +260,7 @@ export function viewModeLook(mode, source, selection, snap) {
  * Creates the action API.
  *
  * @param {{store:any, bus:any, clock:any, prefs:any, tz?:any,
- *          cities?:any,
+ *          cities?:any, astro?:import('../astro/client.js').AstroClient|null,
  *          render:{rig?:any, beams?:any, pin?:any, earth?:any, governor?:any},
  *          getSnap?:()=>import('../core/types.js').Snapshot|null,
  *          runIntro?:(opts?:{force?:boolean})=>Promise<unknown>,
@@ -597,18 +627,25 @@ export function createActions(deps) {
     }
 
     /**
-     * Jumps to an event: pauses, sweeps the clock there, applies the event's selection and view,
-     * and moves the camera in one shot that overlaps the sweep: over the Moon's shadow for a solar
-     * eclipse in globe view, toward the selected body in sky view.
+     * Jumps to an event: sweeps the clock there (to the instant eventFraming picks, paused, or
+     * playing at 1× for a central solar eclipse), applies the event's selection and view, and
+     * moves the camera in one shot that overlaps the sweep: over the Moon's shadow for a solar
+     * eclipse in globe view, toward the selected body in sky view (at the framing's field of
+     * view). A solar eclipse becomes the eclipse in focus (`ui.eclipse`); any other event clears it.
      * @param {AstroEvent} ev
      */
     function jumpToEvent(ev) {
-        const tMs = Number(ev?.tMs);
-        if (!Number.isFinite(tMs)) return;
+        const plan = eventFraming(ev);
+        if (!plan) return;
         const animateMs = reducedMotion() ? 0 : JUMP_ANIMATE_MS;
         clock.pause();
-        clock.setTime(tMs, { animateMs });
+        clock.setTime(plan.tMs, { animateMs });
+        if (plan.play) {
+            clock.setRate?.(1);
+            clock.play?.();
+        }
         if (ev.select && isBodyId(ev.select)) select(ev.select);
+        setEclipseFocus(ev);
         const view = store.get().view;
         const mode = ev.view && VIEW_MODES.has(ev.view) ? ev.view : view.mode;
         // Aim before the view changes: the rig then already heads for the event's mode, and the
@@ -616,23 +653,34 @@ export function createActions(deps) {
         // 'event' source tells it not to add a look of its own from the pre-sweep frame.
         if (rig()) {
             try {
-                aimAtEvent(ev, tMs, mode, animateMs);
+                aimAtEvent(ev, plan, mode, animateMs);
             } catch { /* the jump itself still happens */ }
         }
         if (view.mode !== mode) store.set({ view: { ...view, mode } }, 'event');
     }
 
+    /** ui.eclipse = {peakMs, kind, local, eventId} for a solar eclipse event, else null. */
+    function setEclipseFocus(ev) {
+        const solar = ev.kind === 'solar-eclipse' || ev.kind === 'local-solar-eclipse';
+        const ui = store.get().ui;
+        const eclipse = solar
+            ? { peakMs: Number(ev.tMs), kind: ev.eclipseKind ?? null, local: ev.kind === 'local-solar-eclipse', eventId: ev.id ?? null }
+            : null;
+        if (!eclipse && !ui.eclipse) return;
+        store.set({ ui: { ...ui, eclipse } }, 'actions');
+    }
+
     /**
-     * The camera move of an event jump, aimed from a snapshot at the event's own instant (the
+     * The camera move of an event jump, aimed from a snapshot at the framing's aim instant (the
      * loop's frame still shows the start of the sweep). Rig flights are Earth-fixed and sky looks
      * are horizon-fixed, so both can run while the clock sweeps. An animated flight outlasts the
      * sweep, so that with Earth-lock off the turning Earth cannot carry the target away after it.
      */
-    function aimAtEvent(ev, tMs, mode, animateMs) {
+    function aimAtEvent(ev, plan, mode, animateMs) {
         const r = rig();
         const animate = animateMs > 0;
         scratchSnap ??= createSnapshot();
-        computeSnapshot(tMs, store.get().observer, scratchSnap, { detail: 'frame' });
+        computeSnapshot(plan.aimMs, store.get().observer, scratchSnap, { detail: 'frame' });
         if (mode === 'orbit' && (ev.kind === 'solar-eclipse' || ev.kind === 'local-solar-eclipse')) {
             // Over the Moon's shadow: greatest eclipse when known, else where the axis meets the Earth.
             // From sky view this is the sky → globe transition itself, ending over the shadow.
@@ -643,9 +691,95 @@ export function createActions(deps) {
             // Sky events: turn to the selected body as it stands at the event.
             const b = scratchSnap.bodies[BODY_INDEX[ev.select]];
             if (b && b.altGeomDeg > -5) {
-                settle(r.setMode?.('sky', { animate, look: { azDeg: b.azGeomDeg, altDeg: b.altGeomDeg } }));
+                const look = { azDeg: b.azGeomDeg, altDeg: b.altGeomDeg };
+                if (Number.isFinite(plan.fovDeg)) look.fovDeg = plan.fovDeg;
+                settle(r.setMode?.('sky', { animate, look }));
             }
         }
+    }
+
+    /** In-flight or finished eclipse-path requests by minute of peak (small LRU). */
+    const paths = new Map();
+
+    /**
+     * The path of the central solar eclipse near `peakMs` (eclipse-path.js: centre line, limits,
+     * greatest eclipse) with `cities`, the largest offline cities inside the band
+     * ({city: Place, durS, c2Ms, c3Ms, maxMs, sunAltDeg, kind, km, index}), computed in the astro
+     * worker and cached, so the panel and the globe share one request. Resolves null for an
+     * eclipse with no central line.
+     * @param {number} peakMs
+     * @returns {Promise<object|null>}
+     */
+    function eclipsePathFor(peakMs) {
+        const t = Number(peakMs);
+        if (!Number.isFinite(t)) return Promise.resolve(null);
+        const list = cities?.list ?? [];
+        const key = `${Math.round(t / 60000)}:${list.length}`;
+        let p = paths.get(key);
+        if (!p) {
+            const astro = deps.astro;
+            p = astro?.eclipsePath
+                ? Promise.resolve(astro.eclipsePath(t, { cities: list, n: 12 }))
+                : new Promise((resolve) => {
+                    // No worker client: compute here (≈ 10–40 ms), after the current task.
+                    setTimeout(() => {
+                        try {
+                            const path = eclipsePath(t);
+                            if (path) path.cities = citiesInPath(path, list, 12).map((c) => ({ ...c, city: list[c.index] ?? null }));
+                            resolve(path);
+                        } catch {
+                            resolve(null);
+                        }
+                    }, 0);
+                });
+            p = p.catch((err) => {
+                paths.delete(key);
+                throw err;
+            });
+            paths.set(key, p);
+            if (paths.size > MAX_PATHS) paths.delete(paths.keys().next().value);
+        }
+        return p;
+    }
+
+    /**
+     * 'Stand in the path': moves the observer onto the centre line of a central solar eclipse,
+     * at the point nearest the current observer (or at greatest eclipse, `at: 'greatest'`), with
+     * the usual observer-change semantics (named after the nearest city, saved, Undo toast), then
+     * jumps to the eclipse as seen from there (eventFraming: 20 s before second contact, playing).
+     * Resolves the new observer, or null when the eclipse has no path on Earth.
+     * @param {number|AstroEvent} target an eclipse event or its peak time (ms)
+     * @param {{at?:'nearest'|'greatest'}} [opts]
+     * @returns {Promise<Observer|null>}
+     */
+    async function standInPath(target, { at = 'nearest' } = {}) {
+        const peakMs = typeof target === 'number' ? target : Number(target?.tMs);
+        if (!Number.isFinite(peakMs)) return null;
+        let path = null;
+        try {
+            path = await eclipsePathFor(peakMs);
+        } catch {
+            path = null;
+        }
+        if (!path) {
+            toast('This eclipse has no path of totality or annularity on Earth.', 'info');
+            return null;
+        }
+        const o = store.get().observer;
+        const p = (at !== 'greatest' && nearestCentrePoint(path, o.latDeg, o.lonDeg)) || path.greatest;
+        const next = setObserver({ latDeg: p.latDeg, lonDeg: p.lonDeg, elevM: 0, source: 'manual' }, { fly: false, undoable: true });
+        if (!next) return null;
+        let ev = null;
+        try {
+            ev = localSolarEclipseAt(next, path.peakMs, { tz: next.tz || undefined, hour12: !!store.get().display?.hour12 });
+        } catch {
+            ev = null;
+        }
+        jumpToEvent(ev ?? {
+            kind: 'solar-eclipse', tMs: path.peakMs, select: 'sun', view: 'orbit', eclipseKind: path.kind,
+            geo: { latDeg: path.greatest.latDeg, lonDeg: path.greatest.lonDeg },
+        });
+        return next;
     }
 
     function toggleDebug() {
@@ -660,6 +794,8 @@ export function createActions(deps) {
         toggleFullscreen, toggleCinema, resetCamera, replayIntro, jumpToEvent,
         // Extensions beyond SPEC §C.9 (used by shortcuts / the shell when present).
         toggleDebug, openPalette, shareUrl, viewFromBody,
+        // Eclipse 2027 (ROADMAP Phase 1): the shared path request and 'Stand in the path'.
+        eclipsePath: eclipsePathFor, standInPath,
         /** True when an undo is available. */
         get canUndo() { return undoStack.length > 0; },
     };

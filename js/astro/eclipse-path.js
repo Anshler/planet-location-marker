@@ -515,6 +515,53 @@ export function citiesInPath(path, cities, n = 12) {
 }
 
 /**
+ * Where the Moon's shadow axis meets the scene's unit sphere (the nearer root), as a unit vector
+ * in the scene frame written into `out`; when the axis misses (a partial eclipse), the point
+ * under its closest approach. Allocation-free (the pin calls it per snapshot).
+ * @param {ArrayLike<number>} moonPosS geocentric Moon, Earth radii (snap.moonPosS)
+ * @param {ArrayLike<number>} sunDirS geocentric unit vector to the Sun (snap.sunDirS)
+ * @param {Float64Array|number[]} out
+ * @returns {number} the axis' closest distance from the Earth's centre (Earth radii; < 1: it hits)
+ */
+export function shadowAxisPoint(moonPosS, sunDirS, out) {
+    const m = moonPosS, s = sunDirS;
+    // Axis: P(t) = m − t·s (from the Moon, away from the Sun). |P|² = 1 → t² − 2t(m·s) + |m|² − 1 = 0.
+    const ms = m[0] * s[0] + m[1] * s[1] + m[2] * s[2];
+    const mm = m[0] * m[0] + m[1] * m[1] + m[2] * m[2];
+    const disc = ms * ms - mm + 1;
+    const t = disc >= 0 ? ms - Math.sqrt(disc) : ms;
+    const x = m[0] - t * s[0], y = m[1] - t * s[1], z = m[2] - t * s[2];
+    const l = Math.hypot(x, y, z) || 1;
+    out[0] = x / l; out[1] = y / l; out[2] = z / l;
+    return Math.sqrt(Math.max(0, mm - ms * ms));
+}
+
+const axisW = new Float64Array(3);
+
+/** Default reach of umbraNear (radians from the observer): the pin's horizon disc is 0.22. */
+export const UMBRA_NEAR_RAD = Object.freeze({ near: 0.28, far: 0.42 });
+
+/**
+ * How near the Moon's umbra is to the observer, as a 0…1 weight for getting out of its way (the
+ * pin's disc and halo, the beams' roots): 1 while a solar eclipse's shadow axis meets the Earth
+ * within `nearRad` of the observer, easing to 0 at `farRad`; 0 with no solar eclipse in progress or
+ * when the axis misses the Earth. Allocation-free (per snapshot).
+ * @param {import('../core/types.js').Snapshot} snap
+ * @param {number} [nearRad]
+ * @param {number} [farRad]
+ * @returns {number}
+ */
+export function umbraNear(snap, nearRad = UMBRA_NEAR_RAD.near, farRad = UMBRA_NEAR_RAD.far) {
+    const up = snap?.observer?.upS;
+    if (!snap?.eclipse?.solar || !snap.moonPosS || !snap.sunDirS || !up) return 0;
+    if (!(shadowAxisPoint(snap.moonPosS, snap.sunDirS, axisW) < 1)) return 0;
+    const c = (up[0] * axisW[0] + up[1] * axisW[1] + up[2] * axisW[2]) / (Math.hypot(up[0], up[1], up[2]) || 1);
+    const a = Math.acos(Math.max(-1, Math.min(1, c)));
+    const t = Math.max(0, Math.min(1, (farRad - a) / (farRad - nearRad)));
+    return t * t * (3 - 2 * t);
+}
+
+/**
  * Where the Moon's shadow axis meets the Earth at a snapshot instant (lat/lon), or the point of
  * closest approach when the axis misses (partial eclipse). On the scene's unit sphere, from the
  * snapshot's own vectors, for camera aiming; eclipsePath gives the ellipsoid track.
@@ -522,19 +569,161 @@ export function citiesInPath(path, cities, n = 12) {
  * @returns {{latDeg:number, lonDeg:number}}
  */
 export function shadowPoint(snap) {
-    const m = snap.moonPosS, s = snap.sunDirS;
-    // Axis: P(t) = m − t·s (from the Moon, away from the Sun). |P|² = 1 → t² − 2t(m·s) + |m|² − 1 = 0.
-    const ms = m[0] * s[0] + m[1] * s[1] + m[2] * s[2];
-    const mm = m[0] * m[0] + m[1] * m[1] + m[2] * m[2];
-    const disc = ms * ms - mm + 1;
-    const t = disc >= 0 ? ms - Math.sqrt(disc) : ms;
-    let x = m[0] - t * s[0], y = m[1] - t * s[1], z = m[2] - t * s[2];
-    const l = Math.hypot(x, y, z) || 1;
-    x /= l; y /= l; z /= l;
+    shadowAxisPoint(snap.moonPosS, snap.sunDirS, axisW);
+    const x = axisW[0], y = axisW[1], z = axisW[2];
     // Earth-fixed (geometry-local) direction: Eᵀ·P, then localToLatLon (SPEC §D.3).
     const e = snap.earthMatrix;
     const lx = e[0] * x + e[1] * y + e[2] * z;
     const ly = e[4] * x + e[5] * y + e[6] * z;
     const lz = e[8] * x + e[9] * y + e[10] * z;
     return { latDeg: Math.asin(Math.max(-1, Math.min(1, ly))) * RAD2DEG, lonDeg: Math.atan2(-lz, lx) * RAD2DEG };
+}
+
+// ---- render support: the globe's ribbon and the shadow chase ------------------------------------------
+//
+// The globe's geometry frame ("Earth geometry-local", frames.latLonToLocal): x = cos φ cos λ,
+// y = sin φ, z = −cos φ sin λ. The ribbon and the pin sit there at the geodetic lat/lon on the
+// sphere (≤ 21 km off the ellipsoid, a tenth of the band's width).
+
+const EARTH_MEAN_KM = 6371.0088;
+
+/** Geometry-local unit vector of a geodetic lat/lon into out[o..o+2]. */
+function localUnit(latDeg, lonDeg, out, o = 0) {
+    const p = latDeg * DEG2RAD, l = lonDeg * DEG2RAD, c = Math.cos(p);
+    out[o] = c * Math.cos(l);
+    out[o + 1] = Math.sin(p);
+    out[o + 2] = -c * Math.sin(l);
+}
+
+/** Slerp of unit vectors a → b by f into out (all Float64Array(3); out may not alias a or b). */
+function slerpUnit(a, b, f, out) {
+    const d = Math.max(-1, Math.min(1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]));
+    const ang = Math.acos(d);
+    let wa = 1 - f, wb = f;
+    if (ang > 1e-6) {
+        const s = Math.sin(ang);
+        wa = Math.sin((1 - f) * ang) / s;
+        wb = Math.sin(f * ang) / s;
+    }
+    const x = a[0] * wa + b[0] * wb, y = a[1] * wa + b[1] * wb, z = a[2] * wa + b[2] * wb;
+    const l = Math.hypot(x, y, z) || 1;
+    out[0] = x / l; out[1] = y / l; out[2] = z / l;
+}
+
+const cA = new Float64Array(3), cB = new Float64Array(3), cP = new Float64Array(3);
+
+/** The centre line at tMs into out (geometry-local unit vector); NaN outside the path, else radius km. */
+function centreAt(s, n, st, tMs, out) {
+    if (!(tMs >= s[0] && tMs <= s[(n - 1) * st])) return NaN;
+    let lo = 0, hi = n - 1;
+    while (hi - lo > 1) {
+        const mid = (lo + hi) >> 1;
+        if (s[mid * st] <= tMs) lo = mid; else hi = mid;
+    }
+    const a = lo * st, b = hi * st;
+    const f = s[b] > s[a] ? (tMs - s[a]) / (s[b] - s[a]) : 0;
+    localUnit(s[a + 1], s[a + 2], cA);
+    localUnit(s[b + 1], s[b + 2], cB);
+    const x = cA[0] + (cB[0] - cA[0]) * f, y = cA[1] + (cB[1] - cA[1]) * f, z = cA[2] + (cB[2] - cA[2]) * f;
+    const l = Math.hypot(x, y, z) || 1;
+    out[0] = x / l; out[1] = y / l; out[2] = z / l;
+    return s[a + 7] + (s[b + 7] - s[a + 7]) * f;
+}
+
+/**
+ * The shadow on the path at tMs in the globe's geometry frame, allocation-free (per-frame use):
+ * the centre point (unit vector, interpolated through unit vectors like pathAt) into `pos`, and the
+ * shadow's direction of motion over the ground into `fwd` (unit, square to `pos`; from the centre
+ * line ±halfMs, one-sided at the ends).
+ * @param {EclipsePath} path
+ * @param {number} tMs
+ * @param {Float64Array} pos 3
+ * @param {Float64Array} [fwd] 3
+ * @param {number} [halfMs=30000]
+ * @returns {number} the signed shadow radius (km; + umbra, − antumbra), or NaN outside
+ *   [startMs, endMs] (pos and fwd untouched)
+ */
+export function pathFrameLocal(path, tMs, pos, fwd, halfMs = 30e3) {
+    const s = path?.samples, n = path?.count ?? 0, st = path?.stride ?? PATH_STRIDE;
+    if (!s || n < 2) return NaN;
+    const r = centreAt(s, n, st, tMs, pos);
+    if (!Number.isFinite(r) || !fwd) return r;
+    const t0 = Math.max(s[0], tMs - halfMs), t1 = Math.min(s[(n - 1) * st], tMs + halfMs);
+    centreAt(s, n, st, t0, cP);
+    const px = cP[0], py = cP[1], pz = cP[2];
+    centreAt(s, n, st, t1, cP);
+    let x = cP[0] - px, y = cP[1] - py, z = cP[2] - pz;
+    const d = x * pos[0] + y * pos[1] + z * pos[2];
+    x -= d * pos[0]; y -= d * pos[1]; z -= d * pos[2];
+    const l = Math.hypot(x, y, z);
+    if (l > 1e-12) {
+        fwd[0] = x / l; fwd[1] = y / l; fwd[2] = z / l;
+    } else {
+        // No motion (a degenerate path): any tangent, the local east.
+        const e = Math.hypot(pos[0], pos[2]) || 1;
+        fwd[0] = pos[2] / e; fwd[1] = 0; fwd[2] = -pos[0] / e;
+    }
+    return r;
+}
+
+/**
+ * Mesh data for the globe's ribbon of a central eclipse, built once per eclipse (the render module
+ * wraps it in a BufferGeometry). Each sample row gives `cols` vertices across the band, from the
+ * southern limit through the centre line to the northern one, slerped on the sphere so the wide,
+ * fanned ends stay on it, at `radius` (Earth radii) in the globe's geometry frame.
+ * `attr` holds 4 floats per vertex: v (−1 south limit, 0 centre, +1 north limit), t (s since
+ * startMs), the along-track distance of the centre line (km), and w = ±(1 + Sun altitude °) with the
+ * sign of the shadow radius (+ total, − annular). `index` triangulates the rows (two per cell).
+ * @param {EclipsePath} path
+ * @param {{radius?:number, cols?:number}} [opts] cols: odd, ≥ 3 (default 9)
+ * @returns {{position:Float32Array, attr:Float32Array, index:Uint16Array|Uint32Array,
+ *            vertexCount:number, rows:number, cols:number, durationS:number}|null}
+ */
+export function ribbonMesh(path, { radius = 1.007, cols = 9 } = {}) {
+    const s = path?.samples, n = path?.count ?? 0, st = path?.stride ?? PATH_STRIDE;
+    if (!s || n < 2) return null;
+    const C = Math.max(3, Math.floor(Number(cols) || 9) | 1);
+    const half = (C - 1) / 2;
+    const R = Number(radius) > 0 ? Number(radius) : 1.007;
+    const vertexCount = n * C;
+    const position = new Float32Array(vertexCount * 3), attr = new Float32Array(vertexCount * 4);
+    const c = new Float64Array(3), prev = new Float64Array(3), lim = new Float64Array(3), q = new Float64Array(3);
+    let along = 0;
+    for (let i = 0; i < n; i++) {
+        const r = i * st;
+        localUnit(s[r + 1], s[r + 2], c);
+        if (i > 0) along += Math.acos(Math.max(-1, Math.min(1, c[0] * prev[0] + c[1] * prev[1] + c[2] * prev[2]))) * EARTH_MEAN_KM;
+        prev.set(c);
+        const tS = (s[r] - s[0]) / 1000;
+        const w = (s[r + 7] >= 0 ? 1 : -1) * (1 + Math.max(0, Math.min(89, s[r + 8] || 0)));
+        for (let j = 0; j < C; j++) {
+            const v = (j - half) / half;
+            if (v === 0) q.set(c);
+            else {
+                const iLat = v > 0 ? 3 : 5;
+                if (Number.isFinite(s[r + iLat]) && Number.isFinite(s[r + iLat + 1])) {
+                    localUnit(s[r + iLat], s[r + iLat + 1], lim);
+                    slerpUnit(c, lim, Math.abs(v), q);
+                } else q.set(c);
+            }
+            const k = i * C + j;
+            position[k * 3] = q[0] * R;
+            position[k * 3 + 1] = q[1] * R;
+            position[k * 3 + 2] = q[2] * R;
+            attr[k * 4] = v;
+            attr[k * 4 + 1] = tS;
+            attr[k * 4 + 2] = along;
+            attr[k * 4 + 3] = w;
+        }
+    }
+    const index = vertexCount > 65535 ? new Uint32Array((n - 1) * (C - 1) * 6) : new Uint16Array((n - 1) * (C - 1) * 6);
+    let o = 0;
+    for (let i = 0; i + 1 < n; i++) {
+        for (let j = 0; j + 1 < C; j++) {
+            const a = i * C + j, b = a + 1, d = a + C, e = d + 1;
+            index[o++] = a; index[o++] = d; index[o++] = b;
+            index[o++] = b; index[o++] = d; index[o++] = e;
+        }
+    }
+    return { position, attr, index, vertexCount, rows: n, cols: C, durationS: (s[(n - 1) * st] - s[0]) / 1000 };
 }

@@ -545,3 +545,97 @@ test('centerAt is a no-op in globe view', async () => {
     assert.equal(await rig.centerAt(0.2, 0.2), false);
     assert.equal(rig.tweening, false);
 });
+
+// ---- eclipse-shadow-chase: follow() ---------------------------------------------------------------
+
+/** A target sliding east along the equator of the globe's geometry frame from lon 0 at 0.5°/frame. */
+function eastward() {
+    let lon = 0;
+    const fn = (_snap, pos, fwd) => {
+        const l = lon * D;
+        pos[0] = Math.cos(l); pos[1] = 0; pos[2] = -Math.sin(l);
+        fwd[0] = -Math.sin(l); fwd[1] = 0; fwd[2] = -Math.cos(l);
+        return true;
+    };
+    return { fn, step: (d = 0.5) => { lon += d; }, get lon() { return lon; } };
+}
+
+/** Earth-local vector of a world one (the snapshot's Earth rotation). */
+function toLocalOf(snap, v) {
+    const q = new THREE.Quaternion(...snap.earthQuat).invert();
+    return v.clone().applyQuaternion(q);
+}
+
+test('follow: low orbit behind the moving point, looking at it with the limb above, horizon level', async () => {
+    const h = makeRig({ dom: true });
+    const snap = snapAt(Date.parse('2027-08-02T10:00:00Z'), LUXOR);
+    h.rig.update(0, snap);
+    h.run(32, snap);
+    const tgt = eastward();
+    let arrived = 0;
+    const p = h.rig.follow(tgt.fn, { onArrive: () => arrived++ });
+    assert.equal(h.rig.following, true);
+    h.run(800, snap);
+    assert.equal(arrived, 0, 'still approaching');
+    h.run(1200, snap, () => tgt.step(0.05));
+    assert.equal(arrived, 1, 'arrived once');
+    h.run(500, snap, () => tgt.step(0.05));
+    assert.equal(arrived, 1);
+    const posL = toLocalOf(snap, h.camera.position);
+    near(posL.length(), 1.35, 1e-6, 'altitude 0.35 R');
+    // Behind the target along its motion (west of it), on its track (the equator).
+    const lonCam = Math.atan2(-posL.z, posL.x) / D;
+    near(tgt.lon - lonCam, 14, 0.5, 'backDeg behind');
+    near(posL.y, 0, 1e-6, 'on the track');
+    // The target is in view, below the centre; the limb (the horizon) is above it.
+    const tL = new THREE.Vector3(Math.cos(tgt.lon * D), 0, -Math.sin(tgt.lon * D));
+    const tW = tL.clone().applyQuaternion(new THREE.Quaternion(...snap.earthQuat));
+    h.camera.updateMatrixWorld();
+    const ndc = tW.clone().project(h.camera);
+    near(ndc.x, 0, 1e-3, 'target centred horizontally');
+    assert.ok(ndc.y < -0.2 && ndc.y > -0.8, `target in the lower half (ndc y ${ndc.y.toFixed(2)})`);
+    // Level horizon: the camera's right vector is square to the local vertical.
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(h.camera.quaternion);
+    near(right.dot(h.camera.position.clone().normalize()), 0, 1e-6, 'no roll');
+    // Pointer input hands the camera back (false) and the controls take over without a snap.
+    const before = h.camera.getWorldDirection(new THREE.Vector3());
+    h.el.send('pointerdown', { pointerId: 1, clientX: 800, clientY: 450 });
+    assert.equal(h.rig.following, false);
+    assert.equal(await p, false);
+    h.rig.update(16, snap);
+    const after = h.camera.getWorldDirection(new THREE.Vector3());
+    assert.ok(after.dot(before) > 0.995, 'no orientation snap on the hand-over');
+    h.el.send('pointerup', { pointerId: 1, clientX: 800, clientY: 450 });
+    h.run(600, snap);
+    const centre = h.camera.position.clone().negate().normalize();
+    near(h.camera.getWorldDirection(new THREE.Vector3()).dot(centre), 1, 1e-6, 'then aims at the centre like the orbit controls');
+});
+
+test('follow: stopFollow resolves true; from sky view it returns to the globe first; a flight takes over smoothly', async () => {
+    const h = makeRig();
+    const snap = snapAt(Date.parse('2027-08-02T10:00:00Z'), LUXOR);
+    h.rig.setView('s:180,20,70');
+    h.rig.update(0, snap);
+    const tgt = eastward();
+    const p = h.rig.follow(tgt.fn, { approachMs: 0 });
+    h.run(2500, snap);
+    await new Promise((r) => setTimeout(r, 0));   // the transition's promise hands over
+    h.run(32, snap);
+    assert.equal(h.rig.mode, 'orbit');
+    assert.equal(h.rig.following, true, 'following after the transition');
+    assert.equal(h.rig.stopFollow(), true);
+    assert.equal(await p, true);
+    assert.equal(h.rig.stopFollow(), false, 'nothing to stop');
+    // A follow replaced by a flight: the first frame keeps the chase orientation.
+    const p2 = h.rig.follow(tgt.fn, { approachMs: 0 });
+    h.run(64, snap);
+    const before = h.camera.getWorldDirection(new THREE.Vector3());
+    h.rig.flyToLatLon(25.7, 32.6, { distance: 2.4 });
+    assert.equal(await p2, false);
+    h.rig.update(16, snap);
+    assert.ok(h.camera.getWorldDirection(new THREE.Vector3()).dot(before) > 0.99, 'no snap into the flight');
+    h.run(3000, snap);
+    assert.equal(h.rig.tweening, false);
+    const v = h.rig.getView();
+    near(v.distance, 2.4, 1e-6, 'the flight lands');
+});

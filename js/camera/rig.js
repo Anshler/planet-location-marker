@@ -9,7 +9,12 @@
  *     flyToLatLon(latDeg, lonDeg, {distance=3.2, animate, durationMs}) → Promise, home({animate}) → Promise,
  *     update(dtMs, snap) → boolean, getView() → CamView, setView(cam), onInteract(cb) → off, onClick(cb) → off,
  *     nudge(dxDeg, dyDeg), zoom(factor), zoomAt(factor, ndcX, ndcY), setViewInsets({left, right, top, bottom}),
+ *     follow(targetFn, {altitude, backDeg, tiltDeg, approachMs}) → Promise, stopFollow(), following,
  *     setReducedMotion(on), dispose() }
+ *
+ * Follow (the eclipse chase): an open-ended tween in low orbit behind a moving point, cancelled by
+ * any input; the orbit controls then take over with a 450 ms orientation blend, since they always
+ * aim at the centre.
  *
  * Frames. Every tween runs in Earth geometry-local coordinates (the frame in
  * which the observer is fixed) and is mapped to world each frame with the
@@ -78,6 +83,10 @@ const FRAME_LIMB = 0.85;
 const FRAME_FIT = 0.75;
 // Sky view: a double-click on empty sky glides there and narrows the field by this factor.
 const SKY_DBL_ZOOM = 0.6;
+// follow(): the chase pose (altitude in Earth radii, angles in degrees), the approach from the
+// current pose, the heading's low-pass rate (1/s) and the hand-back blend to OrbitControls.
+const FOLLOW = Object.freeze({ altitude: 0.35, backDeg: 14, tiltDeg: 10, approachMs: 1600, turnRate: 2.5 });
+const RELEASE_MS = 450;
 
 const Y = new THREE.Vector3(0, 1, 0);
 const FWD = new THREE.Vector3(0, 0, -1);
@@ -100,6 +109,14 @@ const _fG = new THREE.Vector3();
 const _fR = new THREE.Vector3();
 const _fU = new THREE.Vector3();
 const _fP = new THREE.Vector3();
+const _flC = new THREE.Vector3();
+const _flD = new THREE.Vector3();
+const _flF = new THREE.Vector3();
+const _flR = new THREE.Vector3();
+const _flU = new THREE.Vector3();
+const _flQ = new THREE.Quaternion();
+const _flPos = new Float64Array(3);
+const _flFwd = new Float64Array(3);
 
 function clamp(x, a, b) { return x < a ? a : x > b ? b : x; }
 function easeInOutCubic(t) { return t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2; }
@@ -286,6 +303,9 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
 
     let tween = null;
     let pendingView = null;
+    // Hand-back from a follow(): OrbitControls re-aims at the centre on its next update, so the
+    // chase's oblique orientation is kept as an offset that decays over RELEASE_MS.
+    const release = { on: false, pending: false, t0: 0, from: new THREE.Quaternion(), q: new THREE.Quaternion() };
     const insets = { left: 0, right: 0, top: 0, bottom: 0 };
     let insetsDirty = true;
     let offsetW = 0;
@@ -516,7 +536,33 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
     function finishTween(done) {
         const t = tween;
         tween = null;
+        if (t && t.kind === 'follow' && !reduced) {
+            // Whatever places the camera next (the controls, a flight) starts from this orientation.
+            release.from.copy(camera.quaternion);
+            release.pending = true;
+            release.on = true;
+        }
         if (t && t.resolve) t.resolve(done);
+    }
+
+    /** The follow → orbit hand-back: the old orientation as a decaying offset on the new one. */
+    function applyRelease(tNow) {
+        if (mode !== 'orbit' || (tween && tween.kind === 'follow')) {
+            release.on = false;
+            return false;
+        }
+        if (release.pending) {
+            release.q.copy(release.from).multiply(_q1.copy(camera.quaternion).invert());
+            release.pending = false;
+            release.t0 = tNow;
+        }
+        const u = clamp((tNow - release.t0) / RELEASE_MS, 0, 1);
+        if (u >= 1) {
+            release.on = false;
+            return true;
+        }
+        camera.quaternion.premultiply(_q2.identity().slerp(release.q, 1 - easeInOutCubic(u)));
+        return true;
     }
 
     function cancelTween() {
@@ -753,9 +799,105 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         applySkyCamera();
     }
 
-    function stepTween(tNow) {
+    /**
+     * follow(): an open-ended, cancellable tween in low orbit behind a moving point of the globe.
+     * targetFn(snap, posL, fwdL) writes the point (geometry-local unit vector) and its direction
+     * of motion over the ground (unit, square to it) into the two Float64Array(3) and returns true,
+     * or false to hold the pose.
+     */
+    function followNow(targetFn, opts) {
+        if (typeof targetFn !== 'function' || !hasSnap) return Promise.resolve(false);
+        const num = (v, d) => (v !== undefined && v !== null && Number.isFinite(Number(v)) ? Number(v) : d);
+        const t = {
+            kind: 'follow', cancellable: true, dur: Infinity, fn: targetFn,
+            alt: clamp(num(opts.altitude, FOLLOW.altitude), 0.05, 3),
+            back: clamp(num(opts.backDeg, FOLLOW.backDeg), 0, 60) * DEG,
+            tilt: clamp(num(opts.tiltDeg, FOLLOW.tiltDeg), -30, 30) * DEG,
+            approachMs: reduced || opts.animate === false ? 0 : Math.max(0, num(opts.approachMs, FOLLOW.approachMs)),
+            p0L: toLocal(camera.position, new THREE.Vector3()),
+            q0L: camera.quaternion.clone().premultiply(qEInv),
+            target: new THREE.Vector3(), heading: new THREE.Vector3(), has: false, last: null,
+            onArrive: typeof opts.onArrive === 'function' ? opts.onArrive : null, arrived: false,
+        };
+        mode = 'orbit';
+        zoomTarget = null;
+        setControlsEnabled(false);
+        return startTween(t);
+    }
+
+    /** The chase pose for the follow's smoothed target and heading (Earth-local) into pos and q. */
+    function followPose(t, pos, q) {
+        // Above a ground point `back` behind the target along its track, looking at it, tilted up
+        // so the target sits low in the frame and the limb shows above.
+        _flD.copy(t.target).multiplyScalar(Math.cos(t.back)).addScaledVector(t.heading, -Math.sin(t.back)).normalize();
+        pos.copy(_flD).multiplyScalar(1 + t.alt);
+        _flF.copy(t.target).sub(pos).normalize();
+        _flR.crossVectors(_flF, _flD);
+        if (_flR.lengthSq() < 1e-12) return basisQuat(_flF, t.heading, q);   // straight down
+        _flR.normalize();
+        _flU.crossVectors(_flR, _flF);
+        _flF.multiplyScalar(Math.cos(t.tilt)).addScaledVector(_flU, Math.sin(t.tilt));
+        return basisQuat(_flF, _flD, q);
+    }
+
+    function stepFollow(t, tNow, snap) {
+        const dt = t.last === null ? 0 : clamp(tNow - t.last, 0, 100);
+        t.last = tNow;
+        let ok = false;
+        try {
+            ok = !!t.fn(snap, _flPos, _flFwd);
+        } catch {
+            ok = false;
+        }
+        if (ok) {
+            _flC.set(_flPos[0], _flPos[1], _flPos[2]);
+            _flF.set(_flFwd[0], _flFwd[1], _flFwd[2]);
+            if (_flC.lengthSq() > 1e-12 && _flF.lengthSq() > 1e-12) {
+                _flC.normalize();
+                // The heading turns smoothly (the track bends fast near its ends); the target is exact.
+                if (!t.has) t.heading.copy(_flF);
+                else t.heading.lerp(_flF, 1 - Math.exp(-dt / 1000 * FOLLOW.turnRate));
+                t.heading.addScaledVector(_flC, -t.heading.dot(_flC));
+                if (t.heading.lengthSq() < 1e-12) t.heading.copy(_flF).addScaledVector(_flC, -_flF.dot(_flC));
+                t.heading.normalize();
+                t.target.copy(_flC);
+                t.has = true;
+            }
+        }
+        if (!t.has) return;
+        followPose(t, _v2, _q1);
+        const u = t.approachMs > 0 ? clamp((tNow - t.t0) / t.approachMs, 0, 1) : 1;
+        if (u < 1) {
+            // Approach from the starting pose: a flight's log-altitude glide and an orientation slerp.
+            const e = easeInOutCubic(u);
+            const r0 = t.p0L.length(), r1 = _v2.length();
+            _v3.copy(t.p0L).normalize();
+            _flD.copy(_v2).normalize();
+            slerpDir(_v3, _flD, e, _v2);
+            const a0 = Math.max(r0 - 1, 1e-4), a1 = Math.max(r1 - 1, 1e-4);
+            _v2.multiplyScalar(1 + Math.exp(Math.log(a0) + (Math.log(a1) - Math.log(a0)) * e));
+            _q1.copy(_q2.copy(t.q0L).slerp(_q1, e));
+        } else if (!t.arrived) {
+            t.arrived = true;
+            try {
+                t.onArrive?.();
+            } catch { /* the caller's problem; the follow carries on */ }
+        }
+        toWorld(_v2, camera.position);
+        camera.quaternion.copy(_q1).premultiply(qE);
+        camera.up.copy(Y);
+        setFov(ORBIT_FOV);
+        setNearFor(camera.position.length());
+        skyBlend = 0;
+    }
+
+    function stepTween(tNow, snap) {
         const t = tween;
         if (t.t0 === null) t.t0 = tNow;
+        if (t.kind === 'follow') {
+            stepFollow(t, tNow, snap);
+            return true;
+        }
         const u = t.dur > 0 ? clamp((tNow - t.t0) / t.dur, 0, 1) : 1;
         if (t.kind === 'fly') stepFly(t, u);
         else if (t.kind === 'toSky') stepToSky(t, u);
@@ -850,7 +992,8 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
      * @returns {boolean} true when the camera moved (render needed)
      */
     function update(dtMs, snap) {
-        const moved = advance(dtMs, snap);
+        let moved = advance(dtMs, snap);
+        if (release.on && applyRelease(now())) moved = true;
         // Every module's update() runs before the renderer refreshes the camera's world
         // matrices; doing it here keeps CPU projections (label anchors) on this frame's pose.
         camera.updateMatrixWorld();
@@ -897,7 +1040,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
             sky.altT = sky.alt;
         }
 
-        if (tween) return stepTween(tNow);
+        if (tween) return stepTween(tNow, snap);
 
         if (mode === 'orbit') {
             if (earthLock && dq.w < 1 - 1e-15) {
@@ -1377,6 +1520,46 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         home(opts = {}) {
             return afterTransition(() => homeNow(opts));
         },
+
+        /**
+         * Follows a moving point of the globe from low orbit (the eclipse shadow chase): the camera
+         * glides over `approachMs` into a pose `altitude` Earth radii up, `backDeg` behind the point
+         * along its direction of motion, looking at it with the view tilted `tiltDeg` up (the limb
+         * in the top of the frame), then keeps that pose as the point moves. The heading is
+         * low-passed, the point followed exactly. Earth-fixed, so it holds whatever the clock does.
+         * Any pointer, wheel or key input cancels it (resolving false), and stopFollow() ends it
+         * (true); either way the orbit controls take over with a short orientation blend. From sky
+         * view it first returns to the globe.
+         * @param {(snap:object, posL:Float64Array, fwdL:Float64Array)=>boolean} targetFn writes the point
+         *   (Earth geometry-local unit vector) and its unit direction of motion; false holds the pose
+         * @param {{altitude?:number, backDeg?:number, tiltDeg?:number, approachMs?:number, animate?:boolean,
+         *          onArrive?:()=>void}} [opts] onArrive: called once, from update(), when the
+         *   approach is done and the camera is in the chase pose
+         * @returns {Promise<boolean>}
+         */
+        follow(targetFn, opts = {}) {
+            return afterTransition(() => {
+                if (mode !== 'sky') return followNow(targetFn, opts || {});
+                return startToOrbit({ animate: opts?.animate !== false }).then((ok) => (ok ? followNow(targetFn, opts || {}) : false));
+            });
+        },
+
+        /**
+         * Ends a running follow() (its promise resolves true) and hands the camera to the orbit
+         * controls. Returns false when not following.
+         * @returns {boolean}
+         */
+        stopFollow() {
+            if (!tween || tween.kind !== 'follow') return false;
+            finishTween(true);
+            setControlsEnabled(true);
+            syncControls();
+            rc.invalidate?.();
+            return true;
+        },
+
+        /** True while follow() drives the camera. */
+        get following() { return !!tween && tween.kind === 'follow'; },
 
         update,
 

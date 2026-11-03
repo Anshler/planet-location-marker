@@ -400,6 +400,26 @@ The true-scale Sun, Moon and Earth geometry gives eclipses without special cases
     half-width plus 25 km, then confirms the largest with `SearchLocalSolarEclipse` (≈ 1.4 ms
     each, at most 4n + 8): a city counts when its central phase has the Sun's upper limb up at
     C2 or C3. Aswan, 99.8 % covered, is just outside on 2027-08-02; Luxor and Qena are inside.
+- **The path on the globe** (`render/eclipse-path.js`, from `ribbonMesh`). The samples go on the
+  globe's sphere at their geodetic latitude, like the pin and the texture (≤ 21 km off the
+  ellipsoid, a tenth of the band). Each row gets 9 vertices across the band, slerped from the
+  centre point to each limit on the sphere, so the fanned ends (limits thousands of km apart) stay
+  on it; the ribbon floats at r = 1.007, just over the cloud shell (≈ 45 km; at the chase's oblique
+  view that is ≲ 55 km of parallax). The live marker sits at `pathFrameLocal(path, t)`, the same
+  unit-vector interpolation as `pathAt`, with a ring at 1.25 × the shadow's radius on the centre
+  line and a chevron along the motion (the centre line ±60 s). The ribbon leaves a soft hole 0.9–2.2
+  shadow radii around it, so the umbra reads as the shader's own dark spot: the shader's umbra is
+  where the snapshot's axis meets the sphere (`shadowPoint`), within ~20 km of the marker.
+- **Getting out of the umbra's way.** `umbraNear(snap, near, far)` is 1 while the snapshot's axis
+  meets the sphere within `near` of the observer's zenith direction, easing to 0 at `far`: the pin
+  (0.28 → 0.42 rad) keeps only its disc's rim and cardinal ticks and shrinks; the beams (0.035 →
+  0.07 rad) leave a hole of 0.03 Earth radii around their roots on screen. At the default zoom the
+  umbra of 2027-08-02 is ~9 px in radius, which the pin head and seven converging beams used to
+  cover.
+- **The shadow chase** samples nothing new: the camera target is `pathFrameLocal` at the frame
+  snapshot's instant (refreshed every frame while the clock runs faster than real time), and the
+  clock covers the path (3 h 23 min on 2027-08-02) in 40 s (~300×), easing quadratically into and out of greatest
+  eclipse (`clock.setRange({ease})`).
 
 ### Totality from the ground (`js/astro/totality.js`, `render/bodies.js`, `render/totality.js`)
 

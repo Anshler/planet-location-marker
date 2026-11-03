@@ -14,6 +14,7 @@ import { APP_NAME } from '../version.js';
 import { BODY_INDEX, isBodyId } from '../astro/bodies.js';
 import { createSnapshot, computeSnapshot } from '../astro/snapshot.js';
 import { eclipsePath, citiesInPath, nearestCentrePoint, shadowPoint } from '../astro/eclipse-path.js';
+import { createEclipseChase } from './eclipse-chase.js';
 import { localSolarEclipseAt } from '../astro/events.js';
 import { serializeHash } from '../core/url-state.js';
 
@@ -637,6 +638,7 @@ export function createActions(deps) {
     function jumpToEvent(ev) {
         const plan = eventFraming(ev);
         if (!plan) return;
+        chase.stop();
         const animateMs = reducedMotion() ? 0 : JUMP_ANIMATE_MS;
         clock.pause();
         clock.setTime(plan.tMs, { animateMs });
@@ -737,6 +739,13 @@ export function createActions(deps) {
                 throw err;
             });
             paths.set(key, p);
+            // Also under the eclipse's own peak, which the ribbon and the panels ask for next.
+            const req = p;
+            req.then((path) => {
+                const k = path && Number.isFinite(path.peakMs) ? `${Math.round(path.peakMs / 60000)}:${list.length}` : null;
+                if (k && k !== key && !paths.has(k)) paths.set(k, req);
+                while (paths.size > MAX_PATHS) paths.delete(paths.keys().next().value);
+            }, () => {});
             if (paths.size > MAX_PATHS) paths.delete(paths.keys().next().value);
         }
         return p;
@@ -782,6 +791,16 @@ export function createActions(deps) {
         return next;
     }
 
+    /** The shadow chase (eclipse-chase.js): the camera rides the umbra while the clock runs the path. */
+    const chase = createEclipseChase({
+        store, clock,
+        getRig: () => (has3d() ? rig() : null),
+        getRibbon: () => render.eclipsePath ?? null,
+        eclipsePath: eclipsePathFor,
+        reducedMotion,
+        toast: (m, k) => toast(m, k),
+    });
+
     function toggleDebug() {
         if (typeof deps.toggleDebug !== 'function') return false;
         return deps.toggleDebug();
@@ -796,6 +815,17 @@ export function createActions(deps) {
         toggleDebug, openPalette, shareUrl, viewFromBody,
         // Eclipse 2027 (ROADMAP Phase 1): the shared path request and 'Stand in the path'.
         eclipsePath: eclipsePathFor, standInPath,
+        /**
+         * Rides the Moon's shadow: the camera follows the umbra from low orbit while the clock runs
+         * the path of the central eclipse near `target` (a time or an event) in about 40 s.
+         * Resolves false when the eclipse has no path on Earth or there is no 3D view.
+         * @type {(target:number|AstroEvent)=>Promise<boolean>}
+         */
+        chaseEclipse: (target) => chase.start(target),
+        /** Ends a running shadow chase where it is. */
+        stopChase: () => chase.stop(),
+        /** True while a shadow chase runs. */
+        get chasing() { return chase.active; },
         /** True when an undo is available. */
         get canUndo() { return undoStack.length > 0; },
     };

@@ -47,18 +47,21 @@ attribute float iLen;
 attribute vec4 iState;    // selected, below, visible, launch progress
 
 varying float vDist;      // distance from the origin along the beam (Earth radii)
+flat varying vec3 vRoot;  // the origin on screen (px) and ROOT_HOLE_ER there (px), for uRootClear
 flat varying vec4 vLine;  // ribbon: (a, b, c, 0) with a·x + b·y + c = signed px distance; disc: (cx, cy, 0, 1)
 flat varying vec3 vColor;
 flat varying vec4 vState;
 flat varying vec3 vLen;   // (current length, full length, half-width px)
 
 const float L0 = 0.02;    // length at launch progress 0 (Earth radii)
+const float ROOT_HOLE_ER = 0.03;   // ≈ the umbra's marker ring (1.25 × 129 km) plus its glow
 
 void main() {
     vColor = iColor;
     vState = iState;
     vDist = 0.0;
     vLine = vec4(0.0);
+    vRoot = vec3(-1e4, -1e4, 1.0);
     // A selected beam keeps the common width: it stands out by its core (BEAM_FRAG), so a zoomed-out
     // globe is not crossed by a bar wider than the planet.
     float halfW = uGlowPx;
@@ -86,6 +89,7 @@ void main() {
     // Exact projected centre line: through the projected origin and the vanishing point of D.
     vec4 cO = projectionMatrix * vec4(O, 1.0);
     vec4 cD = projectionMatrix * vec4(D, 0.0);
+    if (O.z < 0.0) vRoot = vec3((cO.xy / cO.w * 0.5 + 0.5) * uViewport, ROOT_HOLE_ER * projectionMatrix[1][1] / -O.z * 0.5 * uViewport.y);
     vec3 l = cross(cO.xyw, cD.xyw);
     vec2 ab = 2.0 * l.xy / uViewport;
     float nrm = length(ab);
@@ -129,8 +133,10 @@ uniform float uPulses;    // 0..1, eased toward FrameInfo.pulsesActive
 uniform float uPhase;     // pulse phase, advanced at 0.6 cycles/s on the CPU (no float drift)
 uniform float uFade;      // 1 in orbit, 0 once sky view has taken over
 uniform float uSelActive; // 1 while any body is selected (others dim)
+uniform float uRootClear; // 0..1: the Moon's umbra is at the observer; the roots step out of its way
 
 varying float vDist;
+flat varying vec3 vRoot;  // the observer on screen (px) and the umbra's radius there (px)
 flat varying vec4 vLine;
 flat varying vec3 vColor;
 flat varying vec4 vState;
@@ -178,6 +184,11 @@ void main() {
 
     float fadeIn = disc ? 1.0 : smoothstep(0.0, 0.03, d);
     float glowIn = disc ? 1.0 : smoothstep(0.0, 0.12, d);
+    // Out of the Moon's umbra's way: a soft hole around the observer on screen, the umbra's size.
+    if (uRootClear > 0.0) {
+        float r = length(gl_FragCoord.xy - vRoot.xy) / max(vRoot.z, 1.0);
+        fadeIn *= 1.0 - uRootClear * (1.0 - smoothstep(0.7, 1.3, r));
+    }
     float u = d / full;
     float fadeOut = full < 500.0
         ? 1.0 - smoothstep(0.985, 1.0, u)                 // finite target (the Moon): touch it

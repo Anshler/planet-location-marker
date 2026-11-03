@@ -55,6 +55,7 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | Entry | `index.html` | Import map (`three`, `three/addons/`). `modulepreload` for three, astronomy-engine and `main.js`. Preload for `data/cities.json`. Inline loader. Classic scripts for error capture (`window.__pcLoader`) and feature detection (`window.__pcEnv`). |
 | | `js/main.js` | Boot sequence, service wiring, store-to-module subscriptions, click picking, tier switching, the intro runner, `window.__app`. |
 | App glue | `js/app/actions.js` | `createActions(deps)`: the only API the UI calls besides `store` and `clock`. Also `normalizeObserver`, `eventFraming` (how a jump frames its event) and `eclipseFocusExpired`. |
+| | `js/app/eclipse-chase.js` | `ribbonPlan` (which eclipse the globe's path ribbon shows), `chaseLegs`/`chaseTarget` and `createEclipseChase` (the shadow chase behind `actions.chaseEclipse`). No three.js. |
 | | `js/app/loop.js` | `createLoop(deps)`: the frame loop with render-on-demand, guarded module calls and strikes, governor sampling and the 4 Hz readout. |
 | | `js/app/labels-feed.js` | `buildAnchors(state, snap, catalog, trails)` and `createLabelsFeed(deps)`: label anchors with live vectors. |
 | | `js/app/intro.js` | `playIntro(opts)`: the first-visit camera flight, pin drop and beam launch. |
@@ -75,7 +76,7 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/astro/frames.js` | The S mapping, Earth orientation, ENU, alt/az, matrix helpers. |
 | | `js/astro/snapshot.js` | `computeSnapshot`: everything about one instant, into preallocated arrays. |
 | | `js/astro/almanac.js`, `events.js`, `paths.js` | Rise/set, twilight, Tonight; events (with eclipse contacts, `localSolarEclipseAt`); retrograde paths. |
-| | `js/astro/eclipse-path.js` | `eclipsePath`: the centre line and limits of a central solar eclipse; `citiesInPath`, `nearestCentrePoint`, `pathAt`, `shadowPoint`. |
+| | `js/astro/eclipse-path.js` | `eclipsePath`: the centre line and limits of a central solar eclipse; `citiesInPath`, `nearestCentrePoint`, `pathAt`, `shadowPoint`. Render support: `ribbonMesh` (the globe's ribbon, once per eclipse), `pathFrameLocal` (the shadow and its heading, allocation-free), `shadowAxisPoint`, `umbraNear`. |
 | | `js/astro/worker.js`, `client.js` | Module worker plus a Promise client with a main-thread fallback. |
 | | `js/astro/shadow.js`, `photometry.js` | Eclipse disc overlap; B−V colour, refraction, airmass, exposure. |
 | | `js/astro/totality.js` | Totality from the ground: Baily's beads (lunar limb profile), corona epoch parameters, contact-time display adaptation, the horizon ring's azimuthal shape. Illustrative in detail (ASTRONOMY.md). |
@@ -88,7 +89,8 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/render/totality.js` | Baily's beads and the diamond ring: up to eight HDR point sprites at `snap.eclipse.beads` (the flare's starburst follows the brightest). |
 | | `js/render/beams.js`, `pin.js`, `labels.js` | Signature beams, observer pin and horizon disc, DOM label pool. |
 | | `js/render/trails.js`, `flare.js`, `debug.js` | Retrograde paths, lens flare, `?debug=1` overlay. |
-| Camera | `js/camera/rig.js`, `picking.js` | Orbit and sky-view camera, Earth-lock, fly-to tweens; analytic globe and glyph picking. |
+| | `js/render/eclipse-path.js` | The path of a central solar eclipse on the globe: ribbon, centre line, 30-min ticks, the live umbra marker; reveal modes for the chase. |
+| Camera | `js/camera/rig.js`, `picking.js` | Orbit and sky-view camera, Earth-lock, fly-to tweens, `follow()` (the shadow chase); analytic globe and glyph picking. |
 | UI | `js/ui/index.js` and its modules | Shell, top bar, time bar, Sky Now, body card, events, layers, settings, about, help, toasts, shortcuts, announcer. |
 
 ---
@@ -175,6 +177,20 @@ critical CSS read them.
   that eclipse's path and the largest cities in its band, and `actions.standInPath(peakMs | event)`
   moves the observer onto the centre line (nearest point, or `{at: 'greatest'}`) like any observer
   change (named, saved, Undo) and then jumps to the eclipse as seen from there.
+- **The path on the globe** (`render/eclipse-path.js`). `main.js` keeps it in step with
+  `ribbonPlan` on every readout and `ui.eclipse` change: the eclipse in focus, else one in progress
+  (`snap.eclipse.solar`); a loaded path, a request in flight or a known miss (a partial eclipse)
+  within half a day holds. It requests `actions.eclipsePath`, so the ribbon and the panels share one
+  worker call. `render.eclipsePath` gives actions the module (its reveal mode).
+- **The shadow chase**, `actions.chaseEclipse(peakMs | event)` (`app/eclipse-chase.js`). It focuses
+  the eclipse on the globe, parks the clock at the path's sunrise end and hides the ribbon ahead of
+  the shadow, then `rig.follow()` glides into low orbit behind the umbra (0.35 R up, 14° back,
+  0.5 R and 18° on low). On arrival the clock runs two eased `once` ranges, start → greatest eclipse
+  (`ease: 'out'`) and, after a 1.5 s hold, greatest → end (`'in'`), 40 s in all. At the end the
+  whole ribbon shows and the camera pulls back over greatest eclipse. Input on the canvas cancels
+  only the follow (the controls take over with a 450 ms orientation blend); a clock change of the
+  user's ends the chase where it is. Reduced motion: a static frame over greatest eclipse, paused
+  at its instant, the whole path drawn. `actions.stopChase()` ends it; `actions.chasing` reports it.
 - **`bus`** carries transient events. `readout` is the full-detail snapshot at 4 Hz, published
   only when time or the observer changed. The UI requests its own almanac data through
   `services.astro`. `main.js` pushes one almanac and events set at boot as a head start.
@@ -271,6 +287,7 @@ The render order is fixed in SPEC §E.1. From back to front:
 - −50: ground and haze
 - 0: Earth and Moon
 - 10: clouds
+- 15 and 16: the eclipse path ribbon and its umbra marker (above the cloud shell, no depth write)
 - 20: atmosphere
 - 30 and 31: beams, normal and x-ray
 - 40: pin
@@ -444,8 +461,8 @@ are applied live through `onExternalChange`.
   `HTMLScriptElement.supports=()=>false` for no import maps), `--fail=data/sky.json,earth_day`
   (those requests get HTTP 404 and are not judged) and `--at=1000,3000` (timed screenshots
   `<out>-<ms>.png`; the run then skips its wait for the intro to finish).
-- **`npm run size`** enforces the per-tier transfer budgets (low 3.45 MB, medium 4.3 MB, high
-  5.5 MB raw, re-baselined from the spec's estimate to the measured unminified module graph; every
+- **`npm run size`** enforces the per-tier transfer budgets (low 3.5 MB, medium 4.35 MB, high
+  5.55 MB raw, re-baselined from the spec's estimate to the measured unminified module graph; every
   tier stays under 6 MB) and the 12 MB deploy limit.
 - **`npm run textures`** (`scripts/build-textures.mjs`) re-encodes the derived textures in headless
   Chrome and rewrites `vendor/DERIVED.json`. Run it after changing a recipe or a source map, and

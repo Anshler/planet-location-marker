@@ -109,3 +109,34 @@ test('totality: beads module registered, not depth-tested, flare follows the bri
     assert.match(ground, /uEclH1: su\.uEclH1/);
     assert.match(body(ground, 'apply'), /umbraHorizonGlow\(/);
 });
+
+// ---- Phase 1: the globe's path ribbon, the eclipse-aware pin and beams --------------------------------
+
+test('the path ribbon: registered in main.js, above the clouds, drawn after them, Earth-fixed, one geometry per eclipse', () => {
+    const main = stripComments(read('js/main.js'));
+    assert.match(main, /eclipsePath: import\('\.\/render\/eclipse-path\.js'\)/, 'importRenderStack');
+    assert.match(main, /create\('eclipsePath', m\.eclipsePath && \(\(\) => m\.eclipsePath\.createEclipsePath\(rc\)\)\)/, 'create list');
+    const src = stripComments(read('js/render/eclipse-path.js'));
+    const earth = stripComments(read('js/render/earth.js'));
+    const cloudR = Number(earth.match(/const CLOUD_RADIUS = ([\d.]+);/)[1]);
+    const ribbonR = Number(src.match(/const RIBBON_R = ([\d.]+);/)[1]);
+    assert.ok(ribbonR >= 1.007 && ribbonR > cloudR, `ribbon radius ${ribbonR} above the cloud shell ${cloudR}`);
+    const order = Number(src.match(/const RENDER_ORDER = (\d+);/)[1]);
+    assert.ok(order > 10 && order + 1 < 20, 'after the clouds (10), before the atmosphere (20)');
+    assert.match(src, /depthTest: true,\s*depthWrite: false/);
+    assert.match(body(src, 'apply'), /group\.matrix\.copy\(earthM\)/, 'Earth-fixed group');
+    // Geometry is built in show() only; apply/update move uniforms and one matrix.
+    for (const fn of ['apply', 'update', 'placeMarker']) {
+        assert.doesNotMatch(body(src, fn), /new THREE\.|new Float(32|64)Array|ribbonMesh\(/, `${fn}: no allocation`);
+    }
+    assert.match(body(src, 'show'), /ribbonMesh\(p, \{ radius: RIBBON_R \}\)/);
+});
+
+test('eclipse-aware pin and beams: both key on umbraNear from the snapshot', () => {
+    const pin = stripComments(read('js/render/pin.js'));
+    assert.match(body(pin, 'apply'), /clearT = umbraNear\(snap\);/);
+    assert.match(pin, /uniform float uClear;/);
+    const beams = stripComments(read('js/render/beams.js'));
+    assert.match(body(beams, 'apply'), /uRootClear\.value = umbraNear\(snap, ROOT_CLEAR_RAD\[0\], ROOT_CLEAR_RAD\[1\]\)/);
+    assert.match(stripComments(read('js/render/shaders/beam.glsl.js')), /uniform float uRootClear;/);
+});

@@ -30,6 +30,7 @@ import { createSnapshot, computeSnapshot } from './astro/snapshot.js';
 import { createAstroClient } from './astro/client.js';
 import { decodeSky, emptyCatalog } from './data/catalog.js';
 import { createActions, normalizeObserver, selectionLook, viewModeLook, eclipseFocusExpired } from './app/actions.js';
+import { ribbonPlan } from './app/eclipse-chase.js';
 import { createLoop } from './app/loop.js';
 import { createLabelsFeed } from './app/labels-feed.js';
 import { playIntro } from './app/intro.js';
@@ -325,6 +326,7 @@ async function importRenderStack() {
         totality: import('./render/totality.js'),
         ground: import('./render/ground.js'),
         trails: import('./render/trails.js'),
+        eclipsePath: import('./render/eclipse-path.js'),
         beams: import('./render/beams.js'),
         pin: import('./render/pin.js'),
         flare: import('./render/flare.js'),
@@ -693,6 +695,36 @@ function enterTextMode(reason, err) {
 // The 3D view
 // ---------------------------------------------------------------------------------------------
 
+/** The eclipse ribbon's request state (ribbonPlan): the path shown, a request in flight, a known miss. */
+const ribbonState = { path: null, pendingMs: NaN, missMs: NaN, seq: 0 };
+
+/** Shows, loads or clears the globe's eclipse path (render/eclipse-path.js) for the current state. */
+function syncEclipseRibbon(store, loop, s) {
+    const mod = R.mods.eclipsePath;
+    if (!mod || !R.actions?.eclipsePath || !s) return;
+    const plan = ribbonPlan(ribbonState, store.get().ui.eclipse, s.tMs, !!s.eclipse?.solar);
+    if (plan.action === 'keep') return;
+    const seq = ++ribbonState.seq;
+    if (ribbonState.path) loop.callModule(mod, 'clear');
+    ribbonState.path = null;
+    ribbonState.pendingMs = NaN;
+    if (plan.action === 'clear') return;
+    ribbonState.pendingMs = plan.atMs;
+    const settleMiss = () => {
+        if (seq !== ribbonState.seq) return;
+        ribbonState.pendingMs = NaN;
+        ribbonState.missMs = plan.atMs;
+    };
+    R.actions.eclipsePath(plan.atMs).then((path) => {
+        if (seq !== ribbonState.seq) return;
+        if (!path) return settleMiss();
+        ribbonState.pendingMs = NaN;
+        ribbonState.missMs = NaN;
+        ribbonState.path = path;
+        loop.callModule(mod, 'show', path);
+    }, settleMiss);
+}
+
 /** Readout-driven housekeeping that needs the render stack (trails refresh). */
 let trailsState = { id: '', centerMs: NaN, ac: null };
 let introAbort = null;
@@ -774,6 +806,7 @@ async function bootRender(ctx) {
     create('totality', m.totality && (() => m.totality.createTotality(rc)));
     create('ground', m.ground && (() => m.ground.createGround(rc)));
     const trails = create('trails', m.trails && (() => m.trails.createTrails(rc)));
+    const eclipseRibbon = create('eclipsePath', m.eclipsePath && (() => m.eclipsePath.createEclipsePath(rc)));
     const beams = create('beams', m.beams && (() => m.beams.createBeams(rc, { reducedMotion: rm })));
     const pin = create('pin', m.pin && (() => m.pin.createPin(rc)));
     create('flare', m.flare && (() => m.flare.createFlare(rc, { textures })));
@@ -794,6 +827,7 @@ async function bootRender(ctx) {
     render.beams = beams;
     render.pin = pin;
     render.earth = earth;
+    render.eclipsePath = eclipseRibbon;
 
     const labelsFeed = labels ? createLabelsFeed({
         labels, store, snap,
@@ -960,6 +994,15 @@ function bindRenderState({ store, bus, clock, rc, rig, loop, snap, astro, m, lab
         if (Math.abs(s.tMs - trailsState.centerMs) > span.refreshDays * 864e5) updateTrails({ store, clock, astro, loop, labelsFeed, force: true });
     });
     if (store.get().layers.trails && store.get().selection) updateTrails({ store, clock, astro, loop, labelsFeed });
+
+    // The globe's eclipse ribbon: the eclipse in focus, else one in progress (ribbonPlan).
+    let lastReadout = null;
+    bus.on('readout', (s) => {
+        lastReadout = s;
+        syncEclipseRibbon(store, loop, s);
+    });
+    store.subscribe((s) => s.ui.eclipse, () => syncEclipseRibbon(store, loop, lastReadout ?? snap));
+    syncEclipseRibbon(store, loop, snap);
 
     // Clicks on the globe / glyphs; labels.
     const pick = m.picking;

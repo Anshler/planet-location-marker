@@ -24,6 +24,7 @@
  */
 import * as THREE from 'three';
 import { BODIES } from '../astro/bodies.js';
+import { umbraNear } from '../astro/eclipse-path.js';
 import { BEAM_VERT, BEAM_FRAG } from './shaders/beam.glsl.js';
 import { labelExtent, uiOccluders } from './labels.js';
 
@@ -45,6 +46,8 @@ const GLOW_REF_DIST = 3.4;
 const GLOW_MIN_K = 0.45;
 /** Phase speed of the light-time pulses, cycles per second. */
 const PULSE_HZ = 0.6;
+/** The beams' roots clear the umbra when its axis is within these angles (rad) of the observer. */
+const ROOT_CLEAR_RAD = [0.035, 0.07];
 /** Labels start this far along a beam so they never sit on the pin itself. */
 const LABEL_MIN_D = 0.08;
 // Beam label footprint around its anchor, CSS px (ADDENDUM A4: the 6 px dot is centred on
@@ -159,6 +162,7 @@ export function createBeams(rc, deps = {}) {
         uPhase: { value: 0 },
         uFade: { value: 1 },
         uSelActive: { value: 0 },
+        uRootClear: { value: 0 },
     };
     const common = {
         uniforms,
@@ -254,6 +258,9 @@ export function createBeams(rc, deps = {}) {
         aDir.needsUpdate = true;
         aLen.needsUpdate = true;
         hasSnap = true;
+        // The Moon's umbra on the observer (within ≈ 200–400 km): the beams leave a hole the umbra's
+        // size around their roots, so it reads as a dark spot (eclipse-aware-pin).
+        uniforms.uRootClear.value = umbraNear(snap, ROOT_CLEAR_RAD[0], ROOT_CLEAR_RAD[1]);
         writeStates();
     }
 

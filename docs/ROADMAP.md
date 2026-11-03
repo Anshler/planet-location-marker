@@ -55,12 +55,12 @@ The 2 Aug 2027 total solar eclipse (Luxor, 6 m 25 s) as the signature moment. Ne
 
 | Status | ID | Item | Impact | Effort | Notes |
 |---|---|---|---|---|---|
-| todo | `eclipse-local-circumstances-and-framing` | Eclipse quick win: contact times, totality duration and a jump that actually frames the eclipse | 4 | S | Also covers `eclipse-framing-moon-scale`. |
-| todo | `eclipse-path-of-totality` | Path of totality on the globe, with cities in the path and 'move me into the path' ★ | 4 | L | Also covers `eclipse-shadow-story`. |
-| todo | `totality-sequence` | Totality from the ground: structured corona, Baily's beads, diamond ring, prominences, shadow bands ★ | 5 | L | Also covers `totality-spectacle`. |
-| todo | `eclipse-companion` | Eclipse Companion: a countdown and contact-timeline HUD for local eclipses (ready for 2 Aug 2027) ★ | 4 | M |  |
-| todo | `eclipse-shadow-chase` | Ride the Moon's shadow: eclipse chase with the path of totality drawn live ★ | 5 | L |  |
-| todo | `eclipse-aware-pin` | Eclipse-aware pin: get out of the umbra's way and mark the racing shadow | 3 | M |  |
+| done | `eclipse-local-circumstances-and-framing` | Eclipse quick win: contact times, totality duration and a jump that actually frames the eclipse | 4 | S | Also covers `eclipse-framing-moon-scale`. 92a8599 (contacts C1–C4 and U1–U4 in events; jumps land at C2 − 20 s, 5°, playing). The magnifier option was skipped. |
+| done | `eclipse-path-of-totality` | Path of totality on the globe, with cities in the path and 'move me into the path' ★ | 4 | L | Also covers `eclipse-shadow-story`. 92a8599 (pure path + worker op + citiesInPath + standInPath) and 26d7d28 (globe ribbon, umbra marker, 30-min ticks). Matches NASA: 2027-08-02 greatest 25.49N 33.19E, 261 km. |
+| done | `totality-sequence` | Totality from the ground: structured corona, Baily's beads, diamond ring, prominences, shadow bands ★ | 5 | L | Also covers `totality-spectacle`. a427a84 (Baumbach corona, streamers, plumes, chromosphere, prominences, CPU Baily's beads, diamond ring, 360° horizon ring). Illustrative in detail. |
+| done | `eclipse-companion` | Eclipse Companion: a countdown and contact-timeline HUD for local eclipses (ready for 2 Aug 2027) ★ | 4 | M | 5f2e302 (HUD: countdown, contact track, Play the eclipse, Jump to C2 − 20 s, Stand in the path; lunar variant; text mode). |
+| done | `eclipse-shadow-chase` | Ride the Moon's shadow: eclipse chase with the path of totality drawn live ★ | 5 | L | 26d7d28 (actions.chaseEclipse: rig.follow in low orbit, ~40 s across the path). |
+| done | `eclipse-aware-pin` | Eclipse-aware pin: get out of the umbra's way and mark the racing shadow | 3 | M | 26d7d28 (pin and beam roots clear around the umbra). |
 
 ## Phase 2: Sky view 2.0
 
@@ -180,3 +180,7 @@ Use the 1000–3000 range and the unused Astronomy Engine APIs.
   eclipse titles still quote the peak obscuration when the peak is below the horizon; the keyboard help still says
   'Equatorial grid'; 375 px phones can clip the date by 2–3 px while 'Timelapse' shows; the daytime label style also
   applies to trail month ticks. graphify not yet rebuilt.
+- 2026-11-04: Phase 1 (Eclipse 2027) complete: foundation and totality visuals in parallel, then path render/chase and
+  the companion HUD (≤ 3 agents at a time). Merged at 5f2e302; npm test (511), size, smoke, smoke:mobile and text mode pass.
+  Tier budgets raised to low 3.5 / medium 4.35 / high 5.55 MB (about 130 KB of new JS); headroom is now ~30–60 KB per tier,
+  so Phase 2+ needs either lazy loading or another re-baseline.

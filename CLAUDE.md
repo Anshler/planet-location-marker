@@ -107,9 +107,10 @@ js/ui/          DOM interface; talks to the app only via store, clock, actions
 - **Observer chain at boot.** URL hash, then saved prefs, then the largest city in the device
   timezone (canonical `byTz`), then Greenwich. Clicked points take the timezone and name of the
   nearest city within 300 km, otherwise an approximate `Etc/GMT±n` zone.
-- **Quality.** There are three tiers (low, medium and high) and a downgrade-only governor (DPR
-  first, then tier). Tiers switch in place: `rc.setTier`, then each module's `setQuality`, then the
-  tier's textures.
+- **Quality.** There are three automatic tiers (low, medium and high) and a downgrade-only governor
+  (DPR first, then tier), plus a manual `max` tier with no size budget (8K maps, every knob at full;
+  never auto-picked, never governed). Heavy assets and effects belong on max. Tiers switch in place:
+  `rc.setTier`, then each module's `setQuality`, then the tier's textures.
 - **Failure handling.**
   - No WebGL2 or no import maps gives text mode with a banner.
   - Context loss pauses rendering behind an overlay, then restores.

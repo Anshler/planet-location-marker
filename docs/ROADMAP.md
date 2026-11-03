@@ -141,6 +141,7 @@ Use the 1000–3000 range and the unused Astronomy Engine APIs.
 | todo | `star-info-light-time` | Tap any star: name, Bayer designation, distance and 'the light you see left in 1476' | 3 | L |  |
 | todo | `time-machine-sky` | Time-machine sky: star proper motion, pole of date, precession circle and the drifting equinox | 2 | M |  |
 | todo | `deep-sky-objects` | Deep-sky objects: the Messier catalogue and southern showpieces as procedural, true-size sprites ★ | 3 | L |  |
+| todo | `max-deep-stars` | Max tier: deeper star catalogue to about magnitude 8 (d3-celestial stars.8.json, 5.4 MB), lazy-loaded and merged into the GPU arrays | 3 | M | Skipped by the max-tier agent as a detour: needs a build script, lazy decode/merge and a photometry check. |
 | todo | `comets-halley-1066` | Historic and great comets with physical tails: Halley 1066/1456/1910/1986/2061, Hale–Bopp, NEOWISE ★ | 3 | XL |  |
 | todo | `human-emissaries` | Beams to humanity's emissaries: Voyager 1 and 2, New Horizons and JWST, with 'a message sent now arrives tomorrow' | 4 | L |  |
 | todo | `live-satellites` | The ISS and bright satellites: a beam that visibly moves at 1x, with real pass predictions ★ | 4 | L |  |
@@ -165,6 +166,7 @@ Use the 1000–3000 range and the unused Astronomy Engine APIs.
 | todo | `hitch-free-tier-switch` | Hitch-free tier switches: compile the next tier's shader variants and upload its textures before swapping | 3 | M |  |
 | todo | `context-loss-backoff-and-diagnostics` | Memory-pressure-aware context-loss recovery, warning-free restore, and a 'Copy diagnostics' button | 2 | S |  |
 | todo | `ktx2-gpu-compressed-textures` | GPU-compressed textures (KTX2/Basis, vendored from three r170): about 6-8x less VRAM, no upload freezes, fewer context losses on phones ★ | 2 | L |  |
+| done | `max-tier` | Max quality tier: manual, no size budget (8K Earth day/night/clouds, 4K Moon, full DPR, max MSAA/anisotropy, full-res bloom) ★ | 4 | M | Owner request 2026-11-04. Merge after fd4dbbc. Heavy future effects belong on max. |
 
 ## Dropped at review
 
@@ -188,3 +190,5 @@ Use the 1000–3000 range and the unused Astronomy Engine APIs.
   9784110 (chase focus kind) and the chase's leftover timelapse range + ribbon retry after a failed request. Open minor items:
   Play/reverse during the chase's 1.5 s hold at greatest eclipse; event contact times are shown in the observer's zone and
   don't refresh on a 12/24 h toggle (same as 'tonight'); the brown lunar disc at the diamond ring is bloom (by design).
+- 2026-11-04: Max quality tier merged (owner request): manual only, pinned against the governor, no size budget (max is
+  ~20.7 MB; staged-site budget raised 12 → 32 MB). low/medium/high budgets unchanged. CLAUDE.md updated (four tiers).

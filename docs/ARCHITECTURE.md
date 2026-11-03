@@ -180,7 +180,7 @@ frame(now):  dt = min(now − last, 100)
   moving = rig.update(dt, snap)
   motion = moving || rig.tweening || clock.isAnimating() || introPlaying || pointer held
   twinkleDue = twinkle tier && sky view && stars visible && ≥ 29 ms since the last frame   // ~30 Hz
-  held = governor.probe()                        // once at most: frames off to measure the display
+  held = governor.probe()                        // before a step with no fresh cadence: frames off to measure it
   if !held && (dirty || motion || twinkleDue):
       dirty = false                              // cleared first: invalidate() during update requests the next frame
       module.update(fi) for every module         // fi: dt, time, camera, viewMode, skyBlend, snap, pulses, exposure
@@ -318,9 +318,12 @@ change.
   tier, with a 5 s cooldown. Under `navigator.webdriver` the governor is never sampled.
 - **Budget.** 16.7 ms (33.4 ms on touch), or the display's own frame interval when that is longer:
   the median of rAF ticks that drew nothing after a tick that drew nothing (`governor.idle`), so a
-  30 Hz Energy Saver cap or a 48 Hz panel does not read as a slow GPU. When a step is due before
-  any idle tick has been seen (the intro renders from its first frame), the loop holds up to 8
-  frames back once (`governor.probe()`) to measure it.
+  30 Hz Energy Saver cap or a 48 Hz panel does not read as a slow GPU. Idle ticks over 50 ms are
+  a stalled main thread (a janky boot) and never count. When a step is due and the cadence is
+  unknown (the intro renders from its first frame) or stale (no idle tick in 5 s of rendering: a
+  cap that starts during a time-lapse), the loop holds up to 8 frames back (`governor.probe()`)
+  to measure it afresh, at most once per 5 s of rendering and never on the floor. If that raises
+  the budget, the 2 s over it start again.
 - **Learned tier.** A tier drop is saved in prefs (`qualityLearned`: tier, renderer string, time).
   For 30 days the same GPU starts Auto at that tier instead of the detected one (`autoStartTier`),
   so it does not pay the switch hitch on every visit. "Reset all settings" forgets it.

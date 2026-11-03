@@ -158,10 +158,18 @@ export function learnedTierRecord(tier, rendererString, nowMs) {
 /** The display cadence: the median of the last 31 idle intervals, once 6 are in. */
 const CADENCE_WINDOW = 31;
 const CADENCE_MIN_SAMPLES = 6;
-/** Ticks the cadence probe holds back: about 130 ms at 60 Hz, 270 ms at 30 Hz, once. */
+/** Ticks a cadence probe holds back: about 130 ms at 60 Hz, 270 ms at 30 Hz. */
 export const CADENCE_PROBE_TICKS = 8;
-/** Slowest believable display (20 Hz): slower idle ticks are a stalled main thread. */
+/**
+ * Slowest believable display (20 Hz). A slower idle tick is a stalled main thread (the loop caps
+ * dt at 100 ms, so boot stalls arrive as 60–100 ms ticks) and is not a cadence sample at all.
+ */
 export const MAX_CADENCE_MS = 50;
+/**
+ * Rendered time (ms) after which the newest idle tick no longer vouches for the display (a cap
+ * can start mid-session while every tick renders), and the minimum spacing between probes.
+ */
+export const CADENCE_STALE_MS = 5000;
 
 /**
  * Downgrade-only frame-time governor (SPEC §E.6).
@@ -175,11 +183,20 @@ export const MAX_CADENCE_MS = 50;
  * The budget is 16.7 ms (33.4 ms on coarse pointers), or the display's own frame interval when
  * longer: Energy Saver and Low Power Mode cap rAF at 30 Hz, and a 48 Hz panel never ticks faster
  * than 20.8 ms. Feed idle(dt) the dt of consecutive rAF ticks that drew nothing. Only those show
- * the display: a frame that takes two intervals looks like a display twice as slow.
+ * the display: a frame that takes two intervals looks like a display twice as slow. Idle ticks
+ * over MAX_CADENCE_MS are a stalled main thread and are dropped, so a janky boot cannot inflate
+ * the budget and hide a slow GPU.
  *
- * The intro renders from its first frame, so a step can come due before any idle tick. Then,
- * once per session, probe() returns true for up to CADENCE_PROBE_TICKS ticks (the loop draws
- * nothing) and the step needs another 2 s over the measured budget.
+ * A step can come due with no current measurement: the intro renders from its first frame, and
+ * a time-lapse or a long drag renders every tick, so a cap that starts mid-session (a laptop
+ * unplugged into Energy Saver) brings no idle ticks. When a step is due and the cadence is
+ * unknown, or its newest idle tick is over CADENCE_STALE_MS of rendering old, the governor
+ * measures afresh: probe() returns true for up to CADENCE_PROBE_TICKS ticks (the loop draws
+ * nothing) and the sample ring restarts (the previous median stands until 6 new intervals are in).
+ * The step then follows on the next sample still over the measured budget, unless that budget
+ * is over 10 % larger: time over a smaller budget is no evidence against a larger one, so the
+ * 2 s start again. Probes are at least CADENCE_STALE_MS of rendering apart, so one that
+ * measures nothing (every tick stalled) cannot hold a step back.
  *
  * sample(dt) returns the tier name whenever the configuration changed (a tier drop OR a DPR step)
  * and null otherwise; apply `config()` (a resolved TierCfg including the reduced dprCap).
@@ -204,8 +221,12 @@ export function createGovernor({ tier = 'medium', ceiling, coarse = false, dpr, 
     let ringDirty = false;
     /** @type {number|null} */
     let cadence = null;
-    let probed = false;
+    /** @type {number|null} The previous median, while a restarted ring fills. */
+    let fallback = null;
     let probeLeft = 0;
+    // Rendered time since the newest accepted idle tick and since the last probe began.
+    let sinceIdleMs = 0;
+    let sinceProbeMs = Infinity;
 
     /** @type {TierName|null} */
     let pinned = null;
@@ -214,6 +235,8 @@ export function createGovernor({ tier = 'medium', ceiling, coarse = false, dpr, 
     /** @type {number|null} */
     let ema = null;
     let overMs = 0;
+    /** The budget at the start of the current over-budget run. */
+    let overBudget = baseBudget;
     let cooldownMs = 0;
     /** @type {TierCfg|null} */
     let cfgMemo = null;
@@ -232,10 +255,16 @@ export function createGovernor({ tier = 'medium', ceiling, coarse = false, dpr, 
         cooldownMs = 0;
     }
 
+    /** True while lowering the DPR cap would lower the DPR actually in effect (once per tier). */
+    function dprCanStep() {
+        const effective = deviceDpr === null ? dprCap : Math.min(deviceDpr, dprCap);
+        return !dprStepped && effective > 1.0 + 1e-6;
+    }
+
     /** Takes one downgrade step; returns true when something changed. */
     function stepDown() {
-        const effective = deviceDpr === null ? dprCap : Math.min(deviceDpr, dprCap);
-        if (!dprStepped && effective > 1.0 + 1e-6) {
+        if (dprCanStep()) {
+            const effective = deviceDpr === null ? dprCap : Math.min(deviceDpr, dprCap);
             dprCap = Math.max(1.0, effective - 0.25);
             dprStepped = true;
             cfgMemo = null;
@@ -252,11 +281,14 @@ export function createGovernor({ tier = 'medium', ceiling, coarse = false, dpr, 
         return true;
     }
 
-    /** The median idle interval or null; re-sorted only after idle(). */
+    /**
+     * The median idle interval, or (fewer than 6 in the ring) the previous ring's median or
+     * null; re-sorted only after idle().
+     */
     function cadenceMs() {
         if (!ringDirty) return cadence;
         ringDirty = false;
-        if (ringCount < CADENCE_MIN_SAMPLES) return (cadence = null);
+        if (ringCount < CADENCE_MIN_SAMPLES) return (cadence = fallback);
         sorted.set(ring);
         if (ringCount < CADENCE_WINDOW) sorted.fill(Infinity, ringCount); // unfilled slots sort last
         sorted.sort();
@@ -264,38 +296,63 @@ export function createGovernor({ tier = 'medium', ceiling, coarse = false, dpr, 
         return cadence;
     }
 
+    /** Empties the ring for a fresh measurement; the current median stands in meanwhile. */
+    function restartCadence() {
+        fallback = cadenceMs();
+        ringCount = 0;
+        ringNext = 0;
+        ringDirty = true;
+    }
+
     function budget() {
         const c = cadenceMs();
-        return c === null ? baseBudget : Math.max(baseBudget, Math.min(c, MAX_CADENCE_MS));
+        return c === null ? baseBudget : Math.max(baseBudget, c);
     }
 
     function idle(dtMs) {
         const dt = Number(dtMs);
-        if (!(dt > 0) || dt > 1000) return;
+        // Slower than any believable display: the main thread stalled. It never votes.
+        if (!(dt > 0) || dt > MAX_CADENCE_MS) return;
         ring[ringNext] = dt;
         ringNext = (ringNext + 1) % CADENCE_WINDOW;
         if (ringCount < CADENCE_WINDOW) ringCount++;
         ringDirty = true;
+        sinceIdleMs = 0;
     }
 
     function sample(dtMs) {
-        if (pinned !== null) return null;
         const dt = Number(dtMs);
         if (!(dt > 0) || dt > 1000) return null;
         const d = Math.min(dt, 250);
+        sinceIdleMs += d;
+        sinceProbeMs += d;
+        if (pinned !== null) return null;
         if (cooldownMs > 0) {
             cooldownMs -= d;
             return null;
         }
         ema = ema === null ? d : ema + 0.05 * (d - ema);
-        if (ema > 1.3 * budget()) overMs += d;
-        else overMs = 0;
-        if (overMs < 2000) return null;
-        if (!probed && cadenceMs() === null) {
-            // Measure the display before blaming the GPU.
-            probed = true;
-            probeLeft = CADENCE_PROBE_TICKS;
+        const b = budget();
+        if (ema > 1.3 * b) {
+            // A run starts here, or a probe raised the budget (by over 10 %, not jitter): time
+            // over the old budget is no evidence against the new one, so the 2 s start again.
+            if (overMs === 0 || b > 1.1 * overBudget) {
+                overMs = 0;
+                overBudget = b;
+            }
+            overMs += d;
+        } else {
             overMs = 0;
+        }
+        if (overMs < 2000) return null;
+        // On the floor (low, DPR step taken) nothing can step: no probe either.
+        const canStep = rank(cur) > 0 || dprCanStep();
+        if (canStep && sinceProbeMs >= CADENCE_STALE_MS
+            && (cadenceMs() === null || sinceIdleMs >= CADENCE_STALE_MS)) {
+            // Measure the display as it is now before blaming the GPU; the next sample decides.
+            sinceProbeMs = 0;
+            restartCadence();
+            probeLeft = CADENCE_PROBE_TICKS;
             return null;
         }
         resetMeasure();
@@ -304,10 +361,10 @@ export function createGovernor({ tier = 'medium', ceiling, coarse = false, dpr, 
         return cur;
     }
 
-    /** Asked once per rAF tick: true while the loop should draw nothing. */
+    /** Asked once per rAF tick: true while the loop should draw nothing (a probe is measuring). */
     function probe() {
         if (probeLeft <= 0) return false;
-        if (cadenceMs() !== null) {
+        if (ringCount >= CADENCE_MIN_SAMPLES) {
             probeLeft = 0;
             return false;
         }

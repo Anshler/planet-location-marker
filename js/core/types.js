@@ -107,7 +107,7 @@
  * @typedef {{webgl2:boolean, rendererString?:string, maxTextureSize?:number, dpr?:number, deviceMemory?:number, cores?:number,
  *   coarse?:boolean, screenW?:number, screenH?:number, saveData?:boolean}} TierProbe */
 /** @typedef {{tier:'low'|'medium'|'high', ceiling:'low'|'medium'|'high', textMode:boolean, reason:string}} TierDecision */
-/** @typedef {{ sample:(dtMs:number)=>('low'|'medium'|'high'|null), idle:(dtMs:number)=>void,
+/** @typedef {{ sample:(dtMs:number)=>('low'|'medium'|'high'|null), idle:(dtMs:number)=>void, probe:()=>boolean,
  *   pin:(tier:'low'|'medium'|'high'|null)=>('low'|'medium'|'high'),
  *   config:()=>TierCfg, reset:()=>void, readonly tier:'low'|'medium'|'high', readonly ceiling:'low'|'medium'|'high',
  *   readonly start:'low'|'medium'|'high', readonly pinned:'low'|'medium'|'high'|null, readonly dprCap:number,

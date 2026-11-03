@@ -11,7 +11,7 @@
 //     star twinkle alone (sky view, stars actually visible) renders at most at ~30 Hz
 //     governor.sample(dt) on consecutive rendered frames only; consecutive idle ticks feed
 //     governor.idle(dt), its estimate of the display's own frame interval; while governor.probe()
-//     says so (once, before a first step with no cadence known) the tick draws nothing
+//     says so (before a step, when that estimate is missing or stale) the tick draws nothing
 //
 // Live 1× therefore redraws about twice a second; a paused, idle app draws nothing. The loop stops
 // on visibilitychange:hidden and resumes dirty.
@@ -330,7 +330,7 @@ export function createLoop(deps) {
                 || pointers.size > 0;
             // Twinkle alone: only while stars are actually shown, and at most ~30 Hz.
             const twinkleDue = !motion && !dirty && now - lastRenderAt >= TWINKLE_FRAME_MS && twinkling(cfg, skyBlend);
-            // Once per session at most, the governor holds a few frames back to measure the display.
+            // Before a step with no fresh cadence, the governor holds a few frames back to measure it.
             const held = governor !== null && probeCadence();
 
             if (!held && (dirty || motion || twinkleDue)) {

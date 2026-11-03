@@ -243,8 +243,11 @@ test('governor: the cadence is a robust, sliding, bounded median', () => {
 
     const stalled = createGovernor({ tier: 'medium', dpr: 1 });
     idle(stalled, 31, 95);
-    assert.equal(stalled.budgetMs, MAX_CADENCE_MS, 'a stalled main thread is not a display cap');
+    assert.equal(stalled.cadenceMs, null, 'a stalled main thread is not a display cap: no vote at all');
+    assert.equal(stalled.budgetMs, 16.7);
     assert.deepEqual(feed(stalled, 70, 2100), ['low']);
+    idle(stalled, 31, MAX_CADENCE_MS);
+    assert.equal(stalled.cadenceMs, MAX_CADENCE_MS, 'a 20 Hz display still counts');
 
     const sliding = createGovernor({ tier: 'medium', dpr: 1 });
     idle(sliding, 31, 33.3);
@@ -293,19 +296,99 @@ test('governor: with no cadence known yet, a due step first holds a few frames b
     assert.equal(capped.cadenceMs, 33.3);
 
     const slow = createGovernor({ tier: 'high', ceiling: 'high', dpr: 1 });
-    assert.deepEqual(continuous(slow, 16.7, 40, 4000).steps, [], 'probed at 2 s');
+    const s = continuous(slow, 16.7, 40, 2300);
+    assert.deepEqual(s.steps, ['medium'], '60 Hz display, slow GPU: the measured budget is the base one, so it steps right after');
+    assert.ok(s.held >= 7 && s.held <= CADENCE_PROBE_TICKS, `held ${s.held} ticks`);
     assert.equal(slow.cadenceMs, 16.7);
-    assert.deepEqual(continuous(slow, 16.7, 40, 500).steps, ['medium'], '60 Hz display, slow GPU: 2 s over the measured budget');
+
+    // A capped display AND a slow GPU: the measured budget is larger, so 2 s over it are needed.
+    const both = createGovernor({ tier: 'high', ceiling: 'high', dpr: 1 });
+    assert.deepEqual(continuous(both, 33.3, 66.7, 3900).steps, [], 'probed at 2 s, then 2 s over 33.3 ms');
+    assert.equal(both.budgetMs, 33.3);
+    assert.deepEqual(continuous(both, 33.3, 66.7, 800).steps, ['medium']);
 
     const noProbe = createGovernor({ tier: 'high', ceiling: 'high', dpr: 1 });
-    assert.deepEqual(feed(noProbe, 40, 2100), [], 'the probe is offered at 2 s');
+    assert.deepEqual(feed(noProbe, 40, 2000), [], 'the probe is offered at 2 s');
     assert.equal(noProbe.probe(), true);
-    assert.deepEqual(feed(noProbe, 40, 2100), ['medium'], 'a loop that never probes: 2 s later on the base budget');
+    assert.deepEqual(feed(noProbe, 40, 100), ['medium'], 'a loop that never probes: the base budget decides');
 
     const known = createGovernor({ tier: 'high', ceiling: 'high', dpr: 1 });
     idle(known, 31, 16.7);
     assert.deepEqual(feed(known, 40, 2200), ['medium']);
-    assert.equal(known.probe(), false, 'cadence known: no probe');
+    assert.equal(known.probe(), false, 'cadence known and fresh: no probe');
+
+    const near60 = createGovernor({ tier: 'high', ceiling: 'high', dpr: 1 });
+    assert.deepEqual(continuous(near60, 17.5, 40, 2300).steps, ['medium'], 'a budget raised by under 10 % keeps the 2 s');
+});
+
+test('governor: a janky boot cannot hide a slow GPU (stalled idle ticks never vote)', () => {
+    // The review's boot under back-to-back 70 ms tasks: the loop caps dt at 100 ms.
+    const boot = [72.6, 100, 100, 78.9, 12.1, 66.8, 6.0, 66.6, 84.8];
+    const slow = createGovernor({ tier: 'high', ceiling: 'high', dpr: 1 });
+    idle(slow, boot.length, (i) => boot[i]);
+    assert.equal(slow.cadenceMs, null, 'two believable intervals: no cadence yet');
+    assert.equal(slow.budgetMs, 16.7);
+    const s = continuous(slow, 16.7, 46, 2500);
+    assert.deepEqual(s.steps, ['medium'], 'probed, then stepped');
+    assert.ok(s.held >= 7, `held ${s.held}`);
+
+    const capped = createGovernor({ tier: 'high', ceiling: 'high', dpr: 2 });
+    idle(capped, boot.length, (i) => boot[i]);
+    assert.deepEqual(continuous(capped, 36.4, 36.4, 30000).steps, [], 'a 30 Hz cap after the same boot: kept');
+    assert.equal(capped.cadenceMs, 36.4);
+});
+
+test('governor: a cadence gone stale is measured again before a step', () => {
+    // Learned at 60 Hz, then a time-lapse renders every tick: no idle ticks for 30 s.
+    const gov = createGovernor({ tier: 'high', ceiling: 'high', dpr: 2 });
+    idle(gov, 31, 16.7);
+    assert.deepEqual(feed(gov, 16.7, 30000), []);
+    // Unplugged into Energy Saver mid-time-lapse: rAF drops to 30 Hz.
+    const a = continuous(gov, 33.3, 33.3, 30000);
+    assert.deepEqual(a.steps, [], 'measured again, then kept');
+    assert.ok(a.held >= 7 && a.held <= CADENCE_PROBE_TICKS, `held ${a.held} ticks once`);
+    assert.equal(gov.cadenceMs, 33.3);
+    assert.equal(gov.tier, 'high');
+    assert.equal(gov.dprCap, 2);
+
+    // Paused a moment (idle ticks, still capped): a real overload right after steps without a probe.
+    idle(gov, 10, 33.3);
+    assert.deepEqual(continuous(gov, 33.3, 66.7, 2500), { steps: ['high'], held: 0 });
+    assert.equal(gov.dprCap, 1.75);
+    // 30 s of rendering later the cadence is stale again: measured again before the next step.
+    feed(gov, 33.3, 30000);
+    const c = continuous(gov, 33.3, 66.7, 3500);
+    assert.deepEqual(c.steps, ['medium']);
+    assert.ok(c.held >= 7, `held ${c.held}`);
+});
+
+test('governor: probes never hold a step back, and never run on the floor', () => {
+    // Every held tick stalls (> 50 ms): the probe measures nothing, the step follows at once.
+    const gov = createGovernor({ tier: 'high', ceiling: 'high', dpr: 1 });
+    const steps = [];
+    let held = 0;
+    let rendered = false;
+    for (let t = 0; t < 3500;) {
+        if (gov.probe()) {
+            held++;
+            gov.idle(100);
+            rendered = false;
+            t += 100;
+            continue;
+        }
+        if (rendered) {
+            const r = gov.sample(40);
+            if (r !== null) steps.push(r);
+        }
+        rendered = true;
+        t += 40;
+    }
+    assert.equal(held, CADENCE_PROBE_TICKS);
+    assert.deepEqual(steps, ['medium']);
+    assert.equal(gov.cadenceMs, null);
+
+    const floor = createGovernor({ tier: 'low', ceiling: 'low', dpr: 1 });
+    assert.deepEqual(continuous(floor, 16.7, 40, 20000), { steps: [], held: 0 }, 'nothing can step: nothing to measure for');
 });
 
 test('governor: a single 400 ms hitch is absorbed', () => {

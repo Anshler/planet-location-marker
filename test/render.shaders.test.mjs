@@ -236,3 +236,29 @@ test('smoothstep edges are increasing (no reversed-edge falling ramps)', () => {
     assert.ok(checked > 50, `parsed ${checked} smoothstep calls`);
     assert.deepEqual(bad, []);
 });
+
+// Low Sun (roadmap low-sun-white-disc): the setting Sun read as a cream disc on a beige sky.
+test('low Sun: the Mie lobe takes the Sun\'s extinction tint, the knee drops, and the disc covers its sky', async () => {
+    // The patched dome tints only Preetham's Mie in-scatter, and declares the uniform first.
+    let frag = vendoredFragment('vendor/three/addons/objects/Sky.js');
+    for (const [from, to] of ground.SKY_PATCHES) frag = frag.replace(from, to);
+    assert.match(frag, /vec3 betaMTheta = vBetaM \* mPhase \* uSunTint;/);
+    assert.match(frag, /vec3 betaRTheta = vBetaR \* rPhase;/, 'Rayleigh stays untinted');
+    assert.ok(frag.indexOf('uniform vec3 uSunTint;') >= 0 && frag.indexOf('uniform vec3 uSunTint;') < frag.indexOf('* uSunTint'));
+    // The knee keeps its daytime shape at uLowSun = 0 and drops toward 0.40 at 1.
+    const knee = stripComments(ground.TWILIGHT_CHUNK);
+    assert.match(knee, /uniform float uLowSun;/);
+    assert.match(knee, /float k0 = mix\(0\.6, 0\.25, uLowSun\), kr = mix\(0\.28, 0\.15, uLowSun\);/);
+    // ground.js feeds both, white tint and day knee above 12° (the daytime sky is unchanged).
+    const groundJs = read('js/render/ground.js');
+    assert.match(groundJs, /const low = 1 - smooth\(0, 12, sunAltDeg\);/);
+    assert.match(groundJs, /su\.uSunTint\.value\.set\(1, 1 \+ \(ext\[1\] \/ ext\[0\] - 1\) \* low, 1 \+ \(ext\[2\] \/ ext\[0\] - 1\) \* low\);/);
+    assert.match(groundJs, /su\.uLowSun\.value = low \* smooth\(-3, 0, sunAltDeg\);/);
+    // The Sun billboard: premultiplied, alpha = uOcclude · disc · limb (0 in orbit view = additive).
+    const bodiesGlsl = await import(pathToFileURL(path.join(SHADER_DIR, 'bodies.glsl.js')).href);
+    assert.match(stripComments(bodiesGlsl.DISC_FRAG), /gl_FragColor = vec4\([^;]*, uOcclude \* disc \* limb\);/);
+    const bodiesJs = read('js/render/bodies.js');
+    assert.match(bodiesJs, /blendSrc: THREE\.OneFactor, blendDst: THREE\.OneMinusSrcAlphaFactor/);
+    assert.match(bodiesJs, /sunUniforms\.uOcclude\.value = skyBlend;/);
+    assert.equal((bodiesJs.match(/uOcclude: \{ value: 0 \}/g) || []).length, 2, 'Sun and aureole start additive');
+});

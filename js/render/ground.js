@@ -3,7 +3,8 @@
  *
  * - three's Preetham `Sky` dome (scale 1000, following the camera), driven by the true Sun and the
  *   observer's zenith, patched to drop its grey night floor and duplicate sun disc, to crossfade
- *   with the view blend, to dim during solar eclipses, and to add a twilight/night model (sunward
+ *   with the view blend, to dim during solar eclipses, to tint a low Sun's Mie glow with its
+ *   extinction colour under a lower highlight knee, and to add a twilight/night model (sunward
  *   glow, Earth's shadow, Belt of Venus, airglow, totality's 360° sunset).
  * - Ground hemisphere at infinity with horizon haze, in a single premultiplied draw that hides
  *   everything below the horizon. By day it is lit (mid-grey land fading into the horizon haze),
@@ -15,7 +16,9 @@ import * as THREE from 'three';
 import { Sky } from 'three/addons/objects/Sky.js';
 import { GROUND_VERT, GROUND_FRAG, SKY_PATCHES } from './shaders/ground.glsl.js';
 import { skyViewExposure, groundCover } from './sky.js';
+import { extinctionRGB } from './bodies.js';
 
+const DEG = Math.PI / 180;
 const LOW_SUN_TURBIDITY = 3.5;
 const LOW_SUN_RAYLEIGH = 1.0;
 // Solar eclipse display model (sky view). The light left is (1 − obscuration)^1.4 (limb darkening
@@ -72,6 +75,8 @@ export function createGround(rc) {
     su.uObscuration = { value: 0 };
     su.uEclFloor = { value: 0 };
     su.uDisplay = { value: 1 };
+    su.uSunTint = { value: new THREE.Vector3(1, 1, 1) };
+    su.uLowSun = { value: 0 };
     group.add(sky);
 
     // --- Ground + haze ----------------------------------------------------------------------------
@@ -105,6 +110,7 @@ export function createGround(rc) {
     let sunAltDeg = -90;
     let obscuration = 0;
     let lastBlend = 0;
+    const ext = [1, 1, 1];
 
     function apply(snap) {
         if (!snap || !snap.observer) return;
@@ -128,6 +134,13 @@ export function createGround(rc) {
         const low = 1 - smooth(0, 12, sunAltDeg);
         su.turbidity.value = 2.5 + LOW_SUN_TURBIDITY * low;
         su.rayleigh.value = 1.2 + LOW_SUN_RAYLEIGH * low;
+        // The Sun's own extinction colour, normalised to its red channel, tints the Mie lobe; it
+        // blends to white by 12° so the daytime haze keeps its colour.
+        extinctionRGB(Math.sin(sunAltDeg * DEG), ext);
+        su.uSunTint.value.set(1, 1 + (ext[1] / ext[0] - 1) * low, 1 + (ext[2] / ext[0] - 1) * low);
+        // Lower sky knee for a low Sun (skyKnee); it lets go again as Preetham's term fades out
+        // below the horizon, so twilight keeps its look.
+        su.uLowSun.value = low * smooth(-3, 0, sunAltDeg);
         eclipseGains(lastBlend);
     }
 

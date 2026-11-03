@@ -26,7 +26,13 @@ void main() {
 }
 `;
 
-/** Limb-darkened HDR core (at least a few px wide) plus a two-scale glow that fades at the quad edge. */
+/**
+ * Limb-darkened HDR core (at least a few px wide) plus a two-scale glow that fades at the quad edge.
+ * Premultiplied output (blend ONE, ONE_MINUS_SRC_ALPHA): the glow is purely additive, and the core
+ * hides uOcclude of the sky behind it. In sky view the real disc outshines the air in front of it
+ * many times over; added to a sky of similar display brightness, a low Sun's extinction colour
+ * washed out to cream under ACES.
+ */
 export const DISC_FRAG = /* glsl */`
 uniform float uTanR;
 uniform float uCoreR;
@@ -35,6 +41,7 @@ uniform vec3 uCoreColor;
 uniform vec3 uGlowColor;
 uniform float uGlowScale;
 uniform float uGlowGain;
+uniform float uOcclude;
 varying vec2 vUv;
 void main() {
     float q = length(vUv);
@@ -45,7 +52,7 @@ void main() {
     float disc = 1.0 - smoothstep(uCoreR - uEdge, uCoreR + uEdge, r);
     float glow = uGlowGain * (exp(-r / uGlowScale) + 0.12 * exp(-r / (4.0 * uGlowScale)));
     glow *= 1.0 - smoothstep(0.65, 1.0, q);
-    gl_FragColor = vec4(uCoreColor * (disc * limb) + uGlowColor * glow, 1.0);
+    gl_FragColor = vec4(uCoreColor * (disc * limb) + uGlowColor * glow, uOcclude * disc * limb);
     ${TONE}
 }
 `;

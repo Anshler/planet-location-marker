@@ -32,6 +32,8 @@ const SUPERMOON_KM = 361900;       // full Moon within ~10 % of perigee distance
 const MOON_RADIUS_KM = 1737.4;
 const QUARTERS = ['New Moon', 'First Quarter', 'Full Moon', 'Last Quarter'];
 const GUARD = 1000;                // hard cap on iterations of any search loop (≥ quarters in 10 years)
+const SUN_LIMB_DEG = 0.27;         // AE eclipse altitudes are the refracted centre; the upper limb is this much higher
+const LUNAR_STEP_MIN = 5;          // Moon altitude sampled every 5 min across the umbral phases (≤ 1.3° apart)
 
 /**
  * @typedef {import('../core/types.js').AstroEvent} AstroEvent
@@ -210,14 +212,81 @@ function greatestElongations(ctx) {
     }
 }
 
+// The Moon's refracted altitude `min` minutes from mid-eclipse.
+function moonAltAt(le, min, obs) {
+    return horizontal('Moon', le.peak.AddDays(min / 1440), obs).altitude;
+}
+
+// Minute offset of the horizon crossing between offsets a (Moon up = upA) and b, bisected to ~1 s.
+function horizonCrossing(le, obs, a, b, upA) {
+    for (let k = 0; k < 9; k++) {
+        const m = (a + b) / 2;
+        if ((moonAltAt(le, m, obs) > 0) === upA) a = m; else b = m;
+    }
+    return (a + b) / 2;
+}
+
+// Where in a lunar eclipse an instant falls, for "the Moon rises …" sentences.
+function lunarPhaseAt(le, min) {
+    if (le.kind !== 'total') return 'during the partial phase';
+    if (min < -le.sd_total) return 'before totality';
+    return min > le.sd_total ? 'after totality' : 'during totality';
+}
+
+/**
+ * Whether a lunar eclipse can be seen from the observer, and the sentence that says so.
+ * A partial or total eclipse counts as visible when the Moon is above the horizon at any time
+ * in the umbral phases (U1–U4), not only at mid-eclipse, so eclipses at moonrise and moonset
+ * are found. A penumbral eclipse is only a faint shading near its middle, so it is judged
+ * at mid-eclipse.
+ * @returns {{visible:boolean, text:string}}
+ */
+function lunarVisibility(le, obs) {
+    const alt = moonAltAt(le, 0, obs);
+    const up = alt > 0;
+    const upText = alt < 0.5 ? 'on the horizon' : `${Math.round(alt)}° up`;
+    const atPeak = `the Moon is ${upText} at mid-eclipse`;
+    if (le.kind === 'penumbral') {
+        return up
+            ? { visible: true, text: `Visible from here: ${atPeak}` }
+            : { visible: false, text: 'Not visible from here: the Moon is below the horizon at mid-eclipse' };
+    }
+    // The umbral phases last at most ~3.8 h, too short for the Moon to both rise and set
+    // (outside the polar regions), so one crossing on each side of the peak is enough.
+    const half = le.sd_partial;
+    const steps = Math.max(2, Math.ceil(half / LUNAR_STEP_MIN));
+    let prevM = -half, prevUp = moonAltAt(le, prevM, obs) > 0;
+    let rise = null, set = null, anyUp = up || prevUp;
+    for (let k = 1; k <= 2 * steps; k++) {
+        const m = k === steps ? 0 : -half + (k * half) / steps;
+        const isUp = k === steps ? up : moonAltAt(le, m, obs) > 0;
+        if (isUp !== prevUp) {
+            const at = horizonCrossing(le, obs, prevM, m, prevUp);
+            if (isUp) rise ??= at; else set ??= at;
+        }
+        anyUp ||= isUp;
+        prevM = m; prevUp = isUp;
+    }
+    if (!anyUp) return { visible: false, text: 'Not visible from here: the Moon is below the horizon throughout the eclipse' };
+    let text;
+    if (up) {
+        if (rise !== null && rise < 0) text = `Visible from here: the Moon rises ${lunarPhaseAt(le, rise)} and is ${upText} at mid-eclipse`;
+        else if (set !== null && set > 0) text = `Visible from here: ${atPeak} and sets ${lunarPhaseAt(le, set)}`;
+        else text = `Visible from here: ${atPeak}`;
+    } else {
+        // "During" phases straddle mid-eclipse, so say which half is seen.
+        const phase = lunarPhaseAt(le, rise ?? set ?? 0);
+        const which = phase.startsWith('during') ? (rise !== null ? ', after mid-eclipse' : ', before mid-eclipse') : '';
+        text = `Partly visible from here: the Moon ${rise !== null ? 'rises' : 'sets'} ${phase}${which}`;
+    }
+    return { visible: true, text };
+}
+
 function lunarEclipses(ctx) {
     let le = AE.SearchLunarEclipse(ctx.from);
     for (let i = 0; i < GUARD && msOf(le.peak) <= ctx.toMs; i++) {
-        const alt = horizontal('Moon', le.peak, ctx.obs).altitude;
-        const visible = alt > 0;
-        let detail = visible
-            ? `Visible from here: the Moon is ${Math.round(alt)}° up at mid-eclipse`
-            : 'Not visible from here: the Moon is below the horizon at mid-eclipse';
+        const { visible, text } = lunarVisibility(le, ctx.obs);
+        let detail = text;
         if (le.kind === 'total') detail += `; totality lasts ${Math.round(2 * le.sd_total)} min`;
         else if (le.kind === 'partial') detail += `; partial phase lasts ${Math.round(2 * le.sd_partial)} min`;
         else detail += '; only a subtle shading of the Moon';
@@ -248,24 +317,64 @@ function globalSolarEclipses(ctx) {
     }
 }
 
+// True when the Sun's upper limb is above the horizon at an AE EclipseEvent.
+function sunUp(ev) {
+    return ev.altitude + SUN_LIMB_DEG > 0;
+}
+
+// How much of the total or annular phase (C2–C3) is above the horizon:
+// 'all', 'sunrise' or 'sunset' (only its end or its start), 'none', or null for a partial eclipse.
+function centralPhaseUp(ls) {
+    if (ls.kind === 'partial' || !ls.total_begin || !ls.total_end) return null;
+    const c2 = sunUp(ls.total_begin), c3 = sunUp(ls.total_end);
+    if (c2 && c3) return 'all';
+    if (c2) return 'sunset';
+    return c3 ? 'sunrise' : 'none';
+}
+
+/**
+ * Title of a local solar eclipse. 'Total' or 'Annular … visible here' is promised only when
+ * the central phase itself is above the horizon: 'at sunrise' / 'at sunset' when only part of
+ * it is, and a partial eclipse when all of it happens with the Sun below the horizon.
+ */
 function localEclipseTitle(ls) {
     const pct = ls.obscuration * 100;
     // A partial eclipse never shows 100 %, however close it comes.
     const shown = ls.kind === 'partial' ? Math.min(99, Math.round(pct)) : Math.round(pct);
     const covered = pct < 1 ? '<1% covered' : `${shown}% covered`;
-    if (ls.kind === 'total') return 'Total solar eclipse visible here';
-    if (ls.kind === 'annular') return `Annular solar eclipse visible here (${covered})`;
-    return `Partial solar eclipse visible here (${covered})`;
+    const central = centralPhaseUp(ls);
+    if (central === null) return `Partial solar eclipse visible here (${covered})`;
+    if (central === 'none') {
+        return `Partial solar eclipse visible here (${ls.kind === 'total' ? 'totality' : 'the ring phase'} is below the horizon)`;
+    }
+    const when = central === 'all' ? '' : ` at ${central}`;
+    if (ls.kind === 'total') return `Total solar eclipse visible here${when}`;
+    return `Annular solar eclipse visible here${when} (${covered})`;
+}
+
+// The sentence on where the Sun stands, for an eclipse that may start before sunrise or end after sunset.
+function localEclipseWhere(ls) {
+    const central = centralPhaseUp(ls);
+    if (central === 'sunrise' || central === 'sunset') {
+        return `The Sun ${central === 'sunrise' ? 'rises' : 'sets'} during ${ls.kind === 'total' ? 'totality' : 'the ring phase'}.`;
+    }
+    const rises = !sunUp(ls.partial_begin), sets = !sunUp(ls.partial_end);
+    if (sunUp(ls.peak)) {
+        const alt = ls.peak.altitude < 0.5 ? 'on the horizon' : `${Math.round(ls.peak.altitude)}° up`;
+        if (rises) return `The Sun rises already eclipsed and is ${alt} at maximum.`;
+        if (sets) return `The Sun is ${alt} at maximum and sets before the eclipse ends.`;
+        return `The Sun is ${alt} at maximum.`;
+    }
+    if (rises && !sets) return 'The Sun rises after maximum, still partly eclipsed.';
+    if (sets && !rises) return 'The Sun sets before maximum, already partly eclipsed.';
+    return 'Maximum comes with the Sun below the horizon; only part of it is visible.';
 }
 
 function localSolarEclipses(ctx) {
     let ls = AE.SearchLocalSolarEclipse(ctx.from, ctx.obs);
     for (let i = 0; i < GUARD && msOf(ls.peak.time) <= ctx.toMs; i++) {
         if (ls.obscuration > 0) {
-            const alt = ls.peak.altitude;
-            const where = alt > 0
-                ? `The Sun is ${Math.round(alt)}° up at maximum.`
-                : 'Maximum comes with the Sun below the horizon; only part of it is visible.';
+            const where = localEclipseWhere(ls);
             push(ctx, {
                 kind: 'local-solar-eclipse', bodyId: 'sun', tMs: msOf(ls.peak.time), title: localEclipseTitle(ls),
                 detail: `${where} Never look at the Sun without certified eclipse glasses.`,
@@ -416,7 +525,9 @@ const SOURCES = [
  * and `view` suggest what the UI should focus when the user jumps to it.
  * Some kinds carry extra fields: `quarter` (moon-phase), `eclipseKind`,
  * `obscuration`, `visibleHere`, `geo` {latDeg, lonDeg} (greatest eclipse),
- * `elongDeg`, `bodyIds`, `sepDeg` and `occultation` (pairings).
+ * `elongDeg`, `bodyIds`, `sepDeg` and `occultation` (pairings). A local solar
+ * eclipse's `eclipseKind` is the geometric kind at the site; its title says
+ * whether the total or annular phase itself is above the horizon.
  * Typical cost: 50–100 ms for a year, so run it in the astro worker.
  * @param {ObserverLike} observer
  * @param {number} fromMs

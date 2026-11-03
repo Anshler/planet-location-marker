@@ -72,10 +72,16 @@ That is exactly S·EF, so an equirectangular Earth texture needs no offset:
 
 With E = Rz(θ) alone, S·Rz(θ)·Sᵀ is three's `rotation.y = θ`, which was v1's convention.
 
-**The sky is static; the Earth moves.** Stars, constellations, the Milky Way, the grids and the
-ecliptic are placed once at load, in J2000 scene coordinates. Precession and nutation appear
-because the Earth's axis (`earthMatrix`) moves inside that fixed sky. Over centuries the celestial
-pole visibly drifts away from Polaris.
+**The sky is static; the Earth moves.** Stars, constellations, the Milky Way and the ecliptic are
+placed once at load, in J2000 scene coordinates. Precession and nutation appear because the
+Earth's axis (`earthMatrix`) moves inside that fixed sky. Over centuries the celestial pole
+visibly drifts away from Polaris.
+
+The two grids are the exceptions. The alt-az grid follows the observer. The equatorial grid is
+drawn **of date**: it is built in J2000 RA/Dec and turned by `S·PN·Sᵀ = earthMatrix · RotY(−GAST)`,
+since `S·Rz(θ)·Sᵀ` is three's `rotation.y = θ`. Its pole is therefore `earthMatrix·ŷ`, the pole the
+sky turns around, and its 0h line is the true equinox of date. In 1066 that pole is 5.2° from
+the J2000 one. The ecliptic stays J2000, because its plane moves only about 47″ per century.
 
 ---
 
@@ -237,6 +243,18 @@ from the true Sun direction. The phase you see is therefore correct by construct
   cluster) and started 2.8 minutes before second contact. The Milky Way stays a function of h☉
   (dark only at night).
 
+- **Low Sun.** Preetham keeps the forward-scattered (Mie) glow of a setting Sun nearly white,
+  and on screen that glow washed the reddened disc out to cream. The sky view corrects it:
+  - below 12°, the Mie lobe is tinted with the Sun's own extinction colour (`extinctionRGB` in
+    `render/bodies.js`, k = 0.10/0.17/0.30 mag per airmass in R/G/B, normalised to red);
+  - below 12°, the sky's highlight knee drops toward luminance 0.4, so the aureole keeps its hue
+    under ACES. It lets go again between 0° and −3°, where the twilight model takes over;
+  - the Sun's disc covers the sky behind it, as the real disc outshines the air in front of it;
+  - the lens flare dims with the Sun's green transmission, at 3× by day easing to 1× below 6°,
+    with no floor.
+
+  The disc then reads amber at +1.5°, orange at +1° and deep orange to red below +0.5°.
+
 ---
 
 ## 7. Almanac, events and paths (worker)
@@ -257,9 +275,14 @@ from the true Sun direction. The phase you see is therefore correct by construct
   - Moon quarters;
   - oppositions and conjunctions (`SearchRelativeLongitude` 180°/0°);
   - greatest elongations of Mercury and Venus;
-  - lunar eclipses;
+  - lunar eclipses. A partial or total one is *visible here* when the Moon's centre is above the
+    horizon at any time between U1 and U4 (sampled every 5 minutes, crossings bisected), so
+    eclipses at moonrise and moonset count; a penumbral one is judged at mid-eclipse;
   - global solar eclipses, with the point of greatest eclipse;
-  - local solar eclipses with the obscuration here;
+  - local solar eclipses with the obscuration here. "Total" or "annular … visible here" needs the
+    central phase itself above the horizon, by Astronomy Engine's refracted Sun-centre altitude
+    plus 0.27° for the upper limb. Only part of it above gives "at sunrise" or "at sunset"; none of
+    it gives a partial eclipse with the central phase below the horizon;
   - equinoxes and solstices (`Seasons`).
 - **Retrograde paths.** ±180 days of geocentric `GeoVector(…, true)` through S, one sample per
   day (the Moon: ±14 days at 2 h). The stationary points are the sign changes of dλ/dt in ecliptic

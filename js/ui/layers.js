@@ -26,7 +26,7 @@ export const LAYER_GROUPS = [
             ['starNames', 'Star names', null, null],
             ['milkyWay', 'Milky Way', ['M'], null],
             ['ecliptic', 'Ecliptic', ['E'], 'The Sun’s yearly path; planets stay close to it'],
-            ['eqGrid', 'Equatorial grid', ['G'], 'Right ascension and declination'],
+            ['eqGrid', 'Equatorial grid (of date)', ['G'], 'Right ascension and declination of date: the true pole and equinox'],
             ['altAzGrid', 'Horizon grid (Sky view)', null, 'Altitude and azimuth when standing on the ground'],
         ],
     },

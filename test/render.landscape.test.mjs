@@ -79,7 +79,10 @@ test('the ground draws the silhouette with fwidth AA, keeps the flat horizon wit
     assert.match(g, /if \(uLandscape > 0\.5\) \{/);
     assert.match(g, /float w = clamp\(0\.75 \* fwidth\(hDeg\), 0\.003, 0\.3\);/);
     assert.match(g, /a = 1\.0 - smoothstep\(-w, w, hDeg - P\.a\);/);
-    assert.match(g, /a = smoothFall\(0\.0025, -0\.0025, h\);/, 'layer off: the old mathematical horizon');
+    // Layer off: the mathematical horizon, with the same pixel-wide edge (a fixed width in sin(alt)
+    // filled the telescope's 0.2° field with a see-through gradient).
+    assert.match(g, /\} else \{\s*float hDeg = degrees\(asin\(clamp\(h, -1\.0, 1\.0\)\)\);\s*float w = clamp\(0\.75 \* fwidth\(hDeg\), 0\.003, 0\.3\);\s*a = 1\.0 - smoothstep\(-w, w, hDeg\);/);
+    assert.doesNotMatch(g, /smoothFall\(0\.0025, -0\.0025, h\)/);
     assert.match(g, /#ifdef LANDSCAPE_DETAIL[\s\S]*seaColor\(/);
     const groundJs = read('js/render/ground.js');
     assert.match(groundJs, /c && c\.name !== 'low' \? \{ LANDSCAPE_DETAIL: '', LANDSCAPE_GLINT: '' \} : \{\}/);

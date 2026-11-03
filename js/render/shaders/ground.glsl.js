@@ -335,7 +335,10 @@ void main() {
 #endif
         ground = mix(below, sil, above);
     } else {
-        a = smoothFall(0.0025, -0.0025, h);
+        // The flat horizon's edge, a pixel or so wide at any field (the telescope's 0.2° included).
+        float hDeg = degrees(asin(clamp(h, -1.0, 1.0)));
+        float w = clamp(0.75 * fwidth(hDeg), 0.003, 0.3);
+        a = 1.0 - smoothstep(-w, w, hDeg);
     }
     vec3 haze = exp(-max(h, 0.0) / 0.03) * hazeCol * 0.25 * (1.0 - a);
     gl_FragColor = vec4((ground * a + haze) * uCover * uDisplay, a * uCover);

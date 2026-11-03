@@ -22,6 +22,11 @@ const ELEMENTS = [
 /** Exponential fade time constant: occlusion changes reach 95 % in 3τ = 150 ms (SPEC §E.5). */
 const FADE_TAU_MS = 50;
 const SUN_COLOR = [1.0, 0.95, 0.85];
+/** Sky view: flare strength = min(1, green transmission × this gain), the gain easing to 1 below 6°. */
+const FLARE_DAY_GAIN = 3;
+/** Cap on the flare's red/green ratio in sky view (3 left it paler than the extincted Sun below ~2.5°). */
+const LOW_SUN_FLARE_RG = 8;
+const DEG = Math.PI / 180;
 
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const smooth = (a, b, x) => { const t = clamp((x - a) / (b - a), 0, 1); return t * t * (3 - 2 * t); };
@@ -174,7 +179,12 @@ export function createFlare(rc, deps = {}) {
                 const sinAlt = sunDir.dot(up);
                 target *= 1 - skyBlend * (1 - smooth(-sunR, sunR, sinAlt));
                 extinctionRGB(sinAlt, tint);
-                target *= 1 + skyBlend * (clamp(tint[1] * 3, 0.2, 1) - 1);
+                // Dims with the Sun's green transmission, at 3x by day. Near the horizon the gain
+                // falls back to 1x and there is no floor: a 0.2 floor kept a cream starburst over
+                // the setting Sun's orange disc and lifted it over the bloom threshold.
+                const altDeg = Math.asin(clamp(sinAlt, -1, 1)) / DEG;
+                const gain = 1 + (FLARE_DAY_GAIN - 1) * smooth(1, 6, altDeg);
+                target *= 1 + skyBlend * (Math.min(tint[1] * gain, 1) - 1);
             } else {
                 tint[0] = tint[1] = tint[2] = 1;
             }
@@ -196,7 +206,7 @@ export function createFlare(rc, deps = {}) {
         const tb = skyBlend;
         const lr = Math.max(limb[0], 1e-4);
         uniforms.uTint.value.setRGB(
-            SUN_COLOR[0] * (1 + (Math.min(tint[0] / g, 3) - 1) * tb),
+            SUN_COLOR[0] * (1 + (Math.min(tint[0] / g, LOW_SUN_FLARE_RG) - 1) * tb),
             SUN_COLOR[1] * (1 + (limb[1] / lr - 1) * o),
             SUN_COLOR[2] * (1 + (tint[2] / g - 1) * tb) * (1 + (limb[2] / lr - 1) * o));
         uniforms.uIntensity.value = vis;

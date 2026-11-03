@@ -21,6 +21,7 @@ export const TWILIGHT_CHUNK = /* glsl */`
 uniform float uSunAltDeg;
 uniform float uObscuration;
 uniform float uEclFloor;
+uniform float uLowSun;
 ${SMOOTH_FALL_CHUNK}
 vec3 twilightSky(vec3 dir) {
     float h = dot(dir, up);
@@ -79,9 +80,13 @@ vec3 goldenHour(vec3 c, vec3 dir) {
 }
 // Soft highlight knee (asymptote ~0.88): Preetham's Mie column under the Sun would otherwise sit
 // above the bloom threshold and bloom into a white slab; only the Sun billboard should bloom.
+// With the Sun low (uLowSun → 1, ground.js) it starts at 0.25 and levels off at 0.40: the
+// aureole of a low Sun sat in ACES' shoulder, where every hue turns cream, so the sunset sky
+// read beige and the extincted disc in front of it washed out with it.
 vec3 skyKnee(vec3 c) {
+    float k0 = mix(0.6, 0.25, uLowSun), kr = mix(0.28, 0.15, uLowSun);
     float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
-    return l > 0.6 ? c * ((0.6 + (l - 0.6) / (1.0 + (l - 0.6) / 0.28)) / l) : c;
+    return l > k0 ? c * ((k0 + (l - k0) / (1.0 + (l - k0) / kr)) / l) : c;
 }
 `;
 
@@ -92,6 +97,7 @@ vec3 skyKnee(vec3 c) {
  */
 export const SKY_PATCHES = [
     ['uniform vec3 up;', `uniform vec3 up;
+uniform vec3 uSunTint;
 uniform float uFloor;
 uniform float uDayGain;
 uniform float uFade;
@@ -104,6 +110,10 @@ ${TWILIGHT_CHUNK}`],
         'float zenithAngle = acos( clamp( dot( up, direction ), 0.0, 1.0 ) );'],
     ['return THREE_OVER_SIXTEENPI * ( 1.0 + pow( cosTheta, 2.0 ) );',
         'return THREE_OVER_SIXTEENPI * ( 1.0 + cosTheta * cosTheta );'],
+    // A low Sun's aureole is lit by sunlight that crossed as much air as the disc's: tint the Mie
+    // lobe with the Sun's extinction colour (uSunTint, 1 by day; ground.js), so the sky around
+    // the disc turns orange with it instead of staying cream.
+    ['vec3 betaMTheta = vBetaM * mPhase;', 'vec3 betaMTheta = vBetaM * mPhase * uSunTint;'],
     ['clamp( pow( 1.0 - dot( up, vSunDirection ), 5.0 ), 0.0, 1.0 )',
         'clamp( pow( max( 1.0 - dot( up, vSunDirection ), 0.0 ), 5.0 ), 0.0, 1.0 )'],
     // Preetham's constant "night floor" turns a dark sky grey once the Sun has set.

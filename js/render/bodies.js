@@ -44,6 +44,12 @@ const SUN_E = 1.6;
 // Lunar eclipse umbra adaptation: uUmbraGain = 1 / (1 + moonLitFraction / UMBRA_ADAPT).
 const UMBRA_ADAPT = 0.015;
 const RETICLE_PX = 14;
+/** Sun and aureole: premultiplied "add the glow, cover the sky by alpha"; alpha 0 is plain additive. */
+const DISC_BLENDING = {
+    blending: THREE.CustomBlending, blendEquation: THREE.AddEquation,
+    blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor,
+    blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
+};
 const ACQUIRE_S = 0.45;
 const EXT_K = [0.10, 0.17, 0.30];
 
@@ -142,10 +148,12 @@ export function createBodies(rc, deps = {}) {
         uGlowColor: { value: new THREE.Color() },
         uGlowScale: { value: SUN_GLOW_SCALE },
         uGlowGain: { value: 1.5 },
+        // Sky view: the core hides the sky behind it (DISC_FRAG); 0 keeps the orbit view additive.
+        uOcclude: { value: 0 },
     };
     const sunMaterial = new THREE.ShaderMaterial({
         name: 'bodies.sun', uniforms: sunUniforms, vertexShader: DISC_VERT, fragmentShader: DISC_FRAG,
-        transparent: true, depthWrite: false, depthTest: true, blending: THREE.AdditiveBlending,
+        transparent: true, depthWrite: false, depthTest: true, ...DISC_BLENDING,
     });
     const sun = new THREE.Mesh(quad, sunMaterial);
     sun.name = 'bodies.sun';
@@ -163,10 +171,11 @@ export function createBodies(rc, deps = {}) {
         uGlowColor: { value: new THREE.Color() },
         uGlowScale: { value: 2.2 * DEG },
         uGlowGain: { value: 0 },
+        uOcclude: { value: 0 },
     };
     const aureoleMaterial = new THREE.ShaderMaterial({
         name: 'bodies.aureole', uniforms: aureoleUniforms, vertexShader: DISC_VERT, fragmentShader: DISC_FRAG,
-        transparent: true, depthWrite: false, depthTest: true, blending: THREE.AdditiveBlending,
+        transparent: true, depthWrite: false, depthTest: true, ...DISC_BLENDING,
     });
     const aureole = new THREE.Mesh(quad, aureoleMaterial);
     aureole.name = 'bodies.aureole';
@@ -358,6 +367,7 @@ export function createBodies(rc, deps = {}) {
         const sunR = SUN_ANG_RADIUS_RAD / sunDistAU;
         sunUniforms.uCoreR.value = Math.max(sunR, (3 * dpr) / pxPerRad);
         sunUniforms.uEdge.value = 1 / pxPerRad;
+        sunUniforms.uOcclude.value = skyBlend;
         extinctionRGB(sinAlt[SUN], tint);
         const tr = (1 + (tint[0] - 1) * skyBlend) * display;
         const tg = (1 + (tint[1] - 1) * skyBlend) * display;

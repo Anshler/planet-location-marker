@@ -218,6 +218,18 @@ from the true Sun direction. The phase you see is therefore correct by construct
   Stars fade with the dawn, and Venus and Jupiter stay visible in twilight. The daylight dome is
   the Preetham–Shirley–Smits analytic sky driven by the true Sun.
 
+- **Low Sun.** Preetham keeps the forward-scattered (Mie) glow of a setting Sun nearly white,
+  and on screen that glow washed the reddened disc out to cream. The sky view corrects it:
+  - below 12°, the Mie lobe is tinted with the Sun's own extinction colour (`extinctionRGB` in
+    `render/bodies.js`, k = 0.10/0.17/0.30 mag per airmass in R/G/B, normalised to red);
+  - below 12°, the sky's highlight knee drops toward luminance 0.4, so the aureole keeps its hue
+    under ACES. It lets go again between 0° and −3°, where the twilight model takes over;
+  - the Sun's disc covers the sky behind it, as the real disc outshines the air in front of it;
+  - the lens flare dims with the Sun's green transmission, at 3× by day easing to 1× below 6°,
+    with no floor.
+
+  The disc then reads amber at +1.5°, orange at +1° and deep orange to red below +0.5°.
+
 ---
 
 ## 7. Almanac, events and paths (worker)

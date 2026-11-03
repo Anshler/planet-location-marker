@@ -199,7 +199,7 @@ void main() {
                     float red, ray;
                     float st = aurStrength(n, uPxAng * t * 0.41, red, ray);
                     if (st <= 0.0) continue;
-                    vec3 pr = aurProfile(hh, ray);
+                    vec3 pr = aurProfile(hh, mix(0.5, ray, uAur.z));   // ray heights fade with the detail too
                     // dt = (1 + h) / q · dh, dh = 2·span·s·ds
                     float ds = (1.0 + hh) / max(q, 1e-4) * 2.0 * span * s / float(HALF_STEPS);
                     col += (AUR_GREEN * ((1.0 - red) * pr.x) + AUR_RED * (red * pr.y) + AUR_VIOLET * (0.3 * uAur.w * pr.z))

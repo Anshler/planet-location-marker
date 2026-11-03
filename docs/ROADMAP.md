@@ -1,0 +1,175 @@
+# Roadmap: v2.1 "breathtaking"
+
+Tracker for the improvement programme that came out of the November 2026 review. Seven reviewers
+(globe, sky view, bodies, camera, interface, performance, astronomy) audited the code; an adversarial
+verifier checked every proposal against the code and the hard rules, then a completeness critic
+looked for gaps. 104 ideas were proposed and 103 survived, many with corrected scope.
+
+- **Details for every item** (pitch, current state with file:line, proposal, the verifier's
+  corrections, risks): [roadmap/IDEAS.md](roadmap/IDEAS.md), searchable by id.
+- **The verifier's corrections override the original proposal** where they disagree.
+- **Branch:** `v2.1-breathtaking`.
+
+## How to continue
+
+1. Pick the first `todo` item in the lowest phase, and read its entry in IDEAS.md.
+2. Implement it under the rules in CLAUDE.md and docs/ARCHITECTURE.md.
+3. Run `npm test`, `npm run size` and `npm run smoke`. Take a `--gpu` screenshot for visual work.
+4. Set the status here (`done` with the commit, or `dropped` with the reason) and add a line to the log.
+
+Status values: `todo` · `wip` · `done` · `dropped`. Impact is 1–5 after verification.
+Effort: S < ½ day, M ≈ 1–2 days, L ≈ 3–5 days, XL > 1 week.
+
+## Phase 0: Bug sweep & quick wins
+
+Verified defects with repros, plus small polish. Do these first; several later items depend on them (eclipse geometry, label policy).
+
+| Status | ID | Item | Impact | Effort | Notes |
+|---|---|---|---|---|---|
+| todo | `eclipse-geometry-mismatch` | Bug: sky view uses three inconsistent eclipse geometries (drawn totality ~35 s late, sky darkening ~17 s early) | 4 | S |  |
+| todo | `umbra-radius-bug` | Bug: the globe's umbra is drawn ~19% too narrow (constant solar radius in two shaders) | 2 | S |  |
+| todo | `totality-star-budget` | Bug: totality shows stars to mag 5.7 (the Praesepe cluster) instead of planets and first-magnitude stars | 3 | S |  |
+| todo | `bug-skylink-return-pose` | Bug: shared sky-view links send 'Globe' to a random spot | 3 | S |  |
+| todo | `bug-event-jump-double-flight` | Bug: event jumps from sky view fly away, then back, in two sequential moves | 2 | S |  |
+| todo | `bug-center-behind-camera` | Bug: 'Center' and double-click-to-fly put the body behind the camera | 3 | S |  |
+| todo | `bug-eclipse-visibility-single-instant` | Bug: eclipse visibility is judged at a single instant, so a total eclipse below the horizon is billed 'visible here' | 2 | S |  |
+| todo | `below-label-mismatch` | Bug: body label says 'below horizon' while its beam is drawn above (refraction/limb mismatch) | 2 | S |  |
+| todo | `deeplink-opens-details` | A shared link with a selected body opens on the wrong tab, and the phone strip doesn't scroll to it | 2 | S |  |
+| todo | `timebar-truncation` | Time-bar truncation: the phone date loses its year by 1 px, and the desktop zone chip cuts the city | 2 | S |  |
+| todo | `mobile-no-aa` | Bug: phones (medium tier) render with no anti-aliasing at all | 3 | S | Also covers `mobile-fxaa-final-pass`. |
+| todo | `tier-consistency` | Bug: different weather per tier, and a dirty low-tier ocean mask | 2 | S |  |
+| todo | `low-tier-texture-diet` | Texture diet: the Low tier's '2K' day map is larger than the 4K one; ship a 2K night map, re-encode, and add WebP variants | 3 | M |  |
+| todo | `battery-twinkle-cap-and-idle-park` | Battery: cap twinkle-only rendering at 30 Hz and park the rAF loop when nothing changes | 3 | S |  |
+| todo | `daylight-label-policy` | Daylight label policy: no names for stars you cannot see, and no dark embossed halos on a bright sky | 3 | S | Also covers `daylight-label-hygiene`. |
+| todo | `timelapse-layout-thrash` | Fix the time-lapse layout thrash: the scrubber and view-insets force two synchronous layouts every frame | 2 | S |  |
+| todo | `governor-measures-work-not-cadence` | Governor: measure frame work (CPU + GPU timer queries) instead of rAF cadence. Stop downgrading capable GPUs under 30 Hz caps, and learn to step up | 3 | M |  |
+| todo | `bug-eqgrid-j2000` | Bug: the equatorial grid is drawn in the J2000 frame, 5.2–5.5° off the true celestial pole at the ends of the time range | 2 | S |  |
+| todo | `low-sun-white-disc` | Fix the cream-white sunset Sun: redden Preetham's forward lobe and keep the disc above its sky | 3 | S |  |
+| todo | `label-reticle-offsets` | Keep labels outside discs and reticles; fix the eclipse reticle hugging the Moon | 3 | S |  |
+| todo | `sky-zoom-to-cursor` | Sky view: zoom toward the cursor or pinch centre, double-click to centre | 2 | S |  |
+| todo | `orbit-hierarchy` | Orbit-view hierarchy: beams thin with zoom, selection keeps its colour, constellation lines recede | 2 | S |  |
+
+## Phase 1: Eclipse 2027
+
+The 2 Aug 2027 total solar eclipse (Luxor, 6 m 25 s) as the signature moment. Needs eclipse-geometry-mismatch first.
+
+| Status | ID | Item | Impact | Effort | Notes |
+|---|---|---|---|---|---|
+| todo | `eclipse-local-circumstances-and-framing` | Eclipse quick win: contact times, totality duration and a jump that actually frames the eclipse | 4 | S | Also covers `eclipse-framing-moon-scale`. |
+| todo | `eclipse-path-of-totality` | Path of totality on the globe, with cities in the path and 'move me into the path' ★ | 4 | L | Also covers `eclipse-shadow-story`. |
+| todo | `totality-sequence` | Totality from the ground: structured corona, Baily's beads, diamond ring, prominences, shadow bands ★ | 5 | L | Also covers `totality-spectacle`. |
+| todo | `eclipse-companion` | Eclipse Companion: a countdown and contact-timeline HUD for local eclipses (ready for 2 Aug 2027) ★ | 4 | M |  |
+| todo | `eclipse-shadow-chase` | Ride the Moon's shadow: eclipse chase with the path of totality drawn live ★ | 5 | L |  |
+| todo | `eclipse-aware-pin` | Eclipse-aware pin: get out of the umbra's way and mark the racing shadow | 3 | M |  |
+
+## Phase 2: Sky view 2.0
+
+Fill the empty ground, make night and twilight physically right.
+
+| Status | ID | Item | Impact | Effort | Notes |
+|---|---|---|---|---|---|
+| todo | `procedural-landscape` | Ground 2.0: a per-place horizon silhouette, sea horizons with a moon-glitter path, and sky-lit land ★ | 4 | L |  |
+| todo | `twilight-lit-ground` | Quick win: the ground stays visible through civil twilight and moonlight, and portrait framing shows less of it | 3 | S |  |
+| todo | `real-sky-brightness` | 'Your real sky': moonlit sky plus light pollution estimated from the shipped night-lights map, with a Bortle slider ★ | 4 | L |  |
+| todo | `human-vision-rendering` | Night that looks like night: a human-eye vision model with the Purkinje shift, rod desaturation and dark adaptation | 3 | M |  |
+| todo | `sky-view-refraction` | Draw refraction in sky view: the Sun is hidden at the official sunset, and low discs never flatten | 3 | M |  |
+| todo | `procedural-flare` | Procedural lens flare: clean aperture ghosts instead of muddy textured discs (and −68 KB) | 2 | M |  |
+| todo | `zodiacal-light-airglow` | Zodiacal light, gegenschein and true-colour airglow for dark skies | 2 | M |  |
+| todo | `chromatic-scintillation` | Chromatic scintillation for bright low stars (Sirius flashing colours on the horizon) | 2 | S |  |
+| todo | `physical-sky-lut` | Physically based atmosphere (Hillaire 2020 LUTs) with the Moon's umbra inside the air ★ | 4 | XL |  |
+
+## Phase 3: Planets that are planets
+
+One planet impostor shader drives beam-end medallions, the body card and a telescope zoom.
+
+| Status | ID | Item | Impact | Effort | Notes |
+|---|---|---|---|---|---|
+| todo | `galilean-moons` | Jupiter's four Galilean moons, live from AE.JupiterMoons | 3 | M |  |
+| todo | `body-card-moons-rings-libration` | Details card: Jupiter's moon line-up, Saturn's ring tilt and the Moon's libration (works in text mode) | 2 | S | Also covers `eyepiece-portraits`. |
+| todo | `planet-impostor-medallions` | Real planets at the end of every beam: phase-correct mini-globes with Saturn's rings at today's tilt ★ | 4 | L |  |
+| todo | `sidereal-tracking` | Star-lock and body tracking in sky view ("the Earth turns, not the sky") ★ | 4 | M |  |
+| todo | `telescope-zoom` | Telescope zoom in sky view: dive from the whole sky into Jupiter and its moons ★ | 4 | XL | Also covers `eyepiece-mode`. |
+| todo | `retrograde-timelapse` | Retrograde loop as a time-lapse composite: weekly planet images that swell toward opposition ★ | 3 | M |  |
+
+## Phase 4: Living Earth
+
+Globe photorealism.
+
+| Status | ID | Item | Impact | Effort | Notes |
+|---|---|---|---|---|---|
+| todo | `sculpted-clouds` | Sculpted clouds: relief, self-shadow, thickness and silver linings from the existing cloud map ★ | 4 | M |  |
+| todo | `moonlight-moonglint` | Real moonlight on the night side, plus a silver moonglint on dark oceans | 3 | S |  |
+| todo | `close-zoom-lights` | Close-zoom city lights: bicubic filter, sub-texel light grain, restored highlights | 3 | S |  |
+| todo | `aurora-oval` | Physically placed auroral ovals with volumetric curtains ★ | 4 | L |  |
+| todo | `orbital-horizon-view` | Orbital horizon view (ISS cupola mode): tilt the camera at low altitude ★ | 4 | L | Also covers `tilt-on-zoom-horizon`. |
+| todo | `ozone-twilight-limb` | Ozone absorption in the atmosphere model: the blue band above the orbital sunset | 2 | S |  |
+| todo | `ocean-glint-wind` | A sunglint with texture: wind-roughness field, calm lee wakes, Fresnel sky sheen | 3 | M |  |
+| todo | `seasonal-earth` | Seasonal Earth: NASA Blue Marble monthly surfaces crossfaded by simulated date ★ | 3 | L |  |
+| todo | `living-weather` | Living weather time-lapse: zonal-wind flow-map advection instead of a rigid cloud spin | 2 | M |  |
+| todo | `detail-tiles` | Close-zoom detail tiles (clipmap-lite) for the day and night maps | 2 | L | Also covers `zoom-streamed-8k-earth`. |
+
+## Phase 5: Camera, storytelling & sharing
+
+| Status | ID | Item | Impact | Effort | Notes |
+|---|---|---|---|---|---|
+| todo | `lighten-stacking-exposure` | Long-exposure 'lighten' stacking: star trails and a real analemma photo ★ | 4 | M |  |
+| todo | `sky-postcard` | Sky Postcard: share the current view as a designed image, not just a link ★ | 4 | M |  |
+| todo | `guided-tours` | Guided tours: "Tonight from here", "A year in a minute", the 2027 eclipse, and an ambient mode ★ | 4 | L |  |
+| todo | `earthrise-vantage` | Vantage points: Earthrise from the Moon, and the DSCOVR view from L1 ★ | 4 | L |  |
+| todo | `ar-sky-pointing` | Point your phone at the sky: compass-driven Sky view, off-screen pointers and wake lock ★ | 4 | L |  |
+| todo | `intro-preroll-matchcut` | Intro: let the opening breathe, and match-cut from the loader's globe | 2 | S |  |
+| todo | `fast-time-star-streaks` | Velocity streaks to stop star strobing in fast time | 2 | M |  |
+| todo | `timelapse-video-export` | Record a time-lapse: deterministic 1080p or vertical video with labels and a date stamp burned in | 3 | L |  |
+| todo | `globe-to-map-morph` | Unroll the globe: an animated globe-to-world-map morph with the terminator, twilight bands, sub-body points and tides ★ | 3 | L |  |
+| todo | `orrery-zoom-out` | Powers of ten: zoom out until the beams become lines across the solar system ★ | 4 | XL |  |
+| todo | `two-observers` | Same sky, two places: a second pin whose beams converge on the Moon | 3 | L |  |
+| todo | `sky-soundscape` | Hear the sky: a generative, spatial soundscape that goes silent at totality | 2 | M |  |
+| todo | `idle-supersampling` | Progressive supersampling when idle: render-on-demand's spare frames turned into perfectly anti-aliased stills | 2 | M |  |
+| todo | `angle-ruler-and-fists` | Find it in the real sky: an angle ruler plus 'fists at arm's length' guidance | 3 | M |  |
+
+## Phase 6: Time machine & sky content
+
+Use the 1000–3000 range and the unused Astronomy Engine APIs.
+
+| Status | ID | Item | Impact | Effort | Notes |
+|---|---|---|---|---|---|
+| todo | `events-breadth-unused-ae` | More real events from unused Astronomy Engine searches: Antares/Pleiades occultations, Venus at greatest brilliancy, transits, perigee, ring-plane crossing | 3 | M |  |
+| todo | `historic-skies` | History's skies: guest stars of 1006, 1054, 1572 and 1604, Julian dates before 1582, a Moments library and 'the sky you were born under' ★ | 4 | M |  |
+| todo | `analemma-sun-path` | Analemma and Sun-path diagram in sky view, plus the subsolar figure-8 on the globe | 3 | M |  |
+| todo | `visibility-year-planner` | 'Best time to observe X': a 12-month planet visibility chart | 3 | M |  |
+| todo | `meteor-showers` | Meteor showers: radiants, peak events with Moon interference, and live meteors in sky view ★ | 3 | L |  |
+| todo | `star-info-light-time` | Tap any star: name, Bayer designation, distance and 'the light you see left in 1476' | 3 | L |  |
+| todo | `time-machine-sky` | Time-machine sky: star proper motion, pole of date, precession circle and the drifting equinox | 2 | M |  |
+| todo | `deep-sky-objects` | Deep-sky objects: the Messier catalogue and southern showpieces as procedural, true-size sprites ★ | 3 | L |  |
+| todo | `comets-halley-1066` | Historic and great comets with physical tails: Halley 1066/1456/1910/1986/2061, Hale–Bopp, NEOWISE ★ | 3 | XL |  |
+| todo | `human-emissaries` | Beams to humanity's emissaries: Voyager 1 and 2, New Horizons and JWST, with 'a message sent now arrives tomorrow' | 4 | L |  |
+| todo | `live-satellites` | The ISS and bright satellites: a beam that visibly moves at 1x, with real pass predictions ★ | 4 | L |  |
+| todo | `stand-on-mars` | Stand on Mars: a Mars observer with a butterscotch day, a blue sunset and Earth as the evening star ★ | 4 | XL |  |
+
+## Phase 7: Interface, performance & engineering
+
+| Status | ID | Item | Impact | Effort | Notes |
+|---|---|---|---|---|---|
+| todo | `tonight-planner` | Tonight planner: a dusk-to-dawn visibility chart, with countdowns and sparklines in Sky now | 3 | M |  |
+| todo | `sky-dome-chart` | All-sky dome chart: a live planisphere at the top of Sky now and the hero of text mode ★ | 3 | M |  |
+| todo | `event-glyphs-and-ics` | Event glyphs that show the event, and 'Add to calendar' (.ics) offline | 2 | S |  |
+| todo | `first-run-touch-onboarding` | Touch-aware first run: gesture tips, a 3-step coach mark, an intro caption and an Install button | 3 | M |  |
+| todo | `night-vision-mode` | Night-vision red mode with a screen wake lock for real observing | 2 | S |  |
+| todo | `sky-ribbon-scrubber` | Sky-ribbon scrubber: true sky colours, Moon and selected-body bands, fling and haptics | 2 | M |  |
+| todo | `picker-place-preview` | Location picker that previews each place's sky: local time, day or night, Moon up | 2 | S |  |
+| todo | `i18n-a11y-readiness` | i18n and accessibility readiness: a string table, Intl-driven dates, Vietnamese first, and contrast and transparency modes | 2 | L |  |
+| todo | `instant-earth-progressive-textures` | Instant Earth: 15 KB preview textures, early tier-aware preloads, and a sharpen-in instead of a flat blue ball ★ | 3 | L |  |
+| todo | `boot-critical-path-diet` | Boot diet: remove about 0.6 s of main-thread blocking behind the loader (GL probe, a 399 ms upload, shader-error readbacks, per-chunk redraws) | 2 | S |  |
+| todo | `sw-atomic-updates-offline-ci` | Service worker 2.0: content-hashed versions, atomic precache, a 'new version ready' toast, and an offline-reload smoke test in CI | 3 | M |  |
+| todo | `regression-gates-ci` | Visual-regression goldens and performance budgets in CI, using the zero-dependency PNG decoder the repo already has | 3 | M |  |
+| todo | `hitch-free-tier-switch` | Hitch-free tier switches: compile the next tier's shader variants and upload its textures before swapping | 3 | M |  |
+| todo | `context-loss-backoff-and-diagnostics` | Memory-pressure-aware context-loss recovery, warning-free restore, and a 'Copy diagnostics' button | 2 | S |  |
+| todo | `ktx2-gpu-compressed-textures` | GPU-compressed textures (KTX2/Basis, vendored from three r170): about 6-8x less VRAM, no upload freezes, fewer context losses on phones ★ | 2 | L |  |
+
+## Dropped at review
+
+- `true-light-time-pulses`: Light-time pulses that mean something: true speed of light on the Moon beam, distance-coded elsewhere (rejected by the verifier; see IDEAS.md).
+
+## Log
+
+- 2026-11-03: Review run; tracker created.

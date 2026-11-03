@@ -125,6 +125,9 @@ export function createEclipseChase(deps) {
         run = null;
         if (r.timer !== null) cancelLater(r.timer);
         r.off();
+        // A finished chase hands the clock back without its spent last leg, so the time bar leaves
+        // 'Timelapse' and Play runs normal time again. A user takeover keeps whatever they set.
+        if (natural && r.range && clock.range === r.range) mine(() => clock.setRange(null));
         reveal('time');
         const rig = deps.getRig();
         if (rig?.following) {

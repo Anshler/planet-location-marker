@@ -696,7 +696,9 @@ function enterTextMode(reason, err) {
 // ---------------------------------------------------------------------------------------------
 
 /** The eclipse ribbon's request state (ribbonPlan): the path shown, a request in flight, a known miss. */
-const ribbonState = { path: null, pendingMs: NaN, missMs: NaN, seq: 0 };
+const ribbonState = { path: null, pendingMs: NaN, missMs: NaN, seq: 0, retryAt: 0 };
+/** Wall-clock wait (ms) before asking again after a failed path request. */
+const RIBBON_RETRY_MS = 5000;
 
 /** Shows, loads or clears the globe's eclipse path (render/eclipse-path.js) for the current state. */
 function syncEclipseRibbon(store, loop, s) {
@@ -704,6 +706,7 @@ function syncEclipseRibbon(store, loop, s) {
     if (!mod || !R.actions?.eclipsePath || !s) return;
     const plan = ribbonPlan(ribbonState, store.get().ui.eclipse, s.tMs, !!s.eclipse?.solar);
     if (plan.action === 'keep') return;
+    if (plan.action !== 'clear' && performance.now() < ribbonState.retryAt) return;
     const seq = ++ribbonState.seq;
     if (ribbonState.path) loop.callModule(mod, 'clear');
     ribbonState.path = null;
@@ -722,7 +725,12 @@ function syncEclipseRibbon(store, loop, s) {
         ribbonState.missMs = NaN;
         ribbonState.path = path;
         loop.callModule(mod, 'show', path);
-    }, settleMiss);
+    }, () => {
+        // A failed request (worker error) is not a known miss: drop it so a later readout retries.
+        if (seq !== ribbonState.seq) return;
+        ribbonState.pendingMs = NaN;
+        ribbonState.retryAt = performance.now() + RIBBON_RETRY_MS;
+    });
 }
 
 /** Readout-driven housekeeping that needs the render stack (trails refresh). */

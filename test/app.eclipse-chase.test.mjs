@@ -123,6 +123,7 @@ test('chase: focus on the globe, wait for the camera, two eased legs with a hold
     h.run(1000 * (h.clock.range.durationS + 0.1));
     assert.equal(h.clock.tMs, PATH.endMs, 'ends at the sunset end');
     assert.equal(h.chase.active, false);
+    assert.equal(h.clock.range, null, 'the spent last leg is released (no leftover timelapse)');
     assert.equal(h.ribbon.mode, 'time', 'the whole path is in the past now');
     assert.ok(h.log.includes('stopFollow'));
     const fly = h.log.find((x) => Array.isArray(x) && x[0] === 'fly');

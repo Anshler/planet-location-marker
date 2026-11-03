@@ -19,13 +19,18 @@ import {
 } from './shaders/bodies.glsl.js';
 import { skyViewExposure } from './sky.js';
 import { discVisibleFraction } from '../astro/shadow.js';
+import {
+    coronaParams, createCoronaParams, coronaVisibility, coronaStretch, chromosphereFlash, photosphereAdapt,
+} from '../astro/totality.js';
 
 const DEG = Math.PI / 180;
+const ARCSEC = DEG / 3600;
 const SUN = 0;
 const MOON = 1;
 const FIRST_PLANET = 2;
 const N_PLANETS = BODIES.length - FIRST_PLANET;
-const SUN_INTENSITY = 30;
+/** HDR radiance of the Sun's core (before extinction and exposure); render/totality.js scales beads by it. */
+export const SUN_INTENSITY = 30;
 const SUN_CORE = [1.0, 0.95, 0.85];
 const SUN_GLOW = [1.0, 0.86, 0.66];
 /** Glow of sunlight forward-scattered through the limb while the Sun sits just behind the Earth. */
@@ -35,11 +40,16 @@ const SUN_CORONA_SCALE = 0.5 * DEG;
 /** How fast the limb glow dies as the Sun sinks behind the limb (angle). */
 const SUN_CORONA_DEPTH = 1.0 * DEG;
 const SUN_CORONA_GAIN = 1.3;
-// Sky view in a total solar eclipse: a compact, pearly corona (the bright inner corona reaches
-// about one solar radius) instead of the orbit view's warm limb glow.
-const SUN_ECL_CORONA = [1.0, 0.94, 0.86];
-const SUN_ECL_CORONA_SCALE = 0.2 * DEG;
-const SUN_ECL_CORONA_GAIN = 0.9;
+// Sky view in a total solar eclipse: the structured corona of DISC_FRAG's SUN_ECLIPSE branch, faded
+// in by coronaVisibility (astro/totality.js) as the photosphere goes. It is stretched so its
+// ρ = 3 isophote reaches at least CORONA_MIN_PX (CSS px) from the centre: at FOV 70° the true
+// corona is ~9 px, a stylised inflation like the planet glyphs' (docs/ASTRONOMY.md §Totality).
+const CORONA_MIN_PX = 30;
+/** The thin crescent replaces the disc's anti-aliased rim below this width (device px). */
+const THIN_FROM_PX = 1.6;
+const THIN_TO_PX = 0.7;
+/** Relative radiance of the photosphere at the extreme limb (linear limb darkening, u = 0.6). */
+const LIMB_LD = 0.45;
 const SUN_QUAD_RAD = 6 * DEG;
 const MOON_AUREOLE_RAD = 9 * DEG;
 const SUN_E = 1.6;
@@ -157,11 +167,36 @@ export function createBodies(rc, deps = {}) {
         uGlowGain: { value: 1.5 },
         // Sky view: the core hides the sky behind it (DISC_FRAG); 0 keeps the orbit view additive.
         uOcclude: { value: 0 },
+        // Totality (DISC_FRAG, SUN_ECLIPSE): 0 gains skip every branch.
+        uSunR: { value: SUN_ANG_RADIUS_1AU_RAD },
+        uTotality: { value: 0 },
+        uThin: { value: 0 },
+        uChromo: { value: 0 },
+        uMoon: { value: new THREE.Vector3(0, 0, SUN_ANG_RADIUS_1AU_RAD) },
+        uLimbColor: { value: new THREE.Color(0, 0, 0) },
+        uCoronaColor: { value: new THREE.Color(1, 1, 1) },
+        uCorStretch: { value: 1 },
+        uPoleUv: { value: new THREE.Vector2(0, 1) },
+        uCorFlat: { value: 0.15 },
+        uCorSeed: { value: 0 },
+        uStrPA: { value: new THREE.Vector4(1.4, 1.8, -1.4, -1.8) },
+        uStrW: { value: new THREE.Vector4(0.2, 0.2, 0.2, 0.2) },
+        uStrG: { value: new THREE.Vector4(1, 1, 1, 1) },
+        uPromPA: { value: new THREE.Vector4(1, 2, -1, -2) },
+        uPromH: { value: new THREE.Vector4(0.04, 0.04, 0.04, 0.1) },
+        uPromW: { value: new THREE.Vector4(0.06, 0.06, 0.06, 0.06) },
     };
     const sunMaterial = new THREE.ShaderMaterial({
         name: 'bodies.sun', uniforms: sunUniforms, vertexShader: DISC_VERT, fragmentShader: DISC_FRAG,
+        defines: { SUN_ECLIPSE: '' },
         transparent: true, depthWrite: false, depthTest: true, ...DISC_BLENDING,
     });
+    const coronaP = createCoronaParams();
+    const sunPole = new Float64Array([0, 1, 0]);
+    let gapArcsec = Infinity;
+    const ndcS = new THREE.Vector2();
+    const ndcO = new THREE.Vector2();
+    const tmpV4 = new THREE.Vector4();
     const sun = new THREE.Mesh(quad, sunMaterial);
     sun.name = 'bodies.sun';
     sun.frustumCulled = false;
@@ -330,6 +365,16 @@ export function createBodies(rc, deps = {}) {
         iParams.needsUpdate = true;
     }
 
+    /** NDC of the direction (x, y, z) at infinity (rotation-only view, as the sky shaders); false behind. */
+    function toNdc(cam, x, y, z, out) {
+        tmpV4.set(x, y, z, 0).applyMatrix4(cam.matrixWorldInverse);
+        tmpV4.w = 1;
+        tmpV4.applyMatrix4(cam.projectionMatrix);
+        if (!(tmpV4.w > 1e-9)) return false;
+        out.set(tmpV4.x / tmpV4.w, tmpV4.y / tmpV4.w);
+        return true;
+    }
+
     // --- RenderModule API ------------------------------------------------------------------------------
     function apply(snap) {
         if (!snap || !snap.bodies) return;
@@ -344,6 +389,7 @@ export function createBodies(rc, deps = {}) {
         }
         sunR = sunAngularRadius(snap.bodies[SUN].distAU);
         moonUniforms.uSunR.value = sunR;
+        sunUniforms.uSunR.value = sunR;
         moonDistER = snap.bodies[MOON].distER > MOON_RADIUS_ER ? snap.bodies[MOON].distER : 60;
         moonPhaseFrac = Number.isFinite(snap.bodies[MOON].phaseFrac) ? snap.bodies[MOON].phaseFrac : 0.5;
         moonLit = snap.eclipse && Number.isFinite(snap.eclipse.moonLitFraction) ? clamp(snap.eclipse.moonLitFraction, 0, 1) : 1;
@@ -355,6 +401,24 @@ export function createBodies(rc, deps = {}) {
             ? clamp(snap.eclipse.obscurationAtObserver, 0, 1) : 0;
         const sd = dirs[SUN];
         sunUniforms.uDir.value.set(sd[0], sd[1], sd[2]);
+        // Totality: the contact geometry, the Sun's pole, and the corona invented for this date.
+        const beads = snap.eclipse && snap.eclipse.beads;
+        gapArcsec = beads && typeof beads.gapArcsec === 'number' && !Number.isNaN(beads.gapArcsec) ? beads.gapArcsec : Infinity;
+        if (snap.eclipse && snap.eclipse.solar && snap.sunPoleS) {
+            sunPole[0] = snap.sunPoleS[0]; sunPole[1] = snap.sunPoleS[1]; sunPole[2] = snap.sunPoleS[2];
+            coronaParams(snap.tMs, coronaP);
+            const su = sunUniforms;
+            su.uCorFlat.value = coronaP.flattening;
+            su.uCorSeed.value = coronaP.seed;
+            const s = coronaP.streamerPA, w = coronaP.streamerWidth, g = coronaP.streamerGain;
+            su.uStrPA.value.set(s[0], s[1], s[2], s[3]);
+            su.uStrW.value.set(w[0], w[1], w[2], w[3]);
+            su.uStrG.value.set(g[0], g[1], g[2], g[3]);
+            const pa = coronaP.promPA, ph = coronaP.promHeight, pw = coronaP.promWidth;
+            su.uPromPA.value.set(pa[0], pa[1], pa[2], pa[3]);
+            su.uPromH.value.set(ph[0], ph[1], ph[2], ph[3]);
+            su.uPromW.value.set(pw[0], pw[1], pw[2], pw[3]);
+        }
         const dir = iDir.array;
         for (let k = 0; k < N_PLANETS; k++) {
             const d = dirs[FIRST_PLANET + k];
@@ -436,33 +500,45 @@ export function createBodies(rc, deps = {}) {
         // daylight, ground.js ECL_ADAPT); it used to stay at full strength through totality, a
         // bright haze filling a narrow view. The corona takes over as the last of it goes.
         let coronaSky = 0;
+        let adapt = 1;
         if (skyBlend > 0 && obscuration > 0) {
             const skyVis = Math.pow(Math.max(1 - obscuration, 0), 1.4 * 0.4);
             occl *= 1 + (skyVis - 1) * skyBlend;
-            coronaSky = smooth(0.985, 1, obscuration) * skyBlend;
+            coronaSky = coronaVisibility(obscuration) * skyBlend;
+            // The eye, adapted to the darkening sky, sees the last of the photosphere dazzle.
+            adapt = 1 + (photosphereAdapt(obscuration) - 1) * skyBlend;
         }
+        // Thin crescent: below ~1 px the disc's anti-aliased rim misdraws the sliver (it lit ±45°
+        // of limb at FOV 5°); DISC_FRAG draws it as a flux-conserving ring instead (uThin).
+        const gapPx = gapArcsec * ARCSEC * pxPerRad;
+        const thin = obscuration < 1 && gapPx < THIN_FROM_PX ? skyBlend * smooth(THIN_FROM_PX, THIN_TO_PX, gapPx) : 0;
         // Totality (obscuration is exactly 1 only between second and third contact): no photosphere
         // is left. Without this the disc's anti-aliased rim, and its 3 px minimum size in a wide
         // view, kept a ring of HDR sunlight around the Moon for the whole of totality.
-        const photo = obscuration >= 1 ? 1 - skyBlend : 1;
+        const photo = (obscuration >= 1 ? 1 - skyBlend : 1) * adapt;
+        const core = SUN_INTENSITY * photo * (1 - thin);
         sunUniforms.uCoreColor.value.setRGB(
-            SUN_CORE[0] * SUN_INTENSITY * tr * limbT[0] * photo,
-            SUN_CORE[1] * SUN_INTENSITY * tg * limbT[1] * photo,
-            SUN_CORE[2] * SUN_INTENSITY * tb * limbT[2] * photo);
-        // Warmth: how much of the green the limb took out, or the hidden-Sun corona's share.
+            SUN_CORE[0] * core * tr * limbT[0],
+            SUN_CORE[1] * core * tg * limbT[1],
+            SUN_CORE[2] * core * tb * limbT[2]);
+        const lc = SUN_INTENSITY * photo * LIMB_LD;
+        sunUniforms.uLimbColor.value.setRGB(SUN_CORE[0] * lc * tr, SUN_CORE[1] * lc * tg, SUN_CORE[2] * lc * tb);
+        sunUniforms.uThin.value = thin;
+        sunUniforms.uTotality.value = coronaSky;
+        sunUniforms.uCoronaColor.value.setRGB(tr, tg, tb);
+        sunUniforms.uChromo.value = chromosphereFlash(gapArcsec) * skyBlend;
+        sunUniforms.uCorStretch.value = coronaStretch(sunR * pxPerRad, CORONA_MIN_PX * dpr);
+        // Warmth: how much of the green the limb took out, or the hidden-Sun limb glow's share.
         const glare = 1.5 * occl * (0.35 + 0.65 * Math.sqrt(limbT[1]));
-        const cg = SUN_CORONA_GAIN * corona + SUN_ECL_CORONA_GAIN * coronaSky;
+        const cg = SUN_CORONA_GAIN * corona;
         const gain = glare + cg;
         const cw = Math.max(1 - limbT[1], gain > 1e-6 ? cg / gain : 0);
-        // Which corona: the orbit view's limb glow or the eclipse corona, by their shares.
-        const ke = cg > 1e-9 ? (SUN_ECL_CORONA_GAIN * coronaSky) / cg : 0;
-        const cScale = SUN_CORONA_SCALE + (SUN_ECL_CORONA_SCALE - SUN_CORONA_SCALE) * ke;
         sunUniforms.uGlowGain.value = gain;
-        sunUniforms.uGlowScale.value = SUN_GLOW_SCALE + (cScale - SUN_GLOW_SCALE) * cw;
+        sunUniforms.uGlowScale.value = SUN_GLOW_SCALE + (SUN_CORONA_SCALE - SUN_GLOW_SCALE) * cw;
         sunUniforms.uGlowColor.value.setRGB(
-            (SUN_GLOW[0] + (SUN_CORONA[0] + (SUN_ECL_CORONA[0] - SUN_CORONA[0]) * ke - SUN_GLOW[0]) * cw) * tr,
-            (SUN_GLOW[1] + (SUN_CORONA[1] + (SUN_ECL_CORONA[1] - SUN_CORONA[1]) * ke - SUN_GLOW[1]) * cw) * tg,
-            (SUN_GLOW[2] + (SUN_CORONA[2] + (SUN_ECL_CORONA[2] - SUN_CORONA[2]) * ke - SUN_GLOW[2]) * cw) * tb);
+            (SUN_GLOW[0] + (SUN_CORONA[0] - SUN_GLOW[0]) * cw) * tr,
+            (SUN_GLOW[1] + (SUN_CORONA[1] - SUN_GLOW[1]) * cw) * tg,
+            (SUN_GLOW[2] + (SUN_CORONA[2] - SUN_GLOW[2]) * cw) * tb);
         sun.visible = haveSnap;
 
         // Planets: colour × extinction in sky view.
@@ -504,6 +580,23 @@ export function createBodies(rc, deps = {}) {
             }
         }
         moon.visible = moonDepth.visible = haveSnap;
+
+        // Totality on screen, in the Sun quad's axes (DISC_VERT: screen-aligned, radians at the
+        // view centre): the Moon's offset as actually projected, and solar north.
+        if (cam && (thin > 0 || coronaSky > 0 || sunUniforms.uChromo.value > 0)) {
+            const sd = dirs[SUN];
+            const e = cam.projectionMatrix.elements;
+            if (toNdc(cam, sd[0], sd[1], sd[2], ndcS) && toNdc(cam, moonDirCam[0], moonDirCam[1], moonDirCam[2], ndcO)) {
+                sunUniforms.uMoon.value.set((ndcO.x - ndcS.x) / e[0], (ndcO.y - ndcS.y) / e[5], moonAngR);
+            }
+            const k = sunPole[0] * sd[0] + sunPole[1] * sd[1] + sunPole[2] * sd[2];
+            if (toNdc(cam, sd[0] + 0.02 * (sunPole[0] - k * sd[0]), sd[1] + 0.02 * (sunPole[1] - k * sd[1]),
+                sd[2] + 0.02 * (sunPole[2] - k * sd[2]), ndcO)) {
+                const px = (ndcO.x - ndcS.x) / e[0], py = (ndcO.y - ndcS.y) / e[5];
+                const l = Math.hypot(px, py);
+                if (l > 1e-9) sunUniforms.uPoleUv.value.set(px / l, py / l);
+            }
+        }
 
         // Aureole: a faint halo of scattered moonlight, only under a dark-ish sky in sky view. It
         // scales with the sunlight actually on the disc, so it goes out in a total lunar eclipse.

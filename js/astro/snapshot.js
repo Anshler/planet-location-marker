@@ -40,6 +40,7 @@ import {
 } from './frames.js';
 import { refractionDeg, twilightClass } from './photometry.js';
 import { discVisibleFraction, lunarEclipseLight } from './shadow.js';
+import { bailysBeads, createBeads, NO_GAP } from './totality.js';
 
 const N_BODIES = BODIES.length;
 const SUN = 0;
@@ -66,6 +67,7 @@ const ALTAZ = { altDeg: 0, azDeg: 0 };
 const RADEC = { raDeg: 0, decDeg: 0 };
 const LATLON = { latDeg: 0, lonDeg: 0 };
 const LUNAR = { lit: 1, flux: 1 };
+const MOON_POLE = new Float64Array(3);
 
 /**
  * @typedef {import('../core/types.js').Snapshot} Snapshot
@@ -126,6 +128,7 @@ export function createSnapshot() {
         sunDirS: new Float64Array([1, 0, 0]),
         moonPosS: new Float64Array([60.27, 0, 0]),
         moonMatrix,
+        sunPoleS: new Float64Array([0, 1, 0]),
         moonPhaseDeg: 0,
         observer: {
             latDeg: 0,
@@ -139,7 +142,7 @@ export function createSnapshot() {
             twilight: 'day',
         },
         bodies: BODIES.map(makeBodyState),
-        eclipse: { solar: false, lunar: false, obscurationAtObserver: 0, moonLitFraction: 1 },
+        eclipse: { solar: false, lunar: false, obscurationAtObserver: 0, moonLitFraction: 1, beads: createBeads() },
     };
 }
 
@@ -226,7 +229,10 @@ function moonToAstrometric(d) {
  * `Equator(Sun, t, obs, false, true)` for the annual aberration that makes the
  * Moon's direction astrometric too (`moonToAstrometric`). Full detail adds
  * `Equator(…, true, true)` + `Horizon(…, 'normal')`, `Constellation` and
- * `MoonPhase`.
+ * `MoonPhase`. `RotationAxis('Sun')` (→ `sunPoleS`, the corona's orientation)
+ * runs at full detail and, during solar eclipses, at frame detail too; near
+ * second and third contact `eclipse.beads` holds the open lunar-limb valleys
+ * (astro/totality.js `bailysBeads`, from the same dirS pair as the obscuration).
  *
  * Elongation is the angle between GeoVector(Sun, t, true) and
  * GeoVector(body, t, true), i.e. exactly what AE.AngleFromSun computes, reusing
@@ -385,6 +391,24 @@ export function computeSnapshot(tMs, observer, out, opts) {
             Math.asin(Math.min(1, BODIES[MOON].radiusKm / (moon.distAU * AU_KM))),
             angleBetween3(sun.dirS, moon.dirS))
         : 0;
+
+    // Totality (render: corona orientation, Baily's beads). The Sun's IAU rotation pole at 'full'
+    // detail, and at 'frame' detail during solar eclipses, when the corona needs it.
+    if (full || ecl.solar) {
+        const pole = AE.RotationAxis('Sun', time).north;
+        setSceneUnit(out.sunPoleS, pole.x, pole.y, pole.z);
+    }
+    const mm = out.moonMatrix;
+    if (ecl.solar && sun.above) {
+        // Lunar position angles count from the Moon's north pole (its body +Z, moonMatrix column 2).
+        MOON_POLE[0] = mm[8]; MOON_POLE[1] = mm[9]; MOON_POLE[2] = mm[10];
+        bailysBeads(sun.dirS, moon.dirS, sunAngularRadius(sun.distAU),
+            Math.asin(Math.min(1, BODIES[MOON].radiusKm / (moon.distAU * AU_KM))), MOON_POLE, ecl.beads);
+    } else {
+        ecl.beads.count = 0;
+        ecl.beads.total = 0;
+        ecl.beads.gapArcsec = NO_GAP;
+    }
 
     // Eclipse dimming. AE.Illumination ignores shadows, so without this a
     // totally eclipsed Moon would still read about −12.7.

@@ -55,7 +55,8 @@ export function mountAbout(root, ctx) {
             h('h3', { class: 'group-title' }, 'Credits'),
             h('p', { class: 'prose' }, 'Stars: Hipparcos via d3-celestial. Earth imagery: Solar System Scope (CC BY 4.0); Moon: NASA. '
                 + 'Cities: GeoNames (CC BY 4.0). '
-                + 'Clouds are illustrative, not live weather.'),
+                + 'Clouds are illustrative, not live weather. In a total solar eclipse the contacts are computed, '
+                + 'but the corona’s shape, the prominences and the lunar limb behind Baily’s beads are illustrative.'),
             h('ul', { class: 'credits' }, CREDITS.map(([name, role, lic, url]) => h('li', { class: 'credit' },
                 h('span', { class: 'credit__main' }, link(url, name, 'link credit__name'), h('span', { class: 'credit__role' }, role)),
                 h('span', { class: 'credit__lic' }, lic))))),

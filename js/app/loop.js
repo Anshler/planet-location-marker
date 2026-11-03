@@ -66,6 +66,7 @@ const FEATURE_NAMES = Object.freeze({
     trails: 'Planet paths',
     eclipsePath: 'The eclipse path',
     beams: 'The beams',
+    planets: 'The planet medallions',
     pin: 'The location pin',
     flare: 'The lens flare',
     labels: 'Sky labels',

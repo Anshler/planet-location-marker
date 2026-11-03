@@ -134,6 +134,18 @@ function bodyAnchors(out, state, snap, sky, live, opts) {
             selected,
             below: labelBelow(st, sky),
         };
+        // Orbit view: the planet's medallion (render/planets.js) sits on the label's dot.
+        let med = null;
+        try {
+            med = !sky && opts.medallion ? opts.medallion(b.id, selected) : null;
+        } catch {
+            med = null;
+        }
+        if (med) {
+            a.med = med;
+            a.title = `${b.name}, magnified (not to scale)`;
+            a.ariaLabel = `${b.name}, shown magnified — show details`;
+        }
         let point = null;
         try {
             point = opts.bodyPoint ? opts.bodyPoint(b.id) : null;
@@ -308,7 +320,9 @@ function trailAnchors(out, trails) {
  * @param {{anchors?:()=>LabelAnchor[]}|null} trails  trails module (its anchors are appended)
  * @param {{mode?:'orbit'|'sky', live?:LiveVectors, bodyPoint?:(id:string)=>Float64Array|null,
  *          bodyOffset?:Float64Array[], hideBody?:(id:string)=>boolean, hideObserver?:boolean,
- *          rimCardinals?:boolean}} [opts]
+ *          rimCardinals?:boolean, medallion?:((id:string, selected:boolean)=>number[]|null)|null}} [opts]
+ *   `medallion` (render/planets.js footprint): orbit-view body labels get `med` (their dot becomes
+ *   the medallion's eyepiece ring) and a 'magnified' title.
  *   `mode` defaults to state.view.mode. `bodyPoint` (the beams module's `labelAnchor`) supplies a
  *   live world point per body; `bodyOffset`, live sky-view offsets per BODIES index (else [7, −7]).
  *   `live` supplies the fallback
@@ -406,7 +420,7 @@ function syncCardinals(live, snap) {
  *          getPin?:()=>object|null}} deps
  */
 export function createLabelsFeed({ labels, store, snap, getCatalog = () => null, getTrails = () => null, getBeams = () => null,
-    getPin = () => null }) {
+    getPin = () => null, getPlanets = () => null }) {
     /** @type {LiveVectors} */
     const live = {
         bodyOrbit: BODIES.map(() => new Float64Array(3)),
@@ -450,10 +464,13 @@ export function createLabelsFeed({ labels, store, snap, getCatalog = () => null,
     function rebuild(mode) {
         const bodyPoint = beamPointFn();
         usesBeamPoints = !!bodyPoint;
+        const planets = getPlanets();
         anchors = buildAnchors(store.get(), snap, getCatalog(), getTrails(), {
             mode,
             live,
             bodyPoint,
+            medallion: bodyPoint && planets && planets.enabled && typeof planets.footprint === 'function'
+                ? (id, sel) => planets.footprint(id, sel) : null,
             bodyOffset,
             hideBody: (id) => introHiding && !usesBeamPoints && !revealed.has(id),
             hideObserver: observerHidden,

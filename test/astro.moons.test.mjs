@@ -194,8 +194,10 @@ test('disc helpers: log spacing is continuous and monotonic; ring zones', () => 
         prev = c;
     }
     assert.ok(compressRadius(26.3) < 3.1, 'Callisto stays within ~3 radii');
-    assert.deepEqual(ringAt(1.7), [0.86, 0.62]);
-    assert.deepEqual(ringAt(1.98)[0], 0.08);
+    assert.deepEqual(ringAt(1.3), [0.128, 0.32]);
+    close(ringAt(1.7)[0], 2.2, 0.1, "B ring");
+    assert.equal(ringAt(1.98)[0], 0.083, "Cassini division");
+    assert.ok(ringAt(2.215)[0] < ringAt(2.1)[0], "Encke gap");
     assert.deepEqual(ringAt(1.1), [0, 0]);
     assert.deepEqual(ringAt(RING_OUTER + 0.01), [0, 0]);
 });

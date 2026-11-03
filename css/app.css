@@ -250,6 +250,42 @@ button.lbl:hover .lbl__dot { transform: scale(1.35); }
 @keyframes lbl-in { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: none; } }
 @keyframes lbl-dot-in { 0% { transform: scale(0); } 60% { transform: scale(1.6); } 100% { transform: scale(1); } }
 .lbl--cardinal.is-new .lbl__text { animation: none; }
+/* Planet medallions (render/planets.js): the dot becomes a transparent box of the medallion's size
+   (--med-w × --med-h, centred on the anchor) with a thin "eyepiece" ring; the WebGL mini-globe is
+   drawn under it, magnified on purpose, and the text starts after it. */
+.lbl.has-med {
+    height: var(--med-h);
+    margin: calc(var(--med-h) / -2) 0 0 calc(var(--med-w) / -2);
+    border-radius: calc(var(--med-h) / 2);
+}
+.lbl.has-med .lbl__dot,
+#labels-root.is-daysky .lbl.has-med:not(.is-below) .lbl__dot,
+#labels-root.is-daysky .lbl.has-med.is-selected:not(.is-below) .lbl__dot {
+    position: relative;
+    width: var(--med-w);
+    height: var(--med-h);
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
+}
+.lbl.has-med .lbl__dot::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: var(--med-ring);
+    height: var(--med-ring);
+    margin: calc(var(--med-ring) / -2) 0 0 calc(var(--med-ring) / -2);
+    border-radius: 50%;
+    box-shadow: 0 0 0 1px rgba(232, 238, 248, .2), 0 0 0 1px color-mix(in srgb, var(--c, #fff) 35%, transparent);
+    transition: box-shadow var(--t1);
+}
+button.lbl.has-med:hover .lbl__dot { transform: none; }
+button.lbl.has-med:hover .lbl__dot::before { box-shadow: 0 0 0 1px color-mix(in srgb, var(--c, #fff) 70%, transparent); }
+.lbl.has-med.is-selected .lbl__dot::before {
+    box-shadow: 0 0 0 1.5px var(--c, #fff), 0 0 12px color-mix(in srgb, var(--c, #fff) 55%, transparent);
+}
+.lbl.has-med.is-new .lbl__dot { animation: none; }
 
 /* 4 ─ Primitives -------------------------------------------------------------- */
 .glass {
@@ -1165,6 +1201,19 @@ body.tier-medium:not(.is-coarse) .glass {
 .card__light-ago { color: var(--muted); }
 .card__moon { color: var(--text-2); font-size: 13.5px; font-weight: 600; }
 .card__moon[hidden] { display: none; }
+/* Eyepiece portrait (ui/eyepiece.js): a dark telescope field with the body, caption beneath. */
+.eyepiece { margin: 0; display: grid; gap: 6px; justify-items: center; }
+.eyepiece[hidden] { display: none; }
+.eyepiece__cv {
+    width: 100%;
+    max-width: 320px;
+    aspect-ratio: 320 / 148;
+    border-radius: 14px;
+    border: 1px solid var(--line);
+    background: radial-gradient(ellipse at 50% 50%, #0b111c 0%, #070a11 70%, #05070c 100%);
+}
+.eyepiece__cap { color: var(--text-2); font-size: 13px; line-height: 1.45; text-align: center; max-width: 320px; }
+.eyepiece__note { color: var(--muted); font-size: 11px; letter-spacing: .02em; text-align: center; }
 .card__actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .card__action[hidden] { display: none; }
 .card__tonight {

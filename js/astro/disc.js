@@ -37,17 +37,44 @@ export const SHAPES = Object.freeze({
 });
 
 /**
- * Saturn's main rings in units of its equatorial radius: [inner, outer, opacity, albedo] for the C
- * ring, the B ring, the Cassini division and the A ring (edges from Cassini; normal opacity
- * 1 − e^(−τ) with representative optical depths; albedo relative to the B ring's peak).
+ * Saturn's main rings in units of its equatorial radius: [inner, outer, normal optical depth τ,
+ * albedo] for the C ring, the B ring (τ rising from 1.4 to 2.4 over its inner part), the Cassini
+ * division and the A ring (with the Encke gap at 2.215). Edges from Cassini; τ representative;
+ * albedo relative to the B ring's peak. {@link ringAt} and PLANET_CHUNK's plRing evaluate it.
  * @type {ReadonlyArray<readonly [number, number, number, number]>}
  */
 export const SATURN_RINGS = Object.freeze([
-    Object.freeze([1.239, 1.527, 0.12, 0.30]),
-    Object.freeze([1.527, 1.951, 0.86, 0.62]),
-    Object.freeze([1.951, 2.027, 0.08, 0.22]),
-    Object.freeze([2.027, 2.269, 0.55, 0.50]),
+    Object.freeze([1.239, 1.527, 0.128, 0.32]),
+    Object.freeze([1.527, 1.951, 2.4, 0.72]),
+    Object.freeze([1.951, 2.027, 0.083, 0.22]),
+    Object.freeze([2.027, 2.269, 0.80, 0.58]),
 ]);
+/**
+ * Mars's main albedo features, schematic: [east longitude °, latitude °, radius °, darkness
+ * (negative: a bright area)] — Syrtis Major, Sinus Sabaeus/Meridiani, Mare Erythraeum, Acidalia,
+ * Solis Lacus, Mare Sirenum, Mare Cimmerium, Mare Tyrrhenum, Utopia; Hellas, Argyre, Tharsis.
+ * @type {ReadonlyArray<readonly [number, number, number, number]>}
+ */
+export const MARS_SPOTS = Object.freeze([
+    [69, 8, 11, 0.95], [20, -8, 13, 0.75], [-40, -22, 15, 0.6], [-30, 45, 14, 0.75], [-88, -26, 7, 0.55],
+    [-150, -30, 15, 0.55], [140, -22, 18, 0.7], [105, -15, 14, 0.6], [115, 45, 16, 0.35], [70, -42, 12, -0.45],
+    [-60, -45, 13, -0.25], [-110, 5, 18, -0.2],
+].map((s) => Object.freeze(s)));
+
+/**
+ * Longitude of Jupiter's Great Red Spot in System III (east longitude, degrees, −180…180) at a
+ * UTC instant, schematic: the spot held near System II 55° W in 2025–26 and drifts ~1.5° a month,
+ * so beyond a year or two it is only illustrative. Systems II and III differ by their IAU
+ * prime-meridian rates (870.270 vs 870.536 °/day).
+ * @param {number} tMs
+ * @returns {number}
+ */
+export function grsLongitudeDeg(tMs) {
+    const d = (tMs - Date.UTC(2000, 0, 1, 12)) / 86400000;
+    const lon = (43.3 + 870.270 * d) - (284.95 + 870.536 * d) - 55;
+    return ((lon % 360) + 540) % 360 - 180;
+}
+
 /** Outer edge of the A ring, equatorial radii. */
 export const RING_OUTER = 2.269;
 
@@ -112,14 +139,15 @@ function projectUp(ez, ux, uy, uz, ey) {
 }
 
 /**
- * A scene vector in frame coordinates: out[k..k+2] = (v·ex, v·ey, v·ez).
+ * A scene vector in frame coordinates: out[k..k+2] = (v·ex, v·ey, v·ez), v read at v[j..j+2].
  * @param {DiscFrame} f
  * @param {ArrayLike<number>} v
  * @param {Float64Array|Float32Array|number[]} out
  * @param {number} [k] offset into `out`
+ * @param {number} [j] offset into `v` (e.g. a moon of snapshot.galilean.offS)
  */
-export function toFrame(f, v, out, k = 0) {
-    const x = v[0], y = v[1], z = v[2];
+export function toFrame(f, v, out, k = 0, j = 0) {
+    const x = v[j], y = v[j + 1], z = v[j + 2];
     out[k] = x * f.ex[0] + y * f.ex[1] + z * f.ex[2];
     out[k + 1] = x * f.ey[0] + y * f.ey[1] + z * f.ey[2];
     out[k + 2] = x * f.ez[0] + y * f.ez[1] + z * f.ez[2];
@@ -160,17 +188,25 @@ export function compressRadius(r, k = MOON_LOG_K) {
 }
 
 /**
- * Normal opacity and albedo of Saturn's rings at a radius (equatorial radii); [0, 0] in a gap or
- * outside the rings.
+ * Normal optical depth and albedo of Saturn's rings at a radius (equatorial radii); [0, 0]
+ * outside them. Mirrors PLANET_CHUNK's plRing (render/shaders/planets.glsl.js) term for term.
  * @param {number} r
  * @param {Float64Array|number[]} [out]
- * @returns {Float64Array|number[]} [opacity, albedo]
+ * @returns {Float64Array|number[]} [τ, albedo]
  */
 export function ringAt(r, out = [0, 0]) {
-    out[0] = 0;
-    out[1] = 0;
-    for (const z of SATURN_RINGS) {
-        if (r >= z[0] && r < z[1]) { out[0] = z[2]; out[1] = z[3]; break; }
+    const R = SATURN_RINGS;
+    let tau = 0, alb = 0;
+    if (r >= R[0][0] && r <= R[3][1]) {
+        if (r < R[0][1]) { tau = R[0][2]; alb = R[0][3]; }
+        else if (r < R[1][1]) {
+            const t = Math.min(1, Math.max(0, (r - 1.55) / 0.2));
+            tau = 1.4 + (R[1][2] - 1.4) * t * t * (3 - 2 * t);
+            alb = R[1][3];
+        } else if (r < R[2][1]) { tau = R[2][2]; alb = R[2][3]; }
+        else { tau = r > 2.212 && r < 2.218 ? 0.05 : R[3][2]; alb = R[3][3]; }
     }
+    out[0] = tau;
+    out[1] = alb;
     return out;
 }

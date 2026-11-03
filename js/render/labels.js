@@ -33,7 +33,10 @@
  * flip them without a setAnchors call: `selected` (boolean; otherwise
  * priority ≥ 100 means selected), `below` (boolean → `is-below`), `hidden`
  * (true hides the label), `faint` (boolean → `is-faint`), `gate`
- * (() => boolean; false hides the label). `update` also accepts `opts.upS`
+ * (() => boolean; false hides the label). Read when the anchor set changes: `med`
+ * ([width, height, ring] CSS px → `has-med` and `--med-w/-h/-ring`: the dot becomes the eyepiece
+ * ring of a planet medallion drawn under it, and is measured with the label) and `title` (a
+ * tooltip). `update` also accepts `opts.upS`
  * (live observer zenith): a body anchor with a `dirS` and no `below` flag
  * then gets `is-below` from the live direction. A non-finite anchor position
  * simply hides the label (e.g. beams.labelAnchor before the beam has landed).
@@ -227,6 +230,31 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
             if (color) el.style.setProperty('--c', color);
             else el.style.removeProperty('--c');
         }
+        // A marker drawn under the label's dot (a planet medallion): the dot takes its size, so the
+        // measured box — and the declutter and beams.js — cover it.
+        const m = a.med;
+        const med = m && m[0] > 0 && m[1] > 0 ? `${m[0]}|${m[1]}|${m[2] || m[1]}` : '';
+        if (force || med !== it.med) {
+            it.med = med;
+            el.classList.toggle('has-med', !!med);
+            if (med) {
+                el.style.setProperty('--med-w', `${m[0]}px`);
+                el.style.setProperty('--med-h', `${m[1]}px`);
+                el.style.setProperty('--med-ring', `${m[2] || m[1]}px`);
+            } else {
+                el.style.removeProperty('--med-w');
+                el.style.removeProperty('--med-h');
+                el.style.removeProperty('--med-ring');
+            }
+            it.measured = false;
+            measureDirty = true;
+        }
+        const title = a.title ? String(a.title) : '';
+        if (force || title !== it.title) {
+            it.title = title;
+            if (title) el.setAttribute('title', title);
+            else el.removeAttribute('title');
+        }
     }
 
     // ---- anchors ---------------------------------------------------------------------------------
@@ -258,7 +286,7 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
                 if (!it) {
                     it = {
                         id, kind, tag, node: acquire(tag), anchor: a, seq: k,
-                        text: null, aria: null, color: null,
+                        text: null, aria: null, color: null, med: null, title: null,
                         rx0: -4, ry0: -9, rx1: 40, ry1: 9, measured: false,
                         sx: 0, sy: 0, ok: false, placed: false,
                         shown: false, isNew: false, newUntil: 0, sel: false, below: false, faint: false, wx: NaN, wy: NaN,
@@ -670,6 +698,15 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
             declutterDue = true;
         },
         get visibleCount() { return visibleCount; },
+        /**
+         * Whether a label is on screen after the last update (a medallion hides with its label).
+         * @param {string} id
+         * @returns {boolean|null} null when there is no such label
+         */
+        isShown(id) {
+            const it = items.get(id);
+            return it ? it.shown === true : null;
+        },
         dispose() {
             disposed = true;
             if (timer) clearTimeout(timer);

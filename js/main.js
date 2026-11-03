@@ -355,6 +355,7 @@ async function importRenderStack() {
         trails: import('./render/trails.js'),
         eclipsePath: import('./render/eclipse-path.js'),
         beams: import('./render/beams.js'),
+        planets: import('./render/planets.js'),
         pin: import('./render/pin.js'),
         flare: import('./render/flare.js'),
         labels: import('./render/labels.js'),
@@ -849,6 +850,8 @@ async function bootRender(ctx) {
     const trails = create('trails', m.trails && (() => m.trails.createTrails(rc)));
     const eclipseRibbon = create('eclipsePath', m.eclipsePath && (() => m.eclipsePath.createEclipsePath(rc)));
     const beams = create('beams', m.beams && (() => m.beams.createBeams(rc, { reducedMotion: rm })));
+    // After the beams: the medallions sit on the label anchors the beams compute each frame.
+    create('planets', m.planets && (() => m.planets.createPlanets(rc, { beams, isLabelShown: (id) => R.labels?.isShown?.(id) ?? null })));
     const pin = create('pin', m.pin && (() => m.pin.createPin(rc)));
     create('flare', m.flare && (() => m.flare.createFlare(rc, { horizon })));
 
@@ -876,6 +879,7 @@ async function bootRender(ctx) {
         getTrails: () => R.mods.trails ?? null,
         getBeams: () => R.mods.beams ?? null,
         getPin: () => R.mods.pin ?? null,
+        getPlanets: () => (R.mods.planets && !R.loop?.isDisabled?.(R.mods.planets) ? R.mods.planets : null),
     }) : null;
     R.labelsFeed = labelsFeed;
     loader.progress(0.45, 'Loading imagery');

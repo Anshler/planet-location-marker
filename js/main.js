@@ -25,11 +25,11 @@ import * as tz from './core/tz.js';
 import * as format from './core/format.js';
 import { loadCities, placeToObserver } from './geo/cities.js';
 import { createGeocoder, createLruCache } from './geo/geocode.js';
-import { BODIES, BODY_INDEX, isBodyId, bodyById } from './astro/bodies.js';
+import { BODIES, isBodyId, bodyById } from './astro/bodies.js';
 import { createSnapshot, computeSnapshot } from './astro/snapshot.js';
 import { createAstroClient } from './astro/client.js';
 import { decodeSky, emptyCatalog } from './data/catalog.js';
-import { createActions, normalizeObserver } from './app/actions.js';
+import { createActions, normalizeObserver, selectionLook, viewModeLook } from './app/actions.js';
 import { createLoop } from './app/loop.js';
 import { createLabelsFeed } from './app/labels-feed.js';
 import { playIntro } from './app/intro.js';
@@ -831,7 +831,7 @@ async function bootRender(ctx) {
     try {
         if (hash.cam) rig.setView?.(hash.cam);
         rig.update?.(0, snap);
-        if (!hash.cam && st0.view.mode === 'sky') settle(rig.setMode?.('sky', { animate: false, look: lookFor(store, snap) }));
+        if (!hash.cam && st0.view.mode === 'sky') settle(rig.setMode?.('sky', { animate: false, look: selectionLook(store.get().selection, snap) }));
     } catch (err) {
         console.error('[main] initial camera placement failed', err);
     }
@@ -906,14 +906,6 @@ function wantIntro(env, hash, store) {
     return !prefs.load('introSeen', false);
 }
 
-/** The selected body if it is above the horizon (sky view looks at it), else the rig's default. */
-function lookFor(store, snap) {
-    const id = store.get().selection;
-    if (!id || !isBodyId(id)) return undefined;
-    const b = snap.bodies[BODY_INDEX[id]];
-    return b && b.altGeomDeg > 0 ? { azDeg: b.azGeomDeg, altDeg: b.altGeomDeg } : undefined;
-}
-
 /** Wires store changes, input and GPU events to the render stack. */
 function bindRenderState({ store, bus, clock, rc, rig, loop, snap, astro, m, labels, labelsFeed, textures }) {
     // Layers / selection / observer → modules.
@@ -932,9 +924,11 @@ function bindRenderState({ store, bus, clock, rc, rig, loop, snap, astro, m, lab
     store.subscribe((s) => s.view.earthLock, (on) => {
         try { rig.setEarthLock?.(on); } catch (err) { console.error('[main] earth-lock failed', err); }
     });
-    store.subscribe((s) => s.view.mode, (mode) => {
+    store.subscribe((s) => s.view.mode, (mode, _prev, _state, source) => {
         try {
-            settle(rig.setMode?.(mode, { animate: !store.get().status.reducedMotion, look: mode === 'sky' ? lookFor(store, snap) : undefined }));
+            // No look of its own after an event jump, which has already aimed the rig (viewModeLook).
+            const look = viewModeLook(mode, source, store.get().selection, snap);
+            settle(rig.setMode?.(mode, { animate: !store.get().status.reducedMotion, look }));
         } catch (err) {
             console.error('[main] view change failed', err);
         }
@@ -1063,7 +1057,8 @@ function bindViewInsets(rig, store) {
 
 /**
  * A click (not a drag) on the canvas: a body glyph selects it (double-click flies to it);
- * the globe in orbit view moves the observer (double-click flies closer).
+ * the globe in orbit view moves the observer (double-click flies closer); in sky view a
+ * double-click on empty sky centres it.
  */
 function handleSceneClick({ store, rc, rig, snap, pick, ndc, dbl }) {
     const camera = rig.camera ?? rc.camera;
@@ -1079,7 +1074,12 @@ function handleSceneClick({ store, rc, rig, snap, pick, ndc, dbl }) {
         store.set({ ui: { ...store.get().ui, panel: 'details' } }, 'click');
         return;
     }
-    if (store.get().view.mode !== 'orbit' || (rig.skyBlend ?? 0) > 0.5) return;
+    if (store.get().view.mode === 'sky') {
+        // Empty sky: a double-click glides there and zooms in a little (the rig ignores it mid-transition).
+        if (dbl) settle(rig.centerAt?.(ndc.x, ndc.y));
+        return;
+    }
+    if ((rig.skyBlend ?? 0) > 0.5) return;
     let ll = null;
     try {
         ll = pick?.pickEarth?.(ndc, camera, snap.earthMatrix) ?? null;

@@ -104,11 +104,25 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
     let frames = 0;
     let forceResize = true;
     let presentQueued = false;
+    let postfxFailed = false;
     const lostCbs = new Set();
     const restoredCbs = new Set();
     const invalidateCbs = new Set();
     const cleanups = [];
     let disposed = false;
+
+    // The canvas's own MSAA is fixed when the context is created, and only a 'low' boot asks for it.
+    // A context created for a composer tier has none, so a later switch to low (governor or
+    // Settings) would render with no anti-aliasing at all. Such a low tier keeps a lean chain
+    // instead: no MSAA, no bloom, and the final pass with FXAA (postfx.js).
+    let canvasAA = cfg.name === 'low';
+    try { canvasAA = !!renderer.getContext().getContextAttributes()?.antialias; } catch { /* keep the request */ }
+
+    /** The post chain a tier actually gets (see canvasAA). Called on tier changes only. */
+    function chainCfg(c) {
+        if (c.composer || canvasAA || postfxFailed) return c;
+        return { ...c, composer: true, msaa: 0, bloom: null, finalPass: true };
+    }
 
     const maxBuffer = Math.max(1024, Math.min(
         renderer.capabilities?.maxTextureSize || 4096,
@@ -135,18 +149,20 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
     }
 
     function ensurePostFx() {
-        if (cfg.composer && !postfx) {
+        const chain = chainCfg(cfg);
+        if (chain.composer && !postfx) {
             try {
-                postfx = createPostFx(renderer, scene, camera, cfg, { w: size.w, h: size.h, dpr });
+                postfx = createPostFx(renderer, scene, camera, chain, { w: size.w, h: size.h, dpr });
             } catch (err) {
                 // A broken composer must not blank the screen: render directly instead.
                 console.warn('Planet Location Marker: post-processing unavailable, rendering directly.', err);
                 postfx = null;
             }
-        } else if (!cfg.composer && postfx) {
+        } else if (!chain.composer && postfx) {
             postfx.dispose();
             postfx = null;
         }
+        return chain;
     }
 
     /** Re-reads the canvas size and DPR; cheap no-op when nothing changed. */
@@ -186,8 +202,8 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
         const gl = renderer.getContext();
         const bw = gl.drawingBufferWidth, bh = gl.drawingBufferHeight;
         cfg = resolveTier(next);
-        ensurePostFx();
-        postfx?.setTier(cfg);
+        const chain = ensurePostFx();
+        postfx?.setTier(chain);
         forceResize = true; // re-apply sizes to a freshly built composer
         resize();
         presentIfCleared(bw, bh);
@@ -251,6 +267,7 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
                 console.warn('Planet Location Marker: post-processing failed, rendering directly.', err);
                 try { postfx.dispose(); } catch { /* ignore */ }
                 postfx = null;
+                postfxFailed = true;
                 cfg = { ...cfg, composer: false };
                 renderer.render(scene, camera);
             } else {

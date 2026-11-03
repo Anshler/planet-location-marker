@@ -1,7 +1,8 @@
 /**
  * Post-processing chain (SPEC §C.6, §E.6): HDR scene target (half float, MSAA)
  * → UnrealBloom (optional, at `bloom.scale` resolution) → FinalPass
- * (ACES tone mapping + sRGB + vignette + blue-noise dither) or OutputPass.
+ * (FXAA when the target has no MSAA + ACES tone mapping + sRGB + vignette + blue-noise dither)
+ * or OutputPass.
  *
  * The bloom input and the final pass scrub NaN/Inf (`pcFinite`), so one bad scene pixel stays
  * one pixel instead of being blurred into a screen-sized black block.
@@ -43,6 +44,68 @@ void main() {
 }
 `;
 
+/**
+ * FXAA 3.11 "console" (Lottes) for scene targets without MSAA (touch Medium, SPEC §E.6), on depth
+ * silhouettes only: the Earth's limb, the Moon's disc, the pin. Stars, lines and beams are drawn
+ * anti-aliased and write no depth, and FXAA would turn a 3-px star into an X; texture detail stays
+ * sharp too. Four depth taps gate it (w = 1 − depth ∝ 1/distance, background 0); past the gate,
+ * centre and diagonal taps give the contrast and edge direction and 2–4 taps along the edge are
+ * blended. The input is HDR, so taps are tone-mapped first with an invertible max-channel
+ * Reinhard, t = c / (1 + max c): the Sun and beams cannot saturate the edge metric (√ luma) or
+ * the blend, and t / (1 − max t) maps the result back. PC_FXAA is set on tier changes only.
+ */
+const FXAA_CHUNK = /* glsl */ `
+#ifdef PC_FXAA
+#define FXAA_EDGE 0.125
+#define FXAA_EDGE_MIN 0.03125
+#define FXAA_REDUCE_MUL 0.125
+#define FXAA_REDUCE_MIN 0.0078125
+#define FXAA_SPAN_MAX 8.0
+uniform sampler2D tDepth;
+bool fxaaSilhouette(vec2 uv, vec2 px) {
+    float a = 1.0 - texture2D(tDepth, uv + vec2(-1.0, -1.0) * px).r;
+    float b = 1.0 - texture2D(tDepth, uv + vec2(1.0, -1.0) * px).r;
+    float c = 1.0 - texture2D(tDepth, uv + vec2(-1.0, 1.0) * px).r;
+    float d = 1.0 - texture2D(tDepth, uv + vec2(1.0, 1.0) * px).r;
+    float wMax = max(max(a, b), max(c, d));
+    return wMax - min(min(a, b), min(c, d)) > 0.02 * wMax;
+}
+vec3 fxaaTone(vec3 c) {
+    c = max(c, vec3(0.0));
+    return c / (1.0 + max(c.r, max(c.g, c.b)));
+}
+vec3 fxaaTap(vec2 uv) {
+    return fxaaTone(pcFinite(texture2D(tDiffuse, uv).rgb));
+}
+float fxaaLuma(vec3 t) {
+    return sqrt(dot(t, vec3(0.299, 0.587, 0.114)));
+}
+vec3 pcFxaa(vec3 hdrM, vec2 uv, vec2 px) {
+    if (!fxaaSilhouette(uv, px)) return hdrM;
+    vec3 rgbM = fxaaTone(hdrM);
+    float lM = fxaaLuma(rgbM);
+    float lNW = fxaaLuma(fxaaTap(uv + vec2(-1.0, -1.0) * px));
+    float lNE = fxaaLuma(fxaaTap(uv + vec2(1.0, -1.0) * px));
+    float lSW = fxaaLuma(fxaaTap(uv + vec2(-1.0, 1.0) * px));
+    float lSE = fxaaLuma(fxaaTap(uv + vec2(1.0, 1.0) * px));
+    float lMin = min(lM, min(min(lNW, lNE), min(lSW, lSE)));
+    float lMax = max(lM, max(max(lNW, lNE), max(lSW, lSE)));
+    if (lMax - lMin < max(FXAA_EDGE_MIN, lMax * FXAA_EDGE)) return hdrM;
+    // Along the edge: perpendicular to the luma gradient.
+    vec2 dir = vec2(-((lNW + lNE) - (lSW + lSE)), (lNW + lSW) - (lNE + lSE));
+    float reduce = max((lNW + lNE + lSW + lSE) * (0.25 * FXAA_REDUCE_MUL), FXAA_REDUCE_MIN);
+    float rcpMin = 1.0 / (min(abs(dir.x), abs(dir.y)) + reduce);
+    dir = clamp(dir * rcpMin, vec2(-FXAA_SPAN_MAX), vec2(FXAA_SPAN_MAX)) * px;
+    vec3 rgbA = 0.5 * (fxaaTap(uv + dir * (1.0 / 3.0 - 0.5)) + fxaaTap(uv + dir * (2.0 / 3.0 - 0.5)));
+    vec3 rgbB = 0.5 * rgbA + 0.25 * (fxaaTap(uv - 0.5 * dir) + fxaaTap(uv + 0.5 * dir));
+    float lB = fxaaLuma(rgbB);
+    // The wide blend crossed another edge: keep the narrow one.
+    vec3 t = (lB < lMin || lB > lMax) ? rgbA : rgbB;
+    return t / max(1.0 - max(t.r, max(t.g, t.b)), 1.0 / 4096.0);
+}
+#endif
+`;
+
 const FINAL_FRAG = /* glsl */ `
 ${FINITE_CHUNK}
 uniform sampler2D tDiffuse;
@@ -50,13 +113,16 @@ uniform vec2 uResolution;
 uniform float uVignette;
 uniform float uDither;
 varying vec2 vUv;
-
+${FXAA_CHUNK}
 float ign(vec2 p) {
     return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))));
 }
 
 void main() {
     vec3 c = pcFinite(texture2D(tDiffuse, vUv).rgb);
+    #ifdef PC_FXAA
+    c = pcFxaa(c, vUv, 1.0 / max(uResolution, vec2(1.0)));
+    #endif
     vec2 q = vUv - 0.5;
     q.x *= uResolution.x / max(uResolution.y, 1.0);
     float r = length(q) / length(vec2(0.5 * uResolution.x / max(uResolution.y, 1.0), 0.5));
@@ -68,11 +134,29 @@ void main() {
 }
 `;
 
-function createFinalPass() {
+/**
+ * Turns the final pass's FXAA on or off (a define: one program per variant, switched only on tier
+ * changes, never per frame).
+ * @param {object|null} pass FinalPass (an OutputPass has no FXAA and is left alone)
+ * @param {boolean} on
+ */
+function setFxaa(pass, on) {
+    const m = pass?.material;
+    if (!m || m.name !== 'FinalPass') return;
+    if (('PC_FXAA' in m.defines) === on) return;
+    if (on) m.defines.PC_FXAA = '';
+    else delete m.defines.PC_FXAA;
+    m.needsUpdate = true;
+}
+
+/** @param {boolean} fxaa */
+function createFinalPass(fxaa) {
     const material = new THREE.ShaderMaterial({
         name: 'FinalPass',
+        defines: fxaa ? { PC_FXAA: '' } : {},
         uniforms: {
             tDiffuse: { value: null },
+            tDepth: { value: null },
             uResolution: { value: new THREE.Vector2(1, 1) },
             uVignette: { value: 0.12 },
             uDither: { value: 1 / 255 },
@@ -173,11 +257,15 @@ export function createPostFx(renderer, scene, camera, cfg, size) {
     let finalPass = null;
 
     function makeTarget(samples) {
-        const rt = new THREE.WebGLRenderTarget(Math.max(1, Math.round(w * dpr)), Math.max(1, Math.round(h * dpr)), {
+        const s = Math.min(samples, maxSamples);
+        const rw = Math.max(1, Math.round(w * dpr)), rh = Math.max(1, Math.round(h * dpr));
+        const rt = new THREE.WebGLRenderTarget(rw, rh, {
             type: hdr ? THREE.HalfFloatType : THREE.UnsignedByteType,
-            samples: Math.min(samples, maxSamples),
+            samples: s,
             depthBuffer: true,
             stencilBuffer: false,
+            // Without MSAA the final pass's FXAA reads depth to find silhouettes.
+            depthTexture: s === 0 ? new THREE.DepthTexture(rw, rh) : null,
         });
         rt.texture.name = 'postfx.scene';
         return rt;
@@ -198,8 +286,13 @@ export function createPostFx(renderer, scene, camera, cfg, size) {
         return pass;
     }
 
+    /** FXAA stands in for MSAA when the scene target ends up with no samples. */
+    function wantFxaa() {
+        return Math.min(msaa, maxSamples) === 0;
+    }
+
     function makeFinal(final) {
-        if (final) return createFinalPass();
+        if (final) return createFinalPass(wantFxaa());
         const p = new OutputPass();
         p.needsSwap = false;
         return p;
@@ -211,6 +304,8 @@ export function createPostFx(renderer, scene, camera, cfg, size) {
         composer.addPass(renderPass);
         if (bloomPass) composer.addPass(bloomPass);
         composer.addPass(finalPass);
+        // The scene renders into readBuffer (needsSwap is false everywhere); its depth, if any.
+        if (finalPass?.uniforms?.tDepth) finalPass.uniforms.tDepth.value = composer.readBuffer.depthTexture ?? null;
         applySize();
     }
 
@@ -273,6 +368,8 @@ export function createPostFx(renderer, scene, camera, cfg, size) {
                 finalPass?.dispose();
                 useFinal = nextFinal;
                 finalPass = makeFinal(useFinal);
+            } else {
+                setFxaa(finalPass, wantFxaa());
             }
             rebuildPasses();
         },
@@ -288,5 +385,7 @@ export function createPostFx(renderer, scene, camera, cfg, size) {
         get bloomPass() { return bloomPass; },
         get finalPass() { return finalPass; },
         get hdr() { return hdr; },
+        /** True when the final pass runs FXAA (no MSAA on the scene target). */
+        get fxaa() { return !!finalPass?.material?.defines && 'PC_FXAA' in finalPass.material.defines; },
     };
 }

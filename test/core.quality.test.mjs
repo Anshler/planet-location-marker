@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-    TIERS, TIER_ORDER, detectTier, tierConfig, createGovernor, isTier, autoStartTier, learnedTierRecord,
+    TIERS, TIER_ORDER, ALL_TIERS, detectTier, tierConfig, createGovernor, isTier, isAutoTier, autoStartTier, learnedTierRecord,
     LEARNED_TIER_TTL_MS, MAX_CADENCE_MS, CADENCE_PROBE_TICKS,
 } from '../js/core/quality.js';
 
@@ -26,6 +26,54 @@ test('TIERS holds the exact E.6 values', () => {
     assert.deepEqual([...TIER_ORDER], ['low', 'medium', 'high']);
     assert.equal(isTier('medium'), true);
     assert.equal(isTier('ultra'), false);
+});
+
+test('max: every knob at or past high, manual only', () => {
+    assert.deepEqual(TIERS.max, {
+        name: 'max', dprCap: Infinity, composer: true, msaa: 16, bloom: { strength: 0.6, radius: 0.45, threshold: 0.9, scale: 1.0 },
+        earthSegments: [256, 128], dayTex: 'day8k', oceanMask: 'roughness', clouds: 'clouds8k', cloudShadows: true, bump: true,
+        atmosphere: 'raymarch', atmoSteps: 32, starMagLimit: 6.5, flare: true, labelCap: 80, twinkle: true, beamGlowPx: 14,
+        finalPass: true, moonTex: 'moon4k', anisotropy: 16, cloudShadowTaps: 5,
+    });
+    const hi = TIERS.high, mx = TIERS.max;
+    for (const k of ['dprCap', 'msaa', 'atmoSteps', 'starMagLimit', 'labelCap', 'beamGlowPx']) assert.ok(mx[k] >= hi[k], k);
+    assert.ok(mx.earthSegments[0] > hi.earthSegments[0] && mx.bloom.scale >= hi.bloom.scale);
+    assert.deepEqual([...ALL_TIERS], ['low', 'medium', 'high', 'max']);
+    assert.equal(isTier('max'), true);
+    assert.equal(isAutoTier('max'), false);
+    assert.equal(isAutoTier('high'), true);
+});
+
+test('max: per-feature fallbacks on smaller GPUs', () => {
+    const full = tierConfig('max', { maxTextureSize: 16384 });
+    assert.deepEqual([full.dayTex, full.clouds, full.moonTex, full.dprCap], ['day8k', 'clouds8k', 'moon4k', Infinity]);
+    const t4 = tierConfig('max', { maxTextureSize: 4096 });
+    assert.deepEqual([t4.dayTex, t4.clouds, t4.moonTex, t4.bump, t4.cloudShadows, t4.atmoSteps, t4.msaa],
+        ['day4k', 'brc4k', 'moon4k', true, true, 32, 16], 'only the 8192 maps step down');
+    const t2 = tierConfig('max', { maxTextureSize: 2048 });
+    assert.deepEqual([t2.dayTex, t2.clouds, t2.oceanMask, t2.moonTex, t2.bump, t2.cloudShadows, t2.atmoSteps],
+        ['day2k', 'clouds2k', 'roughness2k', 'moon', false, false, 32]);
+    assert.equal(tierConfig('max', { coarse: true }).msaa, 16, 'touch keeps MSAA on max');
+    assert.equal(tierConfig('max').dayTex, 'day8k', 'unknown size keeps 8k');
+    assert.equal(tierConfig('max', { dprCap: 1.5 }).dprCap, 1.5, 'an explicit cap still applies');
+});
+
+test('max: Auto never picks it and the governor never steps it down', () => {
+    for (const r of ['ANGLE (NVIDIA, NVIDIA GeForce RTX 4090 Direct3D11 vs_5_0 ps_5_0, D3D11)', 'Apple M3 Max', '']) {
+        assert.notEqual(detectTier(D({ rendererString: r, maxTextureSize: 32768, deviceMemory: 64 })).tier, 'max');
+    }
+    const now = Date.UTC(2026, 10, 4);
+    assert.equal(autoStartTier('max', null, 'gpu', now), 'medium', 'max is no Auto ceiling');
+    assert.equal(autoStartTier('high', learnedTierRecord('max', 'gpu', now), 'gpu', now), 'high', 'a learned max is ignored');
+    const gMax = createGovernor({ tier: 'max', ceiling: 'max' });
+    assert.equal(gMax.ceiling, 'medium', 'max cannot be the governor ceiling');
+    const gov = gov60({ tier: 'high', ceiling: 'high', dpr: 3 });
+    assert.equal(gov.pin('max'), 'max');
+    assert.equal(gov.config().name, 'max');
+    assert.equal(gov.dprCap, Infinity);
+    assert.deepEqual(feed(gov, 100, 30000), [], 'no step at 10 fps');
+    assert.equal(gov.tier, 'max');
+    assert.equal(gov.pin(null), 'high', 'back to Auto at the start tier');
 });
 
 const D = (o) => ({ webgl2: true, maxTextureSize: 16384, dpr: 1, coarse: false, screenW: 1920, screenH: 1080, saveData: false, ...o });

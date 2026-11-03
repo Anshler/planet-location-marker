@@ -25,7 +25,7 @@
  *   view:{mode:'orbit'|'sky', earthLock:boolean},
  *   layers:Layers,
  *   display:{tzMode:'observer'|'device'|'utc', hour12:boolean},
- *   quality:{setting:'auto'|'low'|'medium'|'high', active:'low'|'medium'|'high', ceiling:'low'|'medium'|'high'},
+ *   quality:{setting:'auto'|'low'|'medium'|'high'|'max', active:'low'|'medium'|'high'|'max', ceiling:'low'|'medium'|'high'},
  *   ui:{panel:'sky'|'details'|'events'|'layers'|'settings'|'about', sheet:'peek'|'half'|'full', cinema:boolean, help:boolean, palette:boolean,
  *       eclipse:EclipseFocus|null},
  *   status:{phase:'boot'|'loading'|'ready'|'error', progress:number, webgl:boolean, onlineSearch:'unknown'|'ok'|'down',
@@ -55,11 +55,14 @@
  *   eclipse:{solar:boolean, lunar:boolean, obscurationAtObserver:number, moonLitFraction:number,
  *            beads:import('../astro/totality.js').Beads}   // Baily's beads near C2/C3 of a total eclipse, else count 0
  *   }} Snapshot */
-/** @typedef {{ name:'low'|'medium'|'high', dprCap:number, composer:boolean, msaa:number,
+/** TierCfg. `dprCap` is Infinity on max (no cap). `msaa` is a request: postfx clamps it to MAX_SAMPLES.
+ *  The last three keys are max-only; absent means the 1024 Moon, 8x anisotropy and a one-tap cloud shadow.
+ * @typedef {{ name:'low'|'medium'|'high'|'max', dprCap:number, composer:boolean, msaa:number,
  *   bloom:null|{strength:number, radius:number, threshold:number, scale:number},
- *   earthSegments:[number,number], dayTex:'day2k'|'day4k', oceanMask:'derived'|'roughness2k'|'roughness',
- *   clouds:'none'|'clouds2k'|'brc4k', cloudShadows:boolean, bump:boolean, atmosphere:'analytic'|'raymarch', atmoSteps:number,
- *   starMagLimit:number, flare:boolean, labelCap:number, twinkle:boolean, beamGlowPx:number, finalPass:boolean }} TierCfg */
+ *   earthSegments:[number,number], dayTex:'day2k'|'day4k'|'day8k', oceanMask:'derived'|'roughness2k'|'roughness',
+ *   clouds:'none'|'clouds2k'|'brc4k'|'clouds8k', cloudShadows:boolean, bump:boolean, atmosphere:'analytic'|'raymarch', atmoSteps:number,
+ *   starMagLimit:number, flare:boolean, labelCap:number, twinkle:boolean, beamGlowPx:number, finalPass:boolean,
+ *   moonTex?:'moon'|'moon4k', anisotropy?:number, cloudShadowTaps?:number }} TierCfg */
 /** @typedef {{ dtMs:number, timeS:number, camera:any, viewMode:'orbit'|'sky', skyBlend:number, snap:Snapshot,
  *   pulsesActive:boolean, exposure:{stars:number, planets:number, milkyWay:number} }} FrameInfo */
 /** @typedef {{name:string, admin:string, country:string, cc:string, lat:number, lon:number, tz:string|null, pop:number,
@@ -110,16 +113,16 @@
 /** Result of `parseHash`. Every key is optional; `invalid` lists keys that were present but rejected or clamped.
  * @typedef {{ observer?:Observer&{cc:string}, tMs?:number, live?:boolean, rate?:number, playing?:boolean,
  *   view?:'orbit'|'sky', earthLock?:boolean, selection?:BodyId|null, layers?:Layers,
- *   quality?:'auto'|'low'|'medium'|'high', cam?:CamView, intro?:boolean, debug?:boolean, invalid?:string[] }} HashState */
+ *   quality?:'auto'|'low'|'medium'|'high'|'max', cam?:CamView, intro?:boolean, debug?:boolean, invalid?:string[] }} HashState */
 
 /** Device probe for `detectTier` (js/core/quality.js).
  * @typedef {{webgl2:boolean, rendererString?:string, maxTextureSize?:number, dpr?:number, deviceMemory?:number, cores?:number,
  *   coarse?:boolean, screenW?:number, screenH?:number, saveData?:boolean}} TierProbe */
 /** @typedef {{tier:'low'|'medium'|'high', ceiling:'low'|'medium'|'high', textMode:boolean, reason:string}} TierDecision */
 /** @typedef {{ sample:(dtMs:number)=>('low'|'medium'|'high'|null), idle:(dtMs:number)=>void, probe:()=>boolean,
- *   pin:(tier:'low'|'medium'|'high'|null)=>('low'|'medium'|'high'),
- *   config:()=>TierCfg, reset:()=>void, readonly tier:'low'|'medium'|'high', readonly ceiling:'low'|'medium'|'high',
- *   readonly start:'low'|'medium'|'high', readonly pinned:'low'|'medium'|'high'|null, readonly dprCap:number,
+ *   pin:(tier:'low'|'medium'|'high'|'max'|null)=>('low'|'medium'|'high'|'max'),
+ *   config:()=>TierCfg, reset:()=>void, readonly tier:'low'|'medium'|'high'|'max', readonly ceiling:'low'|'medium'|'high',
+ *   readonly start:'low'|'medium'|'high', readonly pinned:'low'|'medium'|'high'|'max'|null, readonly dprCap:number,
  *   readonly emaMs:number|null, readonly cadenceMs:number|null, readonly budgetMs:number }} Governor */
 
 /** Wall-clock fields in a time zone (js/core/tz.js). `mo` is 1-based.

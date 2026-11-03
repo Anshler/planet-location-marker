@@ -13,7 +13,7 @@ import { createStaticServer, resolveRequest, mimeFor, download } from '../script
 import { scanJs, findImports } from '../scripts/lib/jsscan.mjs';
 import { parseHtml, resolveSpecifier, resolveDocumentUrl, crawlModules } from '../scripts/lib/modgraph.mjs';
 import { siteFiles } from '../scripts/stage-site.mjs';
-import { tierTextureKeys, TIER_BUDGETS } from '../scripts/check-size.mjs';
+import { tierTextureKeys, TIER_BUDGETS, INFO_TIERS, STAGING_BUDGET } from '../scripts/check-size.mjs';
 import { iconShapes, rasterize, toSvg } from '../scripts/build-icons.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -272,6 +272,13 @@ test('check-size: tier texture selection mirrors keysForTier', () => {
     assert.deepEqual(TIER_BUDGETS, { low: 3.5e6, medium: 4.35e6, high: 5.55e6 });
     // SPEC §E.6: every tier stays under 6 MB, and the tiers grow with quality.
     assert.ok(TIER_BUDGETS.low < TIER_BUDGETS.medium && TIER_BUDGETS.medium < TIER_BUDGETS.high && TIER_BUDGETS.high < 6e6);
+    // max has no budget: it is reported, never enforced. Its 8192 maps follow their 4096 stand-ins.
+    assert.deepEqual(INFO_TIERS, ['max']);
+    assert.equal(TIER_BUDGETS.max, undefined);
+    assert.deepEqual(tierTextureKeys({ dayTex: 'day8k', oceanMask: 'roughness', clouds: 'clouds8k', moonTex: 'moon4k', flare: true }),
+        ['day4k', 'night4k', 'brc4k', 'moon', 'milkyway', 'flare0', 'flare3', 'day8k', 'night8k', 'clouds8k', 'moon4k'], 'max');
+    // The staged site carries the max maps (≈ 15 MB) with headroom; GitHub Pages allows 1 GB.
+    assert.equal(STAGING_BUDGET, 32e6);
 });
 
 // ---------------------------------------------------------------- icons

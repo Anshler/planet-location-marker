@@ -14,6 +14,7 @@ those files are recorded, with their source, recipe and hash, in
 | [d3-celestial](https://github.com/ofrohn/d3-celestial) data (Hipparcos stars, constellation figures, Milky Way outlines) | commit `7e720a3` | BSD-3-Clause | `data/sky.json`, `data/milkyway.png` (derived) |
 | [GeoNames](https://www.geonames.org/) gazetteer | dump retrieved 2026-10 | CC BY 4.0 | `data/cities.json` (derived) |
 | Earth textures by [Solar System Scope](https://www.solarsystemscope.com/textures/), via the three.js examples | three.js r170 | CC BY 4.0 | `assets/textures/earth_day_4096.jpg`, `earth_night_4096.jpg`, `earth_bump_roughness_clouds_4096.jpg`; derived: `earth_day_2048.webp`, `earth_night_2048.webp`, `earth_clouds_2048.webp`, `earth_roughness_2048.webp` |
+| Max-quality textures by [Solar System Scope](https://www.solarsystemscope.com/textures/) (8K Earth day, night and cloud maps, 8K Moon) | downloaded 2026-11, pinned by SHA-256 | CC BY 4.0 | `assets/textures/earth_day_8192.jpg`, `earth_night_8192.jpg`; derived: `earth_clouds_8192.webp`, `moon_4096.webp` |
 | Moon texture from the three.js examples (NASA-derived imagery) | three.js r170 | see below | `assets/textures/moon_1024.jpg` |
 | Lens-flare sprites from the three.js examples (made for [ro.me](http://www.ro.me)) | three.js r186 | see below | `assets/textures/lensflare0.png`, `lensflare3.png` |
 
@@ -148,6 +149,15 @@ reduced to 2048×1024; `earth_clouds_2048.webp` and `earth_roughness_2048.webp` 
 (clouds) and green (roughness) channels of `earth_bump_roughness_clouds_4096.jpg`, reduced to
 2048×1024 as greyscale and clamped to the value range the app uses; all four are re-encoded as
 WebP.
+
+The Max quality tier uses Solar System Scope's own 8192×4096 maps, downloaded from
+<https://www.solarsystemscope.com/textures/> and pinned by SHA-256 in `vendor/VENDOR.json`, under
+the same [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) licence and attribution
+(© Solar System Scope; based on NASA imagery). `earth_day_8192.jpg` (`8k_earth_daymap.jpg`) and
+`earth_night_8192.jpg` (`8k_earth_nightmap.jpg`) ship unchanged. Changes made by
+`scripts/build-textures.mjs`: `earth_clouds_8192.webp` is `8k_earth_clouds.jpg` as greyscale,
+clamped to the value range the app uses and re-encoded as WebP; `moon_4096.webp` is `8k_moon.jpg`
+reduced to 4096×2048 and re-encoded as WebP.
 
 ## Other three.js example imagery
 

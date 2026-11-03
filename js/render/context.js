@@ -25,7 +25,7 @@ import { createPostFx } from './postfx.js';
 /**
  * Fallback tier table (SPEC §E.6). Used when the caller passes a tier name or a
  * partial config; js/core/quality.js `TIERS` is the source of truth.
- * @type {Record<'low'|'medium'|'high', object>}
+ * @type {Record<'low'|'medium'|'high'|'max', object>}
  */
 export const FALLBACK_TIERS = Object.freeze({
     low: Object.freeze({
@@ -46,6 +46,13 @@ export const FALLBACK_TIERS = Object.freeze({
         earthSegments: [128, 64], dayTex: 'day4k', oceanMask: 'roughness', clouds: 'brc4k', cloudShadows: true,
         bump: true, atmosphere: 'raymarch', atmoSteps: 8, starMagLimit: 6.5, flare: true, labelCap: 40, twinkle: true,
         beamGlowPx: 14, finalPass: true,
+    }),
+    max: Object.freeze({
+        name: 'max', dprCap: Infinity, composer: true, msaa: 16,
+        bloom: Object.freeze({ strength: 0.6, radius: 0.45, threshold: 0.9, scale: 1.0 }),
+        earthSegments: [256, 128], dayTex: 'day8k', oceanMask: 'roughness', clouds: 'clouds8k', cloudShadows: true,
+        bump: true, atmosphere: 'raymarch', atmoSteps: 32, starMagLimit: 6.5, flare: true, labelCap: 80, twinkle: true,
+        beamGlowPx: 14, finalPass: true, moonTex: 'moon4k', anisotropy: 16, cloudShadowTaps: 5,
     }),
 });
 

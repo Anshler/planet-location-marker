@@ -37,7 +37,7 @@ function assertValid(out, label) {
         assert.deepEqual(Object.keys(out.layers).sort(), [...LAYER_KEYS].sort());
         for (const v of Object.values(out.layers)) assert.equal(typeof v, 'boolean');
     }
-    if ('quality' in out) assert.ok(['auto', 'low', 'medium', 'high'].includes(out.quality));
+    if ('quality' in out) assert.ok(['auto', 'low', 'medium', 'high', 'max'].includes(out.quality));
     if (out.cam) {
         const c = out.cam;
         if (c.mode === 'orbit') {
@@ -271,6 +271,10 @@ test('accepts "#…", "…", "?…" and whole URLs; first occurrence of a key wi
     assert.equal(parseHash('sel=mars').selection, 'mars');
     assert.equal(parseHash('?sel=mars').selection, 'mars');
     assert.equal(parseHash('https://anshler.github.io/planet-location-marker/?x=1#sel=mars&q=low').quality, 'low');
+    assert.equal(parseHash('#q=max').quality, 'max', 'max is a deep-linkable choice');
+    const maxState = { ...DEFAULT_STATE, quality: { setting: 'max', active: 'max', ceiling: 'high' } };
+    assert.match(serializeHash({ state: maxState, clock: { tMs: 0, rate: 1, playing: true, live: true } }), /(^#|&)q=max(&|$)/);
+    assert.equal(parseHash('#q=ultra').quality, undefined);
     assert.equal(parseHash('#sel=mars&sel=venus').selection, 'mars');
     assert.equal(parseHash('#sel=none').selection, null);
     assert.equal(parseHash('#sel=MARS').selection, 'mars');

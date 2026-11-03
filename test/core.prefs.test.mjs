@@ -64,6 +64,15 @@ test('reads values written in an earlier session', () => {
     });
 });
 
+test('a Max quality choice is saved and read back like any other', () => {
+    const ls = fakeStorage();
+    withStorage(ls, () => {
+        assert.equal(save('quality', 'max'), true);
+        assert.equal(ls.map.get('pc2.quality'), '"max"');
+        assert.equal(load('quality', 'auto'), 'max');
+    });
+});
+
 test('without localStorage everything still works for the session', () => {
     withStorage(undefined, () => {
         assert.equal(persistent(), false);

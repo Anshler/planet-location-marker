@@ -14,7 +14,7 @@ import { DEFAULT_STATE } from './store.js';
 import { canonTz, daysInMonth } from './tz.js';
 
 const BODY_IDS = Object.freeze(['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune']);
-const QUALITY_SETTINGS = Object.freeze(['auto', 'low', 'medium', 'high']);
+const QUALITY_SETTINGS = Object.freeze(['auto', 'low', 'medium', 'high', 'max']);
 /** `ly` letters in canonical order (SPEC §F.4). Case-sensitive: c = lines, C = names. */
 export const LAYER_CODES = Object.freeze([
     ['b', 'beams'], ['g', 'ghostBeams'], ['o', 'sunMoonBeams'], ['s', 'stars'], ['c', 'constellations'],

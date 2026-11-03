@@ -138,7 +138,7 @@ critical CSS read them.
 | `is-sky` | Sky view. |
 | `is-coarse` | Touch-first device. |
 | `is-reduced-motion` | The user prefers reduced motion. |
-| `tier-low`, `tier-medium`, `tier-high` | The active quality tier. |
+| `tier-low`, `tier-medium`, `tier-high`, `tier-max` | The active quality tier. |
 | `no-webgl` | Text mode. |
 | `is-intro`, `is-intro-out` | The intro is playing (UI hidden), then the UI fade-in. |
 
@@ -354,20 +354,28 @@ change.
 
 ## 8. Quality tiers
 
-| | Low | Medium | High |
-|---|---|---|---|
-| DPR cap | 1.0 | 1.5 | 2.0 |
-| Composer / MSAA | none (context antialias) | yes / 4 (0 + FXAA on touch) | yes / 4 |
-| Bloom | none | 0.55 / 0.4 / 0.9 @ ½ res | 0.6 / 0.45 / 0.9 |
-| Earth | 64×32, `day2k` + `night2k`, 2k roughness mask, no clouds | 96×48, `day4k`, 2k roughness mask, 2k clouds | 128×64, `day4k`, 4k roughness, 4k clouds + shadows + bump |
-| Atmosphere | analytic | analytic | ray-marched (8 steps) |
-| Stars to mag | 5.0 | 6.0 | 6.5 |
-| Flare / twinkle | — / — | ✓ / — | ✓ / ✓ |
-| Labels | 12 | 24 | 40 |
+| | Low | Medium | High | Max (manual only) |
+|---|---|---|---|---|
+| DPR cap | 1.0 | 1.5 | 2.0 | none (the device's own; GPU render-buffer limit still applies) |
+| Composer / MSAA | none (context antialias) | yes / 4 (0 + FXAA on touch) | yes / 4 | yes / as many as `MAX_SAMPLES` allows (FXAA if that is 0) |
+| Bloom | none | 0.55 / 0.4 / 0.9 @ ½ res | 0.6 / 0.45 / 0.9 | as High (full resolution) |
+| Earth | 64×32, `day2k` + `night2k`, 2k roughness mask, no clouds | 96×48, `day4k`, 2k roughness mask, 2k clouds | 128×64, `day4k`, 4k roughness, 4k clouds + shadows + bump | 256×128, `day8k` + `night8k` + `clouds8k` (4k first), 4k roughness + bump, soft 5-tap cloud shadows |
+| Moon map / anisotropy | 1k / 8× | 1k / 8× | 1k / 8× | `moon4k` (1k first) / 16× |
+| Atmosphere | analytic | analytic | ray-marched (8 steps) | ray-marched (32 steps) |
+| Stars to mag | 5.0 | 6.0 | 6.5 | 6.5 (the whole catalog) |
+| Flare / twinkle | — / — | ✓ / — | ✓ / ✓ | ✓ / ✓ |
+| Labels | 12 | 24 | 40 | 80 |
 
 - **Choosing the tier.** `detectTier` uses the renderer string, touch input, device memory, max
   texture size and Save-Data. Software renderers get Low. Touch devices are capped at Medium.
-  Discrete GPUs get High.
+  Discrete GPUs get High. Auto never picks Max (`isAutoTier`).
+- **Max.** "No budget": Settings → Quality → Max, `#q=max`, or a saved choice. It is always pinned,
+  so the governor never touches it. Its 8192 px Earth maps and 4096 px Moon load only on Max, after
+  the 4096 (and 1024 Moon) maps of the same imagery (`INTERIM` in `textures.js`), which show
+  meanwhile; so Max is ready as fast as High and sharpens in place. A GPU that cannot take a knob
+  loses that knob only (`tierConfig`): under 8192 px it keeps the 4k Earth maps, under 4096 the
+  4k-only features, and postfx clamps MSAA to the context. The service worker never precaches them;
+  they are cached cache-first on first use, so Max works offline after one visit.
 - **Switching.** Settings and `?q=` pin a tier. Auto lets the governor step down, never up. If the
   frame-time EMA stays above 1.3 × the budget for 2 s, it lowers the DPR by 0.25 and then drops a
   tier, with a 5 s cooldown. Under `navigator.webdriver` the governor is never sampled.
@@ -473,12 +481,18 @@ are applied live through `onExternalChange`.
   `<out>-<ms>.png`; the run then skips its wait for the intro to finish).
 - **`npm run size`** enforces the per-tier transfer budgets (low 3.5 MB, medium 4.35 MB, high
   5.55 MB raw, re-baselined from the spec's estimate to the measured unminified module graph; every
-  tier stays under 6 MB) and the 12 MB deploy limit.
+  tier stays under 6 MB) and the 32 MB deploy limit. Max (≈ 20.8 MB) is reported but has no budget;
+  its 8192 px maps (≈ 15.2 MB) are why the deploy limit went from 12 to 32 MB (the staged site is
+  ≈ 21.6 MB; GitHub Pages allows 1 GB).
 - **`npm run textures`** (`scripts/build-textures.mjs`) re-encodes the derived textures in headless
   Chrome and rewrites `vendor/DERIVED.json`. Run it after changing a recipe or a source map, and
   review the result visually. `--check` (in CI) compares hashes only, with no browser, because
   JPEG and WebP encoder output differs between Chrome versions. The vendored upstream files stay
-  in `vendor/VENDOR.json` with their upstream hashes.
+  in `vendor/VENDOR.json` with their upstream hashes. `--only=8192,moon_4096` rebuilds just the
+  matching outputs and keeps the other lock entries. The Max maps' 8192 px sources (Solar System
+  Scope's cloud map and Moon, 25 MB) are `cache` entries in `vendor/VENDOR.json`: gitignored under
+  `data/raw/textures/`, downloaded by `npm run vendor`, verified when present and skipped by
+  `--check` when not (the derived outputs' own hashes are still checked).
 
 ## 12. Conventions
 

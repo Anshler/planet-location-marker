@@ -17,7 +17,7 @@ export const CREDITS = [
     ['astronomy-engine', '2.1.19 · positions, rise/set, eclipses', 'MIT', 'https://github.com/cosinekitty/astronomy'],
     ['d3-celestial', 'star catalogue (Hipparcos), constellations, Milky Way', 'BSD 3-Clause', 'https://github.com/ofrohn/d3-celestial'],
     ['GeoNames', 'offline city list', 'CC BY 4.0', 'https://www.geonames.org/'],
-    ['Solar System Scope', 'Earth day, night and cloud maps via three.js examples', 'CC BY 4.0', 'https://www.solarsystemscope.com/textures/'],
+    ['Solar System Scope', 'Earth day, night and cloud maps (via three.js examples); 8K Earth and 4K Moon maps on Max quality', 'CC BY 4.0', 'https://www.solarsystemscope.com/textures/'],
     ['NASA Visible Earth', 'Moon imagery via three.js examples', 'Public domain', 'https://visibleearth.nasa.gov/'],
     ['Open-Meteo Geocoding', 'online place search', 'CC BY 4.0', 'https://open-meteo.com/'],
     ['Photon by Komoot', 'online place search', 'OpenStreetMap data, ODbL', 'https://photon.komoot.io/'],
@@ -53,7 +53,7 @@ export function mountAbout(root, ctx) {
                 + 'For a point clicked far from any listed city, the local time zone is estimated from longitude and marked “approx.”.')),
         h('div', { class: 'group' },
             h('h3', { class: 'group-title' }, 'Credits'),
-            h('p', { class: 'prose' }, 'Stars: Hipparcos via d3-celestial. Earth imagery: Solar System Scope (CC BY 4.0); Moon: NASA. '
+            h('p', { class: 'prose' }, 'Stars: Hipparcos via d3-celestial. Earth imagery: Solar System Scope (CC BY 4.0); Moon: NASA (on Max: Solar System Scope). '
                 + 'Cities: GeoNames (CC BY 4.0). '
                 + 'Clouds are illustrative, not live weather. In a total solar eclipse the contacts are computed, '
                 + 'but the corona’s shape, the prominences and the lunar limb behind Baily’s beads are illustrative.'),

@@ -17,6 +17,13 @@
 // GeoNames is not vendored — scripts/build-cities.mjs downloads it to a gitignored cache.
 // Textures re-encoded from these files are not vendored either: scripts/build-textures.mjs
 // makes them and locks them in vendor/DERIVED.json, so they count as listed here.
+//
+// The max quality tier's 8192 px maps come straight from Solar System Scope (CC BY 4.0), the
+// source the three.js 4096 maps were made from. Their download URLs are not versioned, so the
+// sha256 in the lock is the pin. Two of them are only inputs to build-textures (the cloud map is
+// re-encoded as grey WebP, the Moon halved): those are `cache` entries, kept in the gitignored
+// data/raw/textures/ (25 MB that never ship). This script downloads them like any other file;
+// --check verifies them when present and skips them when not (CI checks the outputs' hashes).
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -45,6 +52,12 @@ const texture = (pin, sub, file, license) => ({
 const SSS = 'CC-BY-4.0 (Solar System Scope, via three.js examples)';
 const THREE_EX = 'three.js examples (NASA-derived imagery; no separate licence stated)';
 const RO_ME = 'three.js examples (ro.me)';
+const SSS8K = { version: 'Solar System Scope 8k', base: 'https://www.solarsystemscope.com/textures/download/', license: 'CC-BY-4.0 (Solar System Scope)' };
+/** An 8192 px Solar System Scope map: shipped as-is under assets/textures/, or (cache) a build input. */
+const sss8k = (file, dst, cache = false) => ({
+    name: `texture:${file}`, version: SSS8K.version, license: SSS8K.license, url: SSS8K.base + file, path: dst,
+    ...(cache ? { cache: true } : {}),
+});
 
 /** The pinned download list (SPEC §G). Order is the order written to VENDOR.json. */
 export const MANIFEST = [
@@ -63,6 +76,10 @@ export const MANIFEST = [
     texture(TEX170, 'planets', 'moon_1024.jpg', THREE_EX),
     texture(TEX186, 'lensflare', 'lensflare0.png', RO_ME),
     texture(TEX186, 'lensflare', 'lensflare3.png', RO_ME),
+    sss8k('8k_earth_daymap.jpg', 'assets/textures/earth_day_8192.jpg'),
+    sss8k('8k_earth_nightmap.jpg', 'assets/textures/earth_night_8192.jpg'),
+    sss8k('8k_earth_clouds.jpg', 'data/raw/textures/8k_earth_clouds.jpg', true),
+    sss8k('8k_moon.jpg', 'data/raw/textures/8k_moon.jpg', true),
     ...['stars.6.json', 'constellations.lines.json', 'constellations.json', 'starnames.json', 'mw.json'].map((f) => ({
         name: D3C.name, version: D3C.version, license: D3C.license, url: `${D3C.base}data/${f}`, path: `data/raw/${f}`,
     })),
@@ -116,6 +133,7 @@ const readLocal = (m) => {
 /** --check: offline verification of one entry → problem string or null. */
 function checkEntry(m, pinned) {
     const buf = readLocal(m);
+    if (!buf && m.cache && pinned) return { skipped: m.path };   // a gitignored build input, not fetched here
     if (!buf) return `missing ${m.path}`;
     if (!pinned) return `not in VENDOR.json: ${m.path}`;
     return sha256(buf) === pinned ? null : `hash mismatch: ${m.path}`;
@@ -153,7 +171,10 @@ async function syncEntry(m, pinned, { force, update }) {
     if (pinned && hash !== pinned && !update) {
         return `local ${m.path} does not match VENDOR.json (restore it, or --update after a deliberate change)`;
     }
-    return { name: m.name, version: m.version, url: m.url, path: m.path, sha256: hash, license: m.license, bytes: buf.length };
+    return {
+        name: m.name, version: m.version, url: m.url, path: m.path, sha256: hash, license: m.license, bytes: buf.length,
+        ...(m.cache ? { cache: true } : {}),
+    };
 }
 
 async function main() {
@@ -163,6 +184,7 @@ async function main() {
     const lock = readLock();
     const problems = [];
     const entries = [];
+    const skipped = [];
 
     for (const m of MANIFEST) {
         const pinned = lock.get(m.path)?.sha256;
@@ -171,8 +193,10 @@ async function main() {
         else if (mode === 'remote') result = await verifyRemoteEntry(m);
         else result = await syncEntry(m, pinned, opts);
         if (typeof result === 'string') problems.push(result);
+        else if (result?.skipped) skipped.push(result.skipped);
         else if (result) entries.push(result);
     }
+    if (skipped.length) console.log(`not cached (build inputs, fetched by a plain run): ${skipped.join(', ')}`);
 
     const extra = unlistedFiles();
     if (extra.length) console.warn(`unlisted files (not shipped by the manifest):\n  ${extra.join('\n  ')}`);

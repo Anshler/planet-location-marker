@@ -5,7 +5,7 @@
 // applied by tierConfig(), which returns a resolved copy, so TIERS itself never changes.
 
 /** @typedef {import('./types.js').TierCfg} TierCfg */
-/** @typedef {'low'|'medium'|'high'} TierName */
+/** @typedef {'low'|'medium'|'high'|'max'} TierName */
 
 /** @param {any} o */
 function deepFreeze(o) {
@@ -36,10 +36,26 @@ export const TIERS = deepFreeze({
         clouds: 'brc4k', cloudShadows: true, bump: true, atmosphere: 'raymarch', atmoSteps: 8,
         starMagLimit: 6.5, flare: true, labelCap: 40, twinkle: true, beamGlowPx: 14, finalPass: true,
     },
+    // Manual only (Settings or #q=max): no budget. Auto never picks it, and the governor never
+    // leaves it (a chosen tier is pinned, and a pinned tier is not governed). Every knob at its
+    // ceiling: the device's full DPR (still bounded by the GPU's render-buffer size), as many MSAA
+    // samples as the context allows (postfx clamps to MAX_SAMPLES; FXAA takes over only if that
+    // is 0), 8192 px day, night and cloud maps (the 4096 ones show while they load), a 4096 px
+    // Moon, 16x anisotropy on the Earth and Moon maps, 32 atmosphere samples, soft cloud shadows
+    // and the densest Earth mesh. The star limit is the catalog's own: it stops at magnitude 6.0,
+    // so 6.5 already draws every star. tierConfig() falls back per feature, never per tier.
+    max: {
+        name: 'max', dprCap: Infinity, composer: true, msaa: 16, bloom: { strength: 0.6, radius: 0.45, threshold: 0.9, scale: 1.0 },
+        earthSegments: [256, 128], dayTex: 'day8k', oceanMask: 'roughness', clouds: 'clouds8k', cloudShadows: true, bump: true,
+        atmosphere: 'raymarch', atmoSteps: 32, starMagLimit: 6.5, flare: true, labelCap: 80, twinkle: true, beamGlowPx: 14,
+        finalPass: true, moonTex: 'moon4k', anisotropy: 16, cloudShadowTaps: 5,
+    },
 });
 
-/** Tier names from lowest to highest. */
+/** The tiers Auto and the governor move between, lowest to highest. 'max' is manual only. */
 export const TIER_ORDER = Object.freeze(['low', 'medium', 'high']);
+/** Every tier a user can choose, lowest to highest. */
+export const ALL_TIERS = Object.freeze([...TIER_ORDER, 'max']);
 
 /** Software rasterisers: always low. */
 const SOFTWARE_GPU = /SwiftShader|llvmpipe|Software/i;
@@ -49,11 +65,20 @@ const WEAK_MOBILE_GPU = /Mali-G[0-5]\d\b|Adreno \(TM\) [1-5]\d\d|PowerVR/;
 const DISCRETE_GPU = /NVIDIA|GeForce|RTX|Quadro|Radeon RX|Radeon Pro|Apple M\d (Pro|Max|Ultra)/i;
 
 /**
- * True for 'low' | 'medium' | 'high'.
+ * True for 'low' | 'medium' | 'high' | 'max'.
  * @param {unknown} t
  * @returns {t is TierName}
  */
 export function isTier(t) {
+    return t === 'low' || t === 'medium' || t === 'high' || t === 'max';
+}
+
+/**
+ * True for the tiers Auto may run at: 'low' | 'medium' | 'high' (never 'max').
+ * @param {unknown} t
+ * @returns {t is 'low'|'medium'|'high'}
+ */
+export function isAutoTier(t) {
     return t === 'low' || t === 'medium' || t === 'high';
 }
 
@@ -95,7 +120,10 @@ export function detectTier(probe) {
  * A resolved, frozen copy of TIERS[name] for this device:
  *  - coarse pointer: MSAA 0 on medium (SPEC §E.6);
  *  - maxTextureSize known and < 8192: the 2k day (and so night) map on medium (SPEC §I risk 4);
- *  - maxTextureSize known and < 4096: no 4k-only features (bump, cloud shadows, brc4k clouds, roughness mask);
+ *  - maxTextureSize known and < 8192: max keeps the 4096 day, night and cloud maps (per feature,
+ *    the rest of max stays);
+ *  - maxTextureSize known and < 4096: no 4k-only features (bump, cloud shadows, brc4k clouds,
+ *    roughness mask, the 4096 Moon);
  *  - dprCap: the governor's reduced DPR cap, never above the tier's own cap.
  * @param {TierName} name
  * @param {{coarse?:boolean, maxTextureSize?:number, dprCap?:number}} [env]
@@ -111,10 +139,15 @@ export function tierConfig(name, { coarse = false, maxTextureSize, dprCap } = {}
     if (coarse && cfg.name === 'medium') cfg.msaa = 0;
     const texKnown = Number.isFinite(maxTextureSize) && maxTextureSize > 0;
     if (texKnown && maxTextureSize < 8192 && cfg.name === 'medium') cfg.dayTex = 'day2k';
+    if (texKnown && maxTextureSize < 8192) {
+        if (cfg.dayTex === 'day8k') cfg.dayTex = 'day4k';
+        if (cfg.clouds === 'clouds8k') cfg.clouds = 'brc4k';
+    }
     if (texKnown && maxTextureSize < 4096) {
         cfg.dayTex = 'day2k';
         if (cfg.clouds === 'brc4k') cfg.clouds = 'clouds2k';
         if (cfg.oceanMask === 'roughness') cfg.oceanMask = 'roughness2k';
+        if (cfg.moonTex) cfg.moonTex = 'moon';
         cfg.bump = false;
         cfg.cloudShadows = false;
     }
@@ -136,10 +169,10 @@ export const LEARNED_TIER_TTL_MS = 30 * 864e5;
  * @returns {TierName}
  */
 export function autoStartTier(ceiling, learned, rendererString, nowMs) {
-    const ceil = isTier(ceiling) ? ceiling : 'medium';
+    const ceil = isAutoTier(ceiling) ? ceiling : 'medium';
     if (!learned || typeof learned !== 'object') return ceil;
     const { tier, renderer, atMs } = /** @type {any} */ (learned);
-    if (!isTier(tier) || renderer !== String(rendererString ?? '')) return ceil;
+    if (!isAutoTier(tier) || renderer !== String(rendererString ?? '')) return ceil;
     const age = nowMs - atMs;
     if (!(age >= 0 && age < LEARNED_TIER_TTL_MS)) return ceil;
     return rank(tier) < rank(ceil) ? tier : ceil;
@@ -178,7 +211,9 @@ export const CADENCE_STALE_MS = 5000;
  * EMA stays above 1.3 × budget for 2 s of rendered time it steps down: first the DPR cap by 0.25
  * (once per tier, never below 1.0, only if that actually lowers the effective DPR), then one tier.
  * Each step starts a 5 s cooldown with a fresh EMA. It never steps up, so it cannot oscillate.
- * pin(tier) (Settings or ?q=) disables it; pin(null) returns to auto at the start tier.
+ * pin(tier) (Settings or ?q=) disables it; pin(null) returns to auto at the start tier. 'max' is
+ * reachable only through pin(): Auto's ceiling and start are always low, medium or high, so the
+ * governor never runs at max and never steps a deliberate max choice down.
  *
  * The budget is 16.7 ms (33.4 ms on coarse pointers), or the display's own frame interval when
  * longer: Energy Saver and Low Power Mode cap rAF at 30 Hz, and a 48 Hz panel never ticks faster
@@ -207,8 +242,8 @@ export const CADENCE_STALE_MS = 5000;
  * @returns {import('./types.js').Governor}
  */
 export function createGovernor({ tier = 'medium', ceiling, coarse = false, dpr, maxTextureSize, budgetMs } = {}) {
-    const ceil = isTier(ceiling) ? ceiling : isTier(tier) ? tier : 'medium';
-    const start = isTier(tier) && rank(tier) < rank(ceil) ? tier : ceil;
+    const ceil = isAutoTier(ceiling) ? ceiling : isAutoTier(tier) ? tier : 'medium';
+    const start = isAutoTier(tier) && rank(tier) < rank(ceil) ? tier : ceil;
     let cur = start;
     const baseBudget = Number.isFinite(budgetMs) && budgetMs > 0 ? budgetMs : coarse ? 33.4 : 16.7;
     const deviceDpr = Number.isFinite(dpr) && dpr > 0 ? dpr : null;

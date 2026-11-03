@@ -1,5 +1,5 @@
 /**
- * Settings tab: quality (Auto / Low / Medium / High with the running tier),
+ * Settings tab: quality (Auto / Low / Medium / High / Max with the running tier),
  * time display zone (Observer / Device / UTC), 24-hour clock, Earth-lock,
  * Replay intro, keyboard shortcuts and Reset all settings (with confirmation).
  *
@@ -10,7 +10,10 @@ import { DEFAULT_STATE } from '../core/store.js';
 import { h, on, setText, segmented, switchRow } from './dom.js';
 import { icon } from './icons.js';
 
-const TIER_NAME = { low: 'Low', medium: 'Medium', high: 'High' };
+const TIER_NAME = { low: 'Low', medium: 'Medium', high: 'High', max: 'Max' };
+/** Max is never chosen automatically, so its cost is spelled out next to the choice. */
+const MAX_CAPTION = 'Everything at full detail: 8K Earth maps, full screen resolution, every effect at its finest. '
+    + 'Large download (about 15 MB more); for fast GPUs.';
 
 /**
  * Mounts the Settings tab.
@@ -26,7 +29,8 @@ export function mountSettings(root, ctx) {
     // Quality.
     const quality = segmented({
         label: 'Quality',
-        options: [{ value: 'auto', label: 'Auto' }, { value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' }],
+        options: [{ value: 'auto', label: 'Auto' }, { value: 'low', label: 'Low' }, { value: 'medium', label: 'Medium' }, { value: 'high', label: 'High' },
+            { value: 'max', label: 'Max' }],
         value: st0.quality?.setting || 'auto',
         onChange: (v) => ui.act('setQuality', v),
     });
@@ -94,7 +98,8 @@ export function mountSettings(root, ctx) {
         const st = store.get();
         quality.set(st.quality?.setting || 'auto');
         const active = TIER_NAME[st.quality?.active] || 'Medium';
-        setText(running, `Running: ${active}${st.quality?.setting === 'auto' ? ' · chosen automatically for this device' : ''}`);
+        setText(running, st.quality?.setting === 'max' ? MAX_CAPTION
+            : `Running: ${active}${st.quality?.setting === 'auto' ? ' · chosen automatically for this device' : ''}`);
         tzMode.set(st.display?.tzMode || 'observer');
         const mode = st.display?.tzMode || 'observer';
         const t = ui.snap?.tMs ?? ctx.clock?.tMs ?? Date.now();

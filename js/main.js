@@ -47,7 +47,7 @@ const READY_MAX_WAIT_MS = 5000;
 /** Never wait longer than this for shader compilation behind the loader. */
 const COMPILE_MAX_WAIT_MS = 10000;
 const DATA_TIMEOUT_MS = 20000;
-const QUALITY_SETTINGS = ['auto', 'low', 'medium', 'high'];
+const QUALITY_SETTINGS = ['auto', 'low', 'medium', 'high', 'max'];
 const DOUBLE_CLICK_MS = 380;
 const DOUBLE_CLICK_PX = 12;
 /** Trail (apparent path) parameters per body. */
@@ -612,7 +612,7 @@ function bindBodyClasses(store) {
     sub((s) => s.status.reducedMotion, (v) => b.classList.toggle('is-reduced-motion', !!v));
     sub((s) => s.status.webgl, (v) => b.classList.toggle('no-webgl', !v));
     sub((s) => s.quality.active, (t) => {
-        b.classList.remove('tier-low', 'tier-medium', 'tier-high');
+        b.classList.remove('tier-low', 'tier-medium', 'tier-high', 'tier-max');
         if (isTier(t)) b.classList.add(`tier-${t}`);
     });
     let fadeTimer = 0;
@@ -774,6 +774,7 @@ async function bootRender(ctx) {
     }
     R.textures = textures;
     R.texMod = m.textures;
+    textures?.setAnisotropy?.(currentCfg.anisotropy);
 
     // Star catalog (already decoded if sky.json beat the 3D engine here).
     let catalog = null;
@@ -1228,6 +1229,7 @@ function applyTierCfg(cfg) {
     const t = R.textures;
     if (t && R.texMod?.keysForTier) {
         try {
+            t.setAnisotropy?.(cfg.anisotropy);
             const keys = R.texMod.keysForTier(cfg);
             settle(t.load(readyFlag ? [...keys.critical, ...keys.deferred] : keys.critical));
         } catch (err) {

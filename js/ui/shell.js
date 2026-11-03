@@ -28,6 +28,7 @@ import { mountSettings } from './settings.js';
 import { mountAbout } from './about.js';
 import { mountLocation } from './location.js';
 import { mountHelp } from './help.js';
+import { mountEclipseHud } from './eclipse-hud.js';
 
 /** Panel tabs, in display order. */
 export const TABS = [
@@ -63,6 +64,7 @@ export function mountShell(root, ctx) {
     const viewbarEl = h('div', { class: 'viewbar' });
     const timebarEl = h('section', { class: 'timebar glass', 'aria-label': 'Time controls' });
     const stripEl = h('div', { class: 'strip' });
+    const hudEl = h('section', { class: 'ecl glass' });
     const overlay = h('div', { class: 'ui-overlay' });
 
     // ------------------------------------------------------------------ panel + tabs
@@ -118,6 +120,8 @@ export function mountShell(root, ctx) {
     children.push(mountViewSwitch(viewbarEl, ctx));
     const strip = mountBodyStrip(stripEl, ctx);
     children.push(strip);
+    const hud = mountEclipseHud(hudEl, ctx);
+    children.push(hud);
     for (const t of TABS) {
         tabs[t.id].mod = t.mount(tabs[t.id].pane, ctx);
         children.push(tabs[t.id].mod);
@@ -347,13 +351,14 @@ export function mountShell(root, ctx) {
             setRail(false);
             sheetHead.append(timebarEl, stripEl, timebar.toolsEl);
             sheetBody.append(panelEl);
-            root.append(skip, topbarEl, viewbarEl, sheet, overlay);
+            root.append(skip, topbarEl, hudEl, viewbarEl, sheet, overlay);
         } else {
             sheetBody.inert = false;
             timebar.toolsEl.inert = false;
             timebarEl.append(timebar.toolsEl);
-            if (mode === 'text') root.append(skip, topbarEl, timebarEl, panelEl, viewbarEl, overlay);
-            else root.append(skip, topbarEl, viewbarEl, timebarEl, panelEl, overlay);
+            // Text mode: the Eclipse Companion sits inline above Sky now.
+            if (mode === 'text') root.append(skip, topbarEl, timebarEl, hudEl, panelEl, viewbarEl, overlay);
+            else root.append(skip, topbarEl, hudEl, viewbarEl, timebarEl, panelEl, overlay);
             sheet.remove();
             stripEl.remove();
         }
@@ -456,7 +461,7 @@ export function mountShell(root, ctx) {
     return {
         overlay,
         update(snap) {
-            for (const c of [children[0], timebar, strip]) {
+            for (const c of [children[0], timebar, strip, hud]) {
                 try { c?.update?.(snap); } catch (err) { console.error('[ui] update failed', err); }
             }
             const mod = tabs[activeTab]?.mod;

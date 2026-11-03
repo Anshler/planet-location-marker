@@ -54,7 +54,7 @@ the UI and the render stack with literal `import('./…')` calls, so:
 |---|---|---|
 | Entry | `index.html` | Import map (`three`, `three/addons/`). `modulepreload` for three, astronomy-engine and `main.js`. Preload for `data/cities.json`. Inline loader. Classic scripts for error capture (`window.__pcLoader`) and feature detection (`window.__pcEnv`). |
 | | `js/main.js` | Boot sequence, service wiring, store-to-module subscriptions, click picking, tier switching, the intro runner, `window.__app`. |
-| App glue | `js/app/actions.js` | `createActions(deps)`: the only API the UI calls besides `store` and `clock`. Also `normalizeObserver`, `eventFraming` (how a jump frames its event) and `eclipseFocusExpired`. |
+| App glue | `js/app/actions.js` | `createActions(deps)`: the only API the UI calls besides `store` and `clock`. Also `normalizeObserver`, `eventFraming` (how a jump frames its event), `eclipseFocusExpired`, `eclipsePlayRange` and `lookSpanning`. |
 | | `js/app/loop.js` | `createLoop(deps)`: the frame loop with render-on-demand, guarded module calls and strikes, governor sampling and the 4 Hz readout. |
 | | `js/app/labels-feed.js` | `buildAnchors(state, snap, catalog, trails)` and `createLabelsFeed(deps)`: label anchors with live vectors. |
 | | `js/app/intro.js` | `playIntro(opts)`: the first-visit camera flight, pin drop and beam launch. |
@@ -87,7 +87,7 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/render/beams.js`, `pin.js`, `labels.js` | Signature beams, observer pin and horizon disc, DOM label pool. |
 | | `js/render/trails.js`, `flare.js`, `debug.js` | Retrograde paths, lens flare, `?debug=1` overlay. |
 | Camera | `js/camera/rig.js`, `picking.js` | Orbit and sky-view camera, Earth-lock, fly-to tweens; analytic globe and glyph picking. |
-| UI | `js/ui/index.js` and its modules | Shell, top bar, time bar, Sky Now, body card, events, layers, settings, about, help, toasts, shortcuts, announcer. |
+| UI | `js/ui/index.js` and its modules | Shell, top bar, time bar, Sky Now, body card, events, Eclipse Companion, layers, settings, about, help, toasts, shortcuts, announcer. |
 
 ---
 
@@ -173,6 +173,16 @@ critical CSS read them.
   that eclipse's path and the largest cities in its band, and `actions.standInPath(peakMs | event)`
   moves the observer onto the centre line (nearest point, or `{at: 'greatest'}`) like any observer
   change (named, saved, Undo) and then jumps to the eclipse as seen from there.
+  `actions.playEclipse(event)` runs the pure `eclipsePlayRange(event)` as a once-through 40 s
+  timelapse (C2 − 2 min … C3 + 2 min for a central phase above the horizon, else C1 … C4; U1 … U4
+  for the Moon) and turns the sky view to a `lookSpanning` field that holds the body's drift.
+- **Eclipse Companion** (`js/ui/eclipse-hud.js`, a shell region: under the top bar, left of the
+  floating column on phones, inline above the panels in text mode). It shows the eclipse in focus
+  (contacts recomputed with `localSolarEclipseAt` on observer changes) or a local solar or visible
+  lunar eclipse whose [first contact − 3 h, last + 30 min] holds the simulated time. Countdown,
+  contact track and disc are written from the 4 Hz `readout` only when they change; it announces
+  itself once per eclipse. 'Stand in the path' appears outside the
+  band of a central eclipse (the global `solar-eclipse` event, or a global focus, says which).
 - **`bus`** carries transient events. `readout` is the full-detail snapshot at 4 Hz, published
   only when time or the observer changed. The UI requests its own almanac data through
   `services.astro`. `main.js` pushes one almanac and events set at boot as a head start.
@@ -443,7 +453,7 @@ are applied live through `onExternalChange`.
   (those requests get HTTP 404 and are not judged) and `--at=1000,3000` (timed screenshots
   `<out>-<ms>.png`; the run then skips its wait for the intro to finish).
 - **`npm run size`** enforces the per-tier transfer budgets (low 3.38 MB, medium 4.25 MB, high
-  5.4 MB raw, re-baselined from the spec's estimate to the measured unminified module graph; every
+  5.42 MB raw, re-baselined from the spec's estimate to the measured unminified module graph; every
   tier stays under 6 MB) and the 12 MB deploy limit.
 - **`npm run textures`** (`scripts/build-textures.mjs`) re-encodes the derived textures in headless
   Chrome and rewrites `vendor/DERIVED.json`. Run it after changing a recipe or a source map, and

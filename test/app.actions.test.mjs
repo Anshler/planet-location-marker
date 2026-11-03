@@ -1,7 +1,9 @@
 // Tests for the pure helpers of js/app/actions.js.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { shadowPoint, eventFraming, eclipseFocusExpired, createActions, ECLIPSE_LEAD_MS } from '../js/app/actions.js';
+import {
+    shadowPoint, eventFraming, eclipseFocusExpired, createActions, ECLIPSE_LEAD_MS, eclipsePlayRange, lookSpanning,
+} from '../js/app/actions.js';
 import { createSnapshot, computeSnapshot } from '../js/astro/snapshot.js';
 import { localSolarEclipseAt, upcomingEvents } from '../js/astro/events.js';
 import { createStore } from '../js/core/store.js';
@@ -54,6 +56,29 @@ test('eclipseFocusExpired: more than a day from the peak, and never during the j
     assert.equal(eclipseFocusExpired(null, 0, false), false);
 });
 
+test('eclipsePlayRange: C2 − 2 min … C3 + 2 min in the path, C1 … C4 outside it, U1 … U4 for the Moon', () => {
+    const luxor = localSolarEclipseAt(LUXOR, Date.parse('2027-08-02T10:05:00Z'));
+    assert.deepEqual(eclipsePlayRange(luxor), { fromMs: luxor.c2Ms - 120e3, toMs: luxor.c3Ms + 120e3, durationS: 40, loop: 'once' });
+    // Totality below the horizon, or a partial: the whole eclipse.
+    assert.deepEqual(eclipsePlayRange({ ...luxor, centralUp: 'none' }), { fromMs: luxor.c1Ms, toMs: luxor.c4Ms, durationS: 40, loop: 'once' });
+    assert.equal(eclipsePlayRange({ ...luxor, eclipseKind: 'partial', c2Ms: null, c3Ms: null }).fromMs, luxor.c1Ms);
+    assert.deepEqual(eclipsePlayRange({ kind: 'lunar-eclipse', p1Ms: 1, u1Ms: 2, u4Ms: 8, p4Ms: 9 }), { fromMs: 2, toMs: 8, durationS: 40, loop: 'once' });
+    assert.equal(eclipsePlayRange({ kind: 'lunar-eclipse', p1Ms: 1, u1Ms: null, u4Ms: null, p4Ms: 9 }).toMs, 9, 'penumbral');
+    assert.equal(eclipsePlayRange({ kind: 'local-solar-eclipse' }), null, 'older cached event');
+    assert.equal(eclipsePlayRange({ kind: 'opposition', tMs: 5 }), null);
+});
+
+test('lookSpanning: centred on the middle of the drift, wide enough for all of it', () => {
+    const still = lookSpanning([{ azDeg: 180, altDeg: 60 }, { azDeg: 180, altDeg: 60 }, { azDeg: 180, altDeg: 60 }], 5);
+    assert.deepEqual(still, { azDeg: 180, altDeg: 60, fovDeg: 5 });
+    // 10° either side of the middle on the horizon: 2.5 × 10 + 1 = 26°.
+    const wide = lookSpanning([{ azDeg: 90, altDeg: 0 }, { azDeg: 100, altDeg: 0 }, { azDeg: 110, altDeg: 0 }], 10);
+    assert.equal(wide.azDeg, 100);
+    assert.ok(Math.abs(wide.fovDeg - 26) < 1e-9, String(wide.fovDeg));
+    assert.equal(lookSpanning([{ azDeg: 0, altDeg: -30 }, { azDeg: 0, altDeg: -20 }, { azDeg: 0, altDeg: 80 }]).fovDeg, 100);
+    assert.equal(lookSpanning([{ azDeg: 0, altDeg: -30 }, { azDeg: 0, altDeg: -20 }, { azDeg: 0, altDeg: 80 }]).altDeg, -5);
+});
+
 /** Actions on a real store with a recording clock, without the 3D view. */
 function makeActions(extra = {}) {
     const store = createStore({ observer: LUXOR, view: { mode: 'orbit', earthLock: true }, status: { reducedMotion: true } });
@@ -64,6 +89,7 @@ function makeActions(extra = {}) {
         play() { calls.push(['play']); },
         setRate(r) { calls.push(['rate', r]); },
         setTime(t, o) { calls.push(['time', t, o?.animateMs ?? 0]); this.tMs = t; },
+        setRange(r) { calls.push(['range', r]); return true; },
     };
     const toasts = [];
     const actions = createActions({
@@ -84,6 +110,18 @@ test('jumpToEvent: a total solar eclipse plays from C2 − 20 s and becomes the 
     // A non-solar event clears it.
     actions.jumpToEvent({ kind: 'opposition', tMs: Date.parse('2027-09-01T00:00:00Z'), select: 'saturn' });
     assert.equal(store.get().ui.eclipse, null);
+});
+
+test('playEclipse runs the timelapse once, selects the Sun and switches to sky view', () => {
+    const { store, calls, actions } = makeActions();
+    const ev = localSolarEclipseAt(LUXOR, Date.parse('2027-08-02T10:05:00Z'));
+    assert.equal(actions.playEclipse(ev), true);
+    assert.deepEqual(calls, [['range', eclipsePlayRange(ev)]]);
+    assert.equal(store.get().selection, 'sun');
+    assert.equal(store.get().view.mode, 'sky');
+    assert.equal(store.get().ui.eclipse.peakMs, ev.tMs);
+    assert.equal(actions.playEclipse({ kind: 'opposition', tMs: 5 }), false);
+    assert.equal(calls.length, 1);
 });
 
 test('standInPath moves the observer onto the centre line and frames the eclipse from there', async () => {

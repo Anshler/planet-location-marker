@@ -43,7 +43,10 @@ const MOON_AUREOLE_RAD = 9 * DEG;
 const SUN_E = 1.6;
 // Lunar eclipse umbra adaptation: uUmbraGain = 1 / (1 + moonLitFraction / UMBRA_ADAPT).
 const UMBRA_ADAPT = 0.015;
+// Selection reticle radius, CSS px: RETICLE_PX, or a disc's radius + RETICLE_GAP_PX for the Sun and
+// Moon (app/labels-feed.js mirrors both to keep the selected label outside the ring).
 const RETICLE_PX = 14;
+const RETICLE_GAP_PX = 7;
 const ACQUIRE_S = 0.45;
 const EXT_K = [0.10, 0.17, 0.30];
 
@@ -476,8 +479,15 @@ export function createBodies(rc, deps = {}) {
             const d = selIndex === MOON ? moonDirCam : dirs[selIndex];
             reticleUniforms.uDir.value.set(d[0], d[1], d[2]);
             let radiusPx = RETICLE_PX * dpr;
-            if (selIndex === MOON) radiusPx = Math.max(radiusPx, moonAngR * pxPerRad + 7 * dpr);
-            else if (selIndex === SUN) radiusPx = Math.max(radiusPx, sunR * pxPerRad + 7 * dpr);
+            if (selIndex === MOON) radiusPx = Math.max(radiusPx, moonAngR * pxPerRad + RETICLE_GAP_PX * dpr);
+            else if (selIndex === SUN) {
+                // In a solar eclipse the Moon's disc is often the larger one: frame whichever disc is
+                // bigger, or the ring hugs the Moon's limb (labels-feed mirrors this for the label).
+                const sd = dirs[SUN];
+                const sep = Math.acos(clamp(sd[0] * moonDirCam[0] + sd[1] * moonDirCam[1] + sd[2] * moonDirCam[2], -1, 1));
+                const discR = sep < sunR + moonAngR ? Math.max(sunR, moonAngR) : sunR;
+                radiusPx = Math.max(radiusPx, discR * pxPerRad + RETICLE_GAP_PX * dpr);
+            }
             const tS = Number.isFinite(fi.timeS) ? fi.timeS : 0;
             if (acquireStart !== acquireStart) acquireStart = tS;
             const p = reducedMotion ? 1 : clamp((tS - acquireStart) / ACQUIRE_S, 0, 1);

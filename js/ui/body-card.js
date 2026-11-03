@@ -168,7 +168,8 @@ export function mountBodyCard(root, ctx) {
         setAttr(actFoot, 'aria-pressed', String(!!ly.footprint));
         const sky = store.get().view?.mode === 'sky';
         actLook.lastChild.textContent = sky ? 'Aim here' : 'Look from here';
-        actFrom.hidden = sky;   // a globe view; in sky view 'Center' already turns to the body
+        // A globe view: in sky view 'Center' already turns to the body, and text mode has no globe.
+        actFrom.hidden = sky || store.get().status?.webgl === false;
     }
 
     function update(snap) {
@@ -309,6 +310,7 @@ export function mountBodyCard(root, ctx) {
     offs.push(store.subscribe((st) => st.selection, (id) => { showFor(id); if (ui.snap) update(ui.snap); }, { immediate: true }));
     offs.push(store.subscribe((st) => st.layers, syncLayerButtons));
     offs.push(store.subscribe((st) => st.view, syncLayerButtons));
+    offs.push(store.subscribe((st) => st.status?.webgl, syncLayerButtons));
     offs.push(ui.on('almanac', () => { if (ui.snap && sel()) update(ui.snap); }));
     offs.push(ui.on('display', () => { if (ui.snap && sel()) update(ui.snap); }));
     syncLayerButtons();

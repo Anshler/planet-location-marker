@@ -269,3 +269,24 @@ test('mirrored constants match render/bodies.js and the star shader', () => {
     assert.match(read('js/render/sky.js'), /const starExp = exposure\.stars;/, 'sky.js draws with exposure.stars');
     assert.match(read('js/app/loop.js'), /labelView\.starExposure = exposure\.stars;/, 'labels gate on the same exposure');
 });
+
+test('medallions: orbit-view planet labels carry the medallion footprint and a magnified title; sky view does not', () => {
+    const calls = [];
+    const medallion = (id, sel) => {
+        calls.push([id, sel]);
+        return id === 'sun' || id === 'moon' ? null : [sel ? 40 : 26, sel ? 40 : 26, sel ? 40 : 26];
+    };
+    const orbit = buildAnchors(state({ selection: 'saturn' }), SUNSET, null, null, { mode: 'orbit', medallion });
+    const sat = orbit.find((a) => a.id === 'saturn');
+    assert.deepEqual(sat.med, [40, 40, 40]);
+    assert.match(sat.title, /magnified/);
+    assert.match(sat.ariaLabel, /magnified/);
+    assert.deepEqual(orbit.find((a) => a.id === 'mars').med, [26, 26, 26]);
+    assert.equal(orbit.find((a) => a.id === 'moon').med, undefined, 'no medallion for the Moon');
+    assert.ok(calls.some(([id, sel]) => id === 'saturn' && sel === true));
+    const sky = buildAnchors(state({ selection: 'saturn' }), SUNSET, null, null, { mode: 'sky', medallion });
+    assert.ok(sky.every((a) => a.med === undefined));
+    // A throwing provider never breaks the anchor list.
+    const safe = buildAnchors(state(), SUNSET, null, null, { mode: 'orbit', medallion: () => { throw new Error('x'); } });
+    assert.equal(safe.find((a) => a.id === 'mars').med, undefined);
+});

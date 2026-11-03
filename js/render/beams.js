@@ -17,6 +17,9 @@
  *    "labels fade in as each beam lands" falls out of the launch for free.
  *  - `prime()` hides every beam until the next `launch()` (call at intro start).
  *  - `skipLaunch()` completes a running launch at once (intro skipped).
+ *  - `setFootprint(id, halfW, halfH)` reserves a marker centred on a body's label anchor (a planet
+ *    medallion, render/planets.js): the anchor keeps it inside the free area and the label
+ *    de-overlap treats it as part of the label box.
  *
  * No per-frame allocation (R5): every buffer and scratch object is created once.
  *
@@ -150,6 +153,9 @@ export function createBeams(rc, deps = {}) {
     const progress = new Float64Array(N).fill(1);
     const launchStart = new Float64Array(N);
     const anchors = BODIES.map(() => new Float64Array([NaN, NaN, NaN]));
+    // Half-width and half-height (CSS px) of a marker centred on the anchor, e.g. a planet medallion
+    // (render/planets.js setFootprint): label boxes are at least that big, text to its right.
+    const footprint = new Float64Array(N * 2);
     let hasSnap = false;
     for (let i = 0; i < N; i++) dirs[i * 3] = 1;
 
@@ -362,12 +368,6 @@ export function createBeams(rc, deps = {}) {
         const ins = size?.insets;
         const insL = ins ? ins.left || 0 : 0, insR = ins ? ins.right || 0 : 0;
         const insT = ins ? ins.top || 0 : 0, insB = ins ? ins.bottom || 0 : 0;
-        // Free area for the anchor point (CSS px), before the per-body text extent.
-        const ax0 = insL + LABEL_PAD + LABEL_LEFT;
-        const ay0 = insT + LABEL_PAD + LABEL_HALF_H;
-        const ay1 = h - insB - LABEL_PAD - LABEL_HALF_H;
-        const yTop = 1 - (2 * ay0) / h, yBot = 1 - (2 * ay1) / h;
-        const xa = (2 * ax0) / w - 1;
         const near = cam.near * 1.05;
         const beamsShown = group.visible;
         const st = aState.array;
@@ -377,6 +377,14 @@ export function createBeams(rc, deps = {}) {
             _cand[i] = 0;
             const dx = dirs[i * 3], dy = dirs[i * 3 + 1], dz = dirs[i * 3 + 2];
             if (!hasSnap || progress[i] < 0.98) { out[0] = out[1] = out[2] = NaN; continue; }
+            // Free area for the anchor point (CSS px), before the per-body text extent; a marker
+            // (medallion) centred on the anchor widens the label's left and vertical extent.
+            const halfH = Math.max(LABEL_HALF_H, footprint[i * 2 + 1]);
+            const ax0 = insL + LABEL_PAD + Math.max(LABEL_LEFT, footprint[i * 2]);
+            const ay0 = insT + LABEL_PAD + halfH;
+            const ay1 = h - insB - LABEL_PAD - halfH;
+            const yTop = 1 - (2 * ay0) / h, yBot = 1 - (2 * ay1) / h;
+            const xa = (2 * ax0) / w - 1;
             const instanceShown = beamsShown && st[i * 4 + 2] > 0.5;
             const xb = (2 * (w - insR - LABEL_PAD - rightExtent(i))) / w - 1;
             if (!instanceShown || !(xb > xa) || !(yTop > yBot)) {
@@ -435,7 +443,10 @@ export function createBeams(rc, deps = {}) {
     /** Px a body's label extends right of its anchor: measured when available, else estimated. */
     function rightExtent(i) {
         const e = labelExtent(BODIES[i].id);
-        const r = e ? e[2] : LABEL_RIGHT[i];
+        const fw = footprint[i * 2];
+        // A measured box already holds the marker (the label's dot is sized to it); the estimate
+        // gains the marker's width.
+        const r = e ? Math.max(e[2], fw) : LABEL_RIGHT[i] + (fw > LABEL_LEFT ? 2 * fw - 2 * LABEL_LEFT : 0);
         return i === selected ? r + LABEL_SEL_EXTRA : r;
     }
 
@@ -471,10 +482,11 @@ export function createBeams(rc, deps = {}) {
         const sx = (X / W * 0.5 + 0.5) * w, sy = (0.5 - Y / W * 0.5) * h;
         const b = k * 4;
         const e = labelExtent(BODIES[i].id);
-        _boxes[b] = sx + (e ? e[0] : -LABEL_LEFT) - LABEL_GAP;
-        _boxes[b + 1] = sy + (e ? e[1] : -LABEL_HALF_H) - LABEL_GAP;
+        const fw = footprint[i * 2], fh = footprint[i * 2 + 1];
+        _boxes[b] = sx + Math.min(e ? e[0] : -LABEL_LEFT, -fw) - LABEL_GAP;
+        _boxes[b + 1] = sy + Math.min(e ? e[1] : -LABEL_HALF_H, -fh) - LABEL_GAP;
         _boxes[b + 2] = sx + rightExtent(i) + LABEL_GAP;
-        _boxes[b + 3] = sy + (e ? e[3] : LABEL_HALF_H) + LABEL_GAP;
+        _boxes[b + 3] = sy + Math.max(e ? e[3] : LABEL_HALF_H, fh) + LABEL_GAP;
         return true;
     }
 
@@ -669,6 +681,17 @@ export function createBeams(rc, deps = {}) {
         getTip,
         labelAnchor,
         isLanded,
+        /**
+         * Reserves a marker of half-size (halfW, halfH) CSS px centred on a body's label anchor
+         * (0, 0 clears it): beam labels then de-overlap with the marker included.
+         * @param {string} id @param {number} halfW @param {number} halfH
+         */
+        setFootprint(id, halfW, halfH) {
+            const i = ID_INDEX[id];
+            if (i === undefined) return;
+            footprint[i * 2] = Math.max(0, Number(halfW) || 0);
+            footprint[i * 2 + 1] = Math.max(0, Number(halfH) || 0);
+        },
         get launching() { return launching; },
         dispose() {
             if (launchResolve) settleLaunch(false);

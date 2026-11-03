@@ -41,7 +41,13 @@
  *   altDeg:number, azDeg:number,                  // apparent, refracted ('normal')
  *   raJ2000H:number, decJ2000Deg:number, raDateH:number, decDateDeg:number,
  *   mag:number, phaseFrac:number, phaseAngleDeg:number, elongDeg:number, elongSide:'morning'|'evening'|null,
- *   angDiamArcsec:number, constellation:{symbol:string,name:string}, subLatDeg:number, subLonDeg:number, above:boolean }} BodyState */
+ *   angDiamArcsec:number, constellation:{symbol:string,name:string}, subLatDeg:number, subLonDeg:number, above:boolean,
+ *   // disc drawing (astro/disc.js), every detail level:
+ *   poleS:Float64Array,     // IAU north pole (planets and the Moon; the Sun's at 'full' or in solar eclipses)
+ *   primeS:Float64Array,    // prime meridian direction, on the body's equator (planets, the Moon)
+ *   spinDeg:number,         // IAU prime-meridian angle W, 0…360 (planets: at t − light time)
+ *   lightS:Float64Array,    // unit vector from the body toward the Sun (the Sun: toward the observer)
+ *   ringTiltDeg:number }} BodyState  // Saturn: AE Illumination ring_tilt (positive: south face seen); 0 otherwise */
 /** @typedef {{ tMs:number, jdUT:number, detail:'frame'|'full', gastDeg:number,
  *   earthMatrix:Float64Array,  // 16, column-major: earth-geometry-local → world (rotation only)
  *   earthQuat:Float64Array,    // 4, (x,y,z,w), same rotation
@@ -55,6 +61,8 @@
  *   bodies:BodyState[],        // always 9, in BODIES order
  *   eclipse:{solar:boolean, lunar:boolean, obscurationAtObserver:number, moonLitFraction:number,
  *            beads:import('../astro/totality.js').Beads},  // Baily's beads near C2/C3 of a total eclipse, else count 0
+ *   galilean:import('../astro/moons.js').Galilean,  // Jupiter's four moons (every detail level)
+ *   libration:{elonDeg:number, elatDeg:number},     // the Moon's libration; refreshed at 'full' only
  *   skyglow:import('../astro/skyglow.js').Skyglow   // the night sky's brightness; filled by the frame loop
  *   }} Snapshot */
 /** TierCfg. `dprCap` is Infinity on max (no cap). `msaa` is a request: postfx clamps it to MAX_SAMPLES.

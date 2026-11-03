@@ -5,6 +5,7 @@
  * - the position sentence ("Mars is 34° above the south-east horizon, in Taurus.");
  * - the light-time sentence ("The light you see from Mars left 12 min 31 s ago.");
  * - Moon extras: phase name and age;
+ * - the eyepiece portrait (ui/eyepiece.js): the body as a small telescope shows it now;
  * - actions: Look from here · Center · View from <body> (globe view) · Path ±6 months ·
  *   Show where it's visible;
  * - fact grid: altitude/azimuth (refracted), rise · transit · set, distance,
@@ -20,6 +21,7 @@ import { BODIES, BODY_INDEX, AU_KM } from '../astro/bodies.js';
 import { h, on, setText, setAttr } from './dom.js';
 import { icon } from './icons.js';
 import { moonPhaseName, isUp, lunarEclipseState, solarEclipseState, shownMag } from './sky-now.js';
+import { createEyepiece } from './eyepiece.js';
 
 const SYNODIC_DAYS = 29.530589;
 
@@ -71,6 +73,8 @@ export function mountBodyCard(root, ctx) {
     const light = h('p', { class: 'card__light' }, h('span', { class: 'card__light-icon', 'aria-hidden': 'true' }, icon('sparkle', { size: 16 })),
         h('span', null, lightText, ' ', lightAgo));
     const moonLine = h('p', { class: 'card__moon', hidden: true });
+    // The eyepiece portrait (ui/eyepiece.js): Jupiter's moons, Saturn's rings, the libration-true Moon.
+    const eyepiece = createEyepiece();
 
     const actLook = actionBtn('sky', 'Look from here', 'Stand at the observer and look toward it');
     const actCenter = actionBtn('target', 'Center', 'Turn the view toward it');
@@ -119,7 +123,7 @@ export function mountBodyCard(root, ctx) {
             h('div', { class: 'card__disc' }, disc),
             h('div', { class: 'card__titles' }, nameEl, kindEl),
             verdict),
-        sentence, light, moonLine, actions, tonight, grid,
+        sentence, light, moonLine, eyepiece.el, actions, tonight, grid,
         h('p', { class: 'note' }, 'Tables show apparent, refracted values; the 3D view draws astrometric J2000 directions.'));
 
     root.append(empty, card);
@@ -286,6 +290,7 @@ export function mountBodyCard(root, ctx) {
                 ? (sol ? `The Sun’s disc, ${sol.kind === 'total' ? 'hidden by the Moon' : `${sol.pct}% covered by the Moon`}` : 'The Sun’s disc')
                 : `${info.name}: ${Math.round(frac * 100)}% of the disc lit, lit side ${litRight ? 'right' : 'left'}`);
         }
+        eyepiece.update(snap, id);
         syncLayerButtons();
     }
 
@@ -317,7 +322,7 @@ export function mountBodyCard(root, ctx) {
 
     return {
         update,
-        destroy() { offs.forEach((off) => off()); root.textContent = ''; },
+        destroy() { offs.forEach((off) => off()); eyepiece.destroy(); root.textContent = ''; },
     };
 }
 

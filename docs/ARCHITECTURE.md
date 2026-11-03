@@ -81,6 +81,7 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/astro/worker.js`, `client.js` | Module worker plus a Promise client with a main-thread fallback. |
 | | `js/astro/shadow.js`, `photometry.js` | Eclipse disc overlap; B−V colour, refraction (and `liftByRefraction`, the sky view's drawn positions), airmass, limiting magnitude, adapting luminance (night vision), exposure. |
 | | `js/astro/skyglow.js` | The night sky's own brightness: KS91 moonlight, van Rhijn airglow, Walker's-law light pollution from `data/cities.json` (16-bin azimuth dome), SQM, Bortle, limiting magnitude; `computeSkyglow` fills `snap.skyglow`. |
+| | `js/astro/disc.js`, `moons.js` | A body's disc as seen from the observer: the sky-plane frame and pole/prime meridian/Sun in it (`discFrame`, `discView`), shapes, Saturn's ring radii, the moons' log spacing; Jupiter's Galilean moons at Jupiter's light time with transit/occultation/eclipse/shadow flags (`computeGalilean`), the libration's limb feature, Saturn's next edge-on run. Shared by the medallions and the eyepiece card (ASTRONOMY.md §4). |
 | | `js/astro/totality.js` | Totality from the ground: Baily's beads (lunar limb profile), corona epoch parameters, contact-time display adaptation, the horizon ring's azimuthal shape. Illustrative in detail (ASTRONOMY.md). |
 | Data | `js/data/catalog.js` | Decodes `data/sky.json` into GPU-ready typed arrays in the scene frame. |
 | Render | `js/render/context.js` | Renderer, scene, camera, tier switching, `invalidate`/`onInvalidate`, context loss, stats. |
@@ -89,12 +90,13 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/render/earth.js`, `atmosphere.js` | Earth shader (day, night lights, glint, twilight, clouds, eclipse shadow, footprint) and atmosphere. |
 | | `js/render/skyglow.js` | Uniforms of `SKYGLOW_CHUNK` (`shaders/skyglow.glsl.js`), filled from `snap.skyglow`: the moonlit sky and the city light dome per direction, for the dome, ground, stars and Milky Way. |
 | | `js/render/sky.js`, `bodies.js`, `ground.js` | Stars, constellations, Milky Way and grids; Sun (with totality's thin crescent, corona, chromosphere and prominences under `SUN_ECLIPSE`), planets and the true-scale Moon; sky-view dome and ground (totality's 360° horizon ring, the illustrative landscape and sea, twilight- and moonlit land). |
+| | `js/render/planets.js` | Planet medallions: each orbit-view beam ends in a magnified (~26 px) mini-globe at its label anchor, drawn by the shared impostor `PLANET_CHUNK` (`shaders/planets.glsl.js`: oblate spheroid on the IAU pole, true phase, Saturn's rings and their shadows, Jupiter's moons and shadows; reusable at true scale via `writeDiscInstance`/`writeJupiterMoons`). |
 | | `js/render/totality.js` | Baily's beads and the diamond ring: up to eight HDR point sprites at `snap.eclipse.beads` (the flare's starburst follows the brightest). |
 | | `js/render/beams.js`, `pin.js`, `labels.js` | Signature beams, observer pin and horizon disc, DOM label pool. |
 | | `js/render/trails.js`, `flare.js`, `debug.js` | Retrograde paths, procedural lens flare (six-spike starburst, hexagonal aperture ghosts; no textures), `?debug=1` overlay. |
 | | `js/render/eclipse-path.js` | The path of a central solar eclipse on the globe: ribbon, centre line, 30-min ticks, the live umbra marker; reveal modes for the chase. |
 | Camera | `js/camera/rig.js`, `picking.js` | Orbit and sky-view camera, Earth-lock, fly-to tweens, `follow()` (the shadow chase); analytic globe and glyph picking. |
-| UI | `js/ui/index.js` and its modules | Shell, top bar, time bar, Sky Now, body card, events, Eclipse Companion, layers, settings, about, help, toasts, shortcuts, announcer. |
+| UI | `js/ui/index.js` and its modules | Shell, top bar, time bar, Sky Now, body card (with `eyepiece.js`: the 2D-canvas eyepiece portrait, also in text mode), events, Eclipse Companion, layers, settings, about, help, toasts, shortcuts, announcer. |
 
 ---
 
@@ -310,6 +312,7 @@ The render order is fixed in SPEC §E.1. From back to front:
 - 15 and 16: the eclipse path ribbon and its umbra marker (above the cloud shell, no depth write)
 - 20: atmosphere
 - 30 and 31: beams, normal and x-ray
+- 33: planet medallions (`render/planets.js`, depth-tested, over the beams that end in them)
 - 40: pin
 - 50: flare
 
@@ -321,6 +324,8 @@ all declare both, or one inherits another's lift: `createLineLayer` always does 
 with strength 0). The Moon's vertex shader lifts each vertex about the camera, `DISC_FRAG` flattens
 the Sun, and JS uses `astro/photometry.js liftByRefraction` wherever a direction becomes a screen
 position or a horizon test (labels, picking, the flare).
+
+**Planet medallions.** `render/planets.js` is created after the beams, so it reads the label anchors `beams.update` has just placed. It reports each medallion's footprint with `beams.setFootprint(id, halfW, halfH)`, and the labels feed passes it to the label pool as `med` (the label's dot becomes the medallion's eyepiece ring and is measured with the label). Beam labels therefore de-overlap with the medallion included, and a medallion fades with its label (`labels.isShown`). The impostor is one fragment function, `planetShade` in `PLANET_CHUNK`, in the frame of `astro/disc.js`; a true-scale consumer (a sky-view telescope zoom) fills the same per-instance pole/prime/light with `writeDiscInstance(st, cameraUp, …)` and the moon uniforms with `writeJupiterMoons(snap, frame, uniforms, false)`. The Details card's eyepiece (`ui/eyepiece.js`) ports the same shading to a 2D canvas (`js/ui` never imports `js/render`), redrawn only when its key changes.
 
 **One horizon.** `main.js` creates a single `geo/horizon.js` profile and hands it to the ground
 (which builds it once per observer change, from the city list and the ocean mask read back

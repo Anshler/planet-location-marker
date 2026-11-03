@@ -4,7 +4,14 @@
  * `createSnapshot()` preallocates every typed array once; `computeSnapshot()`
  * rewrites them in place and allocates no typed arrays or containers of its
  * own (astronomy-engine's internal temporaries are unavoidable). Measured cost
- * in Node 22 on a desktop CPU: about 0.14 ms for 'frame', 0.23 ms for 'full'.
+ * in Node 22 on a desktop CPU: about 0.15 ms for 'frame', 0.22 ms for 'full'.
+ *
+ * Disc drawing (render/planets.js, ui/eyepiece.js, via astro/disc.js) gets, at both details:
+ * each planet's IAU pole `poleS`, prime meridian `primeS` and `spinDeg` at the instant its light
+ * left (AE.RotationAxis at t − light time; seven cheap calls, ~6 µs, so the renderers' 'frame'
+ * snapshot has them too), every body's `lightS` toward the Sun, Saturn's `ringTiltDeg` (from the
+ * Illumination already computed) and Jupiter's moons (`galilean`, astro/moons.js, ~20 µs). The
+ * Moon's libration (`libration`, AE.Libration) only feeds the panels, so it is 'full' only.
  *
  * Detail levels:
  *  - 'frame' fills everything the renderers need. Beyond the spec's per-frame
@@ -42,10 +49,12 @@ import { refractionDeg, twilightClass } from './photometry.js';
 import { discVisibleFraction, lunarEclipseLight } from './shadow.js';
 import { bailysBeads, createBeads, NO_GAP } from './totality.js';
 import { createSkyglow } from './skyglow.js';
+import { createGalilean, computeGalilean, lunarLibration } from './moons.js';
 
 const N_BODIES = BODIES.length;
 const SUN = 0;
 const MOON = 1;
+const JUPITER = BODIES.findIndex((b) => b.id === 'jupiter');
 const RAD2ARCSEC = RAD2DEG * 3600;
 const ECLIPSE_SEP_RAD = 1.6 * DEG2RAD;
 // Penumbral contact of a perigee lunar eclipse is ≈1.603° from the antisun.
@@ -60,6 +69,7 @@ const SIN_OBL = Math.sin(OBLIQUITY_J2000_DEG * DEG2RAD);
 // Module-level scratch, reused by every call (R5).
 const E3 = new Float64Array(9);                 // EF → EQJ, row-major
 const MOON_R3 = new Float64Array(9);            // Moon body-fixed → EQJ
+const BODY_R3 = new Float64Array(9);            // a planet's body-fixed → EQJ
 const GEO = new Float64Array(3 * N_BODIES);     // geocentric EQJ vectors (AU), as GeoVector(…, true)
 const ABER = new Float64Array(3);               // the Sun's annual aberration: apparent − astrometric unit vector (scene)
 const LOCAL = { east: new Float64Array(3), north: new Float64Array(3), up: new Float64Array(3) };
@@ -107,6 +117,11 @@ function makeBodyState(b) {
         subLatDeg: 0,
         subLonDeg: 0,
         above: false,
+        poleS: new Float64Array([0, 1, 0]),
+        primeS: new Float64Array([1, 0, 0]),
+        spinDeg: 0,
+        lightS: new Float64Array([-1, 0, 0]),
+        ringTiltDeg: 0,
     };
 }
 
@@ -144,6 +159,8 @@ export function createSnapshot() {
         },
         bodies: BODIES.map(makeBodyState),
         eclipse: { solar: false, lunar: false, obscurationAtObserver: 0, moonLitFraction: 1, beads: createBeads() },
+        galilean: createGalilean(),
+        libration: { elonDeg: 0, elatDeg: 0 },
         // Filled by the frame loop (computeSkyglow) after each computeSnapshot: it needs the site.
         skyglow: createSkyglow(),
     };
@@ -323,6 +340,29 @@ export function computeSnapshot(tMs, observer, out, opts) {
         st.mag = ill.mag;
         st.phaseAngleDeg = ill.phase_angle;
         st.phaseFrac = ill.phase_fraction;
+        st.ringTiltDeg = Number.isFinite(ill.ring_tilt) ? ill.ring_tilt : 0;
+
+        // Toward the Sun from the body: the two topocentric astrometric vectors (the Sun, index 0,
+        // comes first). The Sun itself faces the observer.
+        const sun0 = out.bodies[SUN];
+        if (i === SUN) {
+            st.lightS[0] = -st.dirS[0]; st.lightS[1] = -st.dirS[1]; st.lightS[2] = -st.dirS[2];
+        } else {
+            const ds = sun0.distAU, db = st.distAU;
+            const lx = sun0.dirS[0] * ds - st.dirS[0] * db;
+            const ly = sun0.dirS[1] * ds - st.dirS[1] * db;
+            const lz = sun0.dirS[2] * ds - st.dirS[2] * db;
+            const ll = Math.hypot(lx, ly, lz) || 1;
+            st.lightS[0] = lx / ll; st.lightS[1] = ly / ll; st.lightS[2] = lz / ll;
+        }
+        // A planet's IAU pole and prime meridian at the instant its light left (what is seen now).
+        if (b.kind === 'planet') {
+            const ax = AE.RotationAxis(b.ae, time.AddDays(-st.lightTimeS / 86400));
+            iauBodyMatrix(ax.ra, ax.dec, ax.spin, BODY_R3);
+            setSceneUnit(st.poleS, BODY_R3[2], BODY_R3[5], BODY_R3[8]);
+            setSceneUnit(st.primeS, BODY_R3[0], BODY_R3[3], BODY_R3[6]);
+            st.spinDeg = wrap360(ax.spin);
+        }
         // A sphere's true angular size, asin(R / d) (for the Sun exactly sunAngularRadius).
         st.angDiamArcsec = 2 * Math.asin(Math.min(1, b.radiusKm / (eq.dist * AU_KM))) * RAD2ARCSEC;
 
@@ -374,6 +414,14 @@ export function computeSnapshot(tMs, observer, out, opts) {
     const ax = AE.RotationAxis('Moon', time);
     iauBodyMatrix(ax.ra, ax.dec, ax.spin, MOON_R3);
     m3ToSceneM4(MOON_R3, out.moonMatrix, mp[0], mp[1], mp[2]);
+    const mst = out.bodies[MOON];
+    setSceneUnit(mst.poleS, MOON_R3[2], MOON_R3[5], MOON_R3[8]);
+    setSceneUnit(mst.primeS, MOON_R3[0], MOON_R3[3], MOON_R3[6]);
+    mst.spinDeg = wrap360(ax.spin);
+
+    // Jupiter's moons follow Jupiter's light time (moons.js); the libration only feeds the panels.
+    computeGalilean(time, out.bodies[JUPITER], out.galilean);
+    if (full) lunarLibration(time, out.libration);
 
     out.moonPhaseDeg = full
         ? AE.MoonPhase(time)
@@ -400,6 +448,8 @@ export function computeSnapshot(tMs, observer, out, opts) {
     if (full || ecl.solar) {
         const pole = AE.RotationAxis('Sun', time).north;
         setSceneUnit(out.sunPoleS, pole.x, pole.y, pole.z);
+        const sp = out.bodies[SUN].poleS;
+        sp[0] = out.sunPoleS[0]; sp[1] = out.sunPoleS[1]; sp[2] = out.sunPoleS[2];
     }
     const mm = out.moonMatrix;
     if (ecl.solar && sun.above) {

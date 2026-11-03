@@ -932,9 +932,12 @@ function bindRenderState({ store, bus, clock, rc, rig, loop, snap, astro, m, lab
     store.subscribe((s) => s.view.earthLock, (on) => {
         try { rig.setEarthLock?.(on); } catch (err) { console.error('[main] earth-lock failed', err); }
     });
-    store.subscribe((s) => s.view.mode, (mode) => {
+    store.subscribe((s) => s.view.mode, (mode, _prev, _state, source) => {
         try {
-            settle(rig.setMode?.(mode, { animate: !store.get().status.reducedMotion, look: mode === 'sky' ? lookFor(store, snap) : undefined }));
+            // An event jump has already aimed the rig at the event's instant (actions.jumpToEvent);
+            // a look from this frame's pre-sweep snapshot would queue a second move after it.
+            const look = mode === 'sky' && source !== 'event' ? lookFor(store, snap) : undefined;
+            settle(rig.setMode?.(mode, { animate: !store.get().status.reducedMotion, look }));
         } catch (err) {
             console.error('[main] view change failed', err);
         }
@@ -1063,7 +1066,8 @@ function bindViewInsets(rig, store) {
 
 /**
  * A click (not a drag) on the canvas: a body glyph selects it (double-click flies to it);
- * the globe in orbit view moves the observer (double-click flies closer).
+ * the globe in orbit view moves the observer (double-click flies closer); in sky view a
+ * double-click on empty sky centres it.
  */
 function handleSceneClick({ store, rc, rig, snap, pick, ndc, dbl }) {
     const camera = rig.camera ?? rc.camera;
@@ -1079,7 +1083,12 @@ function handleSceneClick({ store, rc, rig, snap, pick, ndc, dbl }) {
         store.set({ ui: { ...store.get().ui, panel: 'details' } }, 'click');
         return;
     }
-    if (store.get().view.mode !== 'orbit' || (rig.skyBlend ?? 0) > 0.5) return;
+    if (store.get().view.mode === 'sky') {
+        // Empty sky: a double-click glides there and zooms in a little (the rig ignores it mid-transition).
+        if (dbl) settle(rig.centerAt?.(ndc.x, ndc.y));
+        return;
+    }
+    if ((rig.skyBlend ?? 0) > 0.5) return;
     let ll = null;
     try {
         ll = pick?.pickEarth?.(ndc, camera, snap.earthMatrix) ?? null;

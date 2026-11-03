@@ -5,7 +5,8 @@
  * - the position sentence ("Mars is 34° above the south-east horizon, in Taurus.");
  * - the light-time sentence ("The light you see from Mars left 12 min 31 s ago.");
  * - Moon extras: phase name and age;
- * - actions: Look from here · Center · Path ±6 months · Show where it's visible;
+ * - actions: Look from here · Center · View from <body> (globe view) · Path ±6 months ·
+ *   Show where it's visible;
  * - fact grid: altitude/azimuth (refracted), rise · transit · set, distance,
  *   magnitude, phase, elongation, angular size, constellation, RA/Dec J2000 and
  *   of date, sub-point.
@@ -73,9 +74,10 @@ export function mountBodyCard(root, ctx) {
 
     const actLook = actionBtn('sky', 'Look from here', 'Stand at the observer and look toward it');
     const actCenter = actionBtn('target', 'Center', 'Turn the view toward it');
+    const actFrom = actionBtn('globe', 'View from it', 'See the Earth from its direction: the side where it is overhead');
     const actPath = actionBtn('path', 'Path ±6 months', 'Show its apparent path for six months either side', true);
     const actFoot = actionBtn('footprint', 'Show where it’s visible', 'Highlight where on Earth it is above the horizon', true);
-    const actions = h('div', { class: 'card__actions' }, actLook, actCenter, actPath, actFoot);
+    const actions = h('div', { class: 'card__actions' }, actLook, actCenter, actFrom, actPath, actFoot);
 
     const facts = {};
     const fact = (key, label, { wide = false, hint } = {}) => {
@@ -136,6 +138,7 @@ export function mountBodyCard(root, ctx) {
         else { ui.act('select', id, { fly: false }); ui.act('setViewMode', 'sky'); }
     }));
     offs.push(on(actCenter, 'click', () => { const id = sel(); if (id) ui.act('flyToBody', id); }));
+    offs.push(on(actFrom, 'click', () => { const id = sel(); if (id) ui.act('viewFromBody', id); }));
     offs.push(on(actPath, 'click', () => ui.act('toggleLayer', 'trails', !store.get().layers?.trails)));
     offs.push(on(actFoot, 'click', () => ui.act('toggleLayer', 'footprint', !store.get().layers?.footprint)));
 
@@ -153,6 +156,7 @@ export function mountBodyCard(root, ctx) {
             const b = BODIES[BODY_INDEX[id]];
             card.style.setProperty('--c', `var(--body-${id})`);
             nameEl.replaceChildren(h('span', { class: 'dot dot--lg', 'aria-hidden': 'true' }), b.name);
+            actFrom.lastChild.textContent = `View from ${b.id === 'sun' || b.id === 'moon' ? `the ${b.name}` : b.name}`;
             actPath.hidden = b.kind !== 'planet';
             discKey = '';
         }
@@ -164,6 +168,7 @@ export function mountBodyCard(root, ctx) {
         setAttr(actFoot, 'aria-pressed', String(!!ly.footprint));
         const sky = store.get().view?.mode === 'sky';
         actLook.lastChild.textContent = sky ? 'Aim here' : 'Look from here';
+        actFrom.hidden = sky;   // a globe view; in sky view 'Center' already turns to the body
     }
 
     function update(snap) {

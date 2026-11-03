@@ -5,9 +5,11 @@
  *
  *   createRig(rc, {dom, reducedMotion}) → { camera, mode, skyBlend, tweening, dragging,
  *     setMode(mode, {animate, look}) → Promise, setEarthLock(on), flyToDir(dirS, {distance, animate, durationMs}) → Promise,
+ *     frameDir(dirS, {animate, durationMs}) → Promise, centerAt(ndcX, ndcY, {animate, fovFactor}) → Promise,
  *     flyToLatLon(latDeg, lonDeg, {distance=3.2, animate, durationMs}) → Promise, home({animate}) → Promise,
  *     update(dtMs, snap) → boolean, getView() → CamView, setView(cam), onInteract(cb) → off, onClick(cb) → off,
- *     nudge(dxDeg, dyDeg), zoom(factor), setViewInsets({left, right, top, bottom}), setReducedMotion(on), dispose() }
+ *     nudge(dxDeg, dyDeg), zoom(factor), zoomAt(factor, ndcX, ndcY), setViewInsets({left, right, top, bottom}),
+ *     setReducedMotion(on), dispose() }
  *
  * Frames. Every tween runs in Earth geometry-local coordinates (the frame in
  * which the observer is fixed) and is mapped to world each frame with the
@@ -24,6 +26,9 @@
  * spec's 37°-tilted direction puts the observer in the lower third with a
  * north-up camera and sends southern beams off the bottom edge; see the G6
  * report.) The intro ends in this same pose.
+ *
+ * Sky zoom: the wheel and pinch zoom about the cursor or the fingers' midpoint (the sky under
+ * it stays put, solved in closed form by skyLookFor); keyboard +/− zoom about the centre.
  *
  * Reduced motion: every tween becomes a cut and sky-drag inertia is off.
  * Click vs drag: < 6 px and < 350 ms is a click; a second click within 320 ms
@@ -64,6 +69,13 @@ const CLICK_PX = 6;
 const CLICK_MS = 350;
 const DOUBLE_MS = 320;
 const DOUBLE_PX = 10;
+// 'Center' framing (frameDir): the body sits this fraction of the way from the middle of the free
+// screen area to its nearer edge, and the globe's limb at this fraction of the body's angle from
+// the view axis (full screen: 16.2° and 13.8°, a distance of 4.2 R).
+const FRAME_FILL = 0.7;
+const FRAME_LIMB = 0.85;
+// Sky view: a double-click on empty sky glides there and narrows the field by this factor.
+const SKY_DBL_ZOOM = 0.6;
 
 const Y = new THREE.Vector3(0, 1, 0);
 const FWD = new THREE.Vector3(0, 0, -1);
@@ -79,6 +91,8 @@ const _m4 = new THREE.Matrix4();
 const _bR = new THREE.Vector3();
 const _bU = new THREE.Vector3();
 const _bF = new THREE.Vector3();
+const _ray = new THREE.Vector3();
+const _look = { az: 0, alt: 0 };
 
 function clamp(x, a, b) { return x < a ? a : x > b ? b : x; }
 function easeInOutCubic(t) { return t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2; }
@@ -131,6 +145,47 @@ function slerpDir(a, b, t, out) {
     const s = Math.sin(ang);
     const wa = Math.sin((1 - t) * ang) / s, wb = Math.sin(t * ang) / s;
     return out.set(a.x * wa + b.x * wb, a.y * wa + b.y * wb, a.z * wa + b.z * wb).normalize();
+}
+
+/**
+ * Sky view: horizon coordinates (degrees, into out) of a camera-space ray (x right, y up, z < 0
+ * ahead) for a camera looking at (azDeg, altDeg) with screen-up toward the zenith, the pose
+ * applySkyCamera builds.
+ * @returns {{az:number, alt:number}} out
+ */
+export function skyRayAzAlt(azDeg, altDeg, cx, cy, cz, out) {
+    const n = Math.hypot(cx, cy, cz) || 1;
+    const A = -cz / n, B = cy / n, h = altDeg * DEG;
+    out.alt = Math.asin(clamp(A * Math.sin(h) + B * Math.cos(h), -1, 1)) / DEG;
+    out.az = wrap360(azDeg + Math.atan2(cx / n, A * Math.cos(h) - B * Math.sin(h)) / DEG);
+    return out;
+}
+
+/**
+ * The inverse of skyRayAzAlt: the look (degrees, into out) that puts the sky direction (azDeg,
+ * altDeg) on the camera-space ray (cx, cy, cz), following on from the current look (refAzDeg,
+ * refAltDeg). Near the zenith two looks can; the one nearer the current altitude wins. When it
+ * would tip over the zenith (or nadir), or no look can, the result saturates toward that pole at
+ * the current azimuth, so the view never swings round. The caller clamps the altitude.
+ * @returns {{az:number, alt:number}} out
+ */
+export function skyLookFor(azDeg, altDeg, cx, cy, cz, out, refAzDeg, refAltDeg) {
+    const n = Math.hypot(cx, cy, cz) || 1;
+    const A = -cz / n, B = cy / n;
+    const rho = Math.hypot(A, B) || 1e-9, phi = Math.atan2(B, A);
+    // A·sin h + B·cos h = ρ·sin(h + φ) = sin alt, so h + φ = s or π − s.
+    const q = Math.sin(altDeg * DEG) / rho;
+    const s = Math.asin(clamp(q, -1, 1));
+    const h1 = s - phi, h2 = Math.PI - s - phi, ref = refAltDeg * DEG;
+    const h = Math.abs(h2 - ref) < Math.abs(h1 - ref) ? h2 : h1;
+    if (Math.abs(q) > 1 || Math.abs(h) > Math.PI / 2) {
+        out.alt = clamp(h, -Math.PI / 2, Math.PI / 2) / DEG;
+        out.az = wrap360(refAzDeg);
+        return out;
+    }
+    out.alt = h / DEG;
+    out.az = wrap360(azDeg - Math.atan2(cx / n, rho * Math.cos(h + phi)) / DEG);
+    return out;
 }
 
 /** Parses a CamView-ish value: {mode, latDeg|lat, lonDeg|lon, distance|dist} | {mode, azDeg|az, altDeg|alt, fovDeg|fov} | 'o:lat,lon,d' | 's:az,alt,fov'. */
@@ -212,6 +267,9 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
 
     // Sky look (degrees) with targets for smoothing and velocities for inertia.
     const sky = { az: 180, alt: 15, fov: SKY_FOV, azT: 180, altT: 15, fovT: SKY_FOV, vAz: 0, vAlt: 0 };
+    // Zoom about a screen point: the sky direction (az, alt) held under NDC (x, y) while the
+    // field of view eases (wheel), or follows the fingers (pinch).
+    const anchor = { on: false, az: 0, alt: 0, x: 0, y: 0 };
     let skyDefaulted = false;
     // Orbit zoom smoothing (keyboard/API zoom); OrbitControls handles wheel/pinch itself.
     let zoomTarget = null;
@@ -232,7 +290,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
     let downInfo = null;      // first pointer of a gesture: {id, x, y, t}
     let lastClick = null;     // {x, y, t}
     let skyDrag = null;       // {id, x, y, t}
-    let pinch = null;         // {d, fov}
+    let pinch = null;         // {d, fov}; the anchor holds the direction under the fingers
     let lastT = now();
 
     // ---- helpers: frames ----------------------------------------------------------------------
@@ -348,6 +406,71 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         return out;
     }
 
+    /**
+     * Camera-space ray through a point of the canvas (NDC) for a vertical field of view, with the
+     * view offset of the insets: three's PerspectiveCamera.updateProjectionMatrix frustum.
+     */
+    function camRay(ndcX, ndcY, fovDeg, out) {
+        let top = Math.tan(fovDeg * DEG / 2) / (camera.zoom || 1);
+        let height = 2 * top, width = camera.aspect * height, left = -0.5 * width;
+        const v = camera.view;
+        if (v && v.enabled) {
+            left += v.offsetX * width / v.fullWidth;
+            top -= v.offsetY * height / v.fullHeight;
+            width *= v.width / v.fullWidth;
+            height *= v.height / v.fullHeight;
+        }
+        return out.set(left + (ndcX + 1) / 2 * width, top - (1 - ndcY) / 2 * height, -1);
+    }
+
+    /** Sky view: the direction (az, alt) under a point of the canvas in the current, eased pose. */
+    function skyDirAt(ndcX, ndcY, out) {
+        camRay(ndcX, ndcY, sky.fov, _ray);
+        return skyRayAzAlt(sky.az, sky.alt, _ray.x, _ray.y, _ray.z, out);
+    }
+
+    /**
+     * The look that keeps the anchored direction under its screen point at field of view fov,
+     * following on from the look (refAz, refAlt).
+     */
+    function anchoredLook(fov, out, refAz = sky.az, refAlt = sky.alt) {
+        camRay(anchor.x, anchor.y, fov, _ray);
+        skyLookFor(anchor.az, anchor.alt, _ray.x, _ray.y, _ray.z, out, refAz, refAlt);
+        out.alt = clamp(out.alt, SKY_ALT_MIN, SKY_ALT_MAX);
+        return out;
+    }
+
+    /** Anchors the sky direction under (ndcX, ndcY) for a zoom or pinch about that point. */
+    function setAnchor(ndcX, ndcY) {
+        skyDirAt(ndcX, ndcY, _look);
+        anchor.az = _look.az;
+        anchor.alt = _look.alt;
+        anchor.x = ndcX;
+        anchor.y = ndcY;
+    }
+
+    /**
+     * Sky view: changes the field of view about a point of the canvas, so the sky under it stays
+     * put (Stellarium, map apps). The targets are set here; stepSky eases toward them with the
+     * anchor held exactly under the point on every frame.
+     */
+    function zoomSkyAt(fovNext, ndcX, ndcY) {
+        setAnchor(ndcX, ndcY);
+        anchor.on = true;
+        sky.vAz = sky.vAlt = 0;
+        sky.fovT = clamp(fovNext, SKY_FOV_MIN, SKY_FOV_MAX);
+        // Targets (getView): where the eased zoom ends, followed in a few steps the way stepSky
+        // follows it, so near the zenith both pick the same of the two possible looks.
+        let az = sky.az, alt = sky.alt;
+        for (let i = 1; i <= 6; i++) {
+            anchoredLook(sky.fov * (sky.fovT / sky.fov) ** (i / 6), _look, az, alt);
+            az = _look.az;
+            alt = _look.alt;
+        }
+        sky.azT = az;
+        sky.altT = alt;
+    }
+
     function applyViewNow(v) {
         if (v.mode === 'orbit') {
             mode = 'orbit';
@@ -359,9 +482,12 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
             setControlsEnabled(true);
             syncControls();
         } else {
-            if (mode === 'orbit') rememberOrbitPose();
+            // A deep link applies its sky view before the camera was ever placed in orbit: then
+            // there is no pose to return to, and 'Globe' homes over the observer (startToOrbit).
+            if (mode === 'orbit' && initialized) rememberOrbitPose();
             mode = 'sky';
             skyBlend = 1;
+            anchor.on = false;
             sky.az = sky.azT = v.azDeg;
             sky.alt = sky.altT = v.altDeg;
             sky.fov = sky.fovT = v.fovDeg;
@@ -398,6 +524,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
 
     function startTween(t) {
         if (tween) finishTween(false);
+        anchor.on = false;
         tween = t;
         t.t0 = null; // set on the first update (after a snapshot exists)
         t.promise = new Promise((resolve) => { t.resolve = resolve; });
@@ -639,6 +766,23 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         }
         // Ease the look toward its targets (keyboard nudges, wheel zoom).
         const k = reduced ? 1 : 1 - Math.exp(-dt / 70);
+        if (anchor.on) {
+            // Zoom about a point: only the field of view eases; the look follows it so the
+            // anchored direction stays exactly under the cursor on every frame.
+            const dF = sky.fovT - sky.fov;
+            const done = Math.abs(dF) <= 1e-4;
+            sky.fov = done ? sky.fovT : sky.fov + dF * k;
+            anchoredLook(sky.fov, _look);
+            sky.az = _look.az;
+            sky.alt = _look.alt;
+            if (done) {
+                anchor.on = false;
+                sky.azT = sky.az;
+                sky.altT = sky.alt;
+            }
+            applySkyCamera();
+            return true;
+        }
         const dAz = wrap180(sky.azT - sky.az), dAlt = sky.altT - sky.alt, dF = sky.fovT - sky.fov;
         if (Math.abs(dAz) > 1e-4 || Math.abs(dAlt) > 1e-4 || Math.abs(dF) > 1e-4) {
             sky.az = wrap360(sky.az + dAz * k);
@@ -792,13 +936,23 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         if (mode === 'sky' && !tween) {
             try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
             sky.vAz = sky.vAlt = 0;
+            // A wheel zoom still easing stops where it is (az/alt/fov are consistent mid-ease).
+            if (anchor.on) {
+                anchor.on = false;
+                sky.azT = sky.az;
+                sky.altT = sky.alt;
+                sky.fovT = sky.fov;
+            }
             if (pointers.size === 1) {
                 skyDrag = { id: e.pointerId, x: e.clientX, y: e.clientY, t: now() };
                 pinch = null;
             } else if (pointers.size === 2) {
                 skyDrag = null;
                 const [a, b] = [...pointers.values()];
-                pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, fov: sky.fovT };
+                pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, fov: sky.fov };
+                // The sky under the fingers' midpoint stays under it as they spread and move.
+                const m = ndcOf((a.x + b.x) / 2, (a.y + b.y) / 2);
+                setAnchor(m.x, m.y);
             }
             rc.invalidate?.();
         }
@@ -832,6 +986,12 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
             const [a, b] = [...pointers.values()];
             const d = Math.hypot(a.x - b.x, a.y - b.y) || 1;
             sky.fov = sky.fovT = clamp(pinch.fov * (pinch.d / d), SKY_FOV_MIN, SKY_FOV_MAX);
+            const m = ndcOf((a.x + b.x) / 2, (a.y + b.y) / 2);
+            anchor.x = m.x;
+            anchor.y = m.y;
+            anchoredLook(sky.fov, _look);
+            sky.az = sky.azT = _look.az;
+            sky.alt = sky.altT = _look.alt;
             rc.invalidate?.();
         }
     };
@@ -878,7 +1038,8 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
             e.preventDefault();
             const scale = e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1;
             const dy = clamp(e.deltaY * scale / 100, -3, 3);
-            sky.fovT = clamp(sky.fovT * Math.exp(0.1 * dy), SKY_FOV_MIN, SKY_FOV_MAX);
+            const n = ndcOf(e.clientX, e.clientY);
+            zoomSkyAt(sky.fovT * Math.exp(0.1 * dy), n.x, n.y);
             rc.invalidate?.();
         }
     };
@@ -959,6 +1120,43 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         return startFly(targetL, { earthFixed: earthLock, durationMs, animate });
     }
 
+    /**
+     * World camera position of the 'Center' framing for a body in direction dirW (unit): on the
+     * far side of the globe, the view axis tilted from the body toward the observer's zenith, so
+     * the body sits just past the limb (FRAME_*, measured in the free area the panels leave) on the
+     * side of the screen away from the observer, and the observer's beam crosses the globe to it.
+     */
+    function framePos(dirW, out) {
+        const W = rc.size?.w || 1, H = rc.size?.h || 1;
+        const free = Math.max(1, Math.min(W - insets.left - insets.right, H - insets.top - insets.bottom));
+        const beta = Math.atan(FRAME_FILL * Math.tan(ORBIT_FOV * DEG / 2) * free / H);
+        const dist = clamp(1 / Math.sin(FRAME_LIMB * beta), MIN_DIST, MAX_DIST);
+        // Tilt axis: the observer's zenith, else world north, square to the body's direction.
+        _v3.copy(upW).addScaledVector(dirW, -upW.dot(dirW));
+        if (_v3.lengthSq() < 1e-8) _v3.copy(Y).addScaledVector(dirW, -dirW.y);
+        if (_v3.lengthSq() < 1e-8) _v3.set(1, 0, 0);
+        _v3.normalize();
+        return out.copy(dirW).multiplyScalar(Math.cos(beta)).addScaledVector(_v3, Math.sin(beta)).multiplyScalar(-dist);
+    }
+
+    function frameDirNow(dirS, { animate = true, durationMs } = {}) {
+        if (!dirS || !hasSnap) return Promise.resolve(false);
+        _v1.set(dirS[0], dirS[1], dirS[2]);
+        if (!(_v1.lengthSq() > 0)) return Promise.resolve(false);
+        _v1.normalize();
+        if (mode === 'sky') return flyToDirNow(dirS, { animate, durationMs });
+        // Earth-fixed (local) endpoints while locked; startFly converts back to world otherwise.
+        const targetL = toLocal(framePos(_v1, _v2), new THREE.Vector3());
+        return startFly(targetL, { earthFixed: earthLock, durationMs, animate });
+    }
+
+    /** Sky view: glides the look to the sky under a point of the canvas, narrowing the field. */
+    function centerAtNow(ndcX, ndcY, { animate = true, fovFactor = SKY_DBL_ZOOM } = {}) {
+        if (mode !== 'sky' || !hasSnap || !Number.isFinite(ndcX) || !Number.isFinite(ndcY)) return Promise.resolve(false);
+        skyDirAt(ndcX, ndcY, _look);
+        return startLook(_look.az, _look.alt, { animate, fovDeg: sky.fovT * (fovFactor > 0 ? fovFactor : 1) });
+    }
+
     function flyToLatLonNow(latDeg, lonDeg, { distance = 3.2, animate = true, durationMs } = {}) {
         if (!Number.isFinite(latDeg) || !Number.isFinite(lonDeg)) return Promise.resolve(false);
         const dist = clamp(Number.isFinite(distance) ? distance : 3.2, MIN_DIST, MAX_DIST);
@@ -994,6 +1192,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
      */
     function nudge(dxDeg, dyDeg) {
         cancelTween();
+        anchor.on = false;
         if (mode === 'sky') {
             sky.azT = wrap360(sky.azT + dxDeg);
             sky.altT = clamp(sky.altT + dyDeg, SKY_ALT_MIN, SKY_ALT_MAX);
@@ -1012,6 +1211,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
     function zoom(factor) {
         if (!(factor > 0)) return;
         cancelTween();
+        anchor.on = false;
         if (mode === 'sky') sky.fovT = clamp(sky.fovT * factor, SKY_FOV_MIN, SKY_FOV_MAX);
         else zoomTarget = clamp((zoomTarget ?? camera.position.length()) * factor, MIN_DIST, MAX_DIST);
         rc.invalidate?.();
@@ -1055,6 +1255,31 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
          */
         flyToDir(dirS, opts = {}) {
             return afterTransition(() => flyToDirNow(dirS, opts));
+        },
+
+        /**
+         * Brings direction dirS into view ('Center'). Orbit: flies to the far side of the globe so
+         * dirS sits just past the limb, the observer's beam crossing the globe toward it. Sky: aims
+         * the view at dirS.
+         * @param {ArrayLike<number>} dirS world unit vector (read when the flight starts)
+         * @param {{animate?:boolean, durationMs?:number}} [opts]
+         * @returns {Promise<boolean>}
+         */
+        frameDir(dirS, opts = {}) {
+            return afterTransition(() => frameDirNow(dirS, opts));
+        },
+
+        /**
+         * Sky view: glides the look to the sky under a point of the canvas and narrows the field
+         * (double-click on empty sky). Resolves false in globe view.
+         * @param {number} ndcX
+         * @param {number} ndcY
+         * @param {{animate?:boolean, fovFactor?:number}} [opts]
+         * @returns {Promise<boolean>}
+         */
+        centerAt(ndcX, ndcY, opts = {}) {
+            if (inTransition()) return Promise.resolve(false);
+            return centerAtNow(Number(ndcX), Number(ndcY), opts);
         },
 
         /**
@@ -1131,6 +1356,22 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
 
         nudge,
         zoom,
+
+        /**
+         * Zooms by a factor about a point of the canvas: sky view keeps the sky under it in place
+         * (the wheel and pinch path); the globe zooms about its centre, like zoom().
+         * @param {number} factor < 1 zooms in
+         * @param {number} ndcX
+         * @param {number} ndcY
+         */
+        zoomAt(factor, ndcX, ndcY) {
+            if (!(factor > 0)) return;
+            cancelTween();
+            if (mode === 'sky' && !tween && Number.isFinite(ndcX) && Number.isFinite(ndcY)) {
+                zoomSkyAt(sky.fovT * factor, ndcX, ndcY);
+                rc.invalidate?.();
+            } else zoom(factor);
+        },
 
         /**
          * Keeps the globe centred in the area not covered by UI (CSS px from each edge).

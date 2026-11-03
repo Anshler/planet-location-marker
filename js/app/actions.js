@@ -31,6 +31,8 @@ const QUALITY_SETTINGS = new Set(['auto', 'low', 'medium', 'high']);
 const MAX_UNDO = 12;
 const MAX_RECENT = 8;
 const JUMP_ANIMATE_MS = 1400;
+/** An event flight lasts the time sweep plus this (the globe ↔ sky transitions take 1.8 s). */
+const EVENT_FLY_EXTRA_MS = 400;
 
 /** Human names of the layer switches (announcements). */
 export const LAYER_LABELS = Object.freeze({
@@ -219,7 +221,6 @@ export function createActions(deps) {
     /** @type {Observer[]} */
     const undoStack = [];
     let scratchSnap = null;
-    let eventFlyTimer = 0;
 
     const toast = (message, kind = 'info', extra = {}) => bus.emit('toast', { message, kind, ...extra });
     const say = (text) => bus.emit('announce', text);
@@ -353,23 +354,43 @@ export function createActions(deps) {
     }
 
     /**
-     * Brings a body into view: in sky view the camera turns to it; in orbit view the camera flies
-     * to look along its beam.
+     * Brings a body into view ('Center'): in sky view the camera turns to it; in globe view the
+     * camera moves to the far side of the globe, so the body sits just past the limb with the
+     * observer's beam crossing the globe toward it.
      * @param {string} id
      */
     function flyToBody(id) {
-        if (!isBodyId(id)) return;
-        const r = rig();
-        const snap = getSnap();
-        if (!r || !snap) return;
-        const b = snap.bodies[BODY_INDEX[id]];
+        const b = bodyNow(id);
         if (!b) return;
         const animate = !reducedMotion();
         if (store.get().view.mode === 'sky') {
-            settle(r.setMode?.('sky', { animate, look: { azDeg: b.azGeomDeg, altDeg: Math.max(-5, b.altGeomDeg) } }));
+            settle(rig().setMode?.('sky', { animate, look: { azDeg: b.azGeomDeg, altDeg: Math.max(-5, b.altGeomDeg) } }));
         } else {
-            settle(r.flyToDir?.(b.dirS, { animate }));
+            settle(rig().frameDir?.(b.dirS, { animate }));
         }
+    }
+
+    /**
+     * 'View from <body>': the globe as the body sees it, the camera on the body's direction over
+     * the place where it stands overhead (the body itself is behind the camera). In sky view it
+     * turns to the body, like flyToBody.
+     * @param {string} id
+     */
+    function viewFromBody(id) {
+        const b = bodyNow(id);
+        if (!b) return;
+        if (store.get().view.mode === 'sky') {
+            flyToBody(id);
+            return;
+        }
+        settle(rig().flyToDir?.(b.dirS, { animate: !reducedMotion() }));
+    }
+
+    /** The body's entry in the current frame snapshot, when the 3D view is there to steer. */
+    function bodyNow(id) {
+        if (!isBodyId(id) || !rig()) return null;
+        const snap = getSnap();
+        return snap?.bodies?.[BODY_INDEX[id]] ?? null;
     }
 
     /** @param {'orbit'|'sky'} mode */
@@ -547,7 +568,8 @@ export function createActions(deps) {
 
     /**
      * Jumps to an event: pauses, sweeps the clock there, applies the event's selection and view,
-     * and for a solar eclipse flies the camera over the Moon's shadow.
+     * and moves the camera in one shot that overlaps the sweep: over the Moon's shadow for a solar
+     * eclipse in globe view, toward the selected body in sky view.
      * @param {AstroEvent} ev
      */
     function jumpToEvent(ev) {
@@ -557,31 +579,43 @@ export function createActions(deps) {
         clock.pause();
         clock.setTime(tMs, { animateMs });
         if (ev.select && isBodyId(ev.select)) select(ev.select);
-        if (ev.view && VIEW_MODES.has(ev.view)) setViewMode(ev.view);
-        clearTimeout(eventFlyTimer);
-        if (!rig()) return;
-        // Aim once the time sweep has landed, from a snapshot at the event's own instant (the
-        // loop's may still be catching up), so the target is right with or without Earth-lock.
-        eventFlyTimer = setTimeout(() => {
+        const view = store.get().view;
+        const mode = ev.view && VIEW_MODES.has(ev.view) ? ev.view : view.mode;
+        // Aim before the view changes: the rig then already heads for the event's mode, and the
+        // view.mode subscriber (main.js) joins that transition instead of queuing a second leg. The
+        // 'event' source tells it not to add a look of its own from the pre-sweep frame.
+        if (rig()) {
             try {
-                const mode = store.get().view.mode;
-                const animate = !reducedMotion();
-                scratchSnap ??= createSnapshot();
-                computeSnapshot(tMs, store.get().observer, scratchSnap, { detail: 'frame' });
-                if (mode === 'orbit' && (ev.kind === 'solar-eclipse' || ev.kind === 'local-solar-eclipse')) {
-                    // Over the Moon's shadow: greatest eclipse when known, else where the axis meets the Earth.
-                    const g = ev.geo;
-                    const p = g && Number.isFinite(g.latDeg) && Number.isFinite(g.lonDeg) ? g : shadowPoint(scratchSnap);
-                    settle(rig()?.flyToLatLon?.(p.latDeg, p.lonDeg, { distance: 2.6, animate }));
-                } else if (mode === 'sky' && ev.select && isBodyId(ev.select)) {
-                    // Sky events: turn to the selected body as it stands at the event.
-                    const b = scratchSnap.bodies[BODY_INDEX[ev.select]];
-                    if (b && b.altGeomDeg > -5) {
-                        settle(rig()?.setMode?.('sky', { animate, look: { azDeg: b.azGeomDeg, altDeg: b.altGeomDeg } }));
-                    }
-                }
-            } catch { /* the jump itself already happened */ }
-        }, animateMs + 60);
+                aimAtEvent(ev, tMs, mode, animateMs);
+            } catch { /* the jump itself still happens */ }
+        }
+        if (view.mode !== mode) store.set({ view: { ...view, mode } }, 'event');
+    }
+
+    /**
+     * The camera move of an event jump, aimed from a snapshot at the event's own instant (the
+     * loop's frame still shows the start of the sweep). Rig flights are Earth-fixed and sky looks
+     * are horizon-fixed, so both can run while the clock sweeps. An animated flight outlasts the
+     * sweep, so that with Earth-lock off the turning Earth cannot carry the target away after it.
+     */
+    function aimAtEvent(ev, tMs, mode, animateMs) {
+        const r = rig();
+        const animate = animateMs > 0;
+        scratchSnap ??= createSnapshot();
+        computeSnapshot(tMs, store.get().observer, scratchSnap, { detail: 'frame' });
+        if (mode === 'orbit' && (ev.kind === 'solar-eclipse' || ev.kind === 'local-solar-eclipse')) {
+            // Over the Moon's shadow: greatest eclipse when known, else where the axis meets the Earth.
+            // From sky view this is the sky → globe transition itself, ending over the shadow.
+            const g = ev.geo;
+            const p = g && Number.isFinite(g.latDeg) && Number.isFinite(g.lonDeg) ? g : shadowPoint(scratchSnap);
+            settle(r.flyToLatLon?.(p.latDeg, p.lonDeg, { distance: 2.6, animate, durationMs: animateMs + EVENT_FLY_EXTRA_MS }));
+        } else if (mode === 'sky' && ev.select && isBodyId(ev.select)) {
+            // Sky events: turn to the selected body as it stands at the event.
+            const b = scratchSnap.bodies[BODY_INDEX[ev.select]];
+            if (b && b.altGeomDeg > -5) {
+                settle(r.setMode?.('sky', { animate, look: { azDeg: b.azGeomDeg, altDeg: b.altGeomDeg } }));
+            }
+        }
     }
 
     function toggleDebug() {
@@ -595,7 +629,7 @@ export function createActions(deps) {
         toggleLayer, setQuality, setTzMode, share,
         toggleFullscreen, toggleCinema, resetCamera, replayIntro, jumpToEvent,
         // Extensions beyond SPEC §C.9 (used by shortcuts / the shell when present).
-        toggleDebug, openPalette, shareUrl,
+        toggleDebug, openPalette, shareUrl, viewFromBody,
         /** True when an undo is available. */
         get canUndo() { return undoStack.length > 0; },
     };

@@ -26,28 +26,28 @@ Verified defects with repros, plus small polish. Do these first; several later i
 
 | Status | ID | Item | Impact | Effort | Notes |
 |---|---|---|---|---|---|
-| todo | `eclipse-geometry-mismatch` | Bug: sky view uses three inconsistent eclipse geometries (drawn totality ~35 s late, sky darkening ~17 s early) | 4 | S |  |
-| todo | `umbra-radius-bug` | Bug: the globe's umbra is drawn ~19% too narrow (constant solar radius in two shaders) | 2 | S |  |
-| todo | `totality-star-budget` | Bug: totality shows stars to mag 5.7 (the Praesepe cluster) instead of planets and first-magnitude stars | 3 | S |  |
-| todo | `bug-skylink-return-pose` | Bug: shared sky-view links send 'Globe' to a random spot | 3 | S |  |
-| todo | `bug-event-jump-double-flight` | Bug: event jumps from sky view fly away, then back, in two sequential moves | 2 | S |  |
-| todo | `bug-center-behind-camera` | Bug: 'Center' and double-click-to-fly put the body behind the camera | 3 | S |  |
-| todo | `bug-eclipse-visibility-single-instant` | Bug: eclipse visibility is judged at a single instant, so a total eclipse below the horizon is billed 'visible here' | 2 | S |  |
-| todo | `below-label-mismatch` | Bug: body label says 'below horizon' while its beam is drawn above (refraction/limb mismatch) | 2 | S |  |
-| todo | `deeplink-opens-details` | A shared link with a selected body opens on the wrong tab, and the phone strip doesn't scroll to it | 2 | S |  |
-| todo | `timebar-truncation` | Time-bar truncation: the phone date loses its year by 1 px, and the desktop zone chip cuts the city | 2 | S |  |
-| todo | `mobile-no-aa` | Bug: phones (medium tier) render with no anti-aliasing at all | 3 | S | Also covers `mobile-fxaa-final-pass`. |
-| todo | `tier-consistency` | Bug: different weather per tier, and a dirty low-tier ocean mask | 2 | S |  |
-| todo | `low-tier-texture-diet` | Texture diet: the Low tier's '2K' day map is larger than the 4K one; ship a 2K night map, re-encode, and add WebP variants | 3 | M |  |
-| todo | `battery-twinkle-cap-and-idle-park` | Battery: cap twinkle-only rendering at 30 Hz and park the rAF loop when nothing changes | 3 | S |  |
-| todo | `daylight-label-policy` | Daylight label policy: no names for stars you cannot see, and no dark embossed halos on a bright sky | 3 | S | Also covers `daylight-label-hygiene`. |
-| todo | `timelapse-layout-thrash` | Fix the time-lapse layout thrash: the scrubber and view-insets force two synchronous layouts every frame | 2 | S |  |
-| todo | `governor-measures-work-not-cadence` | Governor: measure frame work (CPU + GPU timer queries) instead of rAF cadence. Stop downgrading capable GPUs under 30 Hz caps, and learn to step up | 3 | M |  |
-| todo | `bug-eqgrid-j2000` | Bug: the equatorial grid is drawn in the J2000 frame, 5.2–5.5° off the true celestial pole at the ends of the time range | 2 | S |  |
-| todo | `low-sun-white-disc` | Fix the cream-white sunset Sun: redden Preetham's forward lobe and keep the disc above its sky | 3 | S |  |
-| todo | `label-reticle-offsets` | Keep labels outside discs and reticles; fix the eclipse reticle hugging the Moon | 3 | S |  |
-| todo | `sky-zoom-to-cursor` | Sky view: zoom toward the cursor or pinch centre, double-click to centre | 2 | S |  |
-| todo | `orbit-hierarchy` | Orbit-view hierarchy: beams thin with zoom, selection keeps its colour, constellation lines recede | 2 | S |  |
+| done | `eclipse-geometry-mismatch` | Bug: sky view uses three inconsistent eclipse geometries (drawn totality ~35 s late, sky darkening ~17 s early) | 4 | S | b5954ff. |
+| done | `umbra-radius-bug` | Bug: the globe's umbra is drawn ~19% too narrow (constant solar radius in two shaders) | 2 | S | b5954ff. |
+| done | `totality-star-budget` | Bug: totality shows stars to mag 5.7 (the Praesepe cluster) instead of planets and first-magnitude stars | 3 | S | b5954ff (limit set in magnitudes, 2.0 at totality). |
+| done | `bug-skylink-return-pose` | Bug: shared sky-view links send 'Globe' to a random spot | 3 | S | db6a9ff. |
+| done | `bug-event-jump-double-flight` | Bug: event jumps from sky view fly away, then back, in two sequential moves | 2 | S | db6a9ff. |
+| done | `bug-center-behind-camera` | Bug: 'Center' and double-click-to-fly put the body behind the camera | 3 | S | db6a9ff (anti-body framing; 'View from <body>' kept as its own action). |
+| done | `bug-eclipse-visibility-single-instant` | Bug: eclipse visibility is judged at a single instant, so a total eclipse below the horizon is billed 'visible here' | 2 | S | 0e459de. |
+| done | `below-label-mismatch` | Bug: body label says 'below horizon' while its beam is drawn above (refraction/limb mismatch) | 2 | S | 188585f. |
+| done | `deeplink-opens-details` | A shared link with a selected body opens on the wrong tab, and the phone strip doesn't scroll to it | 2 | S | ac4128a. |
+| done | `timebar-truncation` | Time-bar truncation: the phone date loses its year by 1 px, and the desktop zone chip cuts the city | 2 | S | ac4128a. |
+| done | `mobile-no-aa` | Bug: phones (medium tier) render with no anti-aliasing at all | 3 | S | Also covers `mobile-fxaa-final-pass`. ef5633e (FXAA in the final pass). |
+| done | `tier-consistency` | Bug: different weather per tier, and a dirty low-tier ocean mask | 2 | S | bea6624. |
+| done | `low-tier-texture-diet` | Texture diet: the Low tier's '2K' day map is larger than the 4K one; ship a 2K night map, re-encode, and add WebP variants | 3 | M | bea6624 (derived 2k WebP via scripts/build-textures.mjs). Follow-ups: Moon to WebP (about −160 KB per tier), WebP 4k twins, 4:2:0 night-light colour. |
+| done | `battery-twinkle-cap-and-idle-park` | Battery: cap twinkle-only rendering at 30 Hz and park the rAF loop when nothing changes | 3 | S | ef5633e (twinkle only while stars show, ≤30 Hz). Optional follow-up: park rAF when idle. |
+| done | `daylight-label-policy` | Daylight label policy: no names for stars you cannot see, and no dark embossed halos on a bright sky | 3 | S | Also covers `daylight-label-hygiene`. 188585f. |
+| done | `timelapse-layout-thrash` | Fix the time-lapse layout thrash: the scrubber and view-insets force two synchronous layouts every frame | 2 | S | ac4128a. |
+| done | `governor-measures-work-not-cadence` | Governor: measure frame work (CPU + GPU timer queries) instead of rAF cadence. Stop downgrading capable GPUs under 30 Hz caps, and learn to step up | 3 | M | ef5633e (cadence-aware budget, learned tier persisted). |
+| done | `bug-eqgrid-j2000` | Bug: the equatorial grid is drawn in the J2000 frame, 5.2–5.5° off the true celestial pole at the ends of the time range | 2 | S | 0e459de (grid of date). |
+| done | `low-sun-white-disc` | Fix the cream-white sunset Sun: redden Preetham's forward lobe and keep the disc above its sky | 3 | S | 0e459de. |
+| done | `label-reticle-offsets` | Keep labels outside discs and reticles; fix the eclipse reticle hugging the Moon | 3 | S | 188585f. |
+| done | `sky-zoom-to-cursor` | Sky view: zoom toward the cursor or pinch centre, double-click to centre | 2 | S | db6a9ff. |
+| done | `orbit-hierarchy` | Orbit-view hierarchy: beams thin with zoom, selection keeps its colour, constellation lines recede | 2 | S | 188585f. |
 
 ## Phase 1: Eclipse 2027
 
@@ -173,3 +173,10 @@ Use the 1000–3000 range and the unused Astronomy Engine APIs.
 ## Log
 
 - 2026-11-03: Review run; tracker created.
+- 2026-11-04: Phase 0 complete (22 items). Seven worktree groups, each reviewed; three blocking findings fixed
+  (Moon framing on phones, governor stall votes, low-tier islands). Merged into v2.1-breathtaking: npm test (457), size,
+  smoke, smoke:mobile, text mode and vendor --check pass. Totality star gating unified on exposure.stars. Minor follow-ups
+  from review, not yet done: a lunar-eclipse jump lands mid-eclipse when the Moon is up only near U1/U4; partial solar
+  eclipse titles still quote the peak obscuration when the peak is below the horizon; the keyboard help still says
+  'Equatorial grid'; 375 px phones can clip the date by 2–3 px while 'Timelapse' shows; the daytime label style also
+  applies to trail month ticks. graphify not yet rebuilt.

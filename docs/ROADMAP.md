@@ -87,9 +87,9 @@ One planet impostor shader drives beam-end medallions, the body card and a teles
 | done | `galilean-moons` | Jupiter's four Galilean moons, live from AE.JupiterMoons | 3 | M | 772a1a2 (js/astro/moons.js; transit/shadow flags; checked against the 2015-01-24 triple shadow transit). |
 | done | `body-card-moons-rings-libration` | Details card: Jupiter's moon line-up, Saturn's ring tilt and the Moon's libration (works in text mode) | 2 | S | Also covers `eyepiece-portraits`. 772a1a2 (ui/eyepiece.js portraits: textured Moon with libration, Jupiter + moons, Saturn's rings and edge-on dates, phases; text mode). |
 | done | `planet-impostor-medallions` | Real planets at the end of every beam: phase-correct mini-globes with Saturn's rings at today's tilt ★ | 4 | L | 772a1a2 (render/planets.js + shaders/planets.glsl.js shared impostor; magnified, schematic bands). |
-| todo | `sidereal-tracking` | Star-lock and body tracking in sky view ("the Earth turns, not the sky") ★ | 4 | M |  |
-| todo | `telescope-zoom` | Telescope zoom in sky view: dive from the whole sky into Jupiter and its moons ★ | 4 | XL | Also covers `eyepiece-mode`. |
-| todo | `retrograde-timelapse` | Retrograde loop as a time-lapse composite: weekly planet images that swell toward opposition ★ | 3 | M |  |
+| done | `sidereal-tracking` | Star-lock and body tracking in sky view ("the Earth turns, not the sky") ★ | 4 | M | 828f82a (track body / lock to stars, trk= in URL, K shortcut, Track chip). |
+| done | `telescope-zoom` | Telescope zoom in sky view: dive from the whole sky into Jupiter and its moons ★ | 4 | XL | Also covers `eyepiece-mode`. 828f82a (FOV floor 0.2°, per-frame snapshot below 2°, true-size impostors, Galilean discs + shadows, aperture gain, Telescope button). Not done: CSS field stop and ×N label. |
+| done | `retrograde-timelapse` | Retrograde loop as a time-lapse composite: weekly planet images that swell toward opposition ★ | 3 | M | 828f82a (10-day planet images sized by diameter and magnitude, 'Brightest · date' tag). |
 
 ## Phase 4: Living Earth
 
@@ -199,3 +199,5 @@ Use the 1000–3000 range and the unused Astronomy Engine APIs.
   sculpted clouds) merged at da679f0; npm test (584), size, smoke, smoke:mobile, text mode pass. Budgets low 3.72 / medium 4.47 /
   high 5.7 MB — high is near the spec's 6 MB hard line, so new code should lean on lazy loading. The telescope agent hit
   the usage limit with no work saved; restarted from da679f0.
+- 2026-11-05: Telescope/tracking merged at 828f82a; npm test (594), size, smoke, smoke:mobile, text mode pass. Budgets low 3.76 /
+  medium 4.52 / high 5.73 MB (high has ~3 KB headroom under its budget, 0.27 MB under the 6 MB hard line).

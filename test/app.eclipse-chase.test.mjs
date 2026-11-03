@@ -172,6 +172,14 @@ test('chase: reduced motion sets a static frame at greatest eclipse with the who
     assert.deepEqual(h.log, [['fly', PATH.greatest.latDeg, PATH.greatest.lonDeg, 2.4, false]]);
 });
 
+test('chase: a local event seen as partial still focuses the central eclipse by its path kind', async () => {
+    const h = harness();
+    const local = { kind: 'local-solar-eclipse', tMs: PATH.peakMs - 3600e3, eclipseKind: 'partial', id: 'l1' };
+    assert.equal(await h.chase.start(local), true);
+    assert.equal(h.store.get().ui.eclipse.kind, 'total', 'not the observer\'s partial view of it');
+    assert.equal(h.store.get().ui.eclipse.local, false);
+});
+
 test('chase: no path (a partial eclipse) toasts and does nothing', async () => {
     const h = harness({ path: null });
     assert.equal(await h.chase.start(Date.parse('2027-08-02T10:00:00Z')), false);

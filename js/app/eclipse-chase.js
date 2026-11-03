@@ -166,8 +166,10 @@ export function createEclipseChase(deps) {
 
     function focus(path, target) {
         const ui = store.get().ui;
-        const kind = target && typeof target === 'object' && target.eclipseKind
-            ? target.eclipseKind : path.kind === 'annular' ? 'annular' : 'total';
+        // The focus is the global eclipse (local: false), so its kind is the path's: a local event
+        // seen from outside the band says 'partial', which would hide 'Stand in the path'.
+        const given = target && typeof target === 'object' ? target.eclipseKind : null;
+        const kind = given === 'total' || given === 'annular' ? given : path.kind === 'annular' ? 'annular' : 'total';
         const eclipse = { peakMs: path.peakMs, kind, local: false, eventId: (target && typeof target === 'object' && target.id) || null };
         store.set({ ui: { ...ui, eclipse } }, 'actions');
         const view = store.get().view;

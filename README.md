@@ -170,7 +170,8 @@ Planet Location Marker is MIT-licensed (see [LICENSE](LICENSE)). It bundles:
 | Astronomy | [Astronomy Engine](https://github.com/cosinekitty/astronomy) 2.1.19 by Don Cross | MIT |
 | Stars, constellations, Milky Way | ESA Hipparcos, via [d3-celestial](https://github.com/ofrohn/d3-celestial) by Olaf Frohn | BSD-3-Clause |
 | Cities | [GeoNames](https://www.geonames.org/) | CC BY 4.0 |
-| Earth textures | [Solar System Scope](https://www.solarsystemscope.com/textures/) and NASA Visible Earth, via the three.js examples | CC BY 4.0 / public domain |
+| Earth textures (and the 2k maps made from them) | [Solar System Scope](https://www.solarsystemscope.com/textures/), via the three.js examples | CC BY 4.0 |
+| Moon texture | NASA imagery, via the three.js examples | public domain |
 
 Online place search, which is optional, uses [Open-Meteo](https://open-meteo.com/),
 [Photon](https://photon.komoot.io/) and [Nominatim](https://nominatim.openstreetmap.org/), all

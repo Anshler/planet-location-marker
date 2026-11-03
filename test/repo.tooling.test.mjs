@@ -259,12 +259,17 @@ test('stage-site ships the site and nothing else', () => {
 });
 
 test('check-size: tier texture selection mirrors keysForTier', () => {
-    assert.deepEqual(tierTextureKeys({ dayTex: 'day2k', oceanMask: 'derived', clouds: 'none', flare: false }), ['day2k', 'night', 'moon', 'milkyway']);
-    assert.deepEqual(tierTextureKeys({ dayTex: 'day4k', oceanMask: 'specular', clouds: 'clouds1k', flare: true }),
-        ['day4k', 'night', 'specular', 'clouds1k', 'moon', 'milkyway', 'flare0', 'flare3']);
+    assert.deepEqual(tierTextureKeys({ dayTex: 'day2k', oceanMask: 'roughness2k', clouds: 'none', flare: false }),
+        ['day2k', 'night2k', 'roughness2k', 'moon', 'milkyway'], 'low');
+    assert.deepEqual(tierTextureKeys({ dayTex: 'day2k', oceanMask: 'derived', clouds: 'none', flare: false }), ['day2k', 'night2k', 'moon', 'milkyway'],
+        'a derived mask loads nothing');
+    assert.deepEqual(tierTextureKeys({ dayTex: 'day4k', oceanMask: 'roughness2k', clouds: 'clouds2k', flare: true }),
+        ['day4k', 'night4k', 'roughness2k', 'clouds2k', 'moon', 'milkyway', 'flare0', 'flare3']);
+    assert.deepEqual(tierTextureKeys({ dayTex: 'day2k', oceanMask: 'roughness2k', clouds: 'clouds2k', flare: true }),
+        ['day2k', 'night2k', 'roughness2k', 'clouds2k', 'moon', 'milkyway', 'flare0', 'flare3'], 'medium on a small GPU');
     assert.deepEqual(tierTextureKeys({ dayTex: 'day4k', oceanMask: 'roughness', clouds: 'brc4k', flare: true }),
-        ['day4k', 'night', 'brc4k', 'moon', 'milkyway', 'flare0', 'flare3']);
-    assert.deepEqual(TIER_BUDGETS, { low: 3.8e6, medium: 4.3e6, high: 5.4e6 });
+        ['day4k', 'night4k', 'brc4k', 'moon', 'milkyway', 'flare0', 'flare3']);
+    assert.deepEqual(TIER_BUDGETS, { low: 3.35e6, medium: 4.25e6, high: 5.4e6 });
     // SPEC §E.6: every tier stays under 6 MB, and the tiers grow with quality.
     assert.ok(TIER_BUDGETS.low < TIER_BUDGETS.medium && TIER_BUDGETS.medium < TIER_BUDGETS.high && TIER_BUDGETS.high < 6e6);
 });

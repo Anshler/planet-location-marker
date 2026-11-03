@@ -167,6 +167,7 @@ const KNOWN_SAFE_LOG_ARGS = new Map([
     ['depth', 'lunar eclipse: depth is clamped to [0, 1]'],
     ['r2', 'star sprite: r2 = dot(p, p)'],
     ['e', 'star limit: e = clamp(uExposure, 0.0, 1.0)'],
+    ['float(textureSize(uNight, 0).x) / 4096.0', 'cloud-deck glow: a texture is at least 1 texel wide'],
 ]);
 
 test('log/log2/sqrt/inversesqrt arguments stay inside their domains', async () => {

@@ -11,10 +11,12 @@
 //   node scripts/fetch-vendor.mjs --update        accept new hashes (after a deliberate bump)
 //
 // Pins: three.js code from npm 0.170.0; planet textures from the three.js repo at tag r170;
-// the clouds PNG and lens flares at r186 (re-optimised PNGs, same images); astronomy-engine 2.1.19 (its npm
+// the lens flares at r186 (re-optimised PNGs, same images); astronomy-engine 2.1.19 (its npm
 // package ships no LICENSE, so that comes from the matching git tag); d3-celestial data at
 // commit 7e720a3 (master as of 2022-07-05; the repo has no tag for it on jsDelivr).
 // GeoNames is not vendored — scripts/build-cities.mjs downloads it to a gitignored cache.
+// Textures re-encoded from these files are not vendored either: scripts/build-textures.mjs
+// makes them and locks them in vendor/DERIVED.json, so they count as listed here.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -24,6 +26,7 @@ import { download } from './lib/http.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const LOCK = path.join(ROOT, 'vendor', 'VENDOR.json');
+const DERIVED_LOCK = path.join(ROOT, 'vendor', 'DERIVED.json');
 
 const THREE = { name: 'three', version: '0.170.0', license: 'MIT', base: 'https://cdn.jsdelivr.net/npm/three@0.170.0/' };
 const AE = { name: 'astronomy-engine', version: '2.1.19', license: 'MIT' };
@@ -57,9 +60,6 @@ export const MANIFEST = [
     texture(TEX170, 'planets', 'earth_day_4096.jpg', SSS),
     texture(TEX170, 'planets', 'earth_night_4096.jpg', SSS),
     texture(TEX170, 'planets', 'earth_bump_roughness_clouds_4096.jpg', SSS),
-    texture(TEX170, 'planets', 'earth_atmos_2048.jpg', THREE_EX),
-    texture(TEX170, 'planets', 'earth_specular_2048.jpg', THREE_EX),
-    texture(TEX186, 'planets', 'earth_clouds_1024.png', THREE_EX),   // re-optimised PNG after r170
     texture(TEX170, 'planets', 'moon_1024.jpg', THREE_EX),
     texture(TEX186, 'lensflare', 'lensflare0.png', RO_ME),
     texture(TEX186, 'lensflare', 'lensflare3.png', RO_ME),
@@ -97,10 +97,12 @@ function listFiles(dir) {
     return out;
 }
 
-/** Files under vendor/ and assets/textures/ that the manifest does not know about. */
+/** Files under vendor/ and assets/textures/ that neither lock knows about. */
 function unlistedFiles() {
     const known = new Set(MANIFEST.map((m) => m.path));
     known.add('vendor/VENDOR.json');
+    known.add('vendor/DERIVED.json');
+    for (const p of readLock(DERIVED_LOCK).keys()) known.add(p);   // checked by build-textures --check
     return [...listFiles(path.join(ROOT, 'vendor')), ...listFiles(path.join(ROOT, 'assets', 'textures'))]
         .map((f) => path.relative(ROOT, f).replaceAll('\\', '/'))
         .filter((f) => !known.has(f));

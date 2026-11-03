@@ -20,14 +20,14 @@ function deepFreeze(o) {
 export const TIERS = deepFreeze({
     low: {
         name: 'low', dprCap: 1.0, composer: false, msaa: 0, bloom: null,
-        earthSegments: [64, 32], dayTex: 'day2k', oceanMask: 'derived',
+        earthSegments: [64, 32], dayTex: 'day2k', oceanMask: 'roughness2k',
         clouds: 'none', cloudShadows: false, bump: false, atmosphere: 'analytic', atmoSteps: 0,
         starMagLimit: 5.0, flare: false, labelCap: 12, twinkle: false, beamGlowPx: 8, finalPass: false,
     },
     medium: {
         name: 'medium', dprCap: 1.5, composer: true, msaa: 4, bloom: { strength: 0.55, radius: 0.4, threshold: 0.9, scale: 0.5 },
-        earthSegments: [96, 48], dayTex: 'day4k', oceanMask: 'specular',
-        clouds: 'clouds1k', cloudShadows: false, bump: false, atmosphere: 'analytic', atmoSteps: 0,
+        earthSegments: [96, 48], dayTex: 'day4k', oceanMask: 'roughness2k',
+        clouds: 'clouds2k', cloudShadows: false, bump: false, atmosphere: 'analytic', atmoSteps: 0,
         starMagLimit: 6.0, flare: true, labelCap: 24, twinkle: false, beamGlowPx: 12, finalPass: true,
     },
     high: {
@@ -94,7 +94,7 @@ export function detectTier(probe) {
 /**
  * A resolved, frozen copy of TIERS[name] for this device:
  *  - coarse pointer: MSAA 0 on medium (SPEC §E.6);
- *  - maxTextureSize known and < 8192: the 2k day map on medium (SPEC §I risk 4);
+ *  - maxTextureSize known and < 8192: the 2k day (and so night) map on medium (SPEC §I risk 4);
  *  - maxTextureSize known and < 4096: no 4k-only features (bump, cloud shadows, brc4k clouds, roughness mask);
  *  - dprCap: the governor's reduced DPR cap, never above the tier's own cap.
  * @param {TierName} name
@@ -113,8 +113,8 @@ export function tierConfig(name, { coarse = false, maxTextureSize, dprCap } = {}
     if (texKnown && maxTextureSize < 8192 && cfg.name === 'medium') cfg.dayTex = 'day2k';
     if (texKnown && maxTextureSize < 4096) {
         cfg.dayTex = 'day2k';
-        if (cfg.clouds === 'brc4k') cfg.clouds = 'clouds1k';
-        if (cfg.oceanMask === 'roughness') cfg.oceanMask = 'specular';
+        if (cfg.clouds === 'brc4k') cfg.clouds = 'clouds2k';
+        if (cfg.oceanMask === 'roughness') cfg.oceanMask = 'roughness2k';
         cfg.bump = false;
         cfg.cloudShadows = false;
     }

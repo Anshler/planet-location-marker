@@ -17,7 +17,8 @@ export const CREDITS = [
     ['astronomy-engine', '2.1.19 · positions, rise/set, eclipses', 'MIT', 'https://github.com/cosinekitty/astronomy'],
     ['d3-celestial', 'star catalogue (Hipparcos), constellations, Milky Way', 'BSD 3-Clause', 'https://github.com/ofrohn/d3-celestial'],
     ['GeoNames', 'offline city list', 'CC BY 4.0', 'https://www.geonames.org/'],
-    ['NASA Visible Earth', 'Earth and Moon imagery via three.js examples', 'Public domain', 'https://visibleearth.nasa.gov/'],
+    ['Solar System Scope', 'Earth day, night and cloud maps via three.js examples', 'CC BY 4.0', 'https://www.solarsystemscope.com/textures/'],
+    ['NASA Visible Earth', 'Moon imagery via three.js examples', 'Public domain', 'https://visibleearth.nasa.gov/'],
     ['Open-Meteo Geocoding', 'online place search', 'CC BY 4.0', 'https://open-meteo.com/'],
     ['Photon by Komoot', 'online place search', 'OpenStreetMap data, ODbL', 'https://photon.komoot.io/'],
     ['Nominatim', 'online place search', 'OpenStreetMap data, ODbL', 'https://www.openstreetmap.org/copyright'],
@@ -52,7 +53,8 @@ export function mountAbout(root, ctx) {
                 + 'For a point clicked far from any listed city, the local time zone is estimated from longitude and marked “approx.”.')),
         h('div', { class: 'group' },
             h('h3', { class: 'group-title' }, 'Credits'),
-            h('p', { class: 'prose' }, 'Stars: Hipparcos via d3-celestial. Imagery: NASA Visible Earth via three.js. Cities: GeoNames (CC BY 4.0). '
+            h('p', { class: 'prose' }, 'Stars: Hipparcos via d3-celestial. Earth imagery: Solar System Scope (CC BY 4.0); Moon: NASA. '
+                + 'Cities: GeoNames (CC BY 4.0). '
                 + 'Clouds are illustrative, not live weather.'),
             h('ul', { class: 'credits' }, CREDITS.map(([name, role, lic, url]) => h('li', { class: 'credit' },
                 h('span', { class: 'credit__main' }, link(url, name, 'link credit__name'), h('span', { class: 'credit__role' }, role)),

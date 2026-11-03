@@ -48,8 +48,8 @@
  *   eclipse:{solar:boolean, lunar:boolean, obscurationAtObserver:number, moonLitFraction:number} }} Snapshot */
 /** @typedef {{ name:'low'|'medium'|'high', dprCap:number, composer:boolean, msaa:number,
  *   bloom:null|{strength:number, radius:number, threshold:number, scale:number},
- *   earthSegments:[number,number], dayTex:'day2k'|'day4k', oceanMask:'derived'|'specular'|'roughness',
- *   clouds:'none'|'clouds1k'|'brc4k', cloudShadows:boolean, bump:boolean, atmosphere:'analytic'|'raymarch', atmoSteps:number,
+ *   earthSegments:[number,number], dayTex:'day2k'|'day4k', oceanMask:'derived'|'roughness2k'|'roughness',
+ *   clouds:'none'|'clouds2k'|'brc4k', cloudShadows:boolean, bump:boolean, atmosphere:'analytic'|'raymarch', atmoSteps:number,
  *   starMagLimit:number, flare:boolean, labelCap:number, twinkle:boolean, beamGlowPx:number, finalPass:boolean }} TierCfg */
 /** @typedef {{ dtMs:number, timeS:number, camera:any, viewMode:'orbit'|'sky', skyBlend:number, snap:Snapshot,
  *   pulsesActive:boolean, exposure:{stars:number, planets:number, milkyWay:number} }} FrameInfo */

@@ -12,6 +12,8 @@
     "vendor:check": "node scripts/fetch-vendor.mjs --check",
     "data": "node scripts/build-sky.mjs && node scripts/build-milkyway.mjs && node scripts/build-cities.mjs",
     "icons": "node scripts/build-icons.mjs",
+    "textures": "node scripts/build-textures.mjs",
+    "textures:check": "node scripts/build-textures.mjs --check",
     "size": "node scripts/check-size.mjs",
     "stage": "node scripts/stage-site.mjs _site"
   }

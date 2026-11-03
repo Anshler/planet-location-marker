@@ -66,9 +66,11 @@ void main() {
     float dark = 1.0 - smoothstep(-0.12, 0.0, mu);
     col += vec3(0.010, 0.013, 0.020) * dark;
 
-    // City light scattered up through the deck (blurred: clouds diffuse it).
+    // City light scattered up through the deck (blurred: clouds diffuse it). The blur is
+    // mip 3.5 of the 4096 map: the same ground width whichever night map is bound.
     float nightW = 1.0 - smoothstep(-0.12, 0.03, mu);
-    vec3 below = pow(textureLod(uNight, uv, 3.5).rgb, vec3(1.0, 1.1, 1.35)) * vec3(1.0, 0.8, 0.55);
+    float blurLod = max(3.5 + log2(float(textureSize(uNight, 0).x) / 4096.0), 0.0);
+    vec3 below = pow(textureLod(uNight, uv, blurLod).rgb, vec3(1.0, 1.1, 1.35)) * vec3(1.0, 0.8, 0.55);
     col += below * uLightsGain * nightW * 0.35;
 
     // Aerial perspective, as on the surface: the tops sit above part of the air,

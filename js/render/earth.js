@@ -2,16 +2,18 @@
  * The Earth: surface sphere plus cloud shell, oriented by snap.earthMatrix
  * (SPEC §C.5, §E.1, §E.2, tiers §E.6).
  *
- * Texture slots (day map, ocean mask, clouds) are bound per tier. A slot keeps
- * whatever real texture it already shows until the tier's preferred one is
- * ready, then swaps texture and interpretation together (uniforms, no
- * recompile). Before any mask has arrived the ocean is derived from the day map.
+ * Texture slots (day map, night lights, ocean mask, clouds) are bound per tier.
+ * A slot keeps whatever real texture it already shows until the tier's
+ * preferred one is ready, then swaps texture and interpretation together
+ * (uniforms, no recompile). Before any mask has arrived the ocean is derived
+ * from the day map. The 2k and 4k maps of a slot are the same imagery, so a
+ * tier switch changes sharpness, never colour or weather.
  */
 import * as THREE from 'three';
 import { EARTH_SHADER } from './shaders/earth.glsl.js';
 import { CLOUDS_SHADER } from './shaders/clouds.glsl.js';
 import { ATMO_SUN_I, ATMO_EXPOSURE } from './shaders/atmosphere.glsl.js';
-import { dayKeyFor, maskKeyFor, cloudsKeyFor } from './textures.js';
+import { dayKeyFor, nightKeyFor, maskKeyFor, cloudsKeyFor } from './textures.js';
 import { groundCover } from './sky.js';
 import { BODIES, MOON_RADIUS_ER, SUN_ANG_RADIUS_1AU_RAD, sunAngularRadius } from '../astro/bodies.js';
 
@@ -25,19 +27,14 @@ const LOOK = {
     glintGain: 1.0,
 };
 
-/** (b - r) window for the derived ocean mask, fitted per day map against the specular map. */
-const DERIVED_WINDOW = { day4k: [0.02, 0.10], day2k: [0.016, 0.036] };
-/** Albedo gain per day map: earth_atmos_2048 is ~1.3x darker (linear) than earth_day_4096. */
-const DAY_GAIN = { day4k: 1.0, day2k: 1.3 };
-
 /** Clouds drift eastward with simulated time: one lap per 40 days (illustrative, deterministic). */
 const CLOUD_DRIFT_PERIOD_MS = 40 * 86400e3;
 const CLOUD_DRIFT_EPOCH_MS = Date.UTC(2000, 0, 1, 12);
 
 /** Tier knobs this module reads, used when rc.tier is a name or a partial config. */
 const TIER_DEFAULTS = {
-    low: { name: 'low', earthSegments: [64, 32], dayTex: 'day2k', oceanMask: 'derived', clouds: 'none', cloudShadows: false, bump: false },
-    medium: { name: 'medium', earthSegments: [96, 48], dayTex: 'day4k', oceanMask: 'specular', clouds: 'clouds1k', cloudShadows: false, bump: false },
+    low: { name: 'low', earthSegments: [64, 32], dayTex: 'day2k', oceanMask: 'roughness2k', clouds: 'none', cloudShadows: false, bump: false },
+    medium: { name: 'medium', earthSegments: [96, 48], dayTex: 'day4k', oceanMask: 'roughness2k', clouds: 'clouds2k', cloudShadows: false, bump: false },
     high: { name: 'high', earthSegments: [128, 64], dayTex: 'day4k', oceanMask: 'roughness', clouds: 'brc4k', cloudShadows: true, bump: true },
 };
 
@@ -93,9 +90,9 @@ export function createEarth(rc, { textures } = {}) {
     /** Uniform objects; the cloud material shares the ones it needs by reference. */
     const u = {
         uDay: { value: store.get(dayKeyFor(cfg)) },
-        uNight: { value: store.get('night') },
+        uNight: { value: store.get(nightKeyFor(cfg)) },
         uMask: { value: store.get('brc4k') },
-        uClouds: { value: store.get('clouds1k') },
+        uClouds: { value: store.get('clouds2k') },
         uSunDirW: { value: new THREE.Vector3(1, 0, 0) },
         uSunDirL: { value: new THREE.Vector3(1, 0, 0) },
         uPoleW: { value: new THREE.Vector3(0, 1, 0) },
@@ -105,8 +102,6 @@ export function createEarth(rc, { textures } = {}) {
         uGlintGain: { value: LOOK.glintGain },
         uHazeE: { value: ATMO_SUN_I * ATMO_EXPOSURE },
         uMaskMode: { value: 0 },
-        uDerivedWin: { value: new THREE.Vector2(...DERIVED_WINDOW.day4k) },
-        uDayGain: { value: DAY_GAIN.day4k },
         uBumpOn: { value: 0 },
         uCloudMode: { value: 0 },
         uCloudShift: { value: 0 },
@@ -174,19 +169,18 @@ export function createEarth(rc, { textures } = {}) {
 
     // ---- texture slots ------------------------------------------------------
     /** Active real texture key per slot (null while only a placeholder or nothing is bound). */
-    const active = { day: null, mask: null, clouds: null };
-    const pending = { day: null, mask: null, clouds: null };
+    const active = { day: null, night: null, mask: null, clouds: null };
+    const pending = { day: null, night: null, mask: null, clouds: null };
+    /** Slots that always hold a texture, so they show the key's placeholder until it loads. */
+    const IMAGE_SLOT = { day: u.uDay, night: u.uNight };
 
     function bindSlot(slot, key) {
         const tex = store.get(key);
-        if (slot === 'day') {
-            u.uDay.value = tex;
-            const w = DERIVED_WINDOW[key] ?? DERIVED_WINDOW.day4k;
-            u.uDerivedWin.value.set(w[0], w[1]);
-            u.uDayGain.value = DAY_GAIN[key] ?? 1;
+        if (IMAGE_SLOT[slot]) {
+            IMAGE_SLOT[slot].value = tex;
         } else if (slot === 'mask') {
             u.uMask.value = tex;
-            u.uMaskMode.value = key === 'specular' ? 1 : 2;
+            u.uMaskMode.value = 1;
             u.uBumpOn.value = key === 'brc4k' ? 1 : 0;
         } else {
             u.uClouds.value = tex;
@@ -212,7 +206,7 @@ export function createEarth(rc, { textures } = {}) {
         if (isReady(key)) { bindSlot(slot, key); return; }
         // Not loaded yet: keep any real texture already shown; otherwise fall back.
         if (!active[slot]) {
-            if (slot === 'day') u.uDay.value = store.get(key);
+            if (IMAGE_SLOT[slot]) IMAGE_SLOT[slot].value = store.get(key);
             else clearSlot(slot);
         }
         pending[slot] = store.onReady(key, () => {
@@ -223,16 +217,14 @@ export function createEarth(rc, { textures } = {}) {
 
     function bindTier() {
         want('day', dayKeyFor(cfg));
+        want('night', nightKeyFor(cfg));
         want('mask', maskKeyFor(cfg));
         want('clouds', cloudsKeyFor(cfg));
     }
 
-    // Night lights are the same for every tier.
-    let nightOff = store.onReady('night', (tex) => { u.uNight.value = tex; nightOff = null; invalidate(); });
-
     function refreshClouds() {
         const key = active.clouds;
-        const mode = key === 'clouds1k' ? 1 : key === 'brc4k' ? 2 : 0;
+        const mode = key === 'clouds2k' ? 1 : key === 'brc4k' ? 2 : 0;
         u.uCloudMode.value = cloudLayer ? mode : 0;
         clouds.visible = cloudLayer && mode !== 0 && groundCover(skyBlend) < 0.999;
     }
@@ -388,7 +380,6 @@ export function createEarth(rc, { textures } = {}) {
 
         dispose() {
             for (const k of Object.keys(pending)) { if (pending[k]) pending[k](); pending[k] = null; }
-            if (nightOff) nightOff();
             mesh.geometry.dispose();
             clouds.geometry.dispose();
             material.dispose();

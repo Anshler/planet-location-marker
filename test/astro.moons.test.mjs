@@ -131,6 +131,12 @@ test('Saturn: edge-on from Oct 2038 to Jul 2039 (three crossings), memoised', ()
     // The 2025 crossing (Earth through the ring plane on 2025-03-23).
     const p = saturnEdgeOn(Date.parse('2024-06-01T00:00:00Z'));
     assert.equal(new Date(p.firstMs).toISOString().slice(0, 7), '2025-03');
+    // Just after it, in the same 30-day bucket, the next one is the 2038–39 run, not the past one.
+    for (const d of ['2025-03-24', '2025-04-01', '2025-04-05']) {
+        const n = saturnEdgeOn(Date.parse(`${d}T12:00:00Z`));
+        assert.equal(new Date(n.firstMs).toISOString().slice(0, 7), '2038-10', d);
+        assert.equal(n.count, 3, d);
+    }
     assert.equal(saturnEdgeOn(NaN), null);
 });
 

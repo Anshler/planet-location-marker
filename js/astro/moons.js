@@ -210,15 +210,22 @@ function crossing(a, ta, b) {
  * The next run of Saturn's ring-plane crossings seen from the Earth after `tMs` (the rings edge-on):
  * the first crossing and the last one of the same apparition run (one or three, ~15 years apart).
  * Adaptive steps bounded by the tilt's fastest drift (~0.07°/day), so ~200 Illumination calls;
- * memoised per 30-day bucket. null when none is found within 16 years (never, in practice).
+ * memoised per 30-day bucket (searched from the bucket's start), or per day when the bucket's
+ * crossing is already past. null when none is found within 16 years (never, in practice).
  * @param {number} tMs
  * @returns {{firstMs:number, lastMs:number, count:number}|null}
  */
 export function saturnEdgeOn(tMs) {
     if (!Number.isFinite(tMs)) return null;
-    const key = Math.floor(tMs / (30 * DAY_MS));
-    if (EDGE_CACHE.has(key)) return EDGE_CACHE.get(key);
-    const t0 = key * 30 * DAY_MS;
+    const res = edgeRunFrom(Math.floor(tMs / (30 * DAY_MS)) * 30);
+    // A crossing inside this bucket but before tMs is not the next one: search again from today.
+    return res && res.firstMs < tMs ? edgeRunFrom(Math.floor(tMs / DAY_MS)) : res;
+}
+
+/** {@link saturnEdgeOn}'s search from the start of day number `day` (since 1970), memoised. */
+function edgeRunFrom(day) {
+    if (EDGE_CACHE.has(day)) return EDGE_CACHE.get(day);
+    const t0 = day * DAY_MS;
     const limit = t0 + 16 * 365.25 * DAY_MS;
     let a = t0, ta = ringTilt(a);
     let first = NaN;
@@ -240,6 +247,6 @@ export function saturnEdgeOn(tMs) {
         res = { firstMs: first, lastMs: last, count };
     }
     if (EDGE_CACHE.size > 64) EDGE_CACHE.clear();
-    EDGE_CACHE.set(key, res);
+    EDGE_CACHE.set(day, res);
     return res;
 }

@@ -28,6 +28,7 @@
  * @module render/shaders/planets
  */
 import { FINITE_CHUNK } from './common.glsl.js';
+import { INFINITY_VERT_CHUNK } from './sky.glsl.js';
 import { MARS_SPOTS, SATURN_RINGS, grsLongitudeDeg } from '../../astro/disc.js';
 
 export { grsLongitudeDeg };
@@ -314,6 +315,72 @@ void main() {
     float a = c.a * vShape.z;
     if (a < 0.004) discard;
     gl_FragColor = vec4(pcFinite(c.rgb * uGain), a);
+    #include <tonemapping_fragment>
+    #include <colorspace_fragment>
+}
+`;
+
+/**
+ * Sky-view telescope quads (render/planets.js): instanced and screen-aligned on a direction at
+ * infinity (infinityClip, so refraction lifts them exactly like the glyphs), `iShape.w` device px
+ * per equatorial radius and `iShape.z` radii of half-extent; `iTint` is the linear-light gain
+ * (exposure and extinction) and the cross-fade. Kind 7 is a Galilean moon: a small, gently
+ * limb-darkened disc, never under uPlDotPx across.
+ */
+export const SCOPE_VERT = /* glsl */`
+uniform vec2 uViewport;
+attribute vec3 iDir;
+attribute vec3 iPole;
+attribute vec3 iPrime;
+attribute vec3 iLight;
+attribute vec4 iShape;
+attribute vec4 iTint;
+varying vec2 vP;
+varying float vAa;
+varying vec3 vPole;
+varying vec3 vPrime;
+varying vec3 vLight;
+varying vec2 vShape;
+varying vec4 vTint;
+${INFINITY_VERT_CHUNK}
+void main() {
+    vec4 c = infinityClip(normalize(iDir));
+    float rpx = max(iShape.w, 1e-4);
+    c.xy += position.xy * iShape.z * rpx * 2.0 / uViewport * c.w;
+    gl_Position = iTint.a > 0.002 ? c : vec4(2.0, 2.0, 2.0, 1.0);
+    vP = position.xy * iShape.z;
+    vAa = 1.0 / rpx;
+    vPole = iPole;
+    vPrime = iPrime;
+    vLight = iLight;
+    vShape = iShape.xy;
+    vTint = iTint;
+}
+`;
+
+export const SCOPE_FRAG = /* glsl */`
+varying vec2 vP;
+varying float vAa;
+varying vec3 vPole;
+varying vec3 vPrime;
+varying vec3 vLight;
+varying vec2 vShape;
+varying vec4 vTint;
+${FINITE_CHUNK}
+${PLANET_CHUNK}
+void main() {
+    vec4 c;
+    if (vShape.x > 6.5) {
+        float r = max(1.0, 0.5 * uPlDotPx * vAa);
+        float d = length(vP);
+        float mu = sqrt(max(1.0 - min(d * d / (r * r), 1.0), 0.0));
+        c = vec4(vec3(0.95, 0.91, 0.82) * (0.62 + 0.38 * mu), 1.0 - smoothstep(r - vAa, r + vAa, d));
+    } else {
+        c = planetShade(vP, vAa, vShape.x, normalize(vPole), normalize(vPrime), normalize(vLight), vShape.y);
+    }
+    float a = c.a * vTint.a;
+    if (a < 0.003) discard;
+    gl_FragColor = vec4(pcFinite(c.rgb * vTint.rgb), a);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>
 }

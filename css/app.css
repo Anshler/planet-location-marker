@@ -1058,8 +1058,8 @@ body.tier-medium:not(.is-coarse) .glass {
 .seg--view { gap: 3px; padding: 4px; border-radius: 15px; }
 .seg--view .seg__btn { height: 34px; padding: 0 14px 0 11px; border-radius: 11px; font-size: 13px; }
 .seg--view .seg__btn.is-on { background: var(--accent); color: var(--accent-ink); box-shadow: 0 2px 10px rgba(124, 196, 255, .3); }
-.vb-lock.is-on { color: var(--accent); }
-.vb-lock[hidden], .vb-fs[hidden] { display: none; }
+.vb-lock.is-on, .vb-track.is-on { color: var(--accent); }
+.vb-lock[hidden], .vb-track[hidden], .vb-fs[hidden] { display: none; }
 
 /* 11 ─ Sky now ----------------------------------------------------------------------- */
 .skynow__status { flex: none; }
@@ -1807,7 +1807,7 @@ body.no-webgl #ui-root { position: static; inset: auto; pointer-events: auto; }
 .ui[data-layout="text"] .panel__collapse { display: none; }
 .ui[data-layout="text"] .tabpanel { padding: 18px 18px 22px; }
 .ui[data-layout="text"] .viewbar { position: static; display: flex; justify-content: flex-end; gap: 8px; }
-.ui[data-layout="text"] .seg--view, .ui[data-layout="text"] .vb-lock, .ui[data-layout="text"] .vb-fs { display: none; }
+.ui[data-layout="text"] .seg--view, .ui[data-layout="text"] .vb-lock, .ui[data-layout="text"] .vb-track, .ui[data-layout="text"] .vb-fs { display: none; }
 .ui[data-layout="text"] .toasts { left: 50%; bottom: 20px; position: fixed; }
 .ui[data-layout="text"] .flash, .ui[data-layout="text"] .hint { left: 50%; }
 .ui[data-layout="text"] .body-row { padding: 10px; }

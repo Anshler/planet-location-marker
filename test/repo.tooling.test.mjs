@@ -269,7 +269,7 @@ test('check-size: tier texture selection mirrors keysForTier', () => {
         ['day2k', 'night2k', 'roughness2k', 'clouds2k', 'moon', 'milkyway'], 'medium on a small GPU');
     assert.deepEqual(tierTextureKeys({ dayTex: 'day4k', oceanMask: 'roughness', clouds: 'brc4k', flare: true }),
         ['day4k', 'night4k', 'brc4k', 'moon', 'milkyway']);
-    assert.deepEqual(TIER_BUDGETS, { low: 3.72e6, medium: 4.47e6, high: 5.7e6 });
+    assert.deepEqual(TIER_BUDGETS, { low: 3.75e6, medium: 4.51e6, high: 5.73e6 });
     // SPEC §E.6: every tier stays under 6 MB, and the tiers grow with quality.
     assert.ok(TIER_BUDGETS.low < TIER_BUDGETS.medium && TIER_BUDGETS.medium < TIER_BUDGETS.high && TIER_BUDGETS.high < 6e6);
     // max has no budget: it is reported, never enforced. Its 8192 maps follow their 4096 stand-ins.

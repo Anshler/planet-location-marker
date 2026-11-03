@@ -9,7 +9,7 @@ import { createClock, MIN_MS, MAX_MS, RATES } from '../js/core/clock.js';
 
 const BODY_IDS = ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune'];
 const LAYER_KEYS = Object.keys(DEFAULT_STATE.layers);
-const ALLOWED_KEYS = new Set(['observer', 'tMs', 'live', 'rate', 'playing', 'view', 'earthLock', 'selection', 'layers', 'quality', 'skyDark', 'aurora', 'cam', 'intro', 'debug', 'invalid']);
+const ALLOWED_KEYS = new Set(['observer', 'tMs', 'live', 'rate', 'playing', 'view', 'earthLock', 'selection', 'layers', 'quality', 'skyDark', 'aurora', 'cam', 'track', 'intro', 'debug', 'invalid']);
 const SPEC_EXAMPLE = '#loc=21.0285,105.8542&n=Hanoi&cc=VN&tz=Asia/Ho_Chi_Minh&el=15&t=2027-08-02T10:07:00Z&r=3600&p=1&view=orbit&lock=1&sel=moon'
     + '&ly=bgoscCnmkazhld&q=auto&cam=o:21.0,105.8,3.2|s:142.3,25.0,60&intro=0&debug=1';
 
@@ -45,7 +45,7 @@ function assertValid(out, label) {
             assert.ok(Math.abs(c.latDeg) <= 90 && c.lonDeg > -180 && c.lonDeg <= 180 && c.distance >= 1.08 && c.distance <= 150, `${label}: cam`);
         } else {
             assert.equal(c.mode, 'sky');
-            assert.ok(c.azDeg >= 0 && c.azDeg < 360 && c.altDeg >= -10 && c.altDeg <= 89 && c.fovDeg >= 5 && c.fovDeg <= 100, `${label}: cam`);
+            assert.ok(c.azDeg >= 0 && c.azDeg < 360 && c.altDeg >= -10 && c.altDeg <= 89 && c.fovDeg >= 0.2 && c.fovDeg <= 100, `${label}: cam`);
         }
     }
     if (out.invalid) {
@@ -143,7 +143,11 @@ test('round trip of the orbit camera and of an {orbit, sky} pair', () => {
     assert.deepEqual(parseHash(`#view=sky&cam=${code}`).cam, pair.sky);
     assert.deepEqual(parseHash(`#cam=${code}`).cam, orbit);
     assert.equal(camToCode({ kind: 'o', lat: 1, lon: 2, dist: 3 }), 'o:1,2,3', 'aliases accepted');
-    assert.equal(camToCode({ type: 's', yaw: -30, pitch: 95, fov: 1 }), 's:330,89,5', 'clamped and wrapped');
+    assert.equal(camToCode({ type: 's', yaw: -30, pitch: 95, fov: 0.05 }), 's:330,89,0.2', 'clamped and wrapped');
+    // The telescope zoom keeps three significant digits of a narrow field.
+    assert.equal(camToCode({ mode: 'sky', az: 10, alt: 20, fov: 0.31234 }), 's:10,20,0.312');
+    assert.equal(camToCode({ mode: 'sky', az: 10, alt: 20, fov: 2.4567 }), 's:10,20,2.46');
+    assert.equal(camToCode({ mode: 'sky', az: 10, alt: 20, fov: 45.67 }), 's:10,20,45.7');
     assert.equal(camToCode('o:1,2,3|garbage'), 'o:1,2,3');
     assert.equal(camToCode({ mode: 'orbit', latDeg: 1 }), '');
     assert.equal(camToCode(42), '');
@@ -213,7 +217,8 @@ test('clamping and snapping', () => {
     assert.equal(el.observer.elevM, 9000);
     assert.deepEqual(el.invalid, ['el']);
     assert.deepEqual(parseHash('#cam=o:95,370,500').cam, { mode: 'orbit', latDeg: 90, lonDeg: 10, distance: 150 });
-    assert.deepEqual(parseHash('#cam=s:-30,120,1').cam, { mode: 'sky', azDeg: 330, altDeg: 89, fovDeg: 5 });
+    assert.deepEqual(parseHash('#cam=s:-30,120,0.1').cam, { mode: 'sky', azDeg: 330, altDeg: 89, fovDeg: 0.2 });
+    assert.deepEqual(parseHash('#cam=s:-30,120,0.5').cam, { mode: 'sky', azDeg: 330, altDeg: 89, fovDeg: 0.5 });
 });
 
 test('invalid values are dropped and reported; unknown keys are ignored', () => {
@@ -458,4 +463,17 @@ test('au=: the Aurora activity setting round-trips; typical is implicit; anythin
     assert.equal(serializeHash({ state: state('typical') }).includes('au='), false);
     assert.match(serializeHash({ state: state('storm') }), /&au=storm(&|$)/);
     assert.equal(parseHash(serializeHash({ state: state('quiet') })).aurora, 'quiet');
+});
+
+test('trk: sky-view tracking round-trips (b = the selected body, s = the stars)', () => {
+    assert.equal(parseHash('#trk=b').track, 'body');
+    assert.equal(parseHash('#trk=S').track, 'stars');
+    assert.equal(parseHash('#trk=0').track, undefined);
+    assert.equal(parseHash('#trk=0').invalid, undefined);
+    assert.deepEqual(parseHash('#trk=x').invalid, ['trk']);
+    const view = (track) => ({ state: { view: { mode: 'sky', earthLock: true, track } } });
+    assert.equal(serializeHash(view('body')), '#view=sky&trk=b');
+    assert.equal(serializeHash(view('stars')), '#view=sky&trk=s');
+    assert.equal(serializeHash(view('none')), '#view=sky');
+    for (const t of ['body', 'stars']) assert.equal(parseHash(serializeHash(view(t))).track, t);
 });

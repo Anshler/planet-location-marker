@@ -46,7 +46,7 @@ export const AURORA_SETTINGS = Object.freeze(['quiet', 'typical', 'storm']);
  */
 export const DEFAULT_STATE = deepFreeze({
     observer: { latDeg: 51.4769, lonDeg: -0.0005, elevM: 0, name: 'Royal Observatory Greenwich', country: 'United Kingdom', tz: 'Europe/London', tzApprox: false, source: 'default' },
-    selection: null, view: { mode: 'orbit', earthLock: true },
+    selection: null, view: { mode: 'orbit', earthLock: true, track: 'none' },
     layers: {
         beams: true, ghostBeams: true, sunMoonBeams: true, stars: true, constellations: true, constellationNames: true, starNames: true,
         milkyWay: true, clouds: true, atmosphere: true, ecliptic: false, eqGrid: false, altAzGrid: true, horizon: true, footprint: false,

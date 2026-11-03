@@ -112,6 +112,9 @@ export function bindShortcuts(ctx) {
             const on = !st.view?.earthLock;
             act('setEarthLock', on);
             flash(on ? 'View locked to Earth' : 'View unlocked');
+        } else if (code === 'KeyK') {
+            const k = act('cycleTracking');
+            flash(k === 'body' ? 'Tracking the body' : k === 'stars' ? 'Locked to the stars' : 'Tracking off');
         } else if (code === 'KeyB') toggleLayer('beams');
         else if (code === 'KeyC') toggleLayer(e.shiftKey ? 'constellationNames' : 'constellations');
         else if (code === 'KeyM') toggleLayer('milkyWay');

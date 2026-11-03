@@ -176,7 +176,17 @@ critical CSS read them.
   Sun at a 5° field; a partial one paused on its `visibleMs` at 10°; a lunar eclipse seen from
   here on the Moon at 5°. The field rides on the rig's look (`setMode('sky', {look: {azDeg,
   altDeg, fovDeg}})`): one look tween in sky view; from the globe a zoom chained after the descent,
-  which lands at 70° as before. `SKY_FOV_MIN` stays 5°.
+  which lands at 70° as before.
+- **Sidereal tracking and the telescope** (`view.track`, url `trk=b|s`, K). In sky view the rig
+  can keep the selected body centred at its refracted place (`'body'`, zenith up) or hold the
+  star field still with the J2000 pole up while the horizon swings (`'stars'`); engaging and
+  releasing blend the orientation over 600 ms, a drag moves the tracked aim, and below −8° the
+  rig ends it and `main.js` toasts. `actions.telescope(id)` frames a body at `telescopeFov` (Jupiter
+  with its moons, the Moon whole, else the 0.2° `SKY_FOV_MIN`) with tracking on; the zoom eases in
+  log space. Below `FINE_FOV_DEG` (2°) the loop recomputes the frame snapshot on every frame that
+  sim time moved and keeps drawing while the clock runs. Planets cross-fade from glyphs to the
+  shared impostor at true size (`astro/disc.js scopeBlend`, `render/planets.js` telescope mesh),
+  Jupiter's moons become discs below 6°, and the star limit gains up to 3.5 mag (`scopeGainMag`).
 - **The eclipse in focus**, `ui.eclipse = {peakMs, kind, local, eventId}`: set by a jump to a solar
   eclipse, cleared by any other jump and once simulated time is more than a day from `peakMs`
   (`main.js`, on `readout`, never during the jump's sweep). Render and HUD modules key their

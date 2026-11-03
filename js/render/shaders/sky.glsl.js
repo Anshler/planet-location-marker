@@ -96,10 +96,12 @@ const TONE = /* glsl */`
  * (faint stars vanish first): uExposure carries the zenith's limit (photometry.exposureFor), and in
  * sky view each star's own sky (SKYGLOW_CHUNK) moves it, so stars near the Moon and under a city's
  * light dome go first. Low stars are dimmed/reddened by extinction and scintillate (high tier):
- * bright ones low down also flash colour (chromatic scintillation).
+ * bright ones low down also flash colour (chromatic scintillation). uBoost, the telescope zoom's
+ * aperture gain (render/sky.js scopeGainMag), lifts every limit, the tier's included.
  */
 export const STAR_VERT = /* glsl */`
 uniform float uMagLimit;
+uniform float uBoost;
 uniform float uExposure;
 uniform float uPx;
 uniform float uZoom;
@@ -128,6 +130,7 @@ void main() {
     float lim = mix(-1.0, uMagLimit, sqrt(e));
     // The sky behind this star, brighter or darker than the zenith's, moves its limit.
     if (uSkyBlend > 0.0) lim = min(lim + (sgLimitMag(sgSky(dir)) - uSgLimZen) * uSkyBlend, uMagLimit);
+    lim += uBoost;
     float vis = smoothFall(lim + 0.35, lim - 0.45, aMag) * smoothstep(0.0, 0.04, e);
     // Flux relative to a mag-2.5 star, the "just saturated" reference. Below it the peak is
     // compressed (F^0.75) so mag-6 stars stay visible on a display; above it stars grow instead.

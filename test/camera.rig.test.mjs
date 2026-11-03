@@ -640,3 +640,149 @@ test('follow: stopFollow resolves true; from sky view it returns to the globe fi
     const v = h.rig.getView();
     near(v.distance, 2.4, 1e-6, 'the flight lands');
 });
+
+// ---- sidereal-tracking and telescope-zoom ----------------------------------------------------------
+
+const { liftByRefraction } = await import('../js/astro/photometry.js');
+
+/** NDC of a direction at infinity (no parallax: telescope fields are narrower than a camera's offset). */
+function ndcOfInf(camera, dir) {
+    camera.updateMatrixWorld();
+    return dir.clone().transformDirection(camera.matrixWorldInverse).applyMatrix4(camera.projectionMatrix);
+}
+
+/** Screen angle (degrees) at which the observer's zenith points, seen from the view centre. */
+function zenithRoll(camera, snap) {
+    const up = vec(snap.observer.upS);
+    const q = camera.quaternion;
+    const r = new THREE.Vector3(1, 0, 0).applyQuaternion(q), u = new THREE.Vector3(0, 1, 0).applyQuaternion(q);
+    return Math.atan2(up.dot(r), up.dot(u)) / D;
+}
+
+const T_SAT = Date.parse('2026-11-03T20:00:00Z');   // Saturn ~36° up in the south-east from Paris
+
+test('body tracking keeps the body centred at its refracted place as time runs; a drag offsets the aim', () => {
+    const h = makeRig({ dom: true });
+    const s0 = snapAt(T_SAT, PARIS);
+    h.rig.setView('s:150,30,1');
+    h.rig.update(0, s0);
+    h.rig.setTracking('body', 'saturn');
+    assert.equal(h.rig.tracking, 'body');
+    h.run(800, s0);
+    const off = (snap) => {
+        const b = snap.bodies[BODY_INDEX.saturn];
+        const p = ndcOfInf(h.camera, vec(liftByRefraction(b.dirS, snap.observer.upS, 1, new Float64Array(3))));
+        return [p.x * 800, p.y * 450];   // px from the centre (1600 × 900)
+    };
+    let [x, y] = off(s0);
+    near(x, 0, 1e-3, 'engaged x');
+    near(y, 0, 1e-3, 'engaged y');
+    for (let k = 1; k <= 12; k++) {
+        const s = snapAt(T_SAT + k * 15 * 60e3, PARIS);
+        h.run(16, s);
+        [x, y] = off(s);
+        near(Math.hypot(x, y), 0, 1e-3, `+${k * 15} min`);
+        const right = new THREE.Vector3(1, 0, 0).applyQuaternion(h.camera.quaternion);
+        near(right.dot(vec(s.observer.upS)), 0, 1e-9, 'zenith up');
+    }
+    // The URL's look follows the body.
+    const s3 = snapAt(T_SAT + 180 * 60e3, PARIS);
+    const v = h.rig.getView();
+    near(angDiff(v.azDeg, s3.bodies[BODY_INDEX.saturn].azDeg), 0, 0.05, 'getView az');
+    // A drag moves the tracked aim (the sky follows the finger): 90 px right at 1° on 900 px.
+    h.el.send('pointerdown', { pointerId: 1, clientX: 800, clientY: 450 });
+    h.el.send('pointermove', { pointerId: 1, clientX: 890, clientY: 450 });
+    h.el.send('pointerup', { pointerId: 1, clientX: 890, clientY: 450 });
+    h.run(16, s3);
+    [x, y] = off(s3);
+    near(x, 90, 0.5, 'dragged right');
+    near(y, 0, 0.5, 'not up');
+    const s4 = snapAt(T_SAT + 240 * 60e3, PARIS);
+    h.run(16, s4);
+    [x, y] = off(s4);
+    near(x, 90, 0.5, 'the offset holds as time runs');
+    assert.equal(h.rig.tracking, 'body');
+});
+
+test('star-lock holds the star field still, celestial north up, while the horizon swings', () => {
+    const h = makeRig({ dom: true });
+    const t0 = Date.parse('2026-11-03T19:00:00Z');
+    const s0 = snapAt(t0, PARIS);
+    h.rig.setView('s:95,15,60');
+    h.rig.update(0, s0);
+    h.rig.setTracking('stars');
+    h.run(800, s0);
+    const right = new THREE.Vector3(1, 0, 0).applyQuaternion(h.camera.quaternion);
+    near(right.y, 0, 1e-9, 'pole up: screen right is square to the J2000 pole');
+    const probes = [[0, 0], [0.5, 0.3], [-0.6, -0.4]].map(([x, y]) => [x, y, dirAtNdc(h.camera, x, y)]);
+    const roll0 = zenithRoll(h.camera, s0);
+    let s = s0;
+    for (let k = 1; k <= 8; k++) {
+        s = snapAt(t0 + k * 30 * 60e3, PARIS);
+        h.run(16, s);
+        for (const [x, y, d] of probes) {
+            const p = ndcOfInf(h.camera, d);
+            near(Math.hypot((p.x - x) * 800, (p.y - y) * 450), 0, 1e-3, `star at (${x}, ${y}) after ${k * 30} min`);
+        }
+    }
+    assert.ok(Math.abs(roll0 - zenithRoll(h.camera, s)) > 20, `the horizon swings (${roll0.toFixed(1)}° → ${zenithRoll(h.camera, s).toFixed(1)}°)`);
+});
+
+test('tracking ends by itself when the aim sets below −8° (listeners told), and the view rights itself', () => {
+    const h = makeRig({ dom: true });
+    const t0 = Date.parse('2026-11-03T19:00:00Z');
+    const s0 = snapAt(t0, PARIS);
+    h.rig.setView('s:260,8,40');
+    h.rig.update(0, s0);
+    const ends = [];
+    h.rig.onTrackEnd((info) => ends.push({ ...info, alt: h.rig.getView().altDeg }));
+    h.rig.setTracking('stars');
+    h.run(800, s0);
+    let k = 0;
+    while (!ends.length && k < 200) {
+        k++;
+        h.run(16, snapAt(t0 + k * 5 * 60e3, PARIS));
+    }
+    assert.equal(ends.length, 1);
+    assert.equal(ends[0].reason, 'set');
+    assert.equal(ends[0].kind, 'stars');
+    assert.equal(h.rig.tracking, 'none');
+    assert.ok(ends[0].alt < -7 && ends[0].alt > -10, `released near −8° (${ends[0].alt.toFixed(2)}°)`);
+    h.run(800, snapAt(t0 + k * 5 * 60e3, PARIS));
+    near(zenithRoll(h.camera, snapAt(t0 + k * 5 * 60e3, PARIS)), 0, 1e-6, 'upright again');
+    // 'body' needs a body; an unknown one ends at once.
+    h.rig.setTracking('body', null);
+    assert.equal(h.rig.tracking, 'none');
+});
+
+test('telescope zoom: the field reaches 0.2°, deep links keep it, and telescope() frames a tracked body', () => {
+    const h = makeRig({ dom: true });
+    const s0 = snapAt(T_SAT, PARIS);
+    h.rig.setView('s:150,30,0.05');
+    h.rig.update(0, s0);
+    near(h.rig.getView().fovDeg, 0.2, 1e-12, 'the floor');
+    h.rig.setView('s:150,30,60');
+    h.rig.update(16, s0);
+    h.rig.telescope(0.3);
+    h.rig.setTracking('body', 'saturn');
+    h.run(3000, s0);
+    near(h.camera.fov, 0.3, 1e-6, 'zoomed in');
+    near(h.rig.getView().fovDeg, 0.3, 1e-12, 'getView');
+    const b = s0.bodies[BODY_INDEX.saturn];
+    const p = ndcOfInf(h.camera, vec(liftByRefraction(b.dirS, s0.observer.upS, 1, new Float64Array(3))));
+    near(Math.hypot(p.x * 800, p.y * 450), 0, 1e-3, 'centred');
+    // The wheel zooms about the centre while tracking.
+    h.el.send('wheel', { deltaY: 300, clientX: 1300, clientY: 200, pointerType: 'mouse' });
+    h.run(3000, s0);
+    near(h.rig.getView().fovDeg, 0.3 * Math.exp(0.3), 1e-9, 'wheel');
+    const q = ndcOfInf(h.camera, vec(liftByRefraction(b.dirS, s0.observer.upS, 1, new Float64Array(3))));
+    near(Math.hypot(q.x * 800, q.y * 450), 0, 1e-3, 'still centred');
+    // Arrow keys step a fraction of the field, not 5°.
+    h.rig.setTracking('none');
+    h.run(800, s0);
+    const v0 = h.rig.getView();
+    h.rig.nudge(5, 0);
+    h.run(1500, s0);
+    const dAz = angDiff(h.rig.getView().azDeg, v0.azDeg);
+    assert.ok(dAz > 0.01 && dAz < 0.1, `a narrow field nudges by a fraction of a degree (${dAz})`);
+});

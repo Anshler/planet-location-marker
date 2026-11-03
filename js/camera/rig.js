@@ -10,7 +10,12 @@
  *     update(dtMs, snap) → boolean, getView() → CamView, setView(cam), onInteract(cb) → off, onClick(cb) → off,
  *     nudge(dxDeg, dyDeg), zoom(factor), zoomAt(factor, ndcX, ndcY), setViewInsets({left, right, top, bottom}),
  *     follow(targetFn, {altitude, backDeg, tiltDeg, approachMs}) → Promise, stopFollow(), following,
+ *     setTracking('none'|'body'|'stars', id), tracking, telescope(fovDeg), onTrackEnd(cb) → off,
  *     setReducedMotion(on), dispose() }
+ *
+ * Sidereal tracking (sky view): 'body' re-aims at the body's refracted direction every frame
+ * (zenith up), 'stars' holds a scene direction with the J2000 pole up, so the sky stands still and
+ * the horizon swings. It bypasses the look's altitude clamp and releases itself below −8°.
  *
  * Follow (the eclipse chase): an open-ended tween in low orbit behind a moving point, cancelled by
  * any input; the orbit controls then take over with a 450 ms orientation blend, since they always
@@ -45,11 +50,13 @@
  */
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { liftByRefraction } from '../astro/photometry.js';
 
 const DEG = Math.PI / 180;
 const ORBIT_FOV = 45;
 const SKY_FOV = 70;
-const SKY_FOV_MIN = 5;
+/** Sky-view field-of-view floor: the telescope zoom (Jupiter's disc ~45 px across at 0.2° on 900 px). */
+export const SKY_FOV_MIN = 0.2;
 const SKY_FOV_MAX = 100;
 const SKY_ALT_MIN = -10;
 const SKY_ALT_MAX = 89;
@@ -87,6 +94,13 @@ const SKY_DBL_ZOOM = 0.6;
 // current pose, the heading's low-pass rate (1/s) and the hand-back blend to OrbitControls.
 const FOLLOW = Object.freeze({ altitude: 0.35, backDeg: 14, tiltDeg: 10, approachMs: 1600, turnRate: 2.5 });
 const RELEASE_MS = 450;
+// Sidereal tracking: the engage/release orientation blend, the altitude below which a tracked body
+// or star field counts as set, the zoom's log-space easing time and the drag offset limit.
+const TRACK_BLEND_MS = 600;
+export const TRACK_SET_ALT = -8;
+const TRACK_SET_SIN = Math.sin(TRACK_SET_ALT * Math.PI / 180);
+const TRACK_ZOOM_MS = 200;
+const TRACK_OFF_MAX = 60;
 
 const Y = new THREE.Vector3(0, 1, 0);
 const FWD = new THREE.Vector3(0, 0, -1);
@@ -115,6 +129,7 @@ const _flF = new THREE.Vector3();
 const _flR = new THREE.Vector3();
 const _flU = new THREE.Vector3();
 const _flQ = new THREE.Quaternion();
+const _lift = new Float64Array(3);
 const _flPos = new Float64Array(3);
 const _flFwd = new Float64Array(3);
 
@@ -219,7 +234,8 @@ function parseView(cam) {
         const m = /^\s*([os])\s*:\s*([-+\d.eE]+)\s*,\s*([-+\d.eE]+)\s*,\s*([-+\d.eE]+)\s*$/.exec(cam);
         if (!m) return null;
         const a = +m[2], b = +m[3], c = +m[4];
-        return m[1] === 'o' ? { mode: 'orbit', latDeg: a, lonDeg: b, distance: c } : { mode: 'sky', azDeg: a, altDeg: b, fovDeg: c };
+        // Through the object path, so a hand-written string is clamped like any other view.
+        return parseView(m[1] === 'o' ? { mode: 'orbit', latDeg: a, lonDeg: b, distance: c } : { mode: 'sky', azDeg: a, altDeg: b, fovDeg: c });
     }
     if (typeof cam !== 'object') return null;
     const mode = cam.mode === 's' || cam.mode === 'sky' ? 'sky' : cam.mode === 'o' || cam.mode === 'orbit' ? 'orbit' : null;
@@ -320,6 +336,18 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
     let pinch = null;         // {d, fov}; the anchor holds the direction under the fingers
     let lastT = now();
 
+    // Sidereal tracking (sky view): 'body' keeps a body centred (at its refracted, drawn place)
+    // with zenith up; 'stars' holds a scene direction (the static sky) with celestial north up, so
+    // the horizon swings instead. Engaging and releasing blend the orientation over TRACK_BLEND_MS.
+    const track = {
+        kind: 'none', id: null, index: -1,
+        dirW: new THREE.Vector3(0, 0, -1),   // stars: the held direction
+        ox: 0, oy: 0,                        // body: aim offset, degrees left / up of the body
+        engaged: false, cut: false, fov: NaN,
+        blend: false, t0: 0, q0: new THREE.Quaternion(), last: new THREE.Quaternion(),
+    };
+    const trackEndCbs = new Set();
+
     // ---- helpers: frames ----------------------------------------------------------------------
 
     function toLocal(vW, out) { return out.copy(vW).applyQuaternion(qEInv); }
@@ -345,7 +373,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
     }
 
     function setFov(f) {
-        if (Math.abs(camera.fov - f) > 1e-4) {
+        if (Math.abs(camera.fov - f) > 1e-6 * f) {   // relative: the telescope zoom reaches 0.2°
             camera.fov = f;
             camera.updateProjectionMatrix();
         }
@@ -484,6 +512,11 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
      * anchor held exactly under the point on every frame.
      */
     function zoomSkyAt(fovNext, ndcX, ndcY) {
+        if (track.kind !== 'none') {
+            // Tracking holds the aim: the zoom stays about the centre (stepTrack eases it).
+            sky.fovT = clamp(fovNext, SKY_FOV_MIN, SKY_FOV_MAX);
+            return;
+        }
         setAnchor(ndcX, ndcY);
         anchor.on = true;
         sky.vAz = sky.vAlt = 0;
@@ -524,6 +557,9 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
             skyDefaulted = true;
             setControlsEnabled(false);
             applySkyCamera();
+            // A tracked deep link re-engages on this pose without a blend (a cut, like the view).
+            track.engaged = false;
+            track.cut = true;
         }
         initialized = true;
     }
@@ -580,6 +616,9 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
     function startTween(t) {
         if (tween) finishTween(false);
         anchor.on = false;
+        // A tracked view takes over again, blended, once the flight or transition is done.
+        track.engaged = false;
+        track.ox = track.oy = 0;
         tween = t;
         t.t0 = null; // set on the first update (after a snapshot exists)
         t.promise = new Promise((resolve) => { t.resolve = resolve; });
@@ -917,7 +956,141 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
 
     // ---- sky look controller ------------------------------------------------------------------------
 
-    function stepSky(dt) {
+    // ---- sidereal tracking ------------------------------------------------------------------------
+
+    /** Sky look (az/alt targets included) from the camera's current forward, e.g. after tracking. */
+    function lookFromForward() {
+        _v1.copy(FWD).applyQuaternion(camera.quaternion);
+        sky.az = sky.azT = wrap360(Math.atan2(_v1.dot(eastW), _v1.dot(northW)) / DEG);
+        sky.alt = sky.altT = clamp(Math.asin(clamp(_v1.dot(upW), -1, 1)) / DEG, SKY_ALT_MIN, SKY_ALT_MAX);
+        sky.vAz = sky.vAlt = 0;
+    }
+
+    function startBlend() {
+        track.q0.copy(camera.quaternion);
+        track.t0 = now();
+        track.blend = !reduced;
+    }
+
+    /** Ends tracking from inside the rig (the target set): back to an upright look, listeners told. */
+    function endTrack(reason) {
+        const info = { reason, kind: track.kind, id: track.id };
+        track.kind = 'none';
+        track.id = null;
+        track.index = -1;
+        lookFromForward();
+        startBlend();
+        for (const cb of trackEndCbs) {
+            try { cb(info); } catch (err) { setTimeout(() => { throw err; }); }
+        }
+    }
+
+    /** Applies a drag or nudge to the tracked aim: dl degrees turning left, du up (screen axes). */
+    function trackTurn(dl, du) {
+        if (track.kind === 'body') {
+            track.ox = clamp(track.ox + dl, -TRACK_OFF_MAX, TRACK_OFF_MAX);
+            track.oy = clamp(track.oy + du, -TRACK_OFF_MAX, TRACK_OFF_MAX);
+        } else {
+            // The held direction turns about the camera's own up and right axes.
+            _v2.set(0, 1, 0).applyQuaternion(camera.quaternion);
+            _v3.set(1, 0, 0).applyQuaternion(camera.quaternion);
+            track.dirW.applyAxisAngle(_v2, dl * DEG).applyAxisAngle(_v3, du * DEG).normalize();
+        }
+    }
+
+    /**
+     * The tracked pose for this frame (sky view, no tween). 'body': forward on the body's refracted
+     * direction (plus the drag offset), zenith up. 'stars': forward on the held direction, the J2000
+     * pole up (zenith within 2° of the pole). Releases when the aim sinks below TRACK_SET_ALT.
+     * @returns {boolean} moved
+     */
+    function stepTrack(dt, snap) {
+        let moved = false;
+        if (!track.engaged) {
+            track.engaged = true;
+            if (track.cut) track.blend = false;
+            else startBlend();
+            track.cut = false;
+            if (track.kind === 'stars') track.dirW.copy(FWD).applyQuaternion(camera.quaternion);
+            if (Number.isFinite(track.fov)) sky.fovT = clamp(track.fov, SKY_FOV_MIN, SKY_FOV_MAX);
+            track.fov = NaN;
+            anchor.on = false;
+            sky.vAz = sky.vAlt = 0;
+            moved = true;
+        }
+        // The field of view eases in log space, so a 70° → 0.3° telescope zoom reads as one move.
+        const dF = Math.log(sky.fovT / sky.fov);
+        if (!pinch && Math.abs(dF) > 1e-6) {
+            sky.fov *= Math.exp(dF * (reduced ? 1 : 1 - Math.exp(-dt / TRACK_ZOOM_MS)));
+            moved = true;
+        } else if (!pinch) sky.fov = sky.fovT;
+        const F = _v1;
+        if (track.kind === 'body') {
+            const bs = snap && snap.bodies;
+            if (bs && !(track.index >= 0 && bs[track.index] && bs[track.index].id === track.id)) {
+                track.index = -1;
+                for (let i = 0; i < bs.length; i++) if (bs[i].id === track.id) { track.index = i; break; }
+            }
+            const b = track.index >= 0 && bs ? bs[track.index] : null;
+            if (!b) { endTrack('lost'); return true; }
+            const d = b.dirS;
+            if (d[0] * upW.x + d[1] * upW.y + d[2] * upW.z < TRACK_SET_SIN) { endTrack('set'); return true; }
+            liftByRefraction(d, snap.observer.upS, 1, _lift);
+            _v3.set(_lift[0], _lift[1], _lift[2]);
+            // Screen axes at the body (right, up), then the offset: turn left by ox, up by oy.
+            _v2.crossVectors(_v3, upW);
+            if (_v2.lengthSq() < 1e-12) _v2.set(1, 0, 0).cross(_v3);
+            _v2.normalize();
+            _v4.crossVectors(_v2, _v3);
+            const ox = track.ox * DEG, oy = track.oy * DEG;
+            F.copy(_v3).multiplyScalar(Math.cos(ox)).addScaledVector(_v2, -Math.sin(ox))
+                .multiplyScalar(Math.cos(oy)).addScaledVector(_v4, Math.sin(oy)).normalize();
+            basisQuat(F, upW, camera.quaternion);
+        } else {
+            F.copy(track.dirW);
+            if (F.dot(upW) < TRACK_SET_SIN) { endTrack('set'); return true; }
+            basisQuat(F, Math.abs(F.y) > Math.cos(2 * DEG) ? upW : Y, camera.quaternion);
+        }
+        camera.position.copy(posW).multiplyScalar(EYE_R);
+        camera.up.copy(upW);
+        if (Math.abs(camera.near - 0.01) > 1e-6) {
+            camera.near = 0.01;
+            camera.updateProjectionMatrix();
+        }
+        setFov(sky.fov);
+        // The look in horizon terms, for getView() (the URL), labels and the hand-back on release.
+        sky.az = sky.azT = wrap360(Math.atan2(F.dot(eastW), F.dot(northW)) / DEG);
+        sky.alt = sky.altT = Math.asin(clamp(F.dot(upW), -1, 1)) / DEG;
+        if (1 - Math.abs(track.last.dot(camera.quaternion)) > 1e-15) moved = true;
+        track.last.copy(camera.quaternion);
+        return applyBlend() || moved;
+    }
+
+    /** The engage/release blend: the old orientation slerped into this frame's pose. */
+    function applyBlend() {
+        if (!track.blend) return false;
+        const u = clamp((now() - track.t0) / TRACK_BLEND_MS, 0, 1);
+        if (u >= 1) {
+            track.blend = false;
+            return true;
+        }
+        _q1.copy(track.q0).slerp(camera.quaternion, easeInOutCubic(u));
+        camera.quaternion.copy(_q1);
+        return true;
+    }
+
+    function stepSky(dt, snap) {
+        if (track.kind !== 'none') return stepTrack(dt, snap);
+        if (track.blend) {
+            // Released: the upright look, blended in from the tracked (possibly rolled) pose.
+            stepSkyLook(dt);
+            applyBlend();
+            return true;
+        }
+        return stepSkyLook(dt);
+    }
+
+    function stepSkyLook(dt) {
         let moved = false;
         if (!skyDrag && !pinch && (sky.vAz !== 0 || sky.vAlt !== 0)) {
             sky.azT = wrap360(sky.azT + sky.vAz * dt);
@@ -934,7 +1107,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
             // Zoom about a point: only the field of view eases; the look follows it so the
             // anchored direction stays exactly under the cursor on every frame.
             const dF = sky.fovT - sky.fov;
-            const done = Math.abs(dF) <= 1e-4;
+            const done = Math.abs(dF) <= 1e-5 * sky.fovT;
             sky.fov = done ? sky.fovT : sky.fov + dF * k;
             anchoredLook(sky.fov, _look);
             sky.az = _look.az;
@@ -948,7 +1121,9 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
             return true;
         }
         const dAz = wrap180(sky.azT - sky.az), dAlt = sky.altT - sky.alt, dF = sky.fovT - sky.fov;
-        if (Math.abs(dAz) > 1e-4 || Math.abs(dAlt) > 1e-4 || Math.abs(dF) > 1e-4) {
+        // Settled to well under a pixel at any field (1e-4° is half a pixel at the 0.2° floor).
+        const eps = Math.min(1e-4, 2e-6 * sky.fov);
+        if (Math.abs(dAz) > eps || Math.abs(dAlt) > eps || Math.abs(dF) > eps) {
             sky.az = wrap360(sky.az + dAz * k);
             sky.alt += dAlt * k;
             sky.fov += dF * k;
@@ -1051,7 +1226,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
             }
             return stepOrbit(dt, lockApplied);
         }
-        return stepSky(dt) || !!skyDrag || !!pinch;
+        return stepSky(dt, snap) || !!skyDrag || !!pinch;
     }
 
     // ---- view insets (UI panels) -----------------------------------------------------------------------
@@ -1138,26 +1313,32 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
             const k = sky.fov / h;                              // degrees per pixel
             const kAz = k / Math.max(Math.cos(sky.alt * DEG), 0.25);
             const dAz = -dx * kAz, dAlt = dy * k;
+            skyDrag.x = e.clientX;
+            skyDrag.y = e.clientY;
+            skyDrag.t = tm;
+            rc.invalidate?.();
+            if (track.kind !== 'none') {
+                // Tracking: the drag moves the tracked aim (the sky follows the finger).
+                trackTurn(dx * k, dy * k);
+                return;
+            }
             sky.az = sky.azT = wrap360(sky.az + dAz);
             sky.alt = sky.altT = clamp(sky.alt + dAlt, SKY_ALT_MIN, SKY_ALT_MAX);
             // Velocity (deg/ms) for inertia, smoothed.
             sky.vAz = 0.6 * sky.vAz + 0.4 * (dAz / dtm);
             sky.vAlt = 0.6 * sky.vAlt + 0.4 * (dAlt / dtm);
-            skyDrag.x = e.clientX;
-            skyDrag.y = e.clientY;
-            skyDrag.t = tm;
-            rc.invalidate?.();
         } else if (pinch && pointers.size >= 2) {
             const [a, b] = [...pointers.values()];
             const d = Math.hypot(a.x - b.x, a.y - b.y) || 1;
             sky.fov = sky.fovT = clamp(pinch.fov * (pinch.d / d), SKY_FOV_MIN, SKY_FOV_MAX);
+            rc.invalidate?.();
+            if (track.kind !== 'none') return;     // tracking: the zoom stays about the centre
             const m = ndcOf((a.x + b.x) / 2, (a.y + b.y) / 2);
             anchor.x = m.x;
             anchor.y = m.y;
             anchoredLook(sky.fov, _look);
             sky.az = sky.azT = _look.az;
             sky.alt = sky.altT = _look.alt;
-            rc.invalidate?.();
         }
     };
 
@@ -1366,6 +1547,12 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
     /** Sky view: glides the look to the sky under a point of the canvas, narrowing the field. */
     function centerAtNow(ndcX, ndcY, { animate = true, fovFactor = SKY_DBL_ZOOM } = {}) {
         if (mode !== 'sky' || !hasSnap || !Number.isFinite(ndcX) || !Number.isFinite(ndcY)) return Promise.resolve(false);
+        if (track.kind !== 'none') {
+            // Tracking keeps its aim: a double-click only narrows the field.
+            sky.fovT = clamp(sky.fovT * (fovFactor > 0 ? fovFactor : 1), SKY_FOV_MIN, SKY_FOV_MAX);
+            rc.invalidate?.();
+            return Promise.resolve(true);
+        }
         skyDirAt(ndcX, ndcY, _look);
         return startLook(_look.az, _look.alt, { animate, fovDeg: sky.fovT * (fovFactor > 0 ? fovFactor : 1) });
     }
@@ -1406,9 +1593,13 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
     function nudge(dxDeg, dyDeg) {
         cancelTween();
         anchor.on = false;
-        if (mode === 'sky') {
-            sky.azT = wrap360(sky.azT + dxDeg);
-            sky.altT = clamp(sky.altT + dyDeg, SKY_ALT_MIN, SKY_ALT_MAX);
+        // Sky view: steps shrink with a narrow field (a 5° step at the 0.2° floor loses the target).
+        const kf = Math.min(1, sky.fov / SKY_FOV);
+        if (mode === 'sky' && track.kind !== 'none') {
+            trackTurn(-dxDeg * kf, dyDeg * kf);
+        } else if (mode === 'sky') {
+            sky.azT = wrap360(sky.azT + dxDeg * kf);
+            sky.altT = clamp(sky.altT + dyDeg * kf, SKY_ALT_MIN, SKY_ALT_MAX);
         } else if (controls) {
             // Positive dx swings the camera west so the globe turns east-to-west under the view.
             controls._rotateLeft?.(dxDeg * DEG);
@@ -1444,7 +1635,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         /**
          * Switches between globe and sky view. A call made during a running
          * transition waits for it (a transition is never abandoned halfway).
-         * `look.fovDeg` (clamped to 5–100°) also sets the field: in sky view the turn and the zoom
+         * `look.fovDeg` (clamped to 0.2–100°) also sets the field: in sky view the turn and the zoom
          * are one look tween; from the globe the zoom follows the descent, which lands at 70°.
          * @param {'orbit'|'sky'} next
          * @param {{animate?:boolean, look?:{azDeg:number, altDeg:number, fovDeg?:number}}} [opts]
@@ -1563,6 +1754,57 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         /** True while follow() drives the camera. */
         get following() { return !!tween && tween.kind === 'follow'; },
 
+        /**
+         * Sidereal tracking in sky view (applied whenever the rig is in sky view and not in a
+         * flight): 'body' keeps body `id` centred at its refracted place, zenith up; 'stars' holds
+         * the star field still with celestial north up, so the horizon and landscape swing; 'none'
+         * returns to the upright look. Engaging and releasing blend over 600 ms (a cut under reduced
+         * motion). A drag or arrow key moves the tracked aim; the wheel and pinch zoom about the
+         * centre. When the aim sinks below −8° tracking ends by itself and onTrackEnd listeners hear
+         * {reason: 'set'|'lost', kind, id}.
+         * @param {'none'|'body'|'stars'} kind
+         * @param {string|null} [id] the body, for 'body'
+         */
+        setTracking(kind, id = null) {
+            let k = kind === 'body' || kind === 'stars' ? kind : 'none';
+            const nid = k === 'body' && id ? String(id) : null;
+            if (k === 'body' && !nid) k = 'none';
+            if (k === track.kind && nid === track.id) return;
+            const was = track.kind;
+            track.kind = k;
+            track.id = nid;
+            track.index = -1;
+            track.ox = track.oy = 0;
+            track.engaged = false;
+            if (k === 'none' && was !== 'none' && mode === 'sky' && !tween) {
+                lookFromForward();
+                startBlend();
+            }
+            rc.invalidate?.();
+        },
+
+        /** The tracking mode: 'none' | 'body' | 'stars'. */
+        get tracking() { return track.kind; },
+
+        /**
+         * The telescope framing: the field the next tracking engage zooms to (log-eased), and a
+         * re-engage now if already tracking, so a 'Telescope' on the tracked body re-centres it.
+         * @param {number} fovDeg clamped to 0.2–100°
+         */
+        telescope(fovDeg) {
+            if (!Number.isFinite(fovDeg)) return;
+            track.fov = clamp(fovDeg, SKY_FOV_MIN, SKY_FOV_MAX);
+            track.engaged = false;
+            track.ox = track.oy = 0;
+            rc.invalidate?.();
+        },
+
+        /** @param {(info:{reason:string, kind:string, id:string|null})=>void} cb @returns {()=>boolean} off */
+        onTrackEnd(cb) {
+            trackEndCbs.add(cb);
+            return () => trackEndCbs.delete(cb);
+        },
+
         update,
 
         /**
@@ -1672,6 +1914,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
             controls?.dispose();
             interactCbs.clear();
             clickCbs.clear();
+            trackEndCbs.clear();
         },
     };
 }

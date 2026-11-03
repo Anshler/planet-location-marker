@@ -1,6 +1,6 @@
 /**
  * View switch cluster: the `Globe | Sky` segmented control, Earth-lock (Globe
- * only), Share, Fullscreen and Help. On mobile it becomes a floating column
+ * only), tracking (Sky only: off → the selected body → the stars, K), Share, Fullscreen and Help. On mobile it becomes a floating column
  * (Globe/Sky, lock, share).
  *
  * Owns the share UX (SPEC F.4): `actions.share()` → 'shared' (system sheet, no
@@ -38,7 +38,9 @@ export function mountViewSwitch(root, ctx) {
         icon('fullscreen', { size: 19 }));
     const helpBtn = h('button', { class: 'icon-btn icon-btn--glass glass vb-help', type: 'button', 'aria-label': 'Keyboard shortcuts and help', 'data-tip': 'Shortcuts', 'data-kbd': '?' },
         icon('help', { size: 19 }));
-    root.append(seg, lockBtn, shareBtn, fsBtn, helpBtn);
+    const trackBtn = h('button', { class: 'icon-btn icon-btn--glass glass vb-track', type: 'button', 'aria-pressed': 'false', 'aria-label': 'Tracking', 'data-tip': 'Track', 'data-kbd': 'K' },
+        icon('crosshair', { size: 19 }));
+    root.append(seg, lockBtn, trackBtn, shareBtn, fsBtn, helpBtn);
     root.setAttribute('role', 'toolbar');
     root.setAttribute('aria-label', 'View');
 
@@ -57,6 +59,7 @@ export function mountViewSwitch(root, ctx) {
         (next === 'sky' ? skyBtn : globeBtn).focus();
     }));
     offs.push(on(lockBtn, 'click', () => ui.act('setEarthLock', !store.get().view?.earthLock)));
+    offs.push(on(trackBtn, 'click', () => ui.act('cycleTracking')));
     offs.push(on(fsBtn, 'click', () => ui.act('toggleFullscreen')));
     offs.push(on(helpBtn, 'click', () => ui.toggleHelp(true)));
     offs.push(on(shareBtn, 'click', () => ui.share()));
@@ -77,8 +80,18 @@ export function mountViewSwitch(root, ctx) {
         swapIcon(lockBtn, v.earthLock ? 'lock' : 'unlock', 19);
         lockBtn.dataset.tip = v.earthLock ? 'View locked to Earth' : 'View free — lock to Earth';
         lockBtn.classList.toggle('is-on', !!v.earthLock);
+        const trk = v.track ?? 'none';
+        trackBtn.hidden = !sky || store.get().status?.webgl === false;
+        setAttr(trackBtn, 'aria-pressed', String(trk !== 'none'));
+        trackBtn.classList.toggle('is-on', trk !== 'none');
+        swapIcon(trackBtn, trk === 'stars' ? 'star' : 'crosshair', 19);
+        const next = trk === 'none' ? (store.get().selection ? 'Track the selected body' : 'Lock to the stars')
+            : trk === 'body' ? 'Tracking the body — next: lock to the stars' : 'Locked to the stars — next: tracking off';
+        trackBtn.dataset.tip = next;
+        setAttr(trackBtn, 'aria-label', next);
     }
     offs.push(store.subscribe((s) => s.view, syncView, { immediate: true }));
+    offs.push(store.subscribe((s) => s.selection, syncView));
 
     const syncFs = () => {
         const fs = !!(document.fullscreenElement || document.webkitFullscreenElement);

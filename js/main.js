@@ -449,7 +449,11 @@ async function boot() {
     if (window.__pcSlow && qualitySetting === 'auto') active = governor.pin('low');
 
     const layers = { ...DEFAULT_STATE.layers, ...(loadSavedLayers() ?? {}), ...(hash.layers ?? {}) };
-    const view = { mode: env.can3d && hash.view === 'sky' ? 'sky' : 'orbit', earthLock: hash.earthLock ?? true };
+    const view = {
+        mode: env.can3d && hash.view === 'sky' ? 'sky' : 'orbit', earthLock: hash.earthLock ?? true,
+        // Body tracking needs the body: trk=b without sel= tracks nothing.
+        track: hash.track === 'stars' || (hash.track === 'body' && isBodyId(hash.selection)) ? hash.track : 'none',
+    };
     const store = createStore({
         observer,
         selection: isBodyId(hash.selection) ? hash.selection : null,
@@ -901,6 +905,7 @@ async function bootRender(ctx) {
     }
     if (pin) loop.callModule(pin, 'setObserver', st0.observer.latDeg, st0.observer.lonDeg);
     rig.setEarthLock?.(st0.view.earthLock);
+    rig.setTracking?.(st0.view.track, st0.selection);
 
     // Catalog: install now or when it arrives.
     const installCatalog = (cat) => {
@@ -1026,6 +1031,22 @@ function bindRenderState({ store, bus, clock, rc, rig, loop, snap, astro, m, lab
     });
     store.subscribe((s) => s.view.earthLock, (on) => {
         try { rig.setEarthLock?.(on); } catch (err) { console.error('[main] earth-lock failed', err); }
+    });
+    // Sky-view tracking follows the store; body tracking follows the selection (and ends with it).
+    store.subscribe((s) => `${s.view.track ?? 'none'}|${s.selection ?? ''}`, () => {
+        const st = store.get();
+        const kind = st.view.track ?? 'none';
+        if (kind === 'body' && !st.selection) {
+            store.set({ view: { ...st.view, track: 'none' } }, 'rig');
+            return;
+        }
+        try { rig.setTracking?.(kind, st.selection); } catch (err) { console.error('[main] tracking failed', err); }
+    });
+    rig.onTrackEnd?.(({ reason, kind, id }) => {
+        const st = store.get();
+        if ((st.view.track ?? 'none') !== 'none') store.set({ view: { ...st.view, track: 'none' } }, 'rig');
+        const what = kind === 'body' && isBodyId(id) ? bodyById(id).name : 'The tracked field';
+        if (reason === 'set') bus.emit('toast', { message: `Tracking stopped: ${what} set below the horizon.`, kind: 'info' });
     });
     store.subscribe((s) => s.view.mode, (mode, _prev, _state, source) => {
         try {
@@ -1406,6 +1427,7 @@ function applyHash(p) {
     if (p.view) actions.setViewMode(p.view);
     if (typeof p.earthLock === 'boolean') actions.setEarthLock(p.earthLock);
     if (p.selection !== undefined) actions.select(p.selection);
+    actions.setTracking?.(p.track ?? 'none');
     if (p.layers) store.set({ layers: { ...store.get().layers, ...p.layers } }, 'url');
     if (p.quality) actions.setQuality(p.quality);
     if (p.skyDark) actions.setSkyDark(p.skyDark);

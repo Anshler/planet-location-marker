@@ -23,7 +23,7 @@
  * either works for eclipsePath / actions.eclipsePath. `kind` is the event's eclipseKind.
  * @typedef {{peakMs:number, kind:'total'|'annular'|'partial'|null, local:boolean, eventId:string|null}} EclipseFocus */
 /** @typedef {{ observer:Observer, selection:BodyId|null,
- *   view:{mode:'orbit'|'sky', earthLock:boolean},
+ *   view:{mode:'orbit'|'sky', earthLock:boolean, track:'none'|'body'|'stars'},
  *   layers:Layers,
  *   display:{tzMode:'observer'|'device'|'utc', hour12:boolean, skyDark:'auto'|'pristine'|'1'|'2'|'3'|'4'|'5'|'6'|'7'|'8'|'9',
  *     aurora:'quiet'|'typical'|'storm'},
@@ -125,7 +125,7 @@
 /** Result of `parseHash`. Every key is optional; `invalid` lists keys that were present but rejected or clamped.
  * @typedef {{ observer?:Observer&{cc:string}, tMs?:number, live?:boolean, rate?:number, playing?:boolean,
  *   view?:'orbit'|'sky', earthLock?:boolean, selection?:BodyId|null, layers?:Layers,
- *   quality?:'auto'|'low'|'medium'|'high'|'max', skyDark?:string, aurora?:'quiet'|'typical'|'storm', cam?:CamView, intro?:boolean, debug?:boolean, invalid?:string[] }} HashState */
+ *   quality?:'auto'|'low'|'medium'|'high'|'max', skyDark?:string, aurora?:'quiet'|'typical'|'storm', cam?:CamView, track?:'body'|'stars', intro?:boolean, debug?:boolean, invalid?:string[] }} HashState */
 
 /** Device probe for `detectTier` (js/core/quality.js).
  * @typedef {{webgl2:boolean, rendererString?:string, maxTextureSize?:number, dpr?:number, deviceMemory?:number, cores?:number,

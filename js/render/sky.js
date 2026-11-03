@@ -207,6 +207,18 @@ const LAYER_DEFAULTS = {
 };
 
 /**
+ * The telescope zoom's aperture gain (magnitudes): how much fainter the narrow sky view reaches than
+ * the naked eye, 2·log10(25°/fov), from 0 at 25° to 3.5 at about 0.4°. The star shader adds it to
+ * every limit (twilight, skyglow, the tier); the catalogue's own limit (mag 6.5) still caps what
+ * can appear.
+ * @param {number} fovDeg vertical field of view
+ * @returns {number}
+ */
+export function scopeGainMag(fovDeg) {
+    return fovDeg > 0 ? Math.min(3.5, Math.max(0, 2 * Math.log10(25 / fovDeg))) : 0;
+}
+
+/**
  * Creates the celestial sphere.
  * @param {object} rc RenderContext (SPEC C.6)
  * @param {{catalog?:object|null, textures?:object|null, reducedMotion?:boolean}} [deps]
@@ -318,6 +330,7 @@ export function createSky(rc, deps = {}) {
         ...sg,
         uSgLimZen: { value: 6.6 },
         uMagLimit: { value: magLimit },
+        uBoost: { value: 0 },
         uExposure: { value: 1 },
         uPx: { value: 1 },
         uZoom: { value: 1 },
@@ -344,11 +357,14 @@ export function createSky(rc, deps = {}) {
     group.add(stars);
     let starMags = new Float32Array(0);
 
+    let drawnLimit = NaN;
     function applyMagLimit() {
         starUniforms.uMagLimit.value = magLimit;
-        // Stars are sorted brightest first, so the tier limit is just a draw range.
+        // Stars are sorted brightest first, so the tier limit (plus the zoom's gain) is a draw range.
+        const lim = magLimit + starUniforms.uBoost.value;
+        drawnLimit = lim;
         let n = 0;
-        while (n < starMags.length && starMags[n] <= magLimit + 0.001) n++;
+        while (n < starMags.length && starMags[n] <= lim + 0.001) n++;
         starGeometry.setDrawRange(0, n);
     }
 
@@ -567,6 +583,12 @@ export function createSky(rc, deps = {}) {
         const fov = cam && cam.fov ? cam.fov : 45;
         starUniforms.uPx.value = dpr;
         starUniforms.uZoom.value = Math.min(2.5, Math.max(1, Math.sqrt(60 / fov)));
+        // Aperture gain: a narrow sky view reaches fainter stars (to the catalogue's own limit).
+        const boost = scopeGainMag(fov) * Math.max(0, Math.min(1, skyBlend));
+        if (Math.abs(boost - starUniforms.uBoost.value) > 0.01 || (boost === 0 && starUniforms.uBoost.value !== 0)) {
+            starUniforms.uBoost.value = boost;
+            if (Math.abs(magLimit + boost - drawnLimit) > 0.01) applyMagLimit();
+        }
         // exposure.stars already carries totality's stars (photometry.js exposureFor: the brightest
         // stars and the planets, rising over the last ~20 s before second contact). The label feed
         // gates star names with the same value.

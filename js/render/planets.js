@@ -16,17 +16,26 @@
  * Labels (app/labels-feed.js) reserve the medallion's footprint ({@link medallionFootprint}) and
  * tell beams.js, so beam labels slide apart far enough not to cover each other's medallion.
  *
- * Reuse: `PLANET_CHUNK`, `planetUniforms` and `PLANET_KIND` (shaders/planets.glsl.js), plus
- * {@link writeDiscInstance} and {@link writeJupiterMoons} here, are everything a true-scale
- * impostor needs (e.g. a sky-view telescope zoom with the camera's up as the frame's up).
+ * Telescope (sky view): the same impostor at true scale and orientation (the frame's up is the
+ * camera's), on a second instanced mesh at infinity. Each planet cross-fades in from its glyph as
+ * its disc passes 1.5-4 device px of radius (astro/disc.js scopeBlend; render/bodies.js fades the
+ * glyph out by the same weight), with the phase, oblateness, ring opening and Jupiter's moon
+ * shadows of the medallions. Jupiter's four moons are discs of their own (true size, at least
+ * ~1 px), shown below a 6 deg field, hidden behind or in front of the disc and in its shadow.
+ * Exposure and extinction follow the glyphs; the moons are telescope-bright (the aperture gain).
+ *
  *
  * @module render/planets
  */
 import * as THREE from 'three';
 import { BODIES } from '../astro/bodies.js';
-import { SHAPES, createDiscFrame, createDiscView, discFrame, discView, toFrame, compressRadius, RING_OUTER } from '../astro/disc.js';
-import { GALILEAN, MOON_OCCULTED, MOON_ECLIPSED, MOON_SHADOW } from '../astro/moons.js';
-import { PLANET_KIND, MEDALLION_VERT, MEDALLION_FRAG, planetUniforms, grsLongitudeDeg, } from './shaders/planets.glsl.js';
+import {
+    SHAPES, createDiscFrame, createDiscView, discFrame, discView, toFrame, compressRadius, RING_OUTER, scopeBlend, eqAngRadius,
+} from '../astro/disc.js';
+import { GALILEAN, MOON_OCCULTED, MOON_ECLIPSED, MOON_SHADOW, MOON_TRANSIT } from '../astro/moons.js';
+import { PLANET_KIND, MEDALLION_VERT, MEDALLION_FRAG, SCOPE_VERT, SCOPE_FRAG, planetUniforms, grsLongitudeDeg, } from './shaders/planets.glsl.js';
+import { extinctionRGB } from './bodies.js';
+import { skyViewExposure } from './sky.js';
 
 const FIRST_PLANET = 2;
 const N = BODIES.length - FIRST_PLANET;
@@ -45,6 +54,15 @@ const GAIN = 0.95;
 const FADE_MS = 180;
 const BELOW_ALPHA = 0.6;
 const JUP_R_KM = SHAPES.jupiter.eqRadiusKm;
+/** Telescope: Jupiter's moons fade in as the field narrows from 6 deg to 3 deg. */
+const SCOPE_MOONS_FOV = [3, 6];
+const SCOPE_MOON = 7;
+const NS = N + 4;
+/**
+ * Telescope: relative surface brightness of each disc, Jupiter = 1 (true contrasts of ~5 magnitudes
+ * per square arcsecond, from Venus to Neptune, compressed to a display range).
+ */
+const SCOPE_SB = Object.freeze({ mercury: 1.6, venus: 2.2, mars: 1.15, jupiter: 1, saturn: 0.8, uranus: 0.6, neptune: 0.5 });
 
 const smooth = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
 
@@ -91,6 +109,7 @@ export function writeDiscInstance(st, upS, frame, view, pole, prime, light, i) {
 }
 
 const MOON_TMP = new Float64Array(3);
+const _dir = new Float64Array(3);
 const MOON_R = GALILEAN.map((m) => m.radiusKm / JUP_R_KM);
 
 /**
@@ -179,6 +198,50 @@ export function createPlanets(rc, deps = {}) {
     const view = createDiscView();
     const jupFrame = createDiscFrame();
     const size = new THREE.Vector2();
+
+    // --- Telescope: true-scale impostors and Jupiter's moons in sky view --------------------------
+    const sgeo = new THREE.InstancedBufferGeometry();
+    sgeo.setAttribute('position', quad.getAttribute('position'));
+    sgeo.setIndex(quad.getIndex());
+    const sattr = (n) => {
+        const a = new THREE.InstancedBufferAttribute(new Float32Array(NS * n), n);
+        a.setUsage(THREE.DynamicDrawUsage);
+        return a;
+    };
+    const sDir = sattr(3), sPole = sattr(3), sPrime = sattr(3), sLight = sattr(3), sShape = sattr(4), sTint = sattr(4);
+    sgeo.setAttribute('iDir', sDir);
+    sgeo.setAttribute('iPole', sPole);
+    sgeo.setAttribute('iPrime', sPrime);
+    sgeo.setAttribute('iLight', sLight);
+    sgeo.setAttribute('iShape', sShape);
+    sgeo.setAttribute('iTint', sTint);
+    sgeo.instanceCount = NS;
+    for (let i = 0; i < NS; i++) {
+        const id = ids[i];
+        sShape.array[i * 4] = i < N ? PLANET_KIND[id] : SCOPE_MOON;
+        sShape.array[i * 4 + 1] = i < N ? SHAPES[id].flattening : 0;
+        sShape.array[i * 4 + 2] = id === 'saturn' ? RING_OUTER + 0.04 : 1.06;
+    }
+    const sUniforms = {
+        uViewport: { value: new THREE.Vector2(1, 1) },
+        uRefrUp: { value: new THREE.Vector3(0, 1, 0) },
+        uRefrK: { value: 0 },
+        ...planetUniforms(THREE),
+    };
+    const sMaterial = new THREE.ShaderMaterial({
+        name: 'planets.scope', uniforms: sUniforms, vertexShader: SCOPE_VERT, fragmentShader: SCOPE_FRAG,
+        transparent: true, depthWrite: false, depthTest: true, blending: THREE.AdditiveBlending,
+    });
+    const scope = new THREE.Mesh(sgeo, sMaterial);
+    scope.name = 'planets.scope';
+    scope.frustumCulled = false;
+    scope.renderOrder = -59;   // over the glyphs it replaces, under the ground (-50)
+    scope.visible = false;
+    group.add(scope);
+    const camUp = new THREE.Vector3();
+    const upArr = new Float64Array(3);
+    const jupFrameS = createDiscFrame();
+    const tint = [1, 1, 1];
     let hasSnap = false;
     let beamsOn = true;
     let skyBlend = 0;
@@ -189,6 +252,7 @@ export function createPlanets(rc, deps = {}) {
     function setDetail(cfg) {
         const name = cfg && cfg.name;
         uniforms.uPlDetail.value = name === 'low' ? 0 : name === 'max' ? 2 : 1;
+        if (sUniforms) sUniforms.uPlDetail.value = uniforms.uPlDetail.value;
     }
     setDetail(rc && rc.tier);
 
@@ -203,24 +267,107 @@ export function createPlanets(rc, deps = {}) {
         }
         iPole.needsUpdate = iPrime.needsUpdate = iLight.needsUpdate = true;
         writeJupiterMoons(snap, jupFrame, uniforms, true);
-        uniforms.uPlGrsLon.value = grsLongitudeDeg(snap.tMs);
+        uniforms.uPlGrsLon.value = sUniforms.uPlGrsLon.value = grsLongitudeDeg(snap.tMs);
         lastSnap = snap;
         hasSnap = true;
     }
 
+    /**
+     * Sky view: each planet's true-scale disc, weighted by scopeBlend of its radius in device px,
+     * and Jupiter's moons in a narrow field. Frames take the camera's up, so the drawing is the sky
+     * as it appears on screen (a rolled, star-locked view included).
+     */
+    function updateScope(fi, dpr) {
+        const cam = fi && fi.camera;
+        const snap = lastSnap;
+        if (!snap || !cam || !(skyBlend > 0.01)) { scope.visible = false; return; }
+        const pxPerRad = 0.5 * size.y * cam.projectionMatrix.elements[5];
+        camUp.set(0, 1, 0).applyQuaternion(cam.quaternion);
+        upArr[0] = camUp.x; upArr[1] = camUp.y; upArr[2] = camUp.z;
+        const up = snap.observer.upS;
+        const k = Math.min(1, skyBlend);
+        sUniforms.uRefrUp.value.set(up[0], up[1], up[2]);
+        sUniforms.uRefrK.value = k;
+        sUniforms.uViewport.value.copy(size);
+        sUniforms.uPlDotPx.value = 3.2 * dpr;
+        const display = skyViewExposure(snap.observer.sunAltDeg, skyBlend, snap.eclipse ? snap.eclipse.obscurationAtObserver : 0);
+        const ex = fi.exposure || null;
+        const expP = (ex && Number.isFinite(ex.planets) ? ex.planets : 1) * display * GAIN;
+        const d = sDir.array, sh = sShape.array, t = sTint.array;
+        let any = false, jupOn = false;
+        for (let i = 0; i < NS; i++) t[i * 4 + 3] = 0;
+        for (let i = 0; i < N; i++) {
+            const st = snap.bodies[FIRST_PLANET + i];
+            const rpx = eqAngRadius(ids[i], st.distAU) * pxPerRad;
+            const w = scopeBlend(rpx) * k;
+            if (!(w > 0.002)) continue;
+            any = true;
+            const ds = st.dirS;
+            d[i * 3] = ds[0]; d[i * 3 + 1] = ds[1]; d[i * 3 + 2] = ds[2];
+            writeDiscInstance(st, upArr, frame, view, sPole.array, sPrime.array, sLight.array, i);
+            if (i === JUP) {
+                jupFrameS.ex.set(frame.ex); jupFrameS.ey.set(frame.ey); jupFrameS.ez.set(frame.ez);
+                jupOn = true;
+            }
+            sh[i * 4 + 3] = rpx;
+            tintFor(ds, up, expP * SCOPE_SB[ids[i]]);
+            t[i * 4] = tint[0]; t[i * 4 + 1] = tint[1]; t[i * 4 + 2] = tint[2]; t[i * 4 + 3] = w;
+        }
+        if (jupOn) {
+            writeJupiterMoons(snap, jupFrameS, sUniforms, false);
+            // The moons are instances of their own here: the disc keeps only their shadows.
+            for (let m = 0; m < 4; m++) sUniforms.uPlMoon.value[m].z = 0;
+        }
+        const mk = k * (1 - smooth(SCOPE_MOONS_FOV[0], SCOPE_MOONS_FOV[1], cam.fov));
+        const g = snap.galilean;
+        if (mk > 0.002 && g) {
+            const jst = snap.bodies[FIRST_PLANET + JUP];
+            const rJ = eqAngRadius('jupiter', jst.distAU);
+            const jd = jst.dirS;
+            for (let m = 0; m < 4; m++) {
+                if (g.state[m] & (MOON_OCCULTED | MOON_ECLIPSED | MOON_TRANSIT)) continue;
+                const j = N + m, o = m * 3;
+                // Jovicentric offsets (Jupiter radii) across the line of sight: rJ radians per radius.
+                let x = jd[0] + g.offS[o] * rJ, y = jd[1] + g.offS[o + 1] * rJ, z = jd[2] + g.offS[o + 2] * rJ;
+                const l = Math.hypot(x, y, z);
+                x /= l; y /= l; z /= l;
+                d[j * 3] = x; d[j * 3 + 1] = y; d[j * 3 + 2] = z;
+                const rpx = Math.max(MOON_R[m] * rJ * pxPerRad, 1e-3);
+                sh[j * 4 + 2] = Math.max(1, 1.6 * dpr / rpx) + 1.5 / rpx;
+                sh[j * 4 + 3] = rpx;
+                // Telescope-bright (the aperture's gain): a little dimmer with magnitude, Ganymede first.
+                _dir[0] = x; _dir[1] = y; _dir[2] = z;
+                tintFor(_dir, up, expP * (1.2 - 0.15 * (GALILEAN[m].mag - 4.6)));
+                t[j * 4] = tint[0]; t[j * 4 + 1] = tint[1]; t[j * 4 + 2] = tint[2]; t[j * 4 + 3] = mk;
+                any = true;
+            }
+        }
+        sDir.needsUpdate = sShape.needsUpdate = sTint.needsUpdate = true;
+        sPole.needsUpdate = sPrime.needsUpdate = sLight.needsUpdate = true;
+        scope.visible = any;
+    }
+
+    /** tint = gain x the atmosphere's transmission toward dir (the glyphs' extinction, by the view blend). */
+    function tintFor(dir, up, gain) {
+        extinctionRGB(dir[0] * up[0] + dir[1] * up[1] + dir[2] * up[2], tint);
+        const k = Math.min(1, skyBlend);
+        for (let c = 0; c < 3; c++) tint[c] = gain * (1 + (tint[c] - 1) * k);
+    }
+
     function update(fi) {
         if (fi && Number.isFinite(fi.skyBlend)) skyBlend = fi.skyBlend;
-        const fade = 1 - smooth(0.2, 0.5, skyBlend);
-        const on = hasSnap && beamsOn && fade > 0.002 && !!beams;
-        mesh.visible = on;
-        if (!on) return;
         const r = rc && rc.renderer;
         let dpr = 1;
         if (r) {
             r.getDrawingBufferSize(size);
-            uniforms.uViewport.value.copy(size);
             dpr = r.getPixelRatio();
         }
+        updateScope(fi, dpr);
+        const fade = 1 - smooth(0.2, 0.5, skyBlend);
+        const on = hasSnap && beamsOn && fade > 0.002 && !!beams;
+        mesh.visible = on;
+        if (!on) return;
+        uniforms.uViewport.value.copy(size);
         uniforms.uPlDotPx.value = 1.3 * dpr;
         const c = iCenter.array, s = iShape.array, a = iAlpha.array;
         const step = (fi && Number.isFinite(fi.dtMs) ? fi.dtMs : 16) / FADE_MS;
@@ -280,6 +427,8 @@ export function createPlanets(rc, deps = {}) {
         setQuality(cfg) {
             setDetail(cfg);
         },
+        /** The telescope mesh (sky view; tests and the debug overlay). */
+        get scope() { return scope; },
         /** True while medallions are drawn in orbit view (layers allow them and the module runs). */
         get enabled() { return !disposed && beamsOn; },
         footprint: medallionFootprint,
@@ -288,8 +437,10 @@ export function createPlanets(rc, deps = {}) {
             syncFootprints();
             group.removeFromParent();
             geo.dispose();
+            sgeo.dispose();
             quad.dispose();
             material.dispose();
+            sMaterial.dispose();
         },
     };
 }

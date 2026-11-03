@@ -54,7 +54,7 @@ the UI and the render stack with literal `import('./…')` calls, so:
 |---|---|---|
 | Entry | `index.html` | Import map (`three`, `three/addons/`). `modulepreload` for three, astronomy-engine and `main.js`. Preload for `data/cities.json`. Inline loader. Classic scripts for error capture (`window.__pcLoader`) and feature detection (`window.__pcEnv`). |
 | | `js/main.js` | Boot sequence, service wiring, store-to-module subscriptions, click picking, tier switching, the intro runner, `window.__app`. |
-| App glue | `js/app/actions.js` | `createActions(deps)`: the only API the UI calls besides `store` and `clock`. Also `normalizeObserver`, `eventFraming` (how a jump frames its event) and `eclipseFocusExpired`. |
+| App glue | `js/app/actions.js` | `createActions(deps)`: the only API the UI calls besides `store` and `clock`. Also `normalizeObserver`, `eventFraming` (how a jump frames its event), `eclipseFocusExpired`, `eclipsePlayRange` and `lookSpanning`. |
 | | `js/app/eclipse-chase.js` | `ribbonPlan` (which eclipse the globe's path ribbon shows), `chaseLegs`/`chaseTarget` and `createEclipseChase` (the shadow chase behind `actions.chaseEclipse`). No three.js. |
 | | `js/app/loop.js` | `createLoop(deps)`: the frame loop with render-on-demand, guarded module calls and strikes, governor sampling and the 4 Hz readout. |
 | | `js/app/labels-feed.js` | `buildAnchors(state, snap, catalog, trails)` and `createLabelsFeed(deps)`: label anchors with live vectors. |
@@ -91,7 +91,7 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/render/trails.js`, `flare.js`, `debug.js` | Retrograde paths, lens flare, `?debug=1` overlay. |
 | | `js/render/eclipse-path.js` | The path of a central solar eclipse on the globe: ribbon, centre line, 30-min ticks, the live umbra marker; reveal modes for the chase. |
 | Camera | `js/camera/rig.js`, `picking.js` | Orbit and sky-view camera, Earth-lock, fly-to tweens, `follow()` (the shadow chase); analytic globe and glyph picking. |
-| UI | `js/ui/index.js` and its modules | Shell, top bar, time bar, Sky Now, body card, events, layers, settings, about, help, toasts, shortcuts, announcer. |
+| UI | `js/ui/index.js` and its modules | Shell, top bar, time bar, Sky Now, body card, events, Eclipse Companion, layers, settings, about, help, toasts, shortcuts, announcer. |
 
 ---
 
@@ -177,6 +177,9 @@ critical CSS read them.
   that eclipse's path and the largest cities in its band, and `actions.standInPath(peakMs | event)`
   moves the observer onto the centre line (nearest point, or `{at: 'greatest'}`) like any observer
   change (named, saved, Undo) and then jumps to the eclipse as seen from there.
+  `actions.playEclipse(event)` runs the pure `eclipsePlayRange(event)` as a once-through 40 s
+  timelapse (C2 − 2 min … C3 + 2 min for a central phase above the horizon, else C1 … C4; U1 … U4
+  for the Moon) and turns the sky view to a `lookSpanning` field that holds the body's drift.
 - **The path on the globe** (`render/eclipse-path.js`). `main.js` keeps it in step with
   `ribbonPlan` on every readout and `ui.eclipse` change: the eclipse in focus, else one in progress
   (`snap.eclipse.solar`); a loaded path, a request in flight or a known miss (a partial eclipse)
@@ -191,6 +194,13 @@ critical CSS read them.
   only the follow (the controls take over with a 450 ms orientation blend); a clock change of the
   user's ends the chase where it is. Reduced motion: a static frame over greatest eclipse, paused
   at its instant, the whole path drawn. `actions.stopChase()` ends it; `actions.chasing` reports it.
+- **Eclipse Companion** (`js/ui/eclipse-hud.js`, a shell region: under the top bar, left of the
+  floating column on phones, inline above the panels in text mode). It shows the eclipse in focus
+  (contacts recomputed with `localSolarEclipseAt` on observer changes) or a local solar or visible
+  lunar eclipse whose [first contact − 3 h, last + 30 min] holds the simulated time. Countdown,
+  contact track and disc are written from the 4 Hz `readout` only when they change; it announces
+  itself once per eclipse. 'Stand in the path' appears outside the
+  band of a central eclipse (the global `solar-eclipse` event, or a global focus, says which).
 - **`bus`** carries transient events. `readout` is the full-detail snapshot at 4 Hz, published
   only when time or the observer changed. The UI requests its own almanac data through
   `services.astro`. `main.js` pushes one almanac and events set at boot as a head start.

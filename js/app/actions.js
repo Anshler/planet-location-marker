@@ -229,6 +229,56 @@ export function eclipseFocusExpired(focus, tMs, tweening) {
     return !!focus && !tweening && Number.isFinite(tMs) && Math.abs(tMs - focus.peakMs) > DAY_MS;
 }
 
+/** 'Play the eclipse' runs its timelapse in this many seconds of wall time, once. */
+export const ECLIPSE_PLAY_S = 40;
+/** A central solar eclipse plays from this long before second contact to as long after third. */
+export const ECLIPSE_PLAY_MARGIN_MS = 120e3;
+
+/**
+ * The timelapse 'Play the eclipse' runs (clock.setRange config), or null: a total or annular
+ * solar eclipse whose central phase is (partly) up plays C2 − 2 min … C3 + 2 min; any other local
+ * solar eclipse C1 … C4; a lunar eclipse U1 … U4 (P1 … P4 when only penumbral).
+ * @param {AstroEvent & Record<string, any>} ev
+ * @returns {{fromMs:number, toMs:number, durationS:number, loop:'once'}|null}
+ */
+export function eclipsePlayRange(ev) {
+    const at = (k) => (Number.isFinite(ev?.[k]) ? ev[k] : null);
+    let from = null, to = null;
+    if (ev?.kind === 'local-solar-eclipse') {
+        const central = ev.eclipseKind !== 'partial' && at('c2Ms') !== null && at('c3Ms') !== null && ev.centralUp !== 'none';
+        if (central) {
+            from = ev.c2Ms - ECLIPSE_PLAY_MARGIN_MS;
+            to = ev.c3Ms + ECLIPSE_PLAY_MARGIN_MS;
+        } else {
+            from = at('c1Ms');
+            to = at('c4Ms');
+        }
+    } else if (ev?.kind === 'lunar-eclipse') {
+        from = at('u1Ms') ?? at('p1Ms');
+        to = at('u4Ms') ?? at('p4Ms');
+    }
+    return from !== null && to !== null && to > from ? { fromMs: from, toMs: to, durationS: ECLIPSE_PLAY_S, loop: 'once' } : null;
+}
+
+/**
+ * A sky look centred on the middle of a body's drift (alt/az at the start, middle and end of a
+ * timelapse) with a field of view that keeps the whole drift in frame, at least `minFovDeg`.
+ * @param {Array<{azDeg:number, altDeg:number}>} pts [start, middle, end]
+ * @param {number} [minFovDeg]
+ * @returns {{azDeg:number, altDeg:number, fovDeg:number}}
+ */
+export function lookSpanning(pts, minFovDeg = ECLIPSE_FOV_DEG) {
+    const R = Math.PI / 180;
+    const mid = pts[1];
+    let span = 0;
+    for (const p of pts) {
+        const c = Math.sin(p.altDeg * R) * Math.sin(mid.altDeg * R)
+            + Math.cos(p.altDeg * R) * Math.cos(mid.altDeg * R) * Math.cos((p.azDeg - mid.azDeg) * R);
+        span = Math.max(span, Math.acos(clamp(c, -1, 1)) / R);
+    }
+    return { azDeg: mid.azDeg, altDeg: Math.max(-5, mid.altDeg), fovDeg: clamp(Math.max(minFovDeg, 2.5 * span + 1), 5, 100) };
+}
+
 /**
  * The sky look at the selected body when it is above the horizon, else undefined (the rig's
  * default look).
@@ -700,6 +750,39 @@ export function createActions(deps) {
         }
     }
 
+    /**
+     * 'Play the eclipse' (the Eclipse Companion): runs eclipsePlayRange(ev) as a once-through
+     * timelapse, selects the eclipsed body and, in the 3D view, turns to it in the event's view
+     * with a field that holds its whole drift. Returns false when the event has no contacts.
+     * @param {AstroEvent} ev a 'local-solar-eclipse' or 'lunar-eclipse' event
+     * @returns {boolean}
+     */
+    function playEclipse(ev) {
+        const range = eclipsePlayRange(ev);
+        if (!range) return false;
+        clock.setRange(range);
+        if (ev.select && isBodyId(ev.select)) select(ev.select);
+        setEclipseFocus(ev);
+        const view = store.get().view;
+        const mode = ev.view && VIEW_MODES.has(ev.view) ? ev.view : view.mode;
+        const r = rig();
+        if (r && mode === 'sky' && isBodyId(ev.select)) {
+            try {
+                scratchSnap ??= createSnapshot();
+                const at = (t) => {
+                    computeSnapshot(t, store.get().observer, scratchSnap, { detail: 'frame' });
+                    const b = scratchSnap.bodies[BODY_INDEX[ev.select]];
+                    return { azDeg: b.azGeomDeg, altDeg: b.altGeomDeg };
+                };
+                const pts = [at(range.fromMs), at((range.fromMs + range.toMs) / 2), at(range.toMs)];
+                const look = lookSpanning(pts, eventFraming(ev)?.fovDeg);
+                settle(r.setMode?.('sky', { animate: !reducedMotion(), look }));
+            } catch { /* the timelapse still runs */ }
+        }
+        if (view.mode !== mode) store.set({ view: { ...view, mode } }, 'event');
+        return true;
+    }
+
     /** In-flight or finished eclipse-path requests by minute of peak (small LRU). */
     const paths = new Map();
 
@@ -814,7 +897,7 @@ export function createActions(deps) {
         // Extensions beyond SPEC §C.9 (used by shortcuts / the shell when present).
         toggleDebug, openPalette, shareUrl, viewFromBody,
         // Eclipse 2027 (ROADMAP Phase 1): the shared path request and 'Stand in the path'.
-        eclipsePath: eclipsePathFor, standInPath,
+        eclipsePath: eclipsePathFor, standInPath, playEclipse,
         /**
          * Rides the Moon's shadow: the camera follows the umbra from low orbit while the clock runs
          * the path of the central eclipse near `target` (a time or an event) in about 40 s.

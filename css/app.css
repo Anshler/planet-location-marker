@@ -1494,6 +1494,48 @@ body.tier-medium:not(.is-coarse) .glass {
 @keyframes hint-in { from { opacity: 0; transform: translate(-50%, -8px); } to { opacity: 1; transform: translate(-50%, 0); } }
 @keyframes hint-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
 
+/* Eclipse Companion (js/ui/eclipse-hud.js): under the top bar; inline above Sky now in text mode. */
+.ecl {
+    position: fixed;
+    top: calc(var(--gutter) + 54px + var(--safe-t));
+    left: calc(var(--gutter) + var(--safe-l));
+    z-index: 9;
+    width: min(350px, calc(100vw - var(--panel-w) - var(--gutter) * 4));
+    padding: 12px 12px 12px 10px;
+    border-radius: var(--r-2);
+    pointer-events: auto;
+    font-variant-numeric: tabular-nums;
+    animation: toast-in var(--t2) var(--ease-out) both;
+}
+.ecl__head { display: flex; align-items: center; gap: 8px; }
+.ecl__main { flex: 1; min-width: 0; }
+.ecl__eye { overflow: hidden; color: var(--body-sun); font-size: 10.5px; font-weight: 800; letter-spacing: .1em; text-overflow: ellipsis; text-transform: uppercase; white-space: nowrap; }
+.ecl.is-lunar .ecl__eye { color: #f0a77e; }
+.ecl__title { font-size: 13.5px; font-weight: 700; line-height: 1.3; }
+.ecl__cd { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 6px; margin-top: 3px; color: var(--text-2); font-size: 12.5px; }
+.ecl__count { color: var(--text); font-size: 22px; font-weight: 750; line-height: 1.1; }
+.ecl__status { margin-top: 2px; color: var(--muted); font-size: 12px; }
+.ecl__tog { align-self: flex-start; width: 30px; height: 30px; }
+.ecl.is-collapsed .ecl__tog svg { transform: rotate(180deg); }
+.ecl.is-collapsed .ecl__body { display: none; }
+.ecl__body { padding: 0 2px 0 4px; }
+.ecl__body .btn-row { gap: 6px; margin-top: 8px; }
+.ecl__note { margin-top: 8px; color: var(--faint); font-size: 11px; }
+.ecl-trk { --p: 0; --c: rgba(255, 211, 107, .4); --k: #020409; margin: 12px 6px 0; }
+.ecl.is-lunar .ecl-trk { --c: rgba(240, 167, 126, .35); --k: #7a2c12; }
+.ecl-trk__rail { position: relative; height: 4px; border-radius: 2px; background: var(--c); }
+.ecl-trk__rail.is-central { background: linear-gradient(90deg, var(--c) 25%, var(--k) 25% 75%, var(--c) 75%); box-shadow: 0 0 0 1px rgba(255, 255, 255, .12); }
+.ecl-trk__head { position: absolute; top: -5px; left: calc(var(--p) * 100%); z-index: 1; width: 3px; height: 14px; margin-left: -1.5px; border-radius: 2px; background: var(--accent); box-shadow: 0 0 8px rgba(124, 196, 255, .8); }
+.ecl-trk__nodes { position: relative; height: 30px; margin: 0; padding: 0; list-style: none; }
+.ecl-trk__nodes li { position: absolute; top: 6px; display: flex; flex-direction: column; align-items: center; color: var(--muted); font-size: 10.5px; line-height: 1.25; white-space: nowrap; transform: translateX(-50%); }
+.ecl-trk__nodes li::before { content: ""; position: absolute; top: -12px; left: calc(50% - 4px); width: 8px; height: 8px; border: 1.5px solid var(--muted); border-radius: 50%; background: var(--panel-solid); }
+.ecl-trk__nodes li:first-child { align-items: flex-start; transform: translateX(-4px); }
+.ecl-trk__nodes li:last-child { align-items: flex-end; transform: translateX(calc(4px - 100%)); }
+.ecl-trk__nodes li:first-child::before { left: 0; }
+.ecl-trk__nodes li:last-child::before { left: auto; right: 0; }
+.ecl-trk__nodes b { color: var(--text-2); }
+.ecl-trk__nodes .is-past::before { border-color: var(--accent); background: var(--accent); }
+
 .cinema-exit {
     position: fixed;
     left: 50%;
@@ -1646,6 +1688,19 @@ body.tier-medium:not(.is-coarse) .glass {
 .ui[data-layout="mobile"] .toasts { left: 50%; bottom: calc(var(--sheet-h, 132px) + 12px); }
 .ui[data-layout="mobile"] .flash,
 .ui[data-layout="mobile"] .hint { left: 50%; top: calc(64px + var(--safe-t)); }
+/* Left of the floating column, and never under the sheet: it scrolls when the sheet is raised. */
+.ui[data-layout="mobile"] .ecl {
+    top: calc(66px + var(--safe-t));
+    left: calc(12px + var(--safe-l));
+    right: calc(64px + var(--safe-r));
+    width: auto;
+    max-height: calc(100dvh - var(--sheet-h, 132px) - 78px - var(--safe-t));
+    overflow-y: auto;
+    padding: 8px 8px 10px 6px;
+}
+.ui[data-layout="mobile"] .ecl canvas { width: 48px !important; height: 48px !important; }
+.ui[data-layout="mobile"] .ecl__count { font-size: 19px; }
+.ui[data-layout="mobile"] .ecl__note { display: none; }
 .ui[data-layout="mobile"] .palette-layer,
 .ui[data-layout="mobile"] .help-layer,
 .ui[data-layout="mobile"] .share-layer { padding: 0; }
@@ -1706,6 +1761,7 @@ body.no-webgl #ui-root { position: static; inset: auto; pointer-events: auto; }
 .ui[data-layout="text"] .body-row { padding: 10px; }
 .ui[data-layout="text"] .body-row__name { font-size: 15px; }
 .ui[data-layout="text"] .glass { background: rgba(14, 19, 30, .92); }
+.ui[data-layout="text"] .ecl { position: static; width: auto; animation: none; }
 
 /* 20 ─ App body classes --------------------------------------------------------------------------- */
 body:not(.is-ready):not(.no-webgl) #ui-root { visibility: visible; }
@@ -1725,6 +1781,7 @@ body.is-ready #ui-root .timebar { animation-delay: 140ms; }
 .ui.is-cinema .viewbar,
 .ui.is-cinema .sheet,
 .ui.is-cinema .toasts,
+.ui.is-cinema .ecl,
 body.is-cinema .ui .topbar,
 body.is-cinema .ui .panel,
 body.is-cinema .ui .timebar,

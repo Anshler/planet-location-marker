@@ -78,17 +78,19 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/astro/almanac.js`, `events.js`, `paths.js` | Rise/set, twilight, Tonight; events (with eclipse contacts, `localSolarEclipseAt`); retrograde paths. |
 | | `js/astro/eclipse-path.js` | `eclipsePath`: the centre line and limits of a central solar eclipse; `citiesInPath`, `nearestCentrePoint`, `pathAt`, `shadowPoint`. Render support: `ribbonMesh` (the globe's ribbon, once per eclipse), `pathFrameLocal` (the shadow and its heading, allocation-free), `shadowAxisPoint`, `umbraNear`. |
 | | `js/astro/worker.js`, `client.js` | Module worker plus a Promise client with a main-thread fallback. |
-| | `js/astro/shadow.js`, `photometry.js` | Eclipse disc overlap; B−V colour, refraction, airmass, exposure. |
+| | `js/astro/shadow.js`, `photometry.js` | Eclipse disc overlap; B−V colour, refraction, airmass, limiting magnitude, adapting luminance (night vision), exposure. |
+| | `js/astro/skyglow.js` | The night sky's own brightness: KS91 moonlight, van Rhijn airglow, Walker's-law light pollution from `data/cities.json` (16-bin azimuth dome), SQM, Bortle, limiting magnitude; `computeSkyglow` fills `snap.skyglow`. |
 | | `js/astro/totality.js` | Totality from the ground: Baily's beads (lunar limb profile), corona epoch parameters, contact-time display adaptation, the horizon ring's azimuthal shape. Illustrative in detail (ASTRONOMY.md). |
 | Data | `js/data/catalog.js` | Decodes `data/sky.json` into GPU-ready typed arrays in the scene frame. |
 | Render | `js/render/context.js` | Renderer, scene, camera, tier switching, `invalidate`/`onInvalidate`, context loss, stats. |
-| | `js/render/postfx.js` | Composer with bloom and the final pass (FXAA when the scene target has no MSAA). |
+| | `js/render/postfx.js` | Composer with bloom and the final pass (FXAA when the scene target has no MSAA; the night-vision grade, `rc.setVision`). |
 | | `js/render/textures.js` | Placeholder-first texture store with byte-weighted progress. |
 | | `js/render/earth.js`, `atmosphere.js` | Earth shader (day, night lights, glint, twilight, clouds, eclipse shadow, footprint) and atmosphere. |
-| | `js/render/sky.js`, `bodies.js`, `ground.js` | Stars, constellations, Milky Way and grids; Sun (with totality's thin crescent, corona, chromosphere and prominences under `SUN_ECLIPSE`), planets and the true-scale Moon; sky-view dome and ground (totality's 360° horizon ring). |
+| | `js/render/skyglow.js` | Uniforms of `SKYGLOW_CHUNK` (`shaders/skyglow.glsl.js`), filled from `snap.skyglow`: the moonlit sky and the city light dome per direction, for the dome, ground, stars and Milky Way. |
+| | `js/render/sky.js`, `bodies.js`, `ground.js` | Stars (limit per direction), constellations, Milky Way (faded by the local sky; zodiacal light and gegenschein) and grids; Sun (with totality's thin crescent, corona, chromosphere and prominences under `SUN_ECLIPSE`), planets and the true-scale Moon; sky-view dome and ground (totality's 360° horizon ring). |
 | | `js/render/totality.js` | Baily's beads and the diamond ring: up to eight HDR point sprites at `snap.eclipse.beads` (the flare's starburst follows the brightest). |
 | | `js/render/beams.js`, `pin.js`, `labels.js` | Signature beams, observer pin and horizon disc, DOM label pool. |
-| | `js/render/trails.js`, `flare.js`, `debug.js` | Retrograde paths, lens flare, `?debug=1` overlay. |
+| | `js/render/trails.js`, `flare.js`, `debug.js` | Retrograde paths, procedural lens flare (six-spike starburst, hexagonal aperture ghosts; no textures), `?debug=1` overlay. |
 | | `js/render/eclipse-path.js` | The path of a central solar eclipse on the globe: ribbon, centre line, 30-min ticks, the live umbra marker; reveal modes for the chase. |
 | Camera | `js/camera/rig.js`, `picking.js` | Orbit and sky-view camera, Earth-lock, fly-to tweens, `follow()` (the shadow chase); analytic globe and glyph picking. |
 | UI | `js/ui/index.js` and its modules | Shell, top bar, time bar, Sky Now, body card, events, Eclipse Companion, layers, settings, about, help, toasts, shortcuts, announcer. |
@@ -118,7 +120,7 @@ the UI and the render stack with literal `import('./…')` calls, so:
    chooses "Slow connection — continue with low detail". `status.phase` becomes `'ready'`.
 9. **Intro.** It plays on the first visit unless the hash has `intro=0`, a `cam` or `view=sky`,
    or the user prefers reduced motion. Otherwise the beams launch with a short stagger.
-10. **Idle work.** Deferred textures (cloud and ocean masks, Moon, Milky Way, flare), one almanac
+10. **Idle work.** Deferred textures (cloud and ocean masks, Moon, Milky Way), one almanac
     and events push from the worker, and service-worker registration (https only). The new
     worker is handed the URLs this visit already loaded, so the next visit works offline.
 
@@ -215,10 +217,11 @@ critical CSS read them.
 ```
 frame(now):  dt = min(now − last, 100)
   t = clock.tick(now)                            // the clock caps wall dt itself (hidden tabs)
-  if observer changed or clock jumped or |t − snap.tMs| ≥ 500 ms:
-      computeSnapshot(t, obs, snap, 'frame');  module.apply(snap) for every module
+  if observer or sky site changed or clock jumped or |t − snap.tMs| ≥ 500 ms:
+      computeSnapshot(t, obs, snap, 'frame');  computeSkyglow(snap, site, snap.skyglow)
+      module.apply(snap) for every module
   if now − lastFull ≥ 250 ms and something changed:
-      computeSnapshot(t, obs, snapFull, 'full');  bus.emit('readout', snapFull)
+      computeSnapshot(t, obs, snapFull, 'full');  computeSkyglow(…);  bus.emit('readout', snapFull)
   moving = rig.update(dt, snap)
   motion = moving || rig.tweening || clock.isAnimating() || introPlaying || pointer held
   twinkleDue = twinkle tier && sky view && stars visible && ≥ 29 ms since the last frame   // ~30 Hz
@@ -246,6 +249,12 @@ frame(now):  dt = min(now − last, 100)
 - **No allocation.** One `FrameInfo` and one exposure object are reused. The option objects are
   frozen constants. Loops are indexed.
 - **Label cap.** Sky view uses the tier's `labelCap`. Orbit view caps at 18 to keep the globe clear.
+- **Sky site.** `main.js` keeps the observer's light pollution (`astro/skyglow.js` `siteFor`: Auto from
+  `cities.list`, or the Sky darkness setting) and hands it over with `loop.setSkySite(site)` on every
+  observer, setting or city-index change. The loop fills `snap.skyglow` after each snapshot, headless
+  too, so the Sky panel's "Bortle 8 · limiting mag 4.1" works in text mode. `fi.exposure` gains the
+  sky term (zenith limiting magnitude) and `vision` (the night-vision weight, sky view only), which
+  the sky module passes to `rc.setVision`.
 
 ---
 
@@ -444,7 +453,7 @@ change.
 
 ```
 #loc=21.0285,105.8542&n=Hanoi&cc=VN&tz=Asia/Ho_Chi_Minh&el=15&t=2027-08-02T10:07:00Z&r=3600&p=1
- &view=orbit&lock=1&sel=moon&ly=bgoscCnmkazhl&q=auto&cam=o:21.0,105.8,3.2&intro=0&debug=1
+ &view=orbit&lock=1&sel=moon&ly=bgoscCnmkazhl&q=auto&sky=auto&cam=o:21.0,105.8,3.2&intro=0&debug=1
 ```
 
 - No `t` means Live.
@@ -452,6 +461,7 @@ change.
 - `ly` is the exact set of enabled layers.
 - `cam` is `o:lat,lon,dist` (the sub-camera point) or `s:az,alt,fov`.
 - `sel` selects a body and opens its card (the Details tab), as a click on it would.
+- `sky` is the Sky darkness setting (`display.skyDark`): `auto` (omitted), `pristine` or a Bortle class `1`–`9`.
 
 `bindUrl` writes the hash at most every 500 ms and leaves a fresh visit's URL clean. Hand edits
 are applied live through `onExternalChange`.

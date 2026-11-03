@@ -1,7 +1,9 @@
 /**
  * Photometry and sky-brightness helpers: star colours, magnitudes,
- * refraction, airmass, twilight classes and the exposure curves that the
- * renderers use to fade stars/planets/Milky Way with the Sun's altitude.
+ * refraction, airmass, twilight classes, the naked-eye limiting magnitude, the
+ * eye's adapting luminance (night vision) and the exposure curves that the
+ * renderers use to fade stars/planets/Milky Way with the Sun's altitude and
+ * the night sky's brightness (js/astro/skyglow.js).
  *
  * The refraction formula mirrors astronomy-engine's 'normal' model exactly so
  * that numbers printed in the UI and any GLSL port agree with AE.Horizon.
@@ -234,33 +236,103 @@ export function eclipseStarLimitMag(obscuration) {
 }
 
 /**
- * Exposure multipliers for stars, planets and the Milky Way.
- * In orbit view (skyBlend 0) all three are 1. In sky view:
- *   stars    = max(1 − smoothstep(−18, −4, sunAlt), eclipse term)
+ * Naked-eye limiting magnitude for a sky of `sqm` mag/arcsec² (V): the Schaefer-type fit
+ * 7.93 − 5·log10(10^(4.316 − sqm/5) + 1) behind Unihedron's SQM → NELM conversion. A pristine
+ * 22.0 gives 6.6, a rural 21.0 gives 6.1, a city's 18.2 gives 4.1 and a full-Moon sky (≈ 17.9)
+ * 3.9. The sky shaders mirror it per direction (js/render/shaders/skyglow.glsl.js sgLimitMag).
+ * @param {number} sqm Sky brightness in mag/arcsec² (non-finite → 22).
+ * @returns {number}
+ */
+export function limitingMag(sqm) {
+    const b = Number.isFinite(sqm) ? sqm : 22;
+    return 7.93 - 5 * Math.log10(Math.pow(10, 4.316 - b / 5) + 1);
+}
+
+// log10 of the twilight sky's own zenith luminance (cd/m²) by solar altitude: about 150 cd/m² at
+// sunset, 1 at the end of civil twilight, 2.5e-3 at nautical and a few 1e-5 at astronomical
+// (horizontal illuminance over π: ≈ 500, 3, 0.008 lux…). Below −18° the slope continues, so the
+// natural night sky (≈ 1.7e-4 cd/m²) takes over.
+const TWILIGHT_LOG_LUM = [[-18, -4.6], [-12, -2.6], [-6, 0], [0, 2.2], [10, 3.5], [90, 4]];
+/** One nanolambert in cd/m² (1e-9 lambert × 10⁴/π). */
+export const NL_TO_CDM2 = 1e-5 / Math.PI;
+
+/**
+ * The luminance an observer's eyes adapt to (cd/m²): the twilight sky's zenith (table above),
+ * dimmed by a solar eclipse like {@link eclipseStarLimitMag}'s light, plus the night sky's own
+ * brightness (js/astro/skyglow.js: airglow, moonlight and light pollution).
+ * @param {number} sunAltDeg
+ * @param {number} [skyNl=54] Night-sky zenith brightness in nanolamberts.
+ * @param {number} [obscuration=0] Solar-eclipse obscuration at the observer, 0..1.
+ * @returns {number}
+ */
+export function adaptingLuminance(sunAltDeg, skyNl = 54, obscuration = 0) {
+    const a = Number.isFinite(sunAltDeg) ? Math.min(90, sunAltDeg) : -90;
+    const T = TWILIGHT_LOG_LUM;
+    let i = 0;
+    while (i < T.length - 2 && a > T[i + 1][0]) i++;
+    const [a0, l0] = T[i], [a1, l1] = T[i + 1];
+    let tw = Math.pow(10, l0 + ((l1 - l0) * (a - a0)) / (a1 - a0));
+    if (obscuration > 0) tw *= Math.pow(1 - Math.min(1, obscuration), 1.4) + 1e-5;
+    return tw + Math.max(0, Number.isFinite(skyNl) ? skyNl : 54) * NL_TO_CDM2;
+}
+
+/**
+ * Adapting luminance (cd/m²) that lit surroundings add per natural-sky unit of artificial zenith
+ * light (js/astro/skyglow.js lpZenith): a city centre (≈ 100 units) adapts the eye to ≈ 1 cd/m².
+ * Illustrative.
+ */
+export const STREET_ADAPT_CDM2 = 0.01;
+
+/**
+ * Rod share of vision, 0 (photopic, cones) … 1 (scotopic): falls across the mesopic range
+ * 0.005–3 cd/m² on a log scale (smoothstep in log10 L).
+ * @param {number} cdm2 Adapting luminance (cd/m²).
+ * @returns {number}
+ */
+export function scotopicWeight(cdm2) {
+    const l = Math.log10(Math.max(1e-9, Number.isFinite(cdm2) ? cdm2 : 1e-9));
+    return 1 - smoothstep(Math.log10(0.005), Math.log10(3), l);
+}
+
+/**
+ * Exposure multipliers for stars, planets and the Milky Way, and the night-vision weight.
+ * In orbit view (skyBlend 0) the three are 1 and `vision` is 0. In sky view:
+ *   stars    = min(max(1 − smoothstep(−18, −4, sunAlt), eclipse term), sky term)
  *   planets  = max(0.15, 1 − 0.85·smoothstep(−8, 4, sunAlt))
  *   milkyWay = 1 − smoothstep(−20, −10, sunAlt)
+ *   vision   = scotopicWeight(adaptingLuminance(sunAlt, sky.zenithNl, obscuration) + street light)
  * and intermediate skyBlend values blend linearly between the two. The eclipse term is the star
  * exposure that puts the tier's limit at {@link eclipseStarLimitMag}: about magnitude 2 in
- * totality on every tier, rising over the last ~20 s before second contact. The Milky Way stays
- * a function of the Sun's altitude (dark only at night), as in a real totality.
+ * totality on every tier, rising over the last ~20 s before second contact. The sky term puts it
+ * at the night sky's own zenith limit, `sky.limitMag` ({@link limitingMag} of the moonlit and
+ * light-polluted sky, js/astro/skyglow.js): about 4 under a full Moon or in a city. The Milky Way
+ * stays a function of the Sun's altitude here (dark only at night, as in a real totality); the
+ * sky shaders fade it by the local sky brightness themselves.
  * @param {number} sunAltDeg Sun altitude at the observer (NaN → night).
  * @param {number} skyBlend 0 = orbit view, 1 = sky view.
- * @param {{stars:number, planets:number, milkyWay:number}} [out] Reused when given (per-frame callers).
+ * @param {{stars:number, planets:number, milkyWay:number, vision?:number}} [out] Reused when given (per-frame callers).
  * @param {number} [obscuration=0] Solar-eclipse obscuration at the observer, 0..1.
  * @param {number} [tierMagLimit=6] The tier's dark-sky star limit (TierCfg.starMagLimit).
- * @returns {{stars:number, planets:number, milkyWay:number}}
+ * @param {{limitMag:number, zenithNl:number, lpZenith?:number}|null} [sky] The night sky (snap.skyglow); none = pristine.
+ * @returns {{stars:number, planets:number, milkyWay:number, vision:number}}
  */
-export function exposureFor(sunAltDeg, skyBlend, out, obscuration = 0, tierMagLimit = 6) {
+export function exposureFor(sunAltDeg, skyBlend, out, obscuration = 0, tierMagLimit = 6, sky = null) {
     const k = Math.min(1, Math.max(0, Number.isFinite(skyBlend) ? skyBlend : 0));
     const a = Number.isFinite(sunAltDeg) ? sunAltDeg : -90;
     const lim = Number.isFinite(tierMagLimit) && tierMagLimit > -1 ? tierMagLimit : 6;
-    const stars = Math.max(1 - smoothstep(-18, -4, a), starExposureForLimit(eclipseStarLimitMag(obscuration), lim));
+    const skyLim = sky && Number.isFinite(sky.limitMag) ? starExposureForLimit(sky.limitMag, lim) : 1;
+    const stars = Math.min(skyLim, Math.max(1 - smoothstep(-18, -4, a), starExposureForLimit(eclipseStarLimitMag(obscuration), lim)));
     const planets = Math.max(0.15, 1 - 0.85 * smoothstep(-8, 4, a));
     const milkyWay = 1 - smoothstep(-20, -10, a);
-    const o = out || { stars: 1, planets: 1, milkyWay: 1 };
+    // In a town the eyes adapt to lit streets, not to the sky: STREET_ADAPT_CDM2 per unit of
+    // artificial zenith light (≈ 1 cd/m², mesopic, in a city centre).
+    const street = sky && sky.lpZenith > 0 ? STREET_ADAPT_CDM2 * sky.lpZenith : 0;
+    const vision = scotopicWeight(adaptingLuminance(a, sky ? sky.zenithNl : undefined, obscuration) + street);
+    const o = out || { stars: 1, planets: 1, milkyWay: 1, vision: 0 };
     o.stars = 1 + (stars - 1) * k;
     o.planets = 1 + (planets - 1) * k;
     o.milkyWay = 1 + (milkyWay - 1) * k;
+    o.vision = vision * k;
     return o;
 }
 

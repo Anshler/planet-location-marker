@@ -1,6 +1,8 @@
 /**
  * Custom lens flare (G5, SPEC C.7 / E.5, SHOULD): a starburst at the Sun's screen position and
- * four ghosts along the Sun→centre axis, as NDC quads drawn last (no depth test, additive).
+ * six ghosts along the Sun→centre axis, as NDC quads drawn last (no depth test, additive). Both
+ * are procedural (bodies.glsl.js FLARE_FRAG): a fine six-spike starburst with a faint spectral
+ * ring, and hexagonal aperture ghosts with chromatic rims. No textures.
  *
  * Occlusion is analytic: the visible fraction of the Sun's disc past the Earth's limb and the
  * Moon (so it fades smoothly as the Sun rises over the limb from orbit, and dims through a solar
@@ -15,13 +17,17 @@ import { MOON_RADIUS_ER, SUN_ANG_RADIUS_1AU_RAD, sunAngularRadius } from '../ast
 import { FLARE_VERT, FLARE_FRAG } from './shaders/bodies.glsl.js';
 import { extinctionRGB, limbTransmittance } from './bodies.js';
 
-// [texture index, size (CSS px), axis distance (<0: at the Sun), ghost hue]
+// [kind (0 starburst, 1 ghost), size (CSS px), axis distance (<0: at the Sun; 0.5 = screen
+// centre, 1 = mirrored through it), ghost hue]. Real ghosts keep converging on the centre as the
+// Sun nears the axis, so their positions follow the three.js Lensflare law and never fade there.
 const ELEMENTS = [
     [0, 600, -1, 0],
-    [1, 60, 0.6, 1],
-    [1, 70, 0.7, 2],
-    [1, 120, 0.9, 3],
-    [1, 70, 1.0, 4],
+    [1, 46, 0.42, 1],
+    [1, 80, 0.58, 2],
+    [1, 30, 0.74, 3],
+    [1, 120, 0.88, 4],
+    [1, 58, 1.04, 1],
+    [1, 24, 1.18, 3],
 ];
 /** Exponential fade time constant: occlusion changes reach 95 % in 3τ = 150 ms (SPEC §E.5). */
 const FADE_TAU_MS = 50;
@@ -52,11 +58,9 @@ export function discVisible(rs, ro, d) {
 /**
  * Creates the lens-flare module.
  * @param {object} rc RenderContext (SPEC C.6)
- * @param {{textures?:object|null}} [deps]
  * @returns {object} RenderModule
  */
-export function createFlare(rc, deps = {}) {
-    const { textures = null } = deps;
+export function createFlare(rc) {
     const group = new THREE.Group();
     group.name = 'flare';
     let cfg = rc && rc.tier && typeof rc.tier === 'object' ? rc.tier : null;
@@ -80,19 +84,12 @@ export function createFlare(rc, deps = {}) {
     geometry.setAttribute('aElem', new THREE.BufferAttribute(elem, 4));
     geometry.setIndex(idx);
 
-    const black = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1, THREE.RGBAFormat);
-    black.needsUpdate = true;
     const uniforms = {
-        uFlare0: { value: textures ? textures.get('flare0') : black },
-        uFlare3: { value: textures ? textures.get('flare3') : black },
         uSunNdc: { value: new THREE.Vector2(0, 0) },
         uViewport: { value: new THREE.Vector2(1, 1) },
         uDpr: { value: 1 },
         uTint: { value: new THREE.Color(1, 0.95, 0.85) },
         uIntensity: { value: 0 },
-        // lensflare3.png peaks at 37/255; decoded as sRGB that is ~0.018, invisible at the spec's
-        // 0.4 tint. This gain gives ghosts the faint visibility of three's Lensflare example.
-        uGhosts: { value: 6 },
     };
     const material = new THREE.ShaderMaterial({
         name: 'flare', uniforms, vertexShader: FLARE_VERT, fragmentShader: FLARE_FRAG,
@@ -104,14 +101,6 @@ export function createFlare(rc, deps = {}) {
     mesh.renderOrder = 50;
     mesh.visible = false;
     group.add(mesh);
-
-    const offs = [];
-    if (textures) {
-        try {
-            offs.push(textures.onReady('flare0', (t) => { uniforms.uFlare0.value = t; }));
-            offs.push(textures.onReady('flare3', (t) => { uniforms.uFlare3.value = t; }));
-        } catch { /* placeholders stay black */ }
-    }
 
     const sunDir = new THREE.Vector3(1, 0, 0);
     const moonPos = new THREE.Vector3(60, 0, 0);
@@ -246,10 +235,8 @@ export function createFlare(rc, deps = {}) {
     function setQuality(c) { if (c) cfg = c; }
 
     function dispose() {
-        for (const off of offs) { try { off && off(); } catch { /* ignore */ } }
         geometry.dispose();
         material.dispose();
-        black.dispose();
     }
 
     return { object3d: group, apply, update, setQuality, dispose };

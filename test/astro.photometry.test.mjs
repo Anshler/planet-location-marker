@@ -75,8 +75,8 @@ test('twilightClass boundaries', () => {
 });
 
 test('exposureFor limits: orbit view is 1; deep night is full; daylight hides stars and the Milky Way; blends linearly', () => {
-    assert.deepEqual(P.exposureFor(30, 0), { stars: 1, planets: 1, milkyWay: 1 });
-    assert.deepEqual(P.exposureFor(-30, 1), { stars: 1, planets: 1, milkyWay: 1 });
+    assert.deepEqual(P.exposureFor(30, 0), { stars: 1, planets: 1, milkyWay: 1, vision: 0 });
+    assert.deepEqual(P.exposureFor(-30, 1), { stars: 1, planets: 1, milkyWay: 1, vision: 1 });
     const day = P.exposureFor(30, 1);
     assert.equal(day.stars, 0);
     assert.equal(day.milkyWay, 0);
@@ -99,7 +99,7 @@ test('exposureFor limits: orbit view is 1; deep night is full; daylight hides st
     // Reuses an output object (per-frame callers) and tolerates bad input.
     const out = { stars: 0, planets: 0, milkyWay: 0 };
     assert.equal(P.exposureFor(-5, 1, out), out);
-    assert.deepEqual(P.exposureFor(NaN, NaN), { stars: 1, planets: 1, milkyWay: 1 });
+    assert.deepEqual(P.exposureFor(NaN, NaN), { stars: 1, planets: 1, milkyWay: 1, vision: 0 });
 });
 
 test('starLimitMag mirrors STAR_VERT (lim = mix(−1, uMagLimit, √e)); starExposureForLimit inverts it', () => {
@@ -143,8 +143,8 @@ test('exposureFor: totality shows planets and stars to about magnitude 2 on ever
         assert.equal(e.milkyWay, 0, 'no Milky Way by day, totality or not');
     }
     // At night the eclipse term never lowers the dark-sky exposure; orbit view stays 1.
-    assert.deepEqual(P.exposureFor(-30, 1, undefined, 1, 6), { stars: 1, planets: 1, milkyWay: 1 });
-    assert.deepEqual(P.exposureFor(40, 0, undefined, 1, 6), { stars: 1, planets: 1, milkyWay: 1 });
+    assert.deepEqual(P.exposureFor(-30, 1, undefined, 1, 6), { stars: 1, planets: 1, milkyWay: 1, vision: 1 });
+    assert.deepEqual(P.exposureFor(40, 0, undefined, 1, 6), { stars: 1, planets: 1, milkyWay: 1, vision: 0 });
     // A partial eclipse at 90 % adds nothing; the defaults keep the old three-argument behaviour.
     assert.equal(P.exposureFor(40, 1, undefined, 0.9, 6).stars, 0);
     assert.deepEqual(P.exposureFor(40, 1), P.exposureFor(40, 1, undefined, 0, 6));

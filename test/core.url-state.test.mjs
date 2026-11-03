@@ -9,7 +9,7 @@ import { createClock, MIN_MS, MAX_MS, RATES } from '../js/core/clock.js';
 
 const BODY_IDS = ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune'];
 const LAYER_KEYS = Object.keys(DEFAULT_STATE.layers);
-const ALLOWED_KEYS = new Set(['observer', 'tMs', 'live', 'rate', 'playing', 'view', 'earthLock', 'selection', 'layers', 'quality', 'cam', 'intro', 'debug', 'invalid']);
+const ALLOWED_KEYS = new Set(['observer', 'tMs', 'live', 'rate', 'playing', 'view', 'earthLock', 'selection', 'layers', 'quality', 'skyDark', 'cam', 'intro', 'debug', 'invalid']);
 const SPEC_EXAMPLE = '#loc=21.0285,105.8542&n=Hanoi&cc=VN&tz=Asia/Ho_Chi_Minh&el=15&t=2027-08-02T10:07:00Z&r=3600&p=1&view=orbit&lock=1&sel=moon'
     + '&ly=bgoscCnmkazhl&q=auto&cam=o:21.0,105.8,3.2|s:142.3,25.0,60&intro=0&debug=1';
 
@@ -38,6 +38,7 @@ function assertValid(out, label) {
         for (const v of Object.values(out.layers)) assert.equal(typeof v, 'boolean');
     }
     if ('quality' in out) assert.ok(['auto', 'low', 'medium', 'high', 'max'].includes(out.quality));
+    if ('skyDark' in out) assert.ok(['auto', 'pristine', '1', '2', '3', '4', '5', '6', '7', '8', '9'].includes(out.skyDark));
     if (out.cam) {
         const c = out.cam;
         if (c.mode === 'orbit') {
@@ -432,4 +433,17 @@ test('bindUrl: missing pieces are tolerated', () => {
     assert.equal(typeof bindUrl(), 'function');
     assert.equal(typeof bindUrl({ win: {} }), 'function');
     assert.equal(typeof bindUrl({ win: { history: {}, location: {} } }), 'function');
+});
+
+test('sky=: the Sky darkness setting round-trips; auto is implicit; anything else is invalid', () => {
+    assert.equal(parseHash('#sky=7').skyDark, '7');
+    assert.equal(parseHash('#sky=Pristine').skyDark, 'pristine');
+    assert.equal(parseHash('#sky=auto').skyDark, 'auto');
+    const bad = parseHash('#sky=10');
+    assert.equal(bad.skyDark, undefined);
+    assert.deepEqual(bad.invalid, ['sky']);
+    const state = (v) => ({ ...DEFAULT_STATE, display: { ...DEFAULT_STATE.display, skyDark: v } });
+    assert.equal(serializeHash({ state: state('auto') }).includes('sky='), false);
+    assert.match(serializeHash({ state: state('3') }), /&sky=3(&|$)/);
+    assert.equal(parseHash(serializeHash({ state: state('pristine') })).skyDark, 'pristine');
 });

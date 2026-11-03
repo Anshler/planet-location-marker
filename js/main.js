@@ -15,7 +15,7 @@
 // renderer leaves the panels.
 
 import { APP_NAME, VERSION } from './version.js';
-import { DEFAULT_STATE, createStore } from './core/store.js';
+import { DEFAULT_STATE, SKY_DARK_SETTINGS, createStore } from './core/store.js';
 import { createBus } from './core/bus.js';
 import { createClock, scrubSpanMs } from './core/clock.js';
 import { parseHash, bindUrl } from './core/url-state.js';
@@ -28,6 +28,7 @@ import { createGeocoder, createLruCache } from './geo/geocode.js';
 import { BODIES, isBodyId, bodyById } from './astro/bodies.js';
 import { createSnapshot, computeSnapshot } from './astro/snapshot.js';
 import { createAstroClient } from './astro/client.js';
+import { createSite, siteFor, manualSite } from './astro/skyglow.js';
 import { decodeSky, emptyCatalog } from './data/catalog.js';
 import { createActions, normalizeObserver, selectionLook, viewModeLook, eclipseFocusExpired } from './app/actions.js';
 import { ribbonPlan } from './app/eclipse-chase.js';
@@ -303,8 +304,31 @@ function loadSavedDisplay() {
     if (d && typeof d === 'object') {
         if (['observer', 'device', 'utc'].includes(d.tzMode)) out.tzMode = d.tzMode;
         if (typeof d.hour12 === 'boolean') out.hour12 = d.hour12;
+        if (SKY_DARK_SETTINGS.includes(d.skyDark)) out.skyDark = d.skyDark;
     }
     return out;
+}
+
+/**
+ * Feeds the loop the observer's light pollution (astro/skyglow.js): estimated from the cities
+ * around the observer ('auto', once cities.json is in) or the chosen Sky darkness.
+ */
+function bindSkySite(store, loop, cities, cityIndexP) {
+    const site = createSite();
+    const refresh = () => {
+        const st = store.get();
+        try {
+            siteFor(st.observer, cities.list, st.display?.skyDark ?? 'auto', site);
+        } catch (err) {
+            console.error('[main] light-pollution estimate failed', err);
+            manualSite('pristine', site);
+        }
+        loop.setSkySite(site);
+    };
+    store.subscribe((s) => s.observer, refresh);
+    store.subscribe((s) => s.display?.skyDark, refresh);
+    cityIndexP.then(refresh);
+    refresh();
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -425,7 +449,7 @@ async function boot() {
         selection: isBodyId(hash.selection) ? hash.selection : null,
         view,
         layers,
-        display: loadSavedDisplay(),
+        display: { ...loadSavedDisplay(), ...(hash.skyDark ? { skyDark: hash.skyDark } : {}) },
         quality: { setting: qualitySetting, active, ceiling: decision.ceiling },
         status: {
             phase: 'loading', progress: 0.1, webgl: env.can3d, onlineSearch: 'unknown',
@@ -508,6 +532,7 @@ async function boot() {
         onRenderFailure: (err) => enterTextMode('context-failed', err),
     });
     R.loop = loop;
+    bindSkySite(store, loop, cities, cityIndexP);
 
     try {
         const { mountUI } = await uiModP;
@@ -818,7 +843,7 @@ async function bootRender(ctx) {
     const eclipseRibbon = create('eclipsePath', m.eclipsePath && (() => m.eclipsePath.createEclipsePath(rc)));
     const beams = create('beams', m.beams && (() => m.beams.createBeams(rc, { reducedMotion: rm })));
     const pin = create('pin', m.pin && (() => m.pin.createPin(rc)));
-    create('flare', m.flare && (() => m.flare.createFlare(rc, { textures })));
+    create('flare', m.flare && (() => m.flare.createFlare(rc)));
 
     // Labels and camera rig.
     let labels = null;
@@ -1362,6 +1387,7 @@ function applyHash(p) {
     if (p.selection !== undefined) actions.select(p.selection);
     if (p.layers) store.set({ layers: { ...store.get().layers, ...p.layers } }, 'url');
     if (p.quality) actions.setQuality(p.quality);
+    if (p.skyDark) actions.setSkyDark(p.skyDark);
     if (p.cam && R.rig) {
         try { R.rig.setView?.(p.cam); } catch (err) { console.error('[main] camera from link failed', err); }
     }

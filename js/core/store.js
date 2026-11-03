@@ -29,6 +29,12 @@ function isPlainObject(v) {
 }
 
 /**
+ * display.skyDark choices ('Sky darkness' in Settings, `sky=` in the URL): 'auto' estimates the
+ * light pollution from nearby cities (astro/skyglow.js), 'pristine' has none, '1'…'9' is a Bortle class.
+ */
+export const SKY_DARK_SETTINGS = Object.freeze(['auto', 'pristine', '1', '2', '3', '4', '5', '6', '7', '8', '9']);
+
+/**
  * The initial application state (SPEC §C.3). Frozen: copy before modifying.
  * @type {Readonly<AppState>}
  */
@@ -40,7 +46,7 @@ export const DEFAULT_STATE = deepFreeze({
         milkyWay: true, clouds: true, atmosphere: true, ecliptic: false, eqGrid: false, altAzGrid: true, horizon: true, footprint: false,
         subpoints: false, trails: false, labels: true,
     },
-    display: { tzMode: 'observer', hour12: false }, quality: { setting: 'auto', active: 'medium', ceiling: 'medium' },
+    display: { tzMode: 'observer', hour12: false, skyDark: 'auto' }, quality: { setting: 'auto', active: 'medium', ceiling: 'medium' },
     ui: { panel: 'sky', sheet: 'peek', cinema: false, help: false, palette: false, eclipse: null },
     status: { phase: 'boot', progress: 0, webgl: true, onlineSearch: 'unknown', reducedMotion: false, coarse: false, introPlaying: false },
 });

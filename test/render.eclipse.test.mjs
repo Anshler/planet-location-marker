@@ -70,7 +70,7 @@ test('totality stars come from the pure exposureFor, not a render-side term', ()
     assert.doesNotMatch(sky, /eclipseStars/);
     assert.match(body(sky, 'update'), /const starExp = exposure\.stars;/);
     const loop = stripComments(read('js/app/loop.js'));
-    assert.match(loop, /exposureFor\(sunAlt, skyBlend, exposure, obscuration, tierMagLimit\)/);
+    assert.match(loop, /exposureFor\(sunAlt, skyBlend, exposure, obscuration, tierMagLimit, sky \?\? null\)/);
     assert.match(loop, /updateExposure\(snap\.observer\.sunAltDeg, skyBlend, snap\.eclipse\.obscurationAtObserver,/);
 });
 

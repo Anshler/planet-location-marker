@@ -262,6 +262,15 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
         invalidate();
     }
 
+    /**
+     * Night-vision grade strength (postfx FinalPass uScotopic), 0…1. A no-op on the direct path
+     * (low tier): that grade needs the final pass.
+     * @param {number} s
+     */
+    function setVision(s) {
+        postfx?.setVision?.(s);
+    }
+
     /** Renders one frame (composer or direct). Never throws. */
     function render() {
         if (lost || disposed) return;
@@ -422,6 +431,7 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
         setTier,
         setDprCap,
         setExposure,
+        setVision,
         resize,
         render,
         compile,

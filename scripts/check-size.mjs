@@ -8,7 +8,7 @@
 // Raw bytes on disk are budgeted (1 MB = 10⁶ B); gzip "wire" sizes are informational
 // (GitHub Pages compresses JS/CSS/JSON/SVG/HTML).
 //
-//   low ≤ 3.5 MB · medium ≤ 4.35 MB · high ≤ 5.55 MB · staged site ≤ 12 MB
+//   low ≤ 3.55 MB · medium ≤ 4.35 MB · high ≤ 5.55 MB · staged site ≤ 12 MB
 //   SPEC §E.6 set 3.0 / 3.6 / 4.8 MB from an estimate of ≈ 1.35 MB of JavaScript. The shipped,
 //   unminified-by-design module graph (no build step) measures ≈ 2.0 MB raw incl. CSS
 //   (≈ 0.6 MB gzipped; three.js + astronomy-engine alone are 1.17 MB raw), so the budgets were
@@ -35,7 +35,9 @@ const MB = 1e6, KB = 1e3;
 
 // Phase 1 (Eclipse 2027): eclipse path, contacts and framing (≈ 35 KB), totality (≈ 48 KB), and the globe's path ribbon,
 // shadow chase and eclipse-aware pin (≈ 46 KB) raise every tier.
-export const TIER_BUDGETS = { low: 3.5 * MB, medium: 4.35 * MB, high: 5.55 * MB };
+// Phase 2 (sky view): the night-sky model (skyglow, ≈ 40 KB of JS) raised low by 50 KB; medium and
+// high absorb it, since the procedural lens flare dropped its two textures (68 KB) from them.
+export const TIER_BUDGETS = { low: 3.55 * MB, medium: 4.35 * MB, high: 5.55 * MB };
 /** Tiers that are measured and printed but have no budget (max: a deliberate, manual choice). */
 export const INFO_TIERS = ['max'];
 // The max tier's 8192 px maps (≈ 15.2 MB) ship with the site; 32 MB keeps headroom (Pages allows 1 GB).
@@ -57,7 +59,7 @@ const FALLBACK_ASSETS = {
     night4k: 'assets/textures/earth_night_4096.jpg', night2k: 'assets/textures/earth_night_2048.webp',
     roughness2k: 'assets/textures/earth_roughness_2048.webp', clouds2k: 'assets/textures/earth_clouds_2048.webp',
     brc4k: 'assets/textures/earth_bump_roughness_clouds_4096.jpg', moon: 'assets/textures/moon_1024.jpg',
-    flare0: 'assets/textures/lensflare0.png', flare3: 'assets/textures/lensflare3.png', milkyway: 'data/milkyway.png',
+    milkyway: 'data/milkyway.png',
     day8k: 'assets/textures/earth_day_8192.jpg', night8k: 'assets/textures/earth_night_8192.jpg',
     clouds8k: 'assets/textures/earth_clouds_8192.webp', moon4k: 'assets/textures/moon_4096.webp',
 };
@@ -123,7 +125,6 @@ export function tierTextureKeys(cfg) {
     push(stand(clouds));
     push(stand(moon));
     push('milkyway');
-    if (cfg.flare) { push('flare0'); push('flare3'); }
     for (const k of [day, night, clouds, moon]) if (INTERIM[k]) push(k);
     return keys;
 }

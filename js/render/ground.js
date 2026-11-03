@@ -19,6 +19,7 @@ import { skyViewExposure, groundCover } from './sky.js';
 import { extinctionRGB } from './bodies.js';
 import { AU_KM, BODIES, sunAngularRadius } from '../astro/bodies.js';
 import { umbraHorizonGlow, createHorizonGlow } from '../astro/totality.js';
+import { createSkyglowUniforms, applySkyglow } from './skyglow.js';
 
 const DEG = Math.PI / 180;
 const LOW_SUN_TURBIDITY = 3.5;
@@ -82,6 +83,9 @@ export function createGround(rc) {
     // Totality's 360° glow (umbraHorizonGlow): first harmonic + level, second harmonic axis + amplitude.
     su.uEclH1 = { value: new THREE.Vector4(0, 0, 0, 1) };
     su.uEclH2 = { value: new THREE.Vector4(0, 1, 0, 0) };
+    // The night sky's own light (moonlit sky, city light dome), shared by the dome and the ground.
+    const sg = createSkyglowUniforms();
+    Object.assign(su, sg);
     group.add(sky);
 
     // --- Ground + haze ----------------------------------------------------------------------------
@@ -99,6 +103,7 @@ export function createGround(rc) {
         uObscuration: su.uObscuration,
         uEclH1: su.uEclH1,
         uEclH2: su.uEclH2,
+        ...sg,
     };
     const groundMaterial = new THREE.ShaderMaterial({
         name: 'ground.hemisphere', uniforms: gUniforms, vertexShader: GROUND_VERT, fragmentShader: GROUND_FRAG,
@@ -136,6 +141,7 @@ export function createGround(rc) {
             ? clamp(snap.eclipse.obscurationAtObserver, 0, 1) : 0;
         su.uSunAltDeg.value = sunAltDeg;
         gUniforms.uSunAltDeg.value = sunAltDeg;
+        applySkyglow(sg, snap);
         su.uObscuration.value = obscuration;
         // Preetham's grey floor only by day; by −3° our twilight model has taken over.
         su.uFloor.value = smooth(-3, 1, sunAltDeg);

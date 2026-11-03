@@ -389,40 +389,59 @@ void main() {
 }
 `;
 
-/** @see FLARE_VERT */
+/**
+ * @see FLARE_VERT. Procedural, no textures. The starburst is a bright core and halo, six fine
+ * diffraction spikes (a six-blade aperture) with six fainter ones between them, and a faint
+ * spectral ring (each channel at a slightly different radius). A ghost is an image of the
+ * hexagonal aperture: a faint, evenly lit hexagon with a brighter rim whose red, green and blue
+ * edges sit at slightly different sizes (lateral colour), lightly tinted by the coatings.
+ */
 export const FLARE_FRAG = /* glsl */`
-uniform sampler2D uFlare0;
-uniform sampler2D uFlare3;
 uniform vec3 uTint;
 uniform float uIntensity;
-uniform float uGhosts;
 varying vec2 vUv;
 varying float vIdx;
 varying float vTint;
 vec3 ghostHue(float k) {
-    // Anti-reflection coatings tint ghosts in clean, saturated hues (no muddy greys):
-    // green, sky blue, magenta and amber.
-    if (k < 1.5) return vec3(0.45, 1.0, 0.55);
-    if (k < 2.5) return vec3(0.40, 0.70, 1.0);
-    if (k < 3.5) return vec3(1.0, 0.45, 0.90);
-    return vec3(1.0, 0.70, 0.35);
+    // Anti-reflection coatings tint ghosts in clean, pale hues: violet, teal, amber, rose.
+    if (k < 1.5) return vec3(0.80, 0.78, 1.0);
+    if (k < 2.5) return vec3(0.70, 1.0, 0.92);
+    if (k < 3.5) return vec3(1.0, 0.86, 0.62);
+    return vec3(1.0, 0.74, 0.82);
+}
+// Distance-like function of a regular hexagon of inradius 1 (turned by rot), from its centre.
+float hexDist(vec2 p, float rot) {
+    float c = cos(rot), s = sin(rot);
+    vec2 q = abs(vec2(c * p.x - s * p.y, s * p.x + c * p.y));
+    return max(dot(q, vec2(0.5, 0.8660254)), q.x);
+}
+// One ghost channel: the evenly lit aperture and its rim, at size R.
+float ghostShape(float d, float R, float aa) {
+    float inside = 1.0 - smoothstep(R - aa, R + aa, d);
+    float rim = exp(-0.5 * (d - R + 1.5 * aa) * (d - R + 1.5 * aa) / (aa * aa));
+    return 0.30 * inside + rim;
 }
 void main() {
     vec3 c;
-    float r = length(vUv * 2.0 - 1.0);
-    // Both textures are mipmapped: sample them outside the varying-dependent branch.
-    vec3 flare0 = texture2D(uFlare0, vUv).rgb;
-    vec3 flare3 = texture2D(uFlare3, vUv).rgb;
+    vec2 p = vUv * 2.0 - 1.0;
+    float r = length(p);
+    float win = 1.0 - smoothstep(0.55, 0.98, r);
     if (vIdx < 0.5) {
-        // lensflare0's wide halo reaches the texture edge: a radial window (not the square quad)
-        // ends it, squared so the halo stays tight around the starburst.
-        float win = 1.0 - smoothstep(0.25, 0.95, r);
-        c = flare0 * uTint * (win * win);
+        float th = (r > 1e-5) ? atan(p.y, p.x) : 0.0;   // atan(0, 0) is undefined
+        float core = 1.6 * exp(-r / 0.022) + 0.30 * exp(-r / 0.075) + 0.05 * exp(-r / 0.28);
+        float spikes = pow(abs(cos(3.0 * th + 0.5236)), 360.0) * exp(-r / 0.24)
+                     + 0.35 * pow(abs(sin(3.0 * th + 0.5236)), 900.0) * exp(-r / 0.13);
+        float ring = exp(-0.5 * (r - 0.36) * (r - 0.36) / 0.0004);
+        vec3 iris = vec3(exp(-0.5 * (r - 0.372) * (r - 0.372) / 0.0003),
+                         exp(-0.5 * (r - 0.360) * (r - 0.360) / 0.0003),
+                         exp(-0.5 * (r - 0.348) * (r - 0.348) / 0.0003));
+        c = uTint * ((core + 0.55 * spikes * smoothstep(0.0, 0.03, r)) * (win * win) + 0.035 * iris + 0.004 * ring);
     } else {
-        // Soft aperture disc with a slightly brighter rim, faded out before the quad edge.
-        float rim = smoothstep(0.62, 0.80, r) * (1.0 - smoothstep(0.80, 0.94, r));
-        c = (flare3 + 0.009 * rim) * uTint * ghostHue(vTint) * 0.4 * uGhosts;
-        c *= 1.0 - smoothstep(0.84, 0.98, r);
+        float d = hexDist(p, 0.2);
+        float aa = max(fwidth(d), 0.012);
+        vec3 g = vec3(ghostShape(d, 0.80, aa), ghostShape(d, 0.78, aa), ghostShape(d, 0.76, aa));
+        c = g * uTint * ghostHue(vTint) * 0.028;
+        c *= 1.0 - smoothstep(0.86, 0.98, r);
     }
     gl_FragColor = vec4(c * uIntensity, 1.0);
     ${TONE}

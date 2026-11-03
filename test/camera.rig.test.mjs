@@ -728,6 +728,43 @@ test('star-lock holds the star field still, celestial north up, while the horizo
     assert.ok(Math.abs(roll0 - zenithRoll(h.camera, s)) > 20, `the horizon swings (${roll0.toFixed(1)}° → ${zenithRoll(h.camera, s).toFixed(1)}°)`);
 });
 
+test('releasing a body tracked above the 89° look limit keeps it centred; the look can then only come down', () => {
+    const h = makeRig({ dom: true });
+    // Latitude 15.3°: Jupiter culminates 0.34° from the zenith around 2027-02-06T17:35Z.
+    const obs = { ...HCMC, latDeg: 15.3, lonDeg: 105.85 };
+    let s = null;
+    for (let m = -120; m <= 120; m++) {
+        const c = snapAt(Date.parse('2027-02-06T17:35:00Z') + m * 60e3, obs);
+        if (!s || c.bodies[BODY_INDEX.jupiter].altDeg > s.bodies[BODY_INDEX.jupiter].altDeg) s = c;
+    }
+    assert.ok(s.bodies[BODY_INDEX.jupiter].altDeg > 89.5);
+    h.rig.setView('s:180,80,0.2');
+    h.rig.update(0, s);
+    h.rig.setTracking('body', 'jupiter');
+    h.run(1500, s);
+    const off = () => {
+        const p = ndcOfInf(h.camera, vec(liftByRefraction(s.bodies[BODY_INDEX.jupiter].dirS, s.observer.upS, 1, new Float64Array(3))));
+        return Math.hypot(p.x * 800, p.y * 450);
+    };
+    near(off(), 0, 1e-3, 'tracked');
+    h.rig.setTracking('none');
+    h.run(1500, s);
+    near(off(), 0, 0.5, 'released: still centred');
+    assert.ok(h.rig.getView().altDeg > 89.5, `alt ${h.rig.getView().altDeg}`);
+    // A nudge up stays put; one down lowers the look, which cannot climb back above that after.
+    const alt0 = h.rig.getView().altDeg;
+    h.rig.nudge(0, 10);
+    h.run(800, s);
+    near(h.rig.getView().altDeg, alt0, 1e-9, 'no higher');
+    h.rig.nudge(0, -10);
+    h.run(800, s);
+    const alt1 = h.rig.getView().altDeg;
+    assert.ok(alt1 < alt0 - 0.01, `lowered: ${alt1}`);
+    h.rig.nudge(0, 10);
+    h.run(800, s);
+    assert.ok(h.rig.getView().altDeg <= alt1 + 1e-9, `no climb back: ${h.rig.getView().altDeg}`);
+});
+
 test('star-lock near the celestial pole (Polaris, the pole itself) still holds the field', () => {
     const t0 = Date.parse('2026-11-03T19:00:00Z');
     const s0 = snapAt(t0, PARIS);

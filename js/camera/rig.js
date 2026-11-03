@@ -60,6 +60,8 @@ export const SKY_FOV_MIN = 0.2;
 const SKY_FOV_MAX = 100;
 const SKY_ALT_MIN = -10;
 const SKY_ALT_MAX = 89;
+/** A look tracking left above SKY_ALT_MAX (a body near the zenith) may stay up to this (altCeil). */
+const SKY_ALT_TRACKED_MAX = 89.99;
 const EYE_R = 1.0005;            // sky-view eye height (≈ 3 km), SPEC F.5
 const ABOVE_R = 1.15;            // the "above the observer" waypoint of the transitions
 const HOME_DIST = 3.4;
@@ -493,7 +495,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
     function anchoredLook(fov, out, refAz = sky.az, refAlt = sky.alt) {
         camRay(anchor.x, anchor.y, fov, _ray);
         skyLookFor(anchor.az, anchor.alt, _ray.x, _ray.y, _ray.z, out, refAz, refAlt);
-        out.alt = clamp(out.alt, SKY_ALT_MIN, SKY_ALT_MAX);
+        out.alt = clamp(out.alt, SKY_ALT_MIN, altCeil());
         return out;
     }
 
@@ -958,11 +960,19 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
 
     // ---- sidereal tracking ------------------------------------------------------------------------
 
+    /**
+     * The free look's ceiling: SKY_ALT_MAX, or the higher altitude tracking released it at (a body
+     * passing near the zenith stays centred), which the look can then only come down from.
+     */
+    function altCeil() {
+        return Math.max(SKY_ALT_MAX, Math.min(sky.alt, SKY_ALT_TRACKED_MAX));
+    }
+
     /** Sky look (az/alt targets included) from the camera's current forward, e.g. after tracking. */
     function lookFromForward() {
         _v1.copy(FWD).applyQuaternion(camera.quaternion);
         sky.az = sky.azT = wrap360(Math.atan2(_v1.dot(eastW), _v1.dot(northW)) / DEG);
-        sky.alt = sky.altT = clamp(Math.asin(clamp(_v1.dot(upW), -1, 1)) / DEG, SKY_ALT_MIN, SKY_ALT_MAX);
+        sky.alt = sky.altT = clamp(Math.asin(clamp(_v1.dot(upW), -1, 1)) / DEG, SKY_ALT_MIN, SKY_ALT_TRACKED_MAX);
         sky.vAz = sky.vAlt = 0;
     }
 
@@ -1098,7 +1108,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         let moved = false;
         if (!skyDrag && !pinch && (sky.vAz !== 0 || sky.vAlt !== 0)) {
             sky.azT = wrap360(sky.azT + sky.vAz * dt);
-            sky.altT = clamp(sky.altT + sky.vAlt * dt, SKY_ALT_MIN, SKY_ALT_MAX);
+            sky.altT = clamp(sky.altT + sky.vAlt * dt, SKY_ALT_MIN, altCeil());
             const decay = Math.exp(-dt / 220);
             sky.vAz *= decay;
             sky.vAlt *= decay;
@@ -1327,7 +1337,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
                 return;
             }
             sky.az = sky.azT = wrap360(sky.az + dAz);
-            sky.alt = sky.altT = clamp(sky.alt + dAlt, SKY_ALT_MIN, SKY_ALT_MAX);
+            sky.alt = sky.altT = clamp(sky.alt + dAlt, SKY_ALT_MIN, altCeil());
             // Velocity (deg/ms) for inertia, smoothed.
             sky.vAz = 0.6 * sky.vAz + 0.4 * (dAz / dtm);
             sky.vAlt = 0.6 * sky.vAlt + 0.4 * (dAlt / dtm);
@@ -1603,7 +1613,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
             trackTurn(-dxDeg * kf, dyDeg * kf);
         } else if (mode === 'sky') {
             sky.azT = wrap360(sky.azT + dxDeg * kf);
-            sky.altT = clamp(sky.altT + dyDeg * kf, SKY_ALT_MIN, SKY_ALT_MAX);
+            sky.altT = clamp(sky.altT + dyDeg * kf, SKY_ALT_MIN, altCeil());
         } else if (controls) {
             // Positive dx swings the camera west so the globe turns east-to-west under the view.
             controls._rotateLeft?.(dxDeg * DEG);

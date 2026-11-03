@@ -63,7 +63,7 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/core/bus.js` | Fixed event types: `readout`, `toast`, `announce`, `almanac`, `events`, `intro`. |
 | | `js/core/clock.js` | Simulated time: Live mode, the signed rate ladder, steps, log-time tweens, range loops, clamping to 1000–3000. |
 | | `js/core/url-state.js` | `parseHash`, `serializeHash` and `bindUrl`, which keeps the URL hash in sync (throttled `replaceState`). |
-| | `js/core/quality.js` | `TIERS`, `detectTier`, `tierConfig`, and `createGovernor` (downgrade only). |
+| | `js/core/quality.js` | `TIERS`, `detectTier`, `tierConfig`, `autoStartTier`, and `createGovernor` (downgrade only, display-cadence budget). |
 | | `js/core/prefs.js` | `localStorage` under `pc2.`, falling back to memory. |
 | | `js/core/tz.js`, `js/core/format.js` | Time zones (canonicalised, DST-safe) and every displayed number and string. |
 | | `js/core/types.js` | JSDoc typedefs: the shared contract. |
@@ -79,7 +79,7 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/astro/shadow.js`, `photometry.js` | Eclipse disc overlap; B−V colour, refraction, airmass, exposure. |
 | Data | `js/data/catalog.js` | Decodes `data/sky.json` into GPU-ready typed arrays in the scene frame. |
 | Render | `js/render/context.js` | Renderer, scene, camera, tier switching, `invalidate`/`onInvalidate`, context loss, stats. |
-| | `js/render/postfx.js` | Composer with bloom and the final pass. |
+| | `js/render/postfx.js` | Composer with bloom and the final pass (FXAA when the scene target has no MSAA). |
 | | `js/render/textures.js` | Placeholder-first texture store with byte-weighted progress. |
 | | `js/render/earth.js`, `atmosphere.js` | Earth shader (day, night lights, glint, twilight, clouds, eclipse shadow, footprint) and atmosphere. |
 | | `js/render/sky.js`, `bodies.js`, `ground.js` | Stars, constellations, Milky Way and grids; Sun, planets and the true-scale Moon; sky-view dome and ground. |
@@ -178,18 +178,26 @@ frame(now):  dt = min(now − last, 100)
   if now − lastFull ≥ 250 ms and something changed:
       computeSnapshot(t, obs, snapFull, 'full');  bus.emit('readout', snapFull)
   moving = rig.update(dt, snap)
-  continuous = moving || rig.tweening || clock.isAnimating() || introPlaying || pointer held || twinkle in sky view
-  if dirty || continuous:
+  motion = moving || rig.tweening || clock.isAnimating() || introPlaying || pointer held
+  twinkleDue = twinkle tier && sky view && stars visible && ≥ 29 ms since the last frame   // ~30 Hz
+  held = governor.probe()                        // before a step with no fresh cadence: frames off to measure it
+  if !held && (dirty || motion || twinkleDue):
       dirty = false                              // cleared first: invalidate() during update requests the next frame
       module.update(fi) for every module         // fi: dt, time, camera, viewMode, skyBlend, snap, pulses, exposure
       rc.render();  labelsFeed.sync(camera, mode, view);  labels.update(camera, viewport, {cap, skyLum})
       governor.sample(dt) if the previous frame also rendered
+  else:
+      governor.idle(dt) if the previous tick drew nothing either    // the display cadence
   requestAnimationFrame(frame)                   // stops while the tab is hidden; resumes dirty
 ```
 
 - **Render on demand.** Live at 1× redraws about twice a second, when the snapshot goes stale. A
   paused, idle app draws nothing. A module that animates, such as a texture swap, the launch tween
   or a pulse fade, calls `rc.invalidate()`. `rc.onInvalidate` is wired to `loop.invalidate()`.
+- **Twinkle.** Star scintillation (High, sky view, no reduced motion) is the only ambient
+  animation. It keeps frames coming only while the star field is actually shown (star exposure
+  above `TWINKLE_MIN_STARS`, totality included, star layer on), and then at about 30 Hz whatever
+  the display rate. A daytime sky view idles like the orbit view.
 - **Strikes.** Every module call is guarded. A module that throws three times has its `object3d`
   hidden and stops being called, and one toast names the feature. A renderer that keeps throwing
   hands over to text mode through `onRenderFailure`.
@@ -306,7 +314,7 @@ change.
 | | Low | Medium | High |
 |---|---|---|---|
 | DPR cap | 1.0 | 1.5 | 2.0 |
-| Composer / MSAA | none (context antialias) | yes / 4 (0 on touch) | yes / 4 |
+| Composer / MSAA | none (context antialias) | yes / 4 (0 + FXAA on touch) | yes / 4 |
 | Bloom | none | 0.55 / 0.4 / 0.9 @ ½ res | 0.6 / 0.45 / 0.9 |
 | Earth | 64×32, `day2k`, derived ocean mask, no clouds | 96×48, `day4k`, specular mask, 1k clouds | 128×64, `day4k`, roughness, 4k clouds + shadows + bump |
 | Atmosphere | analytic | analytic | ray-marched (8 steps) |
@@ -320,6 +328,23 @@ change.
 - **Switching.** Settings and `?q=` pin a tier. Auto lets the governor step down, never up. If the
   frame-time EMA stays above 1.3 × the budget for 2 s, it lowers the DPR by 0.25 and then drops a
   tier, with a 5 s cooldown. Under `navigator.webdriver` the governor is never sampled.
+- **Budget.** 16.7 ms (33.4 ms on touch), or the display's own frame interval when that is longer:
+  the median of rAF ticks that drew nothing after a tick that drew nothing (`governor.idle`), so a
+  30 Hz Energy Saver cap or a 48 Hz panel does not read as a slow GPU. Idle ticks over 50 ms are
+  a stalled main thread (a janky boot) and never count. When a step is due and the cadence is
+  unknown (the intro renders from its first frame) or stale (no idle tick in 5 s of rendering: a
+  cap that starts during a time-lapse), the loop holds up to 8 frames back (`governor.probe()`)
+  to measure it afresh, at most once per 5 s of rendering and never on the floor. If that raises
+  the budget, the 2 s over it start again.
+- **Learned tier.** A tier drop is saved in prefs (`qualityLearned`: tier, renderer string, time).
+  For 30 days the same GPU starts Auto at that tier instead of the detected one (`autoStartTier`),
+  so it does not pay the switch hitch on every visit. "Reset all settings" forgets it.
+- **Anti-aliasing.** Without MSAA on the scene target (touch Medium) the target keeps a depth
+  texture and the final pass runs FXAA on tone-mapped taps, but only across depth silhouettes (the
+  Earth's limb, the Moon, the pin). Stars, lines and beams are anti-aliased where they are drawn
+  and write no depth; FXAA would turn a small star into an X. A context created for a composer
+  tier has no canvas MSAA, so a later switch to Low keeps a lean chain (no bloom, no MSAA, FXAA)
+  instead of the direct path. A Low boot keeps the direct path even if the driver refused MSAA.
 - **Applying a tier.** `applyTierCfg` calls `rc.setTier` and each module's `setQuality`, then loads
   the tier's textures. The scene graph is never rebuilt.
 
@@ -335,7 +360,7 @@ change.
 | A render module throws at creation | That feature is skipped and the rest renders. |
 | A render module throws per frame | Three strikes, then it is hidden, with one toast. |
 | The renderer throws | Text mode (`context-failed`). |
-| `webglcontextlost` | Rendering pauses (the panels keep updating) and a non-blocking "Graphics were reset — restoring…" overlay appears. On restore, `textures.restore()` runs, the composer targets are rebuilt by the context, and rendering resumes. |
+| `webglcontextlost` | Rendering pauses (the panels keep updating) and a non-blocking "Graphics were reset — restoring…" overlay appears. On restore, `textures.restore()` runs, the context drops the old composer unreleased (its GL objects died with the lost context) and builds a new one, and rendering resumes. |
 | A texture fails | The placeholder stays, with one "Some imagery couldn't load." toast. |
 | `sky.json` fails | No stars or constellations, and a toast. |
 | The worker fails | The client falls back to the main thread transparently. |

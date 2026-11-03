@@ -19,7 +19,7 @@ import { DEFAULT_STATE, createStore } from './core/store.js';
 import { createBus } from './core/bus.js';
 import { createClock, scrubSpanMs } from './core/clock.js';
 import { parseHash, bindUrl } from './core/url-state.js';
-import { detectTier, createGovernor, isTier } from './core/quality.js';
+import { detectTier, createGovernor, isTier, autoStartTier, learnedTierRecord } from './core/quality.js';
 import * as prefs from './core/prefs.js';
 import * as tz from './core/tz.js';
 import * as format from './core/format.js';
@@ -83,6 +83,8 @@ const R = {
     /** @type {any} */ labelsFeed: null,
     /** @type {any} */ textures: null,
     /** @type {any} */ governor: null,
+    /** WebGL renderer string: the key of the governor's learned tier. */
+    rendererString: '',
     /** @type {any} */ catalog: null,
     /** @type {any} */ snapFull: null,
     /** @type {any} */ bus: null,
@@ -400,8 +402,12 @@ async function boot() {
     } catch (err) {
         console.error('[main] tier detection failed', err);
     }
+    // Auto starts where the governor last settled on this GPU (if it dropped a tier recently), so
+    // a device that cannot hold its detected tier does not pay the switch hitch on every visit.
+    R.rendererString = env.rendererString;
     const governor = createGovernor({
-        tier: decision.tier, ceiling: decision.ceiling, coarse: env.coarse, dpr: env.dpr,
+        tier: autoStartTier(decision.ceiling, prefs.load('qualityLearned', null), env.rendererString, Date.now()),
+        ceiling: decision.ceiling, coarse: env.coarse, dpr: env.dpr,
         maxTextureSize: env.maxTextureSize || undefined,
     });
     const savedQuality = prefs.load('quality', null);
@@ -489,6 +495,7 @@ async function boot() {
     // ---- 3. Loop (headless until the renderer exists) and the UI ----------------------------
     const loop = createLoop({
         clock, store, bus, snap, snapFull,
+        governor: env.webdriver ? null : governor,
         onGovernor: () => applyGovernorStep(),
         onRenderFailure: (err) => enterTextMode('context-failed', err),
     });
@@ -1178,7 +1185,11 @@ function applyGovernorStep() {
     const store = R.store;
     if (!gov || !store) return;
     const q = store.get().quality;
-    if (q.active !== gov.tier) store.set({ quality: { ...q, active: gov.tier } }, 'governor');
+    if (q.active !== gov.tier) {
+        store.set({ quality: { ...q, active: gov.tier } }, 'governor');
+        // A tier drop is remembered for this GPU; the next visit starts there (autoStartTier).
+        prefs.save('qualityLearned', learnedTierRecord(gov.tier, R.rendererString, Date.now()));
+    }
     applyTierCfg(gov.config());
 }
 

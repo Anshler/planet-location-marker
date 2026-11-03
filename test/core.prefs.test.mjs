@@ -34,7 +34,8 @@ function withStorage(storage, fn) {
 
 test('keys and prefix', () => {
     assert.equal(PREFIX, 'pc2.');
-    assert.deepEqual([...PREF_KEYS], ['observer', 'layers', 'quality', 'display', 'introSeen', 'geocache', 'recentPlaces']);
+    assert.deepEqual([...PREF_KEYS], ['observer', 'layers', 'quality', 'display', 'introSeen', 'geocache', 'recentPlaces',
+        'qualityLearned']);
 });
 
 test('persists to localStorage under pc2.', () => {

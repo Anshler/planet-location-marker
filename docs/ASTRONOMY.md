@@ -245,7 +245,8 @@ from the true Sun direction. The phase you see is therefore correct by construct
   so 2.0 is a mid value. At 10⁻⁴ of the sunlight left (Luxor: about 20 s before second contact) only
   Sirius-class stars show (m ≈ 0.7). The old term reached magnitude 5.7 on high (the Beehive
   cluster) and started 2.8 minutes before second contact. The Milky Way stays a function of h☉
-  (dark only at night).
+  (dark only at night). The frame loop uses the same star exposure to decide whether twinkle
+  needs frames.
 
 - **Low Sun.** Preetham keeps the forward-scattered (Mie) glow of a setting Sun nearly white,
   and on screen that glow washed the reddened disc out to cream. The sky view corrects it:

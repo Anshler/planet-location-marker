@@ -60,6 +60,9 @@ async function ourGlsl() {
     const finalFrag = postfx.match(/const FINAL_FRAG = \/\* glsl \*\/ `([\s\S]*?)`;/);
     assert.ok(finalFrag, 'postfx.js FINAL_FRAG not found');
     out.push({ where: 'postfx.js FINAL_FRAG', glsl: finalFrag[1] });
+    const fxaa = postfx.match(/const FXAA_CHUNK = \/\* glsl \*\/ `([\s\S]*?)`;/);
+    assert.ok(fxaa, 'postfx.js FXAA_CHUNK not found');
+    out.push({ where: 'postfx.js FXAA_CHUNK', glsl: fxaa[1] });
     return out;
 }
 
@@ -93,6 +96,25 @@ test('the bloom high-pass patch still matches the vendored LuminosityHighPassSha
     assert.match(postfx, /vec4 texel = texture2D\( tDiffuse, vUv \);/);
     assert.match(postfx, /sanitizeBloomInput\(pass\);/);
     assert.match(postfx, /pcFinite\(texture2D\(tDiffuse, vUv\)\.rgb\)/, 'FinalPass scrubs its input');
+});
+
+test('the final pass runs FXAA (behind PC_FXAA) on scrubbed taps, before the vignette and the tone mapping', () => {
+    const postfx = read('js/render/postfx.js');
+    const chunk = postfx.match(/const FXAA_CHUNK = \/\* glsl \*\/ `([\s\S]*?)`;/);
+    assert.ok(chunk, 'FXAA_CHUNK not found');
+    assert.match(chunk[1], /^\s*#ifdef PC_FXAA\b/);
+    assert.match(chunk[1], /pcFinite\(texture2D\(tDiffuse, uv\)\.rgb\)/, 'every tap is scrubbed');
+    assert.match(chunk[1], /c \/ \(1\.0 \+ max\(c\.r, max\(c\.g, c\.b\)\)\)/, 'taps are tone-mapped before the luma');
+    const body = stripComments(chunk[1]).split(/vec3 pcFxaa\([^)]*\)\s*\{/)[1];
+    assert.match(body, /^\s*if \(!fxaaSilhouette\(uv, px\)\) return hdrM;/, 'depth silhouettes only: stars and lines are left alone');
+    assert.match(postfx, /depthTexture: s === 0 \? new THREE\.DepthTexture/, 'the MSAA-free scene target keeps its depth');
+    const main = stripComments(postfx.match(/const FINAL_FRAG = \/\* glsl \*\/ `([\s\S]*?)`;/)[1]).split('void main()')[1];
+    const at = (s) => main.indexOf(s);
+    assert.ok(at('pcFxaa(') > at('pcFinite(texture2D(tDiffuse, vUv)'), 'FXAA after the scrub');
+    assert.ok(at('pcFxaa(') < at('uVignette'), 'FXAA before the vignette');
+    assert.ok(at('uVignette') < at('#include <tonemapping_fragment>'));
+    assert.ok(at('#include <tonemapping_fragment>') < at('#include <colorspace_fragment>'));
+    assert.ok(at('#include <colorspace_fragment>') < at('uDither'), 'dither last');
 });
 
 test('pcFinite tests IEEE bits, not isnan() (FXC on ANGLE/D3D11 compiles isnan and x != x away)', () => {

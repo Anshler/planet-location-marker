@@ -505,9 +505,9 @@ export function createSky(rc, deps = {}) {
         const fov = cam && cam.fov ? cam.fov : 45;
         starUniforms.uPx.value = dpr;
         starUniforms.uZoom.value = Math.min(2.5, Math.max(1, Math.sqrt(60 / fov)));
-        // Totality brings the brighter stars out even in daytime.
-        const eclipseStars = 0.8 * smooth(0.97, 1.0, obscuration) * skyBlend;
-        const starExp = Math.max(exposure.stars, eclipseStars);
+        // exposure.stars already carries totality's stars (photometry.js exposureFor: the brightest
+        // stars and the planets, rising over the last ~20 s before second contact).
+        const starExp = exposure.stars;
         const display = skyViewExposure(sunAltDeg, skyBlend, obscuration);
         starUniforms.uExposure.value = starExp;
         starUniforms.uDisplay.value = display;

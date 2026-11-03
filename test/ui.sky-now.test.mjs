@@ -3,6 +3,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { lunarEclipseState, moonPhaseName, solarEclipseState, solarDiscGeometry, shownMag } from '../js/ui/sky-now.js';
+import { AE } from '../js/astro/ae.js';
+import { createSnapshot, computeSnapshot } from '../js/astro/snapshot.js';
 
 test('lunarEclipseState: total, partial and none', () => {
     assert.deepEqual(lunarEclipseState({ eclipse: { lunar: true, moonLitFraction: 0 } }),
@@ -49,6 +51,33 @@ test('solarEclipseState: total, annular, partial and none', () => {
     assert.equal(solarEclipseState(solarSnap(0)), null, 'Sun down or not covered');
     assert.equal(solarEclipseState({ eclipse: { obscurationAtObserver: 0.5 } }).kind, 'partial', 'no disc data');
     assert.equal(solarEclipseState(null), null);
+});
+
+test('solarEclipseState never reads "Partial … 100.0%" and says Total exactly in AE\'s totality (Luxor 2027-08-02)', () => {
+    const obs = { latDeg: 25.7, lonDeg: 32.6, elevM: 0 };
+    const ls = AE.SearchLocalSolarEclipse(AE.MakeTime(new Date('2027-07-01')), new AE.Observer(obs.latDeg, obs.lonDeg, 0));
+    const c2 = ls.total_begin.time.date.getTime(), c3 = ls.total_end.time.date.getTime();
+    const snap = createSnapshot();
+    let first = NaN, last = NaN;
+    for (const [from, to] of [[c2 - 90e3, c2 + 30e3], [c3 - 30e3, c3 + 90e3]]) {
+        for (let t = from; t <= to; t += 250) {
+            for (const detail of ['frame', 'full']) {
+                computeSnapshot(t, obs, snap, { detail });
+                const st = solarEclipseState(snap);
+                assert.ok(st, `eclipse state at ${new Date(t).toISOString()}`);
+                const at = `${new Date(t).toISOString()} (${detail}): ${st.text}`;
+                assert.ok(!/^Partial.*100\.0%/.test(st.text), at);
+                assert.equal(st.kind === 'total', snap.eclipse.obscurationAtObserver === 1, at);
+                if (st.kind === 'total') {
+                    if (!(first <= t)) first = t;
+                    last = t;
+                }
+            }
+        }
+    }
+    // Sampled every 250 ms: totality starts and ends within 1 s of AE's second and third contacts.
+    assert.ok(Math.abs(first - c2) < 1000, `first Total ${(first - c2) / 1000} s from C2`);
+    assert.ok(Math.abs(last - c3) < 1000, `last Total ${(last - c3) / 1000} s from C3`);
 });
 
 test('solarDiscGeometry: separation in arcsec and the Moon position angle', () => {

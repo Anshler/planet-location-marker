@@ -7,10 +7,9 @@
 import * as THREE from 'three';
 import { ATMOSPHERE_SHADER, ATMO_EXPOSURE } from './shaders/atmosphere.glsl.js';
 import { groundCover } from './sky.js';
+import { MOON_RADIUS_ER, SUN_ANG_RADIUS_1AU_RAD, sunAngularRadius } from '../astro/bodies.js';
 
 const SHELL_RADIUS = 1.025;
-const MOON_RADIUS_ER = 1737.4 / 6378.137;
-const SUN_ANG_RADIUS_RAD = 0.0046542;
 
 /** Airglow line strength (linear HDR, before exposure). */
 const AIRGLOW = 0.12;
@@ -48,7 +47,8 @@ export function createAtmosphere(rc) {
         uExposure: { value: ATMO_EXPOSURE },
         uPlanetR: { value: model.planetR },
         uAirglow: { value: AIRGLOW },
-        uEclipse: { value: new THREE.Vector4(0, MOON_RADIUS_ER, SUN_ANG_RADIUS_RAD, 0) },
+        // (on, Moon radius ER, the Sun's true angular radius — set per snapshot, _)
+        uEclipse: { value: new THREE.Vector4(0, MOON_RADIUS_ER, SUN_ANG_RADIUS_1AU_RAD, 0) },
         uMoonPosW: { value: new THREE.Vector3(0, 0, 60) },
     };
 
@@ -90,6 +90,7 @@ export function createAtmosphere(rc) {
             const mp = snap?.moonPosS;
             if (mp) uniforms.uMoonPosW.value.set(mp[0], mp[1], mp[2]);
             uniforms.uEclipse.value.x = snap?.eclipse?.solar ? 1 : 0;
+            uniforms.uEclipse.value.z = sunAngularRadius(snap?.bodies?.[0]?.distAU);
         },
 
         update(fi) {

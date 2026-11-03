@@ -5,9 +5,11 @@
  * Occlusion is analytic: the visible fraction of the Sun's disc past the Earth's limb and the
  * Moon (so it fades smoothly as the Sun rises over the limb from orbit, and dims through a solar
  * eclipse), times the horizon in sky view and an off-screen fade; changes ease in over ~150 ms.
+ * In sky view the Moon's share is the snapshot's obscurationAtObserver, the geometry the bodies
+ * module draws there; from orbit it is the geocentric Moon seen from the camera.
  */
 import * as THREE from 'three';
-import { MOON_RADIUS_ER, SUN_ANG_RADIUS_RAD } from '../astro/bodies.js';
+import { MOON_RADIUS_ER, SUN_ANG_RADIUS_1AU_RAD, sunAngularRadius } from '../astro/bodies.js';
 import { FLARE_VERT, FLARE_FRAG } from './shaders/bodies.glsl.js';
 import { extinctionRGB, limbTransmittance } from './bodies.js';
 
@@ -110,7 +112,8 @@ export function createFlare(rc, deps = {}) {
     const tmpSize = new THREE.Vector2();
     const tint = [1, 1, 1];
     const limb = [1, 1, 1];
-    let sunDistAU = 1;
+    let sunR = SUN_ANG_RADIUS_1AU_RAD;
+    let obscuration = 0;
     let vis = 0;
     let haveSnap = false;
     const invalidateSoon = () => { if (rc && rc.invalidate) rc.invalidate(); };
@@ -119,7 +122,9 @@ export function createFlare(rc, deps = {}) {
         if (!snap || !snap.bodies) return;
         const s = snap.bodies[0];
         sunDir.set(s.dirS[0], s.dirS[1], s.dirS[2]);
-        sunDistAU = s.distAU > 0 ? s.distAU : 1;
+        sunR = sunAngularRadius(s.distAU);
+        const ob = snap.eclipse && snap.eclipse.obscurationAtObserver;
+        obscuration = Number.isFinite(ob) ? clamp(ob, 0, 1) : 0;
         if (snap.moonPosS) moonPos.set(snap.moonPosS[0], snap.moonPosS[1], snap.moonPosS[2]);
         if (snap.observer) up.set(snap.observer.upS[0], snap.observer.upS[1], snap.observer.upS[2]);
         haveSnap = true;
@@ -144,7 +149,6 @@ export function createFlare(rc, deps = {}) {
             nx = clip.x / clip.w; ny = clip.y / clip.w;
             const edge = Math.max(Math.abs(nx), Math.abs(ny));
             target = smooth(1.15, 0.95, edge);
-            const sunR = SUN_ANG_RADIUS_RAD / sunDistAU;
             const c = cam.position;
             const dc = c.length();
             // Earth's limb (from orbit, and the dip of the horizon from the ground).
@@ -159,16 +163,16 @@ export function createFlare(rc, deps = {}) {
             } else {
                 target = 0;
             }
-            // The Moon (eclipses).
+            // The Moon (eclipses): from the camera in orbit view, the observer's discs in sky view.
+            let visM = 0;
             toMoon.copy(moonPos).sub(c);
             const dm = toMoon.length();
             if (dm > MOON_RADIUS_ER) {
                 const moonR = Math.asin(MOON_RADIUS_ER / dm);
                 const sepM = Math.acos(clamp(toMoon.multiplyScalar(1 / dm).dot(sunDir), -1, 1));
-                target *= discVisible(sunR, moonR, sepM);
-            } else {
-                target = 0;
+                visM = discVisible(sunR, moonR, sepM);
             }
+            target *= visM + (1 - obscuration - visM) * skyBlend;
             // Sky view: the ground hides the Sun below the astronomical horizon; extinction dims it.
             if (skyBlend > 0) {
                 const sinAlt = sunDir.dot(up);

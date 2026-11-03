@@ -182,10 +182,10 @@ uniform float uAlbedo;
 uniform float uEarthshine;
 uniform vec3 uTint;
 uniform float uUmbraGain;
+uniform float uSunR;        // the Sun's true angular radius (astro/bodies.js sunAngularRadius)
 varying vec2 vUv;
 varying vec3 vNw;
 varying vec3 vPw;
-const float SUN_R = 0.0046542;
 float discVisibleG5(float rs, float ro, float d) {
     if (d >= rs + ro) return 1.0;
     if (d <= abs(ro - rs)) return ro >= rs ? 0.0 : 1.0 - (ro * ro) / (rs * rs);
@@ -210,9 +210,9 @@ void main() {
     vec3 toEarth = -vPw / dE;
     float er = asin(min(1.0, 1.012 / dE));
     float sep = acos(clamp(dot(toEarth, L), -1.0, 1.0));
-    float vis = discVisibleG5(SUN_R, er, sep);
+    float vis = discVisibleG5(uSunR, er, sep);
     if (vis < 1.0) {
-        float umbra = er - SUN_R;
+        float umbra = er - uSunR;
         float depth = clamp((umbra - sep) / max(umbra, 1e-4), 0.0, 1.0);
         // Copper red, brighter toward the umbra's edge. Physically ~1e-4 of the full Moon, but
         // like the eye (or a camera) we expose for it; below ~10 % ACES' toe crushes it to black.

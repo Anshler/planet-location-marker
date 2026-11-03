@@ -109,13 +109,25 @@ The Sun, the Moon and the seven planets, in the fixed `BODIES` order.
 ```
 eq        = AE.Equator(body, time, obs, ofdate=false, aberration=false)
 dirS      = S · normalize(eq.vec)        // topocentric, astrometric J2000, light-time corrected → beams, glyphs, labels
+v         = S · normalize(AE.Equator(Sun, time, obs, false, true).vec) − dirS☉   // the Sun's annual aberration
+dirS☾     = normalize(dirS☾ − (v − dirS☾·(dirS☾·v)))       // the Moon made astrometric too (below)
 distAU    = eq.dist;  distER = distAU · 23 454.8;  lightTimeS = distAU · 499.004784
+angDiam   = 2·asin(R / (distAU · AU))                      // the Sun: 2·sunAngularRadius(distAU)
 geo       = AE.GeoVector(body, time, true)          // the Moon: AE.GeoMoon(time)
 geoDirS   = S · normalize(geo)                       // geocentric → sub-points, footprint, lighting
 sunDirS   = geoDirS of the Sun
 {altGeom, azGeom} from dirS against the observer's ENU basis
 observer.sunAltDeg = altGeom of the Sun;  twilight class from it
 ```
+
+- **The Moon's astrometric direction.** Astronomy Engine's Moon is geometric (no light time, no
+  aberration), which for the Moon is its apparent place: over the 1.3 s light time the Earth's
+  orbital motion and annual aberration cancel to 0.7″. Every other `dirS` is astrometric, so the
+  raw Moon sat about 20″ off against the Sun and the stars. The snapshot removes the aberration a
+  star in the Moon's direction has, with the Earth's velocity over c taken from the Sun's apparent
+  minus astrometric direction (its unknown radial part is ≤ 0.35″). The Sun–Moon and star–Moon
+  separations between `dirS` vectors are then the apparent ones: 9.2″ at Luxor's greatest eclipse
+  on 2027-08-02, not 19″. This costs one `Equator` call (≈ 0.007 ms).
 
 - **Light time.** `Equator` iterates light-time, so the beam points where the body *was* when the
   light now arriving left it. The panel says this in words: "The light you see from Saturn left
@@ -205,12 +217,25 @@ from the true Sun direction. The phase you see is therefore correct by construct
   | below | night |
 
 - **Sky-view exposure.** It blends from 1 in orbit view (skyBlend 0) to these curves in sky view:
-  - stars: `1 − smoothstep(−18°, −4°, h☉)`;
+  - stars: `max(1 − smoothstep(−18°, −4°, h☉), eclipse term)`;
   - planets: `max(0.15, 1 − 0.85·smoothstep(−8°, 4°, h☉))`;
   - Milky Way: `1 − smoothstep(−20°, −10°, h☉)`.
 
   Stars fade with the dawn, and Venus and Jupiter stay visible in twilight. The daylight dome is
   the Preetham–Shirley–Smits analytic sky driven by the true Sun.
+- **Star limit.** The star shader shows stars to `lim = −1 + (m_tier + 1)·√e` for star exposure
+  `e`, where `m_tier` is the tier's dark-sky limit (5.0 / 6.0 / 6.5); `starLimitMag` and
+  `starExposureForLimit` convert both ways.
+- **Totality's stars.** The eclipse term is specified in magnitudes, so every tier shows the same
+  stars. The photosphere left shines `L = (1 − obscuration)^1.4` of full (limb darkening makes the
+  last crescent dimmer than its area). On top of the totality sky's own 10⁻⁵ of daylight, the limit
+  is `m = 2.0 − 1.25·log10(1 + L / 10⁻⁵)`, since against a bright background the threshold flux grows
+  about as √B. In totality that is magnitude 2.0: the planets and roughly the first- and
+  second-magnitude stars. Real totality skies reach about 1.5 to 3 with the umbra's size and haze,
+  so 2.0 is a mid value. At 10⁻⁴ of the sunlight left (Luxor: about 20 s before second contact) only
+  Sirius-class stars show (m ≈ 0.7). The old term reached magnitude 5.7 on high (the Beehive
+  cluster) and started 2.8 minutes before second contact. The Milky Way stays a function of h☉
+  (dark only at night).
 
 ---
 
@@ -248,15 +273,38 @@ The true-scale Sun, Moon and Earth geometry gives eclipses without special cases
   `rs` behind a disc of radius `ro` at separation `d`. It is computed from the circle–circle
   overlap area, `A = rs²·acos(…) + ro²·acos(…) − ½√(…)`, and returns `1 − A/(π rs²)`. It is
   mirrored exactly in GLSL and in `shadow.js`.
+- **The Sun's size.** Every solar radius is `sunAngularRadius(d) = asin(R☉ / d)` with
+  R☉ = 695 700 km (`js/astro/bodies.js`, Astronomy Engine's value), at the live distance: 943.5″
+  at aphelion, 975.5″ at perihelion. The globe shaders used to take a constant 960″, which drew the
+  umbra of 2027-08-02 about 19 % too narrow (104 km instead of 129 km half-width) and the antumbra
+  of 2027-02-06 too wide.
 - **Solar eclipse.** Each Earth fragment dims by the fraction of the solar disc hidden by the Moon
-  as seen from that point. The umbra and penumbra appear in the right place.
+  as seen from that point. The umbra and penumbra appear in the right place. This uses the
+  geocentric aberrated Sun and the geometric Moon, Astronomy Engine's eclipse geometry.
 - **Lunar eclipse.** Each Moon fragment dims by Earth's disc as seen from the Moon, with a red
   "all the sunsets" term where the Sun is (nearly) hidden. That term is exposed for totality and
   scaled by `1 / (1 + lit / 0.015)` (`lit` = `eclipse.moonLitFraction`), so during the partial
   phases the sunlit cap stays grey-white and the umbra reads dark, as the eye sees it.
+- **One geometry at the observer.** The obscuration at the observer, the discs drawn in sky view,
+  the lens flare and the Sky panel all use the same two discs:
+  - the Sun's and the Moon's `dirS` (WGS84 topocentric; their separation is the apparent one, §4);
+  - the radii `asin(R / d)` at the topocentric distances.
+
+  In sky view the Moon mesh sits at `eye + dirS☾ · distER☾`, so from the eye it has exactly that
+  direction and size. Orbit view keeps the geocentric `moonPosS`, and the transitions blend the
+  two, which differ by ≤ 0.01 Earth radii. Second and third contact then fall within 0.1 s of
+  `AE.SearchLocalSolarEclipse` (2026-08-12 at Burgos and Reykjavik, 2027-08-02 at Luxor, 2028-07-22
+  at Sydney, and the annular 2027-02-06 at Accra; tested). The frame snapshot is refreshed every
+  0.5 s of simulated time, which bounds the visible lag. Before, the drawn discs reached totality
+  35 s late at Luxor, the sky darkened 17.5 s early, and the panel could read "Partial solar
+  eclipse, 100.0 % of the Sun covered". The panel now says *Total* exactly while the obscuration
+  is 1.
 - **Sky view in a solar eclipse.** The Sun's glare scales with the part of the disc left visible
   (adapted as `(1 − obscuration)^0.56`, like the daylight), the ground darkens with the sky, and
-  past 98.5 % a compact pearly corona (e-folding 0.2°) takes over.
+  past 98.5 % a compact pearly corona (e-folding 0.2°) takes over. In totality (obscuration
+  exactly 1) the photosphere is not drawn at all. Otherwise the disc's 1 px anti-aliased rim, and
+  its 3 px minimum size in a wide view, left a ring of sunlight around the Moon. The stars follow
+  §6.
 - **Flags.** The snapshot flags `eclipse.solar` and `eclipse.lunar` when the geocentric Sun–Moon
   separation is under 1.6°, or the Moon–antisun separation is under 1.65°.
 - **Eclipse magnitudes.** `AE.Illumination` ignores shadows, so the snapshot dims the magnitudes
@@ -290,8 +338,9 @@ The true-scale Sun, Moon and Earth geometry gives eclipses without special cases
 | Astronomy Engine positions, 1800–2200 | ≲ 1′ | Checked by its author against JPL Horizons and NOVAS. Planets from truncated VSOP87; the Moon from the *Improved Lunar Ephemeris* (Brown's theory) as adapted by Montenbruck & Pfleger. |
 | Outside 1800–2200 | grows with distance from 2000 | The uncertainty in ΔT (the Earth's irregular rotation) dominates far from the present. It is about a minute of time around the year 1000, which is 0.25° of Earth rotation. Toward 3000 it grows to tens of minutes, because ΔT must be extrapolated. That moves where on Earth a given sky is seen by several degrees of longitude. The truncated series also lose precision. Hence the "Reduced accuracy" badge. |
 | Frame consistency: our Earth matrix against `Rotation_EQJ_HOR` | 0.007″ measured | The test bound is 0.05″ over 300 random epochs and sites, 1900–2150. |
-| Drawn (astrometric) against tabulated (apparent) direction | ≤ 20.8″ measured | Annual aberration. Refraction is added on top in the tables. |
-| Pin on a sphere against the WGS84 ellipsoid | ≤ 21 km in position | ≤ 11″ on the Moon's direction, negligible for everything farther. The zenith direction is exact (geodetic). |
+| Drawn (astrometric) against tabulated (apparent) direction | ≤ 20.8″ measured | Annual aberration. Refraction is added on top in the tables. The Moon's `dirS` is made astrometric too, so drawn Sun–Moon and star–Moon separations are the apparent ones (§4). |
+| Eclipse contacts at the observer (obscuration, sky-view discs, panel) against `AE.SearchLocalSolarEclipse` | < 0.1 s measured | Same discs and radii as AE. The 0.5 s frame-snapshot cadence bounds the visible lag. |
+| Pin on a sphere against the WGS84 ellipsoid | ≤ 21 km in position | ≤ 11″ on the Moon's direction from the pin (globe view, the umbra on the globe), negligible for everything farther. The sky view and the observer's obscuration use AE's WGS84 topocentric directions. The zenith direction is exact (geodetic). |
 | Beam far endpoint at 2000 Earth radii | `camDist / 2000` rad | 0.1° at the default 3.4 ER view. The beam is a line from the pin, so seen from elsewhere it converges at 2000 ER. |
 | Polar motion (ignored) | ≤ 0.5″ (≈ 15 m) | |
 | Star proper motion (catalogue fixed at J2000) | 0.2″–10″/yr | Negligible within a few centuries. The fastest naked-eye stars shift by up to about a degree 1000 years from 2000. |
@@ -309,7 +358,11 @@ The true-scale Sun, Moon and Earth geometry gives eclipses without special cases
 - the next global solar eclipse after 2026-10-11 is annular, on 2027-02-06;
 - the Mars opposition of 2025-01-16 and its retrograde from about 7 Dec 2024 to 24 Feb 2025;
 - `discVisibleFraction` against numerical integration;
-- 200 random alt/az cases against `AE.Horizon`, within 30″.
+- 200 random alt/az cases against `AE.Horizon`, within 30″;
+- second and third contacts of the snapshot's obscuration and drawn discs within 1 s of
+  `AE.SearchLocalSolarEclipse` for the eclipses of 2026, 2027 (total and annular) and 2028, and a
+  Sky panel that never reads "Partial … 100.0 %";
+- the globe's umbra half-width on 2027-08-02 (≈ 129 km) and totality's star limit (≤ 2.5).
 
 ---
 

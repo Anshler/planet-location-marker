@@ -2,7 +2,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { discVisibleFraction, solarObscurationAt, lunarEclipseLight, EARTH_SHADOW_RADIUS_ER, UMBRA_EDGE_LIGHT } from '../js/astro/shadow.js';
-import { MOON_RADIUS_ER, SUN_ANG_RADIUS_RAD, EARTH_RADIUS_KM } from '../js/astro/bodies.js';
+import { MOON_RADIUS_ER, SUN_ANG_RADIUS_1AU_RAD as SUN_ANG_RADIUS_RAD, EARTH_RADIUS_KM, sunAngularRadius } from '../js/astro/bodies.js';
+import { createSnapshot, computeSnapshot } from '../js/astro/snapshot.js';
 
 function rng(seed) {
     let a = seed >>> 0;
@@ -80,6 +81,41 @@ test('solarObscurationAt: total, annular, partial and clear geometries', () => {
     assert.ok(solarObscurationAt(pos, [63, 0, 0], sun, SUN_ANG_RADIUS_RAD * 1.02) < solarObscurationAt(pos, [63, 0, 0], sun));
     // Degenerate: observer inside the Moon.
     assert.equal(solarObscurationAt([60, 0, 0], [60, 0, 0], sun), 0);
+});
+
+// The globe's umbra: the Earth, cloud and atmosphere shaders evaluate exactly solarObscurationAt per
+// fragment, with uEclipse.z = sunAngularRadius(bodies[0].distAU) (render/earth.js, atmosphere.js).
+// Walk from the shadow axis's ground point perpendicular to the axis to the umbra's edge.
+function umbraHalfWidthKm(snap, sunR) {
+    const m = snap.moonPosS, s = snap.sunDirS;
+    // P = m − t·ŝ on the unit sphere, nearer root (as shadowPoint in js/app/actions.js).
+    const b = m[0] * s[0] + m[1] * s[1] + m[2] * s[2];
+    const t = b - Math.sqrt(b * b - (m[0] ** 2 + m[1] ** 2 + m[2] ** 2) + 1);
+    const p0 = [m[0] - t * s[0], m[1] - t * s[1], m[2] - t * s[2]];
+    let e = [s[1] * p0[2] - s[2] * p0[1], s[2] * p0[0] - s[0] * p0[2], s[0] * p0[1] - s[1] * p0[0]];
+    const l = Math.hypot(...e);
+    e = e.map((v) => v / l);
+    const at = (th) => [0, 1, 2].map((k) => Math.cos(th) * p0[k] + Math.sin(th) * e[k]);
+    assert.equal(solarObscurationAt(p0, m, s, sunR), 1, 'total on the axis');
+    let lo = 0, hi = 500 / EARTH_RADIUS_KM;
+    for (let k = 0; k < 60; k++) {
+        const mid = (lo + hi) / 2;
+        if (solarObscurationAt(at(mid), m, s, sunR) >= 1) lo = mid; else hi = mid;
+    }
+    return lo * EARTH_RADIUS_KM;
+}
+
+test('globe umbra 2027-08-02T10:07Z: ~129 km half-width with the true solar radius (the old constant drew ~104 km)', () => {
+    const snap = createSnapshot();
+    computeSnapshot(Date.parse('2027-08-02T10:07:00Z'), { latDeg: 25.7, lonDeg: 32.6, elevM: 0 }, snap);
+    const sunR = sunAngularRadius(snap.bodies[0].distAU);
+    assert.ok(Math.abs(sunR - 0.0045824) < 2e-7, `sun radius ${sunR}`);
+    const trueKm = umbraHalfWidthKm(snap, sunR);
+    const oldKm = umbraHalfWidthKm(snap, 0.0046542);
+    assert.ok(trueKm > 120 && trueKm < 138, `true half-width ${trueKm.toFixed(1)} km`);
+    assert.ok(oldKm < 0.85 * trueKm, `old constant ${oldKm.toFixed(1)} km vs ${trueKm.toFixed(1)} km`);
+    // The observer's own obscuration uses the same radius (snapshot angDiamArcsec = 2·sunAngularRadius).
+    assert.ok(Math.abs((snap.bodies[0].angDiamArcsec / 2) * (Math.PI / 648000) - sunR) < 1e-15);
 });
 
 // --- Lunar eclipse light ------------------------------------------------------------------------

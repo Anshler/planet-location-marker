@@ -147,6 +147,8 @@ export function createLoop(deps) {
     const exposure = { stars: 1, planets: 1, milkyWay: 1 };
     let expSunAlt = NaN;
     let expBlend = NaN;
+    let expObsc = NaN;
+    let expLimit = NaN;
     /** @type {FrameInfo} */
     const fi = {
         dtMs: 0, timeS: 0, camera: null, viewMode: 'orbit', skyBlend: 0, snap,
@@ -221,11 +223,14 @@ export function createLoop(deps) {
         dirty = true;
     }
 
-    function updateExposure(sunAlt, skyBlend) {
-        if (sunAlt === expSunAlt && skyBlend === expBlend) return;
+    /** fi.exposure from the Sun's altitude, the view blend and (totality's stars) the eclipse. */
+    function updateExposure(sunAlt, skyBlend, obscuration, tierMagLimit) {
+        if (sunAlt === expSunAlt && skyBlend === expBlend && obscuration === expObsc && tierMagLimit === expLimit) return;
         expSunAlt = sunAlt;
         expBlend = skyBlend;
-        const r = exposureFor(sunAlt, skyBlend, exposure);
+        expObsc = obscuration;
+        expLimit = tierMagLimit;
+        const r = exposureFor(sunAlt, skyBlend, exposure, obscuration, tierMagLimit);
         if (r !== exposure && r) {
             exposure.stars = r.stars;
             exposure.planets = r.planets;
@@ -323,7 +328,8 @@ export function createLoop(deps) {
                 fi.skyBlend = skyBlend;
                 fi.snap = snap;
                 fi.pulsesActive = (clock.playing && Math.abs(clock.rate) > 1) || introPlaying;
-                updateExposure(snap.observer.sunAltDeg, skyBlend);
+                updateExposure(snap.observer.sunAltDeg, skyBlend, snap.eclipse.obscurationAtObserver,
+                    cfg && Number.isFinite(cfg.starMagLimit) ? cfg.starMagLimit : 6);
 
                 for (let i = 0; i < modules.length; i++) callModule(modules[i], 'update', fi);
 

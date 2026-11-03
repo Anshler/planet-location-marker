@@ -22,17 +22,24 @@
  * `lunarEclipseLight` (shadow.js); `eclipse.moonLitFraction` is that disc's
  * direct-sunlight fraction (1 outside lunar eclipses, 0 in totality).
  *
+ * One eclipse geometry. The Moon's `dirS` is made astrometric like every other
+ * direction (see {@link computeSnapshot}), so the Sun–Moon separation between
+ * the `dirS` vectors is the apparent one. `obscurationAtObserver`, the drawn
+ * sky-view discs, the lens flare and the Sky panel all use that pair with the
+ * true angular radii, asin(R / d) at the topocentric distances; their second
+ * and third contacts fall within 0.1 s of AE.SearchLocalSolarEclipse.
+ *
  * @module astro/snapshot
  */
 import { AE } from './ae.js';
-import { BODIES, AU_ER, AU_KM, LIGHT_S_PER_AU } from './bodies.js';
+import { BODIES, AU_ER, AU_KM, LIGHT_S_PER_AU, sunAngularRadius } from './bodies.js';
 import {
     DEG2RAD, RAD2DEG, OBLIQUITY_J2000_DEG, wrap180, wrap360,
     earthRotationM3, m3ToSceneM4, m4ToQuat, m4MulDir, m4MulDirT,
-    enuLocal, dirToAltAz, sceneToRaDec, localToLatLon, iauBodyMatrix,
+    enuLocal, dirToAltAz, sceneToRaDec, localToLatLon, iauBodyMatrix, angleBetween3,
 } from './frames.js';
 import { refractionDeg, twilightClass } from './photometry.js';
-import { solarObscurationAt, lunarEclipseLight } from './shadow.js';
+import { discVisibleFraction, lunarEclipseLight } from './shadow.js';
 
 const N_BODIES = BODIES.length;
 const SUN = 0;
@@ -41,7 +48,6 @@ const RAD2ARCSEC = RAD2DEG * 3600;
 const ECLIPSE_SEP_RAD = 1.6 * DEG2RAD;
 // Penumbral contact of a perigee lunar eclipse is ≈1.603° from the antisun.
 const LUNAR_ECLIPSE_SEP_RAD = 1.65 * DEG2RAD;
-const SUN_RADIUS_KM = BODIES[SUN].radiusKm;
 // Brightness floor of a totally eclipsed Sun, relative to the full disc: +15 mag,
 // about the integrated corona (≈ −12, like a full Moon).
 const SUN_ECLIPSE_FLOOR = 1e-6;
@@ -53,6 +59,7 @@ const SIN_OBL = Math.sin(OBLIQUITY_J2000_DEG * DEG2RAD);
 const E3 = new Float64Array(9);                 // EF → EQJ, row-major
 const MOON_R3 = new Float64Array(9);            // Moon body-fixed → EQJ
 const GEO = new Float64Array(3 * N_BODIES);     // geocentric EQJ vectors (AU), as GeoVector(…, true)
+const ABER = new Float64Array(3);               // the Sun's annual aberration: apparent − astrometric unit vector (scene)
 const LOCAL = { east: new Float64Array(3), north: new Float64Array(3), up: new Float64Array(3) };
 const SUB_LOCAL = new Float64Array(3);
 const ALTAZ = { altDeg: 0, azDeg: 0 };
@@ -185,14 +192,41 @@ function geoAngle(i, j) {
 }
 
 /**
+ * Removes annual aberration from the Moon's direction `d` (scene unit vector, in place).
+ *
+ * astronomy-engine's Moon (GeoMoon, and Equator(Moon, …) with either aberration flag) is the
+ * geometric position, which for the Moon is its apparent place: over the 1.3 s light time the
+ * Earth's orbital motion and annual aberration cancel to 0.7″. Every other `dirS` is astrometric
+ * (light-time corrected, no aberration), like the J2000 star catalogue, so the raw Moon sat ~20″
+ * off against the Sun and the stars: at Luxor's greatest eclipse of 2027-08-02 the Sun–Moon
+ * separation read 19″ instead of 9″, moving the contacts by ~50 s. Subtracting the aberration a
+ * star in the Moon's direction has, Δ(u) = v − u·(u·v) with v ≈ ABER (the Earth's velocity over
+ * c, from the Sun's apparent − astrometric direction; its unknown radial part is ≤ 0.35″),
+ * restores the apparent Sun–Moon and star–Moon geometry inside the astrometric frame.
+ * @param {Float64Array} d
+ */
+function moonToAstrometric(d) {
+    const k = d[0] * ABER[0] + d[1] * ABER[1] + d[2] * ABER[2];
+    const x = d[0] - (ABER[0] - d[0] * k);
+    const y = d[1] - (ABER[1] - d[1] * k);
+    const z = d[2] - (ABER[2] - d[2] * k);
+    const s = 1 / Math.hypot(x, y, z);
+    d[0] = x * s;
+    d[1] = y * s;
+    d[2] = z * s;
+}
+
+/**
  * Computes the sky for one instant and one observer into `out` (in place).
  *
  * Calls (SPEC §D.4): per body `Equator(body, t, obs, false, false)` for the
  * rendered topocentric astrometric J2000 direction, `GeoVector(body, t, true)`
  * (GeoMoon for the Moon) for the geocentric direction, and `Illumination`;
- * per frame `SiderealTime`, `Rotation_EQD_EQJ`, `RotationAxis('Moon')`. Full
- * detail adds `Equator(…, true, true)` + `Horizon(…, 'normal')`,
- * `Constellation` and `MoonPhase`.
+ * per frame `SiderealTime`, `Rotation_EQD_EQJ`, `RotationAxis('Moon')`, and
+ * `Equator(Sun, t, obs, false, true)` for the annual aberration that makes the
+ * Moon's direction astrometric too (`moonToAstrometric`). Full detail adds
+ * `Equator(…, true, true)` + `Horizon(…, 'normal')`, `Constellation` and
+ * `MoonPhase`.
  *
  * Elongation is the angle between GeoVector(Sun, t, true) and
  * GeoVector(body, t, true), i.e. exactly what AE.AngleFromSun computes, reusing
@@ -243,10 +277,20 @@ export function computeSnapshot(tMs, observer, out, opts) {
         const b = BODIES[i];
         const st = out.bodies[i];
 
-        // Rendered direction: topocentric, astrometric, J2000, light-time corrected.
+        // Rendered direction: topocentric (WGS84), astrometric, J2000, light-time corrected.
         const eq = AE.Equator(b.ae, time, obs, false, false);
         const v = eq.vec;
         setSceneUnit(st.dirS, v.x, v.y, v.z);
+        if (i === SUN) {
+            const va = AE.Equator(b.ae, time, obs, false, true).vec;
+            setSceneUnit(ABER, va.x, va.y, va.z);
+            ABER[0] -= st.dirS[0];
+            ABER[1] -= st.dirS[1];
+            ABER[2] -= st.dirS[2];
+        } else if (i === MOON) {
+            // The Sun (index 0) is always processed first, so ABER is ready.
+            moonToAstrometric(st.dirS);
+        }
         st.distAU = eq.dist;
         st.distER = eq.dist * AU_ER;
         st.lightTimeS = eq.dist * LIGHT_S_PER_AU;
@@ -270,7 +314,8 @@ export function computeSnapshot(tMs, observer, out, opts) {
         st.mag = ill.mag;
         st.phaseAngleDeg = ill.phase_angle;
         st.phaseFrac = ill.phase_fraction;
-        st.angDiamArcsec = 2 * Math.atan(b.radiusKm / (eq.dist * AU_KM)) * RAD2ARCSEC;
+        // A sphere's true angular size, asin(R / d) (for the Sun exactly sunAngularRadius).
+        st.angDiamArcsec = 2 * Math.asin(Math.min(1, b.radiusKm / (eq.dist * AU_KM))) * RAD2ARCSEC;
 
         if (i === SUN) {
             st.elongDeg = 0;
@@ -330,10 +375,15 @@ export function computeSnapshot(tMs, observer, out, opts) {
     const ecl = out.eclipse;
     ecl.solar = sepSun < ECLIPSE_SEP_RAD;
     ecl.lunar = Math.PI - sepSun < LUNAR_ECLIPSE_SEP_RAD;
-    // Only while the Sun is up: from the night side the line of sight to the
-    // Sun runs through the Earth, and the geometry alone would still report cover.
+    // At the observer: the discs the sky view draws, i.e. the Sun's and the Moon's dirS (apparent
+    // separation, WGS84 parallax) with their true topocentric radii. Only while the Sun is up: from
+    // the night side the line of sight to the Sun runs through the Earth, and the geometry alone
+    // would still report cover.
+    const moon = out.bodies[MOON];
     ecl.obscurationAtObserver = ecl.solar && sun.above
-        ? solarObscurationAt(o.posS, mp, out.sunDirS, Math.asin(SUN_RADIUS_KM / (sun.distAU * AU_KM)))
+        ? 1 - discVisibleFraction(sunAngularRadius(sun.distAU),
+            Math.asin(Math.min(1, BODIES[MOON].radiusKm / (moon.distAU * AU_KM))),
+            angleBetween3(sun.dirS, moon.dirS))
         : 0;
 
     // Eclipse dimming. AE.Illumination ignores shadows, so without this a

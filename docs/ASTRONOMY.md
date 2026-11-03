@@ -389,6 +389,81 @@ natural-sky units R = B / B_nat, where B_nat ≈ 54 nL is a dark site's moonless
 
 ---
 
+## 6b. The globe's night side and clouds: moonlight, city lights, aurora (`js/astro/geomag.js`, `render/earth.js`, `render/aurora.js`)
+
+### Moonlight and moonglint (perceptual)
+
+- **Moonlight.** The night hemisphere is lit toward the Moon: `albedo·(0.002 + 0.02·K·max(N·M, 0))`
+  in a cool, desaturated tint, where M is the direction to the true Moon (`snap.moonPosS`) and
+  `K = phaseFrac × eclipse.moonLitFraction` (AE's illuminated fraction, and zero in a total lunar
+  eclipse). The 0.002 floor stands for starlight and airglow. The geometry takes care of the phase
+  too: at new Moon the Moon stands over the day side, so the night side goes black and the cities
+  stand out. Real moonlight is about 4·10⁻⁶ of sunlight; the 0.02 is a perceptual gain, like the
+  clearer-than-life haze. The cloud deck gets the same term (wrapped, as clouds are volumes).
+- **Moonglint** (Medium and up). The ocean's GGX sheen lobe (α 0.2) plus a soft core (α 0.09),
+  evaluated with M instead of the Sun, times `0.6·K`, on open water outside clouds on the night
+  side: the silver path of astronaut photos. Only its core can reach the bloom threshold.
+
+### City lights at close zoom (illustrative below a texel)
+
+Magnified (lod < 0), the night map is read with the 4-tap cubic B-spline instead of bilinear, on the
+4096 and 8192 map alike. Below lod −1.5, an Earth-fixed point field (2×2 cells per texel, one hashed
+point each, normalised so each cell keeps its energy, radius never under a pixel) breaks the blobs
+into grain: invented detail, faint, and gone before the texels shrink to a couple of pixels.
+Texels whose brightest channel is near 1 (clipped cores, about 4.6 % of the lit texels) get up to
+2.5× more light, so city centres bloom harder than suburbs. A per-cell jitter of ±0.015 in the Sun's
+cosine (about ±0.9°) switches lights on progressively across the terminator.
+
+### Sculpted clouds (illustrative relief)
+
+The one cloud map is read as a height field, h = density × 0.004 Earth radii (a heuristic that
+treats thin cirrus as low cloud). Relief normals come from central differences on mip lod + 1
+(every cloud tier; on Max the 8192 map, so the relief is finer). High and Max march 4 taps toward the
+Sun and darken the deck where taller cloud stands above the rising sun ray, `exp(−1.6·Σ excess / H)`,
+so a low Sun lays long shadows across lower decks. Reflectance follows a Beer-powder curve,
+`(1 − e^−τ)(1 − ½e^−2τ)` with τ = 8 × density, so thin wisps read grey. A Henyey-Greenstein forward
+lobe (g = 0.6), on thin cloud only and soft-capped at 3.5×, adds silver linings when the Sun is
+behind the clouds near the limb. When magnified, value noise at 2 and 8 cells per texel (each
+octave only once its cells span a few pixels) erodes the edges. At home distance a texel of the
+4096 map is a few pixels, so this reads as texture in the terminator band, not an orbital-photo
+landscape. The ground's cloud shadows use the unmodified density, so they stay registered.
+
+### Aurora (`js/astro/geomag.js`; modelled oval, illustrative curtains)
+
+- **Geomagnetic frame.** The centred dipole of IGRF-14: the boreal pole is at
+  `(−g11, −h11, −g10)/B0` in Earth-fixed coordinates, with g10, g11, h11 interpolated linearly between
+  the 5-year epochs 1900–2025 and extrapolated with the 2025–2030 secular variation (12.6, 10.0,
+  −21.5 nT/yr). 2020: 80.6° N, 72.7° W; 2025: 80.8° N, 72.8° W. **Outside 1900–2030 the nearest end is
+  held** (the 1900 or 2030 pole): the field is not modelled for the clock's 1000–3000 range, so far
+  from the present the oval is drawn where it would be in 1900 or 2030. Magnetic local time is the
+  angle about that axis from the Sun's direction (noon) plus 12 h.
+- **Oval boundaries.** Starkov (1994), as tabulated by Sigernes et al. (2011, Table 1): in corrected
+  geomagnetic colatitude, `θ = A0 + A1·cos 15°(t + α1) + A2·cos 15°(2t + α2) + A3·cos 15°(3t + α3)`
+  over MLT t (h), each Ai and αi a cubic in log10|AL|, with `AL = 18 − 12.3·Kp + 27.2·Kp² − 2·Kp³`.
+  The poleward and equatorward edges at MLT 0…23 h form the 48-float `snap.aurora.ovals`. Kp 3: the
+  equatorward edge is at 64° near midnight and 73° near noon; Kp 7: 60° and 70°. The centred dipole
+  stands in for corrected geomagnetic coordinates, which differ by a few degrees in places, and the
+  same oval is mirrored into the south.
+- **Activity is a setting, not data.** Settings → Aurora activity: quiet, typical, storm (Kp 1, 3,
+  7). The app fetches no space-weather feed (offline-first; no external URLs), so the Settings hint
+  and the Sky panel say "modelled … not a forecast". The Sky panel line ("Under the aurora oval",
+  "Aurora oval low in the north") appears once the Sun is 12° down and the oval is within about 8° of
+  latitude (≈ 900 km, where an aurora at 110 km is still above the horizon).
+- **Drawn emission (illustrative).** Inside the band: three folded arcs that fade in and out along
+  the oval, fine rays, a faint diffuse glow just equatorward, brightest before magnetic midnight and
+  faint at the dayside cusp; green 557.7 nm, with red 630.0 nm toward the poleward edge, on the
+  dayside and, in storms, low down. Their drift is a whole number of laps per 65 536 s of simulated
+  time. Seen from above, the surface and cloud shaders add the column where the view ray crosses the
+  110 km shell (so it sits at its altitude), brightened by the slant of the path up to 2.5×. On High
+  and Max a shell marches the view ray through 90–300 km in altitude steps with vertical profiles
+  that each integrate to that column (green from a sharp ~100 km edge with a ray-dependent upward
+  tail, red around 235 km, a violet fringe at the bottom in storms), so curtains stand above the
+  limb; it takes over from the face-on term as n·V falls from 0.45 to 0.15. Only on the night side
+  (Sun more than about 2° below the point's horizon). Brightness is perceptual and stays under the
+  bloom threshold except in the storm setting and at the limb.
+
+---
+
 ## 7. Almanac, events and paths (worker)
 
 - **Rise, transit, set.** These use `SearchRiseSet(±1)`, with the upper limb and standard
@@ -614,6 +689,7 @@ and AE's contacts to 0.1 s; the shapes are illustrative.
 | Polar motion (ignored) | ≤ 0.5″ (≈ 15 m) | |
 | Star proper motion (catalogue fixed at J2000) | 0.2″–10″/yr | Negligible within a few centuries. The fastest naked-eye stars shift by up to about a degree 1000 years from 2000. |
 | Refraction model | several ′ near the horizon | Real refraction depends on temperature and pressure. Rise and set times are good to about a minute. The sky view draws the same model (§6). |
+| Aurora oval | a few degrees of latitude | Starkov's statistical oval for a chosen Kp, not live activity; centred dipole instead of corrected geomagnetic coordinates; the dipole held at 1900 or 2030 outside those years. Arcs, rays and their motion are illustrative (§6b). |
 | Illustrative landscape | up to 0.5° (ridge), 1.2° (trees, roofs) | Invented per place. Bodies set behind it minutes before the almanac's (mathematical-horizon) times; the layer can be turned off. |
 | Float32 on the GPU | ≈ 0.01″ | Unit vectors in single precision. |
 | Sub-points, footprint | geocentric | The footprint is the hemisphere where the body's geocentric direction is above the horizon. Parallax and refraction are not applied. It is a guide, not a contact time. |
@@ -673,6 +749,16 @@ and AE's contacts to 0.1 s; the shapes are illustrative.
   101(2), 126. SQM bounds as commonly tabulated.
 - **Zodiacal light.** Ch. Leinert et al. (1998), "The 1997 reference of diffuse night sky
   brightness", *A&AS* 127, 1 (Table 17, shape only).
+- **Geomagnetic field.** P. Alken et al. (2021), "International Geomagnetic Reference Field: the
+  thirteenth generation", *Earth Planets Space* 73, 49; IGRF-14 (IAGA V-MOD, 2024) for the 2025
+  coefficients and 2025–2030 secular variation.
+- **Auroral oval.** Ya. I. Feldstein & G. V. Starkov (1967), *Planet. Space Sci.* 15, 209;
+  G. V. Starkov (1994), "Mathematical model of the auroral boundaries", *Geomagn. Aeron.* 34, 331;
+  F. Sigernes et al. (2011), "Auroral oval nowcasting", *Opt. Pura Apl.* 44, 599 (Table 1 and the
+  Kp–AL relation).
+- **Cloud rendering.** M. Mikkelsen (2010), "Bump Mapping Unparametrized Surfaces on the GPU" (tried
+  and not used, §6b); A. Schneider (2015), "The real-time volumetric cloudscapes of Horizon Zero
+  Dawn" (Beer-powder), SIGGRAPH Advances in Real-Time Rendering.
 - **Star data.** ESA (1997), *The Hipparcos and Tycho Catalogues*, ESA SP-1200, via d3-celestial
   (Olaf Frohn, BSD-3-Clause).
 - **Cities.** GeoNames gazetteer, CC BY 4.0.

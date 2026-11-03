@@ -15,6 +15,7 @@ import { CLOUDS_SHADER } from './shaders/clouds.glsl.js';
 import { ATMO_SUN_I, ATMO_EXPOSURE } from './shaders/atmosphere.glsl.js';
 import { dayKeyFor, nightKeyFor, maskKeyFor, cloudsKeyFor, interimKeyFor } from './textures.js';
 import { groundCover } from './sky.js';
+import { createAuroraUniforms, createAuroraDriver, auroraShellFor } from './aurora.js';
 import { BODIES, MOON_RADIUS_ER, SUN_ANG_RADIUS_1AU_RAD, sunAngularRadius } from '../astro/bodies.js';
 
 const CLOUD_RADIUS = 1.006;
@@ -70,14 +71,14 @@ function nullStore() {
 /**
  * Creates the Earth render module.
  * @param {{tier?:object|string, invalidate?:()=>void}} rc RenderContext
- * @param {{textures?:ReturnType<import('./textures.js').createTextureStore>}} [deps]
+ * @param {{textures?:ReturnType<import('./textures.js').createTextureStore>, reducedMotion?:boolean}} [deps]
  * @returns {{object3d:THREE.Group, mesh:THREE.Mesh, clouds:THREE.Mesh,
  *   apply:(snap:object)=>void, update:(fi:object)=>void, setLayers:(layers:object)=>void,
  *   setViewMode:(mode:string, skyBlend:number)=>void, setSelection:(id:string|null)=>void,
  *   setQuality:(cfg:object)=>void, setFootprint:(dirS:ArrayLike<number>|null, colorHex?:number|string, opts?:{distER?:number})=>void,
  *   setSubpoints:(on:boolean)=>void, dispose:()=>void}}
  */
-export function createEarth(rc, { textures } = {}) {
+export function createEarth(rc, { textures, reducedMotion = false } = {}) {
     const store = textures ?? nullStore();
     const isReady = (key) => (store.isReady ? store.isReady(key) : false);
     const invalidate = () => { try { rc?.invalidate?.(); } catch { /* never let a redraw request throw */ } };
@@ -113,6 +114,8 @@ export function createEarth(rc, { textures } = {}) {
         // (on, Moon radius ER, the Sun's true angular radius — set per snapshot, see apply(), _)
         uEclipse: { value: new THREE.Vector4(0, MOON_RADIUS_ER, SUN_ANG_RADIUS_1AU_RAD, 0) },
         uMoonPosW: { value: new THREE.Vector3(0, 0, 60) },
+        // Moonlight: the Moon's illuminated fraction x its sunlit share (0 in a total lunar eclipse).
+        uMoonK: { value: 0 },
         uFoot: { value: new THREE.Vector4(0, 1, 0, 0) },
         uFootColor: { value: new THREE.Color(0xffffff) },
         uFootK: { value: 0 },
@@ -121,6 +124,10 @@ export function createEarth(rc, { textures } = {}) {
         uSubOn: { value: 0 },
         uFade: { value: 1 },
     };
+    // The face-on aurora (shaders/aurora.glsl.js), shared with the cloud shell.
+    const aur = createAuroraUniforms();
+    Object.assign(u, aur);
+    const aurora = createAuroraDriver(aur, { reducedMotion });
 
     const material = new THREE.ShaderMaterial({
         name: 'earth-surface',
@@ -139,9 +146,11 @@ export function createEarth(rc, { textures } = {}) {
             uClouds: u.uClouds, uNight: u.uNight, uSunDirW: u.uSunDirW, uSunE: u.uSunE,
             uLightsGain: u.uLightsGain, uHazeE: u.uHazeE, uCloudMode: u.uCloudMode, uCloudShift: u.uCloudShift,
             uAtmo: u.uAtmo, uFade: cloudFade, uEclipse: u.uEclipse, uMoonPosW: u.uMoonPosW,
+            uSunDirL: u.uSunDirL, uPoleW: u.uPoleW, uMoonK: u.uMoonK, ...aur,
         },
         vertexShader: CLOUDS_SHADER.vertex,
         fragmentShader: CLOUDS_SHADER.fragment,
+        defines: cloudDefinesFor(cfg),
         transparent: true,
         depthWrite: false,
     });
@@ -308,6 +317,10 @@ export function createEarth(rc, { textures } = {}) {
             }
             const mp = snap.moonPosS;
             if (mp) u.uMoonPosW.value.set(mp[0], mp[1], mp[2]);
+            const lit = snap.bodies?.[1]?.phaseFrac;
+            const sunlit = snap.eclipse?.moonLitFraction;
+            u.uMoonK.value = (Number.isFinite(lit) ? lit : 0) * (Number.isFinite(sunlit) ? sunlit : 1);
+            aurora.apply(snap);
             u.uEclipse.value.x = snap.eclipse?.solar ? 1 : 0;
             // The true solar radius (±1.7 % over the year): a constant drew the umbra ~19 % too
             // narrow in August 2027 and the antumbra too wide in February.
@@ -328,6 +341,7 @@ export function createEarth(rc, { textures } = {}) {
 
         /** Per rendered frame: follows the sky-view crossfade. */
         update(fi) {
+            aurora.update(fi);
             const sb = Math.min(1, Math.max(0, fi?.skyBlend ?? 0));
             if (sb !== skyBlend) {
                 skyBlend = sb;
@@ -338,7 +352,10 @@ export function createEarth(rc, { textures } = {}) {
         setLayers(layers) {
             if (!layers) return;
             if ('clouds' in layers) cloudLayer = !!layers.clouds;
-            if ('atmosphere' in layers) u.uAtmo.value = layers.atmosphere ? 1 : 0;
+            if ('atmosphere' in layers) {
+                u.uAtmo.value = layers.atmosphere ? 1 : 0;
+                aurora.setOn(!!layers.atmosphere);   // the aurora is shown with the atmosphere layer
+            }
             if ('footprint' in layers) footLayer = !!layers.footprint;
             if ('subpoints' in layers) u.uSubOn.value = layers.subpoints ? 1 : 0;
             refreshClouds();
@@ -377,6 +394,11 @@ export function createEarth(rc, { textures } = {}) {
                 material.defines = d1;
                 material.needsUpdate = true;
             }
+            const c0 = cloudDefinesFor(prev), c1 = cloudDefinesFor(cfg);
+            if (Object.keys(c0).join() !== Object.keys(c1).join()) {
+                cloudMaterial.defines = c1;
+                cloudMaterial.needsUpdate = true;
+            }
             bindTier();
             invalidate();
         },
@@ -412,8 +434,18 @@ export function createEarth(rc, { textures } = {}) {
     };
 }
 
+/** Cloud-shell features per tier: the self-shadow march on high and max (relief is on every cloud tier). */
+function cloudDefinesFor(cfg) {
+    const d = {};
+    if (cfg.name === 'high' || cfg.name === 'max') d.CLOUD_SELF_SHADOW = '';
+    if (auroraShellFor(cfg)) d.AURORA_SHELL = '';
+    return d;
+}
+
 function definesFor(cfg) {
     const d = {};
+    if (cfg.name !== 'low') d.MOON_GLINT = '';
+    if (auroraShellFor(cfg)) d.AURORA_SHELL = '';
     if (cfg.bump) d.BUMP = '';
     if (cfg.cloudShadows && cfg.clouds && cfg.clouds !== 'none') {
         d.CLOUD_SHADOWS = '';

@@ -15,7 +15,7 @@
 // renderer leaves the panels.
 
 import { APP_NAME, VERSION } from './version.js';
-import { DEFAULT_STATE, SKY_DARK_SETTINGS, createStore } from './core/store.js';
+import { DEFAULT_STATE, SKY_DARK_SETTINGS, AURORA_SETTINGS, createStore } from './core/store.js';
 import { createBus } from './core/bus.js';
 import { createClock, scrubSpanMs } from './core/clock.js';
 import { parseHash, bindUrl } from './core/url-state.js';
@@ -308,6 +308,7 @@ function loadSavedDisplay() {
         if (['observer', 'device', 'utc'].includes(d.tzMode)) out.tzMode = d.tzMode;
         if (typeof d.hour12 === 'boolean') out.hour12 = d.hour12;
         if (SKY_DARK_SETTINGS.includes(d.skyDark)) out.skyDark = d.skyDark;
+        if (AURORA_SETTINGS.includes(d.aurora)) out.aurora = d.aurora;
     }
     return out;
 }
@@ -348,6 +349,7 @@ async function importRenderStack() {
         textures: import('./render/textures.js'),
         earth: import('./render/earth.js'),
         atmosphere: import('./render/atmosphere.js'),
+        aurora: import('./render/aurora.js'),
         sky: import('./render/sky.js'),
         bodies: import('./render/bodies.js'),
         totality: import('./render/totality.js'),
@@ -452,7 +454,9 @@ async function boot() {
         selection: isBodyId(hash.selection) ? hash.selection : null,
         view,
         layers,
-        display: { ...loadSavedDisplay(), ...(hash.skyDark ? { skyDark: hash.skyDark } : {}) },
+        display: {
+            ...loadSavedDisplay(), ...(hash.skyDark ? { skyDark: hash.skyDark } : {}), ...(hash.aurora ? { aurora: hash.aurora } : {}),
+        },
         quality: { setting: qualitySetting, active, ceiling: decision.ceiling },
         status: {
             phase: 'loading', progress: 0.1, webgl: env.can3d, onlineSearch: 'unknown',
@@ -536,6 +540,8 @@ async function boot() {
     });
     R.loop = loop;
     bindSkySite(store, loop, cities, cityIndexP);
+    loop.setAuroraActivity(store.get().display?.aurora ?? 'typical');
+    store.subscribe((s) => s.display?.aurora, (a) => loop.setAuroraActivity(a ?? 'typical'));
 
     try {
         const { mountUI } = await uiModP;
@@ -840,7 +846,8 @@ async function bootRender(ctx) {
     // the flare and the labels test against it, so they all agree with the silhouette.
     const horizon = createHorizon();
     R.horizon = horizon;
-    const earth = create('earth', m.earth && (() => m.earth.createEarth(rc, { textures })));
+    const earth = create('earth', m.earth && (() => m.earth.createEarth(rc, { textures, reducedMotion: rm })));
+    create('aurora', m.aurora && (() => m.aurora.createAurora(rc, { reducedMotion: rm })));
     create('atmosphere', m.atmosphere && (() => m.atmosphere.createAtmosphere(rc)));
     const sky = create('sky', m.sky && (() => m.sky.createSky(rc, { catalog: catalog ?? emptyCatalog(), textures, reducedMotion: rm })));
     create('bodies', m.bodies && (() => m.bodies.createBodies(rc, { textures, horizon })));
@@ -1398,6 +1405,7 @@ function applyHash(p) {
     if (p.layers) store.set({ layers: { ...store.get().layers, ...p.layers } }, 'url');
     if (p.quality) actions.setQuality(p.quality);
     if (p.skyDark) actions.setSkyDark(p.skyDark);
+    if (p.aurora) actions.setAuroraActivity(p.aurora);
     if (p.cam && R.rig) {
         try { R.rig.setView?.(p.cam); } catch (err) { console.error('[main] camera from link failed', err); }
     }

@@ -1,13 +1,15 @@
 /**
  * Settings tab: quality (Auto / Low / Medium / High / Max with the running tier),
  * time display zone (Observer / Device / UTC), 24-hour clock, sky darkness
- * (Auto from location / Pristine / Bortle 1–9), Earth-lock,
+ * (Auto from location / Pristine / Bortle 1–9), aurora activity (Quiet / Typical / Storm: the
+ * modelled ovals, not live data), Earth-lock,
  * Replay intro, keyboard shortcuts and Reset all settings (with confirmation).
  *
  * @module ui/settings
  */
 
 import { DEFAULT_STATE } from '../core/store.js';
+import { ovalSummary } from '../astro/geomag.js';
 import { h, on, setText, segmented, switchRow } from './dom.js';
 import { icon } from './icons.js';
 
@@ -66,6 +68,16 @@ export function mountSettings(root, ctx) {
     const skyHint = h('p', { class: 'setting__hint' });
     offs.push(on(skyDark, 'change', () => ui.act('setSkyDark', skyDark.value)));
 
+    // Aurora activity (the Kp the modelled ovals are drawn for; js/astro/geomag.js). No live data.
+    const auroraId = 'settings-aurora';
+    const aurora = h('select', { class: 'select', id: auroraId },
+        h('option', { value: 'quiet' }, 'Quiet (Kp 1)'),
+        h('option', { value: 'typical' }, 'Typical (Kp 3)'),
+        h('option', { value: 'storm' }, 'Storm (Kp 7)'));
+    aurora.value = st0.display?.aurora || 'typical';
+    const auroraHint = h('p', { class: 'setting__hint' });
+    offs.push(on(aurora, 'change', () => ui.act('setAuroraActivity', aurora.value)));
+
     // View.
     const lock = switchRow({
         label: 'Lock view to Earth', keys: ['L'], desc: 'The camera turns with the Earth, so your location stays in view',
@@ -88,6 +100,7 @@ export function mountSettings(root, ctx) {
         h('div', { class: 'group' }, h('h3', { class: 'group-title' }, 'Quality'), quality.el, running),
         h('div', { class: 'group' }, h('h3', { class: 'group-title' }, 'Time display'), tzMode.el, tzHint, clock24.el),
         h('div', { class: 'group' }, h('h3', { class: 'group-title' }, h('label', { for: skyId }, 'Sky darkness')), skyDark, skyHint),
+        h('div', { class: 'group' }, h('h3', { class: 'group-title' }, h('label', { for: auroraId }, 'Aurora activity')), aurora, auroraHint),
         h('div', { class: 'group' }, h('h3', { class: 'group-title' }, 'View'), lock.el),
         h('div', { class: 'group group--actions' }, h('div', { class: 'btn-row' }, replay, keys), reset, confirm),
         motion);
@@ -129,6 +142,9 @@ export function mountSettings(root, ctx) {
             ? `${sg?.auto ? `Estimated Bortle ${sg.bortle} from the cities around ${ui.placeShort(st.observer)}` : 'Estimated from the cities around you'}: moonlight and city glow brighten the sky view and hide faint stars.`
             : sd === 'pristine' ? 'No light pollution: the sky of a remote dark site, with moonlight only.'
                 : `Bortle ${sd}: the sky of ${BORTLE_NAMES[Number(sd) - 1].toLowerCase()}, wherever you are.`);
+        const au = st.display?.aurora || 'typical';
+        if (aurora.value !== au) aurora.value = au;
+        setText(auroraHint, ovalSummary(au));
         lock.set(!!st.view?.earthLock);
         setText(motion, st.status?.reducedMotion || ui.reducedMotion()
             ? 'Reduced motion is on (system setting): transitions are cuts and the intro is skipped.'

@@ -42,6 +42,7 @@ import { refractionDeg, twilightClass } from './photometry.js';
 import { discVisibleFraction, lunarEclipseLight } from './shadow.js';
 import { bailysBeads, createBeads, NO_GAP } from './totality.js';
 import { createSkyglow } from './skyglow.js';
+import { createAurora } from './geomag.js';
 
 const N_BODIES = BODIES.length;
 const SUN = 0;
@@ -146,6 +147,8 @@ export function createSnapshot() {
         eclipse: { solar: false, lunar: false, obscurationAtObserver: 0, moonLitFraction: 1, beads: createBeads() },
         // Filled by the frame loop (computeSkyglow) after each computeSnapshot: it needs the site.
         skyglow: createSkyglow(),
+        // Filled by the frame loop (computeAurora) after each computeSnapshot: it needs the activity setting.
+        aurora: createAurora(),
     };
 }
 

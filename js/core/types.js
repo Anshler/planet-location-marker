@@ -25,7 +25,8 @@
 /** @typedef {{ observer:Observer, selection:BodyId|null,
  *   view:{mode:'orbit'|'sky', earthLock:boolean},
  *   layers:Layers,
- *   display:{tzMode:'observer'|'device'|'utc', hour12:boolean, skyDark:'auto'|'pristine'|'1'|'2'|'3'|'4'|'5'|'6'|'7'|'8'|'9'},
+ *   display:{tzMode:'observer'|'device'|'utc', hour12:boolean, skyDark:'auto'|'pristine'|'1'|'2'|'3'|'4'|'5'|'6'|'7'|'8'|'9',
+ *     aurora:'quiet'|'typical'|'storm'},
  *   quality:{setting:'auto'|'low'|'medium'|'high'|'max', active:'low'|'medium'|'high'|'max', ceiling:'low'|'medium'|'high'},
  *   ui:{panel:'sky'|'details'|'events'|'layers'|'settings'|'about', sheet:'peek'|'half'|'full', cinema:boolean, help:boolean, palette:boolean,
  *       eclipse:EclipseFocus|null},
@@ -55,7 +56,8 @@
  *   bodies:BodyState[],        // always 9, in BODIES order
  *   eclipse:{solar:boolean, lunar:boolean, obscurationAtObserver:number, moonLitFraction:number,
  *            beads:import('../astro/totality.js').Beads},  // Baily's beads near C2/C3 of a total eclipse, else count 0
- *   skyglow:import('../astro/skyglow.js').Skyglow   // the night sky's brightness; filled by the frame loop
+ *   skyglow:import('../astro/skyglow.js').Skyglow,  // the night sky's brightness; filled by the frame loop
+ *   aurora:import('../astro/geomag.js').Aurora      // geomagnetic pole, magnetic noon, oval table; filled by the frame loop
  *   }} Snapshot */
 /** TierCfg. `dprCap` is Infinity on max (no cap). `msaa` is a request: postfx clamps it to MAX_SAMPLES.
  *  The last three keys are max-only; absent means the 1024 Moon, 8x anisotropy and a one-tap cloud shadow.
@@ -66,7 +68,7 @@
  *   starMagLimit:number, flare:boolean, labelCap:number, twinkle:boolean, beamGlowPx:number, finalPass:boolean,
  *   moonTex?:'moon'|'moon4k', anisotropy?:number, cloudShadowTaps?:number }} TierCfg */
 /** @typedef {{ dtMs:number, timeS:number, camera:any, viewMode:'orbit'|'sky', skyBlend:number, snap:Snapshot,
- *   pulsesActive:boolean, exposure:{stars:number, planets:number, milkyWay:number, vision:number} }} FrameInfo */
+ *   pulsesActive:boolean, simRate:number, exposure:{stars:number, planets:number, milkyWay:number, vision:number} }} FrameInfo */
 /** @typedef {{name:string, admin:string, country:string, cc:string, lat:number, lon:number, tz:string|null, pop:number,
  *   source:'offline'|'open-meteo'|'photon'|'nominatim', score?:number}} Place */
 /** @typedef {{id:string, kind:'moon-phase'|'opposition'|'conjunction'|'max-elongation'|'lunar-eclipse'|'solar-eclipse'|
@@ -115,7 +117,7 @@
 /** Result of `parseHash`. Every key is optional; `invalid` lists keys that were present but rejected or clamped.
  * @typedef {{ observer?:Observer&{cc:string}, tMs?:number, live?:boolean, rate?:number, playing?:boolean,
  *   view?:'orbit'|'sky', earthLock?:boolean, selection?:BodyId|null, layers?:Layers,
- *   quality?:'auto'|'low'|'medium'|'high'|'max', skyDark?:string, cam?:CamView, intro?:boolean, debug?:boolean, invalid?:string[] }} HashState */
+ *   quality?:'auto'|'low'|'medium'|'high'|'max', skyDark?:string, aurora?:'quiet'|'typical'|'storm', cam?:CamView, intro?:boolean, debug?:boolean, invalid?:string[] }} HashState */
 
 /** Device probe for `detectTier` (js/core/quality.js).
  * @typedef {{webgl2:boolean, rendererString?:string, maxTextureSize?:number, dpr?:number, deviceMemory?:number, cores?:number,

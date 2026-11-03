@@ -8,7 +8,7 @@
 // Raw bytes on disk are budgeted (1 MB = 10⁶ B); gzip "wire" sizes are informational
 // (GitHub Pages compresses JS/CSS/JSON/SVG/HTML).
 //
-//   low ≤ 3.6 MB · medium ≤ 4.4 MB · high ≤ 5.6 MB · staged site ≤ 32 MB
+//   low ≤ 3.63 MB · medium ≤ 4.4 MB · high ≤ 5.61 MB · staged site ≤ 32 MB
 //   SPEC §E.6 set 3.0 / 3.6 / 4.8 MB from an estimate of ≈ 1.35 MB of JavaScript. The shipped,
 //   unminified-by-design module graph (no build step) measures ≈ 2.0 MB raw incl. CSS
 //   (≈ 0.6 MB gzipped; three.js + astronomy-engine alone are 1.17 MB raw), so the budgets were
@@ -37,7 +37,9 @@ const MB = 1e6, KB = 1e3;
 // shadow chase and eclipse-aware pin (≈ 46 KB) raise every tier.
 // Phase 2 (sky view 2.0): the illustrative landscape, twilight-lit ground and drawn refraction (≈ 45 KB of JS) plus the
 // night-sky model (skyglow, ≈ 40 KB) on every tier; medium and high also dropped the two lens-flare textures (68 KB).
-export const TIER_BUDGETS = { low: 3.6 * MB, medium: 4.4 * MB, high: 5.6 * MB };
+// Phase 4 (globe): the aurora (geomag model, face-on term, limb shell), moonlight, close-zoom lights and sculpted
+// clouds (≈ 48 KB of JS and GLSL, no textures) raise low by 30 KB and high by 10 KB (medium still fits).
+export const TIER_BUDGETS = { low: 3.63 * MB, medium: 4.4 * MB, high: 5.61 * MB };
 /** Tiers that are measured and printed but have no budget (max: a deliberate, manual choice). */
 export const INFO_TIERS = ['max'];
 // The max tier's 8192 px maps (≈ 15.2 MB) ship with the site; 32 MB keeps headroom (Pages allows 1 GB).

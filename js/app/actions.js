@@ -17,7 +17,7 @@ import { eclipsePath, citiesInPath, nearestCentrePoint, shadowPoint } from '../a
 import { createEclipseChase } from './eclipse-chase.js';
 import { localSolarEclipseAt } from '../astro/events.js';
 import { serializeHash } from '../core/url-state.js';
-import { SKY_DARK_SETTINGS } from '../core/store.js';
+import { SKY_DARK_SETTINGS, AURORA_SETTINGS } from '../core/store.js';
 
 export { shadowPoint };
 
@@ -580,6 +580,20 @@ export function createActions(deps) {
         say(s === 'auto' ? 'Sky darkness: estimated from your location' : s === 'pristine' ? 'Sky darkness: pristine' : `Sky darkness: Bortle ${s}`);
     }
 
+    /**
+     * Aurora activity: the Kp the modelled ovals are drawn for ('quiet' | 'typical' | 'storm';
+     * core/store.js AURORA_SETTINGS). A setting, not live space weather.
+     * @param {string} v
+     */
+    function setAuroraActivity(v) {
+        const s = String(v);
+        if (!AURORA_SETTINGS.includes(s)) return;
+        const display = store.get().display;
+        if (display.aurora === s) return;
+        store.set({ display: { ...display, aurora: s } }, 'actions');
+        say(`Aurora activity: ${s} (modelled)`);
+    }
+
     /** The shareable URL for the current state (camera included). */
     function shareUrl() {
         let cam = null;
@@ -907,7 +921,7 @@ export function createActions(deps) {
     return {
         setObserver, undoObserver, locateMe,
         select, flyToBody, setViewMode, cycleView, setEarthLock,
-        toggleLayer, setQuality, setTzMode, setSkyDark, share,
+        toggleLayer, setQuality, setTzMode, setSkyDark, setAuroraActivity, share,
         toggleFullscreen, toggleCinema, resetCamera, replayIntro, jumpToEvent,
         // Extensions beyond SPEC §C.9 (used by shortcuts / the shell when present).
         toggleDebug, openPalette, shareUrl, viewFromBody,

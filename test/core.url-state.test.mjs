@@ -9,7 +9,7 @@ import { createClock, MIN_MS, MAX_MS, RATES } from '../js/core/clock.js';
 
 const BODY_IDS = ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune'];
 const LAYER_KEYS = Object.keys(DEFAULT_STATE.layers);
-const ALLOWED_KEYS = new Set(['observer', 'tMs', 'live', 'rate', 'playing', 'view', 'earthLock', 'selection', 'layers', 'quality', 'skyDark', 'cam', 'intro', 'debug', 'invalid']);
+const ALLOWED_KEYS = new Set(['observer', 'tMs', 'live', 'rate', 'playing', 'view', 'earthLock', 'selection', 'layers', 'quality', 'skyDark', 'aurora', 'cam', 'intro', 'debug', 'invalid']);
 const SPEC_EXAMPLE = '#loc=21.0285,105.8542&n=Hanoi&cc=VN&tz=Asia/Ho_Chi_Minh&el=15&t=2027-08-02T10:07:00Z&r=3600&p=1&view=orbit&lock=1&sel=moon'
     + '&ly=bgoscCnmkazhld&q=auto&cam=o:21.0,105.8,3.2|s:142.3,25.0,60&intro=0&debug=1';
 
@@ -446,4 +446,16 @@ test('sky=: the Sky darkness setting round-trips; auto is implicit; anything els
     assert.equal(serializeHash({ state: state('auto') }).includes('sky='), false);
     assert.match(serializeHash({ state: state('3') }), /&sky=3(&|$)/);
     assert.equal(parseHash(serializeHash({ state: state('pristine') })).skyDark, 'pristine');
+});
+
+test('au=: the Aurora activity setting round-trips; typical is implicit; anything else is invalid', () => {
+    assert.equal(parseHash('#au=storm').aurora, 'storm');
+    assert.equal(parseHash('#au=Quiet').aurora, 'quiet');
+    const bad = parseHash('#au=7');
+    assert.equal(bad.aurora, undefined);
+    assert.deepEqual(bad.invalid, ['au']);
+    const state = (v) => ({ ...DEFAULT_STATE, display: { ...DEFAULT_STATE.display, aurora: v } });
+    assert.equal(serializeHash({ state: state('typical') }).includes('au='), false);
+    assert.match(serializeHash({ state: state('storm') }), /&au=storm(&|$)/);
+    assert.equal(parseHash(serializeHash({ state: state('quiet') })).aurora, 'quiet');
 });

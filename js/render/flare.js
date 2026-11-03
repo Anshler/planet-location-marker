@@ -11,6 +11,8 @@
  * (snap.eclipse.beads) and shines with the beads' light: the diamond ring.
  */
 import * as THREE from 'three';
+import { liftByRefraction } from '../astro/photometry.js';
+import { clearanceDeg } from '../geo/horizon.js';
 import { MOON_RADIUS_ER, SUN_ANG_RADIUS_1AU_RAD, sunAngularRadius } from '../astro/bodies.js';
 import { FLARE_VERT, FLARE_FRAG } from './shaders/bodies.glsl.js';
 import { extinctionRGB, limbTransmittance } from './bodies.js';
@@ -52,11 +54,12 @@ export function discVisible(rs, ro, d) {
 /**
  * Creates the lens-flare module.
  * @param {object} rc RenderContext (SPEC C.6)
- * @param {{textures?:object|null}} [deps]
+ * @param {{textures?:object|null, horizon?:import('../geo/horizon.js').HorizonProfile|null}} [deps]
+ *   `horizon`: the shared landscape profile; in sky view the hills hide the Sun as drawn
  * @returns {object} RenderModule
  */
 export function createFlare(rc, deps = {}) {
-    const { textures = null } = deps;
+    const { textures = null, horizon = null } = deps;
     const group = new THREE.Group();
     group.name = 'flare';
     let cfg = rc && rc.tier && typeof rc.tier === 'object' ? rc.tier : null;
@@ -116,6 +119,13 @@ export function createFlare(rc, deps = {}) {
     const sunDir = new THREE.Vector3(1, 0, 0);
     const moonPos = new THREE.Vector3(60, 0, 0);
     const up = new THREE.Vector3(0, 1, 0);
+    // Observer frame (horizon tests) and the Sun where sky view draws it (lifted by refraction).
+    const upA = new Float64Array([0, 1, 0]);
+    const northA = new Float64Array([0, 0, -1]);
+    const eastA = new Float64Array([1, 0, 0]);
+    const sunA = new Float64Array([1, 0, 0]);
+    const sunLift = new Float64Array([1, 0, 0]);
+    const sunDrawn = new THREE.Vector3(1, 0, 0);
     const tmp = new THREE.Vector3();
     const toMoon = new THREE.Vector3();
     const clip = new THREE.Vector4();
@@ -140,7 +150,12 @@ export function createFlare(rc, deps = {}) {
         const ob = snap.eclipse && snap.eclipse.obscurationAtObserver;
         obscuration = Number.isFinite(ob) ? clamp(ob, 0, 1) : 0;
         if (snap.moonPosS) moonPos.set(snap.moonPosS[0], snap.moonPosS[1], snap.moonPosS[2]);
-        if (snap.observer) up.set(snap.observer.upS[0], snap.observer.upS[1], snap.observer.upS[2]);
+        if (snap.observer) {
+            const o = snap.observer;
+            up.set(o.upS[0], o.upS[1], o.upS[2]);
+            for (let k = 0; k < 3; k++) { upA[k] = o.upS[k]; northA[k] = o.northS[k]; eastA[k] = o.eastS[k]; }
+        }
+        sunA[0] = s.dirS[0]; sunA[1] = s.dirS[1]; sunA[2] = s.dirS[2];
         const b = snap.eclipse && snap.eclipse.beads;
         beadTotal = b && b.count > 0 && Number.isFinite(b.total) ? b.total : 0;
         beadGap = beadTotal > 0 ? b.gapArcsec : Infinity;
@@ -157,9 +172,12 @@ export function createFlare(rc, deps = {}) {
         let w = 1, h = 1, dpr = 1;
         if (r) { r.getDrawingBufferSize(tmpSize); w = tmpSize.x; h = tmpSize.y; dpr = r.getPixelRatio(); }
 
-        // Sun's NDC position at infinity: rotation-only view, as the sky shaders do.
+        // Sun's NDC position at infinity: rotation-only view, as the sky shaders do, at the
+        // refracted direction the sky view draws it (REFRACT_CHUNK).
+        liftByRefraction(sunA, upA, skyBlend, sunLift);
+        sunDrawn.set(sunLift[0], sunLift[1], sunLift[2]);
         rot.extractRotation(cam.matrixWorldInverse);
-        tmp.copy(sunDir).applyMatrix4(rot);
+        tmp.copy(sunDrawn).applyMatrix4(rot);
         clip.set(tmp.x, tmp.y, tmp.z, 1).applyMatrix4(cam.projectionMatrix);
         let target = 0;
         let nx = 0, ny = 0;
@@ -173,7 +191,7 @@ export function createFlare(rc, deps = {}) {
             if (dc > 1) {
                 const earthR = Math.asin(1 / dc);
                 tmp.copy(c).multiplyScalar(-1 / dc);
-                const sep = Math.acos(clamp(tmp.dot(sunDir), -1, 1));
+                const sep = Math.acos(clamp(tmp.dot(sunDrawn), -1, 1));
                 target *= discVisible(sunR, earthR, sep);
                 // From orbit, a Sun on the limb shines through the whole atmosphere: red and dim.
                 if (sep < Math.PI / 2) limbTransmittance(dc * Math.sin(sep) - 1, limb);
@@ -205,10 +223,12 @@ export function createFlare(rc, deps = {}) {
                     }
                 }
             }
-            // Sky view: the ground hides the Sun below the astronomical horizon; extinction dims it.
+            // Sky view: the ground hides the Sun below the horizon as drawn (refracted, behind the
+            // illustrative landscape's silhouette when that layer is on); extinction dims it.
             if (skyBlend > 0) {
-                const sinAlt = sunDir.dot(up);
-                target *= 1 - skyBlend * (1 - smooth(-sunR, sunR, sinAlt));
+                const clear = clearanceDeg(horizon, sunA, upA, northA, eastA, skyBlend) * DEG;
+                target *= 1 - skyBlend * (1 - smooth(-sunR, sunR, clear));
+                const sinAlt = sunDrawn.dot(up);
                 extinctionRGB(sinAlt, tint);
                 // Dims with the Sun's green transmission, at 3x by day. Near the horizon the gain
                 // falls back to 1x and there is no floor: a 0.2 floor kept a cream starburst over

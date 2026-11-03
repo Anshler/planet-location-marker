@@ -174,12 +174,18 @@ export function createLoop(deps) {
         pulsesActive: false, exposure,
     };
     // upS is the snapshot's live zenith: the label pool derives is-below for direction anchors from it,
-    // and in sky view (horizon) hides star and constellation names that the ground covers. skyLum is
-    // the brightness of the sky behind the labels (their halo style).
-    const labelOpts = { cap: 24, upS: snap.observer.upS, horizon: false, skyLum: 0 };
+    // and in sky view (horizon) hides star and constellation names that the ground covers — the
+    // illustrative landscape's silhouette when that layer is on (landscape, with the observer's
+    // north/east for its azimuths). refrK lifts direction labels by refraction as the sky view draws
+    // them. skyLum is the brightness of the sky behind the labels (their halo style).
+    const labelOpts = {
+        cap: 24, upS: snap.observer.upS, northS: snap.observer.northS, eastS: snap.observer.eastS,
+        horizon: false, skyLum: 0, refrK: 0, landscape: null,
+    };
     // The label feed's per-frame inputs (labels-feed LabelView): star and constellation names follow
-    // the drawn star field; body label offsets scale with the viewport.
-    const labelView = { starExposure: 1, magLimit: 6, viewportH: 0 };
+    // the drawn star field; body label offsets scale with the viewport; sky-view `below` flags follow
+    // the landscape profile.
+    const labelView = { starExposure: 1, magLimit: 6, viewportH: 0, horizon: null };
 
     const offs = [];
     offs.push(store.subscribe((s) => s.observer, () => { observerDirty = true; dirty = true; }));
@@ -387,6 +393,7 @@ export function createLoop(deps) {
                         const tierCap = cfg && Number.isFinite(cfg.labelCap) ? cfg.labelCap : 24;
                         labelOpts.cap = skyBlend >= 0.5 ? tierCap : Math.min(tierCap, ORBIT_LABEL_CAP);
                         labelOpts.horizon = skyBlend >= 0.5;
+                        labelOpts.refrK = skyBlend;
                         labelOpts.skyLum = skyBrightness(snap.observer.sunAltDeg, obsc, skyBlend);
                         labels.update(camera, rc.size, labelOpts);
                     } catch (err) {
@@ -511,9 +518,11 @@ export function createLoop(deps) {
     /**
      * Supplies (or replaces) the render stack.
      * @param {{rc:any, rig?:any, modules?:RenderModule[], moduleNames?:Map<RenderModule,string>, labels?:any,
-     *          labelsFeed?:any, governor?:any, getTierCfg?:()=>any}} r
+     *          labelsFeed?:any, governor?:any, getTierCfg?:()=>any, horizon?:object|null}} r `horizon`: the
+     *          shared landscape profile (geo/horizon.js) for the labels
      */
     function attach(r) {
+        labelOpts.landscape = labelView.horizon = r.horizon ?? null;
         rc = r.rc ?? null;
         rig = r.rig ?? null;
         modules = Array.isArray(r.modules) ? r.modules.slice() : [];

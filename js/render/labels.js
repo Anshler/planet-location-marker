@@ -38,6 +38,12 @@
  * then gets `is-below` from the live direction. A non-finite anchor position
  * simply hides the label (e.g. beams.labelAnchor before the beam has landed).
  *
+ * Sky view: `opts.refrK` (the view blend) lifts every direction anchor except the cardinals by
+ * refraction, as the sky shaders draw it (REFRACT_CHUNK, astro/photometry.js liftByRefraction), and
+ * with `opts.horizon` star and constellation names under the horizon are hidden — under the
+ * illustrative landscape's silhouette when `opts.landscape` (the shared geo/horizon.js profile) is
+ * enabled, with `opts.northS`/`opts.eastS` giving its azimuths.
+ *
  * `opts.skyLum` (0…1, the brightness of the sky behind the labels) is written,
  * quantised to 0.05 and only when it changes, as `--sky-lum` on the root, which
  * also gets `is-daysky` on a bright sky; G7's CSS swaps the dark text halo for
@@ -45,6 +51,8 @@
  *
  * @module render/labels
  */
+import { liftByRefraction } from '../astro/photometry.js';
+import { azimuthDeg, horizonAltDeg } from '../geo/horizon.js';
 
 const DECLUTTER_MS = 100;
 const NEW_MS = 600;
@@ -93,6 +101,9 @@ const HORIZON_SIN = -0.005;
 const SKY_LUM_STEPS = 20;
 const DAYSKY_LUM = 0.6;
 const KIND_RANK = { body: 0, observer: 1, cardinal: 2, trail: 3, star: 4, constellation: 5 };
+const DEG = Math.PI / 180;
+/** A world point this far from the camera (Earth radii) stands for a direction at infinity. */
+const FAR_POINT = 200;
 
 function nowMs() {
     return typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -109,7 +120,8 @@ function nowMs() {
  * Creates the label pool inside `rootEl` (#labels-root).
  * @param {HTMLElement} rootEl
  * @param {{cap?:number, now?:()=>number}} [opts]
- * @returns {{setAnchors(list:LabelAnchor[]):void, update(camera:object, viewport:{w:number,h:number}, opts?:{cap?:number, upS?:ArrayLike<number>, horizon?:boolean, skyLum?:number}):number,
+ * @returns {{setAnchors(list:LabelAnchor[]):void, update(camera:object, viewport:{w:number,h:number}, opts?:{cap?:number, upS?:ArrayLike<number>, horizon?:boolean, skyLum?:number,
+ *     refrK?:number, landscape?:object|null, northS?:ArrayLike<number>, eastS?:ArrayLike<number>}):number,
  *   onActivate(cb:(id:string)=>void):()=>void, relayout():void, dispose():void, readonly visibleCount:number}}
  */
 export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
@@ -132,6 +144,10 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
     const lastVp = { w: 0, h: 0, insets: null };
     let lastOpts = null;
     let horizonOn = false;   // sky view: hide star/constellation names below the horizon
+    let refrK = 0;           // sky view: refraction lift of direction anchors (the view blend)
+    let landscape = null;    // the shared horizon profile (geo/horizon.js), or null
+    let northS = null, eastS = null;
+    const LIFT = new Float64Array(3);
     let skyLum = -1;         // last --sky-lum written (quantised)
     // Placed rectangles for the greedy declutter (x0, y0, x1, y1 per label).
     let rects = new Float64Array(4 * 64);
@@ -371,8 +387,19 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
         }
         let X, Y, W;
         if (a.posS) {
-            const px = a.posS[0], py = a.posS[1], pz = a.posS[2];
+            let px = a.posS[0], py = a.posS[1], pz = a.posS[2];
             if (!(Number.isFinite(px) && Number.isFinite(py) && Number.isFinite(pz))) return false;
+            // A body point at infinity (beams.labelAnchor in sky view: far along the direction from
+            // the camera) is lifted by refraction like the body it labels.
+            if (refrK > 0 && upS && it.kind === 'body') {
+                const rx = px - cx, ry = py - cy, rz = pz - cz;
+                const L = Math.hypot(rx, ry, rz);
+                if (L > FAR_POINT) {
+                    LIFT[0] = rx / L; LIFT[1] = ry / L; LIFT[2] = rz / L;
+                    liftByRefraction(LIFT, upS, refrK, LIFT);
+                    px = cx + LIFT[0] * L; py = cy + LIFT[1] * L; pz = cz + LIFT[2] * L;
+                }
+            }
             const vx = M[0] * px + M[4] * py + M[8] * pz + M[12];
             const vy = M[1] * px + M[5] * py + M[9] * pz + M[13];
             const vz = M[2] * px + M[6] * py + M[10] * pz + M[14];
@@ -382,9 +409,11 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
             if (!(W > 1e-6)) return false;
             if (segmentHitsSphere(cx, cy, cz, px, py, pz)) return false;
         } else {
-            const d = a.dirS;
+            let d = a.dirS;
+            if (!(Number.isFinite(d[0]) && Number.isFinite(d[1]) && Number.isFinite(d[2]))) return false;
+            // Where the sky view draws it: lifted by refraction (the cardinals mark the horizon itself).
+            if (refrK > 0 && upS && it.kind !== 'cardinal') d = liftByRefraction(d, upS, refrK, LIFT);
             const dx = d[0], dy = d[1], dz = d[2];
-            if (!(Number.isFinite(dx) && Number.isFinite(dy) && Number.isFinite(dz))) return false;
             const vx = M[0] * dx + M[4] * dy + M[8] * dz;
             const vy = M[1] * dx + M[5] * dy + M[9] * dz;
             const vz = M[2] * dx + M[6] * dy + M[10] * dz;
@@ -395,8 +424,13 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
             if (rayHitsSphere(cx, cy, cz, dx, dy, dz)) return false;
             // Sky view: the ground hides everything below the horizon, so do the names of stars
             // and constellations there (bodies keep theirs, marked is-below).
-            if (horizonOn && upS && (it.kind === 'star' || it.kind === 'constellation')
-                && dx * upS[0] + dy * upS[1] + dz * upS[2] < HORIZON_SIN) return false;
+            if (horizonOn && upS && (it.kind === 'star' || it.kind === 'constellation')) {
+                let lim = HORIZON_SIN;
+                if (landscape && landscape.enabled && northS && eastS) {
+                    lim += Math.sin(horizonAltDeg(landscape, azimuthDeg(d, northS, eastS)) * DEG);
+                }
+                if (dx * upS[0] + dy * upS[1] + dz * upS[2] < lim) return false;
+            }
         }
         const off = a.offsetPx;
         const sx = (X / W * 0.5 + 0.5) * w + (off ? off[0] || 0 : 0);
@@ -490,6 +524,10 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
         const capNow = Number.isFinite(opts?.cap) ? opts.cap : defaultCap;
         const upS = opts?.upS || null;
         horizonOn = opts?.horizon === true;
+        refrK = Number.isFinite(opts?.refrK) ? Math.min(1, Math.max(0, opts.refrK)) : 0;
+        landscape = opts?.landscape || null;
+        northS = opts?.northS || null;
+        eastS = opts?.eastS || null;
         writeSkyLum(opts?.skyLum);
         const t = now();
         if (!idle) lastFrameT = t;

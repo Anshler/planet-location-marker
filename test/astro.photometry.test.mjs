@@ -53,6 +53,58 @@ test('refractionDeg(0) ≈ 0.48° and the formula is identical to astronomy-engi
     assert.ok(P.refractionDeg(45) < 0.02);
 });
 
+test('refractionFromApparentDeg (Bennett) inverts refractionDeg to 0.1′ from −0.6° up (0.5′ at −0.9°)', () => {
+    for (let h = -0.9; h <= 30; h += 0.05) {
+        const app = h + P.refractionDeg(h);
+        close(app - P.refractionFromApparentDeg(app), h, (h < -0.6 ? 0.5 : 0.1) / 60, `h = ${h.toFixed(2)}`);
+    }
+    close(P.refractionFromApparentDeg(0), 0.574, 0.003, 'about 34.4′ at the apparent horizon');
+    assert.equal(P.refractionFromApparentDeg(NaN), 0);
+    assert.equal(P.refractionFromApparentDeg(-5), P.refractionFromApparentDeg(-1), 'clamped at −1°');
+});
+
+/** Unit vector at (alt, az) in a frame with up = +Y, north = −Z, east = +X (degrees). */
+function altAzDir(altDeg, azDeg) {
+    const h = (altDeg * Math.PI) / 180, A = (azDeg * Math.PI) / 180;
+    return [Math.sin(A) * Math.cos(h), Math.sin(h), -Math.cos(A) * Math.cos(h)];
+}
+const UP = [0, 1, 0];
+
+test('liftByRefraction: altitude + k·refractionDeg(altitude), azimuth kept, k = 0 and the zenith untouched', () => {
+    const out = new Float64Array(3);
+    for (const alt of [-5, -1.2, -0.8, 0, 0.3, 2, 10, 45, 89.9]) {
+        for (const k of [0, 0.5, 1]) {
+            const d = altAzDir(alt, 247);
+            P.liftByRefraction(d, UP, k, out);
+            close(Math.hypot(out[0], out[1], out[2]), 1, 1e-12, 'unit');
+            const altOut = (Math.asin(out[1]) * 180) / Math.PI;
+            close(altOut, Math.min(90, alt + k * P.refractionDeg(alt)), 1e-9, `alt ${alt} k ${k}`);
+            const az = (Math.atan2(out[0], -out[2]) * 180) / Math.PI;
+            close((az + 360) % 360, 247, 1e-9, 'azimuth');
+        }
+    }
+    const z = P.liftByRefraction([0, 1, 0], UP, 1, out);
+    assert.deepEqual([...z], [0, 1, 0]);
+    // In place.
+    const d = Float64Array.from(altAzDir(0, 90));
+    assert.equal(P.liftByRefraction(d, UP, 1, d), d);
+    close((Math.asin(d[1]) * 180) / Math.PI, P.refractionDeg(0), 1e-12);
+});
+
+test('liftByRefraction: at the almanac sunset the drawn upper limb sits on the horizon (Paris 2026-11-03)', () => {
+    const obs = new AE.Observer(48.8566, 2.3522, 0);
+    const t = AE.SearchRiseSet(AE.Body.Sun, obs, -1, AE.MakeTime(new Date('2026-11-03T12:00:00Z')), 1);
+    const snap = createSnapshot();
+    computeSnapshot(t.date.getTime(), { latDeg: 48.8566, lonDeg: 2.3522, elevM: 0 }, snap, { detail: 'frame' });
+    const sun = snap.bodies[0], o = snap.observer;
+    assert.ok(sun.altGeomDeg < -0.7, `geometric centre ${sun.altGeomDeg}° (drawn under the ground before)`);
+    const lifted = P.liftByRefraction(sun.dirS, o.upS, 1, new Float64Array(3));
+    const s = lifted[0] * o.upS[0] + lifted[1] * o.upS[1] + lifted[2] * o.upS[2];
+    const upperLimb = (Math.asin(s) * 180) / Math.PI + sun.angDiamArcsec / 7200;
+    close(upperLimb, 0, 0.1, 'upper limb');
+    assert.equal(sun.above, true, 'and the panel says up');
+});
+
 test('airmass (Kasten–Young): 1 at the zenith, ~2 at 30°, ~38 at the horizon, monotonic, never infinite', () => {
     close(P.airmass(90), 1, 1e-3);
     close(P.airmass(30), 1.994, 0.01);

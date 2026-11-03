@@ -18,7 +18,7 @@ formulas and accuracy, is in [ASTRONOMY.md](ASTRONOMY.md).
 index.html        import map · inline loader · feature detection · global error capture
 └─ js/main.js     composition root: builds everything, wires it together, owns boot order
    ├─ js/core/    app state: store, bus, clock, url-state, prefs, tz, format, quality      PURE
-   ├─ js/geo/     offline cities, online geocoder, lat/lon parsing                        PURE
+   ├─ js/geo/     offline cities, online geocoder, lat/lon parsing, landscape profile     PURE
    ├─ js/astro/   astronomy: frames, snapshot, almanac, events, paths, worker + client    PURE
    ├─ js/data/    star-catalog decoder                                                    PURE
    ├─ js/app/     actions (UI → app API), frame loop, label feed, intro, fallback         glue
@@ -71,6 +71,7 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | Geo | `js/geo/cities.js` | About 1,600 GeoNames cities. Fuzzy search, `nearest`, `byTz`. |
 | | `js/geo/geocode.js` | Online providers with timeouts, a circuit breaker and an LRU cache. |
 | | `js/geo/coords.js` | Parses decimal and DMS coordinates. |
+| | `js/geo/horizon.js` | The sky view's illustrative landscape: a per-place horizon profile (far ridge, trees or roofs, sea sectors), its queries (`horizonAltDeg`, `clearanceDeg`) and the urban index. Invented, seeded by place (ASTRONOMY.md §6). |
 | Astro | `js/astro/ae.js` | Re-exports astronomy-engine. |
 | | `js/astro/bodies.js` | `BODIES`. Its order is a contract. |
 | | `js/astro/frames.js` | The S mapping, Earth orientation, ENU, alt/az, matrix helpers. |
@@ -78,14 +79,14 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/astro/almanac.js`, `events.js`, `paths.js` | Rise/set, twilight, Tonight; events (with eclipse contacts, `localSolarEclipseAt`); retrograde paths. |
 | | `js/astro/eclipse-path.js` | `eclipsePath`: the centre line and limits of a central solar eclipse; `citiesInPath`, `nearestCentrePoint`, `pathAt`, `shadowPoint`. Render support: `ribbonMesh` (the globe's ribbon, once per eclipse), `pathFrameLocal` (the shadow and its heading, allocation-free), `shadowAxisPoint`, `umbraNear`. |
 | | `js/astro/worker.js`, `client.js` | Module worker plus a Promise client with a main-thread fallback. |
-| | `js/astro/shadow.js`, `photometry.js` | Eclipse disc overlap; B−V colour, refraction, airmass, exposure. |
+| | `js/astro/shadow.js`, `photometry.js` | Eclipse disc overlap; B−V colour, refraction (and `liftByRefraction`, the sky view's drawn positions), airmass, exposure. |
 | | `js/astro/totality.js` | Totality from the ground: Baily's beads (lunar limb profile), corona epoch parameters, contact-time display adaptation, the horizon ring's azimuthal shape. Illustrative in detail (ASTRONOMY.md). |
 | Data | `js/data/catalog.js` | Decodes `data/sky.json` into GPU-ready typed arrays in the scene frame. |
 | Render | `js/render/context.js` | Renderer, scene, camera, tier switching, `invalidate`/`onInvalidate`, context loss, stats. |
 | | `js/render/postfx.js` | Composer with bloom and the final pass (FXAA when the scene target has no MSAA). |
 | | `js/render/textures.js` | Placeholder-first texture store with byte-weighted progress. |
 | | `js/render/earth.js`, `atmosphere.js` | Earth shader (day, night lights, glint, twilight, clouds, eclipse shadow, footprint) and atmosphere. |
-| | `js/render/sky.js`, `bodies.js`, `ground.js` | Stars, constellations, Milky Way and grids; Sun (with totality's thin crescent, corona, chromosphere and prominences under `SUN_ECLIPSE`), planets and the true-scale Moon; sky-view dome and ground (totality's 360° horizon ring). |
+| | `js/render/sky.js`, `bodies.js`, `ground.js` | Stars, constellations, Milky Way and grids; Sun (with totality's thin crescent, corona, chromosphere and prominences under `SUN_ECLIPSE`), planets and the true-scale Moon; sky-view dome and ground (totality's 360° horizon ring, the illustrative landscape and sea, twilight- and moonlit land). |
 | | `js/render/totality.js` | Baily's beads and the diamond ring: up to eight HDR point sprites at `snap.eclipse.beads` (the flare's starburst follows the brightest). |
 | | `js/render/beams.js`, `pin.js`, `labels.js` | Signature beams, observer pin and horizon disc, DOM label pool. |
 | | `js/render/trails.js`, `flare.js`, `debug.js` | Retrograde paths, lens flare, `?debug=1` overlay. |
@@ -303,6 +304,21 @@ The render order is fixed in SPEC §E.1. From back to front:
 - 40: pin
 - 50: flare
 
+**Sky view draws apparent positions.** Every at-infinity shader goes through `infinityClip`, which
+lifts the direction by refraction (`REFRACT_CHUNK`, `shaders/sky.glsl.js`) when its material sets
+`uRefrUp` (the zenith) and `uRefrK` (the view blend). A module shares one pair of uniform objects
+across its materials and sets them in `apply`/`update`. Materials compiled to the same program must
+all declare both, or one inherits another's lift: `createLineLayer` always does (the alt-az grid
+with strength 0). The Moon's vertex shader lifts each vertex about the camera, `DISC_FRAG` flattens
+the Sun, and JS uses `astro/photometry.js liftByRefraction` wherever a direction becomes a screen
+position or a horizon test (labels, picking, the flare).
+
+**One horizon.** `main.js` creates a single `geo/horizon.js` profile and hands it to the ground
+(which builds it once per observer change, from the city list and the ocean mask read back
+through a small canvas, and uploads it as a float texture), to the bodies (picking), the flare and,
+through `loop.attach`, to the labels. With the landscape layer on they all test the same
+silhouette, so a body behind a hill is neither drawn, labelled as up, clickable nor flaring.
+
 **Globe ↔ sky transitions.** The rig (`stepToSky` / `stepToOrbit`) drives `skyBlend`. The sky
 dome, stars and exposure follow it. The sky-view ground, the clouds and the atmosphere shell follow
 `groundCover(skyBlend)` (`render/sky.js`) instead, which completes at skyBlend 0.5 while the camera
@@ -323,9 +339,11 @@ change.
   the upper-right diagonal just outside the glyph, the Sun or Moon disc (the larger one in a solar
   eclipse) and the selection reticle, recomputed each frame from the zoom (`bodyLabelOffsets`). It
   reads NaN until the beam lands, so labels appear as the launch completes.
-- **Below the horizon** (`is-below`): orbit view uses the snapshot's refraction- and limb-aware
-  `above`, like the beams and the Sky panel. Sky view uses the geometric altitude, because bodies
-  are drawn unrefracted there.
+- **Below the horizon** (`is-below`): the snapshot's refraction- and limb-aware `above`, like the
+  beams and the Sky panel, in both views (sky view draws bodies refracted). In sky view with the
+  landscape on, the apparent upper limb is tested against the shared horizon profile instead
+  (`labelBelow`). Direction anchors (and the beams' points at infinity) are lifted by refraction in
+  `labels.js` as they are projected; the cardinals are not, they mark the horizon itself.
 - **Orbit view** adds the observer label at the pin head and N/E/S/W on the horizon-disc rim.
 - **Sky view** adds the cardinal points just above the horizon, bright star names (mag ≤ 2.5) and
   constellation names.
@@ -444,12 +462,13 @@ change.
 
 ```
 #loc=21.0285,105.8542&n=Hanoi&cc=VN&tz=Asia/Ho_Chi_Minh&el=15&t=2027-08-02T10:07:00Z&r=3600&p=1
- &view=orbit&lock=1&sel=moon&ly=bgoscCnmkazhl&q=auto&cam=o:21.0,105.8,3.2&intro=0&debug=1
+ &view=orbit&lock=1&sel=moon&ly=bgoscCnmkazhld&q=auto&cam=o:21.0,105.8,3.2&intro=0&debug=1
 ```
 
 - No `t` means Live.
 - `r` is the signed rate in sim-seconds per second, snapped to the ladder.
-- `ly` is the exact set of enabled layers.
+- `ly` is the exact set of enabled layers. `d` is the illustrative landscape: links made before it
+  existed carry no `d`, so they open with the flat horizon.
 - `cam` is `o:lat,lon,dist` (the sub-camera point) or `s:az,alt,fov`.
 - `sel` selects a body and opens its card (the Details tab), as a click on it would.
 

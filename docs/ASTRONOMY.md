@@ -159,9 +159,11 @@ moonPhaseDeg  = AE.MoonPhase(time)
 - **Elongation side.** "Morning" when the body's ecliptic longitude is west of the Sun's, otherwise
   "evening".
 - **Up.** The Sun and Moon count as up while their upper limb clears the horizon: refracted
-  altitude plus the semi-diameter, above 0. The beams, the Sky panel and orbit-view labels use
-  this flag. Sky-view labels use the geometric altitude instead, because bodies are drawn there
-  without refraction: for a few minutes around sunset the drawn Sun is already below the ground.
+  altitude plus the semi-diameter, above 0. The beams, the Sky panel and the labels in both views
+  use this flag. The sky view draws bodies refracted (§6), so at the almanac's sunset the drawn
+  Sun's upper limb touches the horizon while the panel still says "up". With the illustrative
+  landscape on, sky-view labels test the same apparent altitude against the silhouette instead of
+  0 (§6, *Illustrative landscape*).
 
 ### Why the drawing uses astrometric J2000 and the tables use apparent of-date
 
@@ -212,6 +214,22 @@ from the true Sun direction. The phase you see is therefore correct by construct
   `R = 1.02′ / tan(h + 10.3°/(h + 5.11°))`, clamped at −1° and tapered to 0 at the nadir.
   `refractionDeg(0) ≈ 0.483°`. It mirrors Astronomy Engine's `Refraction('normal', h)` exactly, so
   the 'frame' pass and `AE.Horizon(…, 'normal')` in the tables agree.
+- **Refraction in the sky view.** The sky view draws apparent positions. Every direction at
+  infinity (stars, Milky Way, constellation lines, grids of the celestial sphere, trails, the Sun,
+  planets, Baily's beads, the selection reticle) is lifted toward the zenith by `k·R(h)`, keeping its
+  azimuth: `refractLift` in `REFRACT_CHUNK` (`shaders/sky.glsl.js`), with `k` the view blend (0 in
+  orbit view), and `liftByRefraction` in JS for picking, labels and the flare, the same formula.
+  The alt-az grid is not lifted: it is drawn in apparent coordinates already. The Moon, a 3D mesh,
+  is lifted vertex by vertex about the camera, which also flattens it near the horizon. The Sun's
+  disc is flattened per fragment: each fragment's apparent altitude goes back to true altitude
+  through Bennett's formula `R = 1′ / tan(h + 7.31°/(h + 4.4°))` (`refractionFromApparentDeg`, the
+  inverse of Sæmundsson to 0.1′ above −0.6°), relative to the centre. At the horizon the vertical
+  diameter shrinks by about a fifth and the lower limb is squeezed most. Result: at
+  `SearchRiseSet`'s sunset (Paris, 2026-11-03 16:27:08 UTC) the geometric centre is at −0.83° but
+  the drawn upper limb sits on the horizon (within 0.1°, tested), where it used to be drawn 0.84°
+  under the ground. The lift is physical (the standard 'normal' refraction, 10 °C, 1010 hPa); the
+  eclipse geometry (`obscurationAtObserver`) stays unrefracted, which is off by the differential
+  refraction across the discs (≲ 0.1° at the horizon) for an eclipse on the horizon.
 - **Airmass.** Kasten–Young (1989). It feeds `extinctionMag` (k = 0.2 mag per airmass) for
   Tonight's visibility notes.
 - **Twilight classes** by solar altitude:
@@ -259,6 +277,35 @@ from the true Sun direction. The phase you see is therefore correct by construct
     with no floor.
 
   The disc then reads amber at +1.5°, orange at +1° and deep orange to red below +0.5°.
+
+- **The ground in twilight and moonlight** (`GROUND_FRAG`, display-referred, illustrative). The
+  land's skylight follows the dome's own twilight factor, `smoothFall(4°, −1°, h☉)·e^(h☉/5.5°)`, in
+  a blue-grey: about 0.025 at −3°, 0.015 at −6° and 0.003 at −12° (linear, before ACES), gone by
+  −17°. The horizon haze band above it gets more of the same light, so the horizon stays about
+  twice as bright as the land and still reads. A bright Moon silvers the land: its brightness
+  `√(10^(−0.4(m − m_full)))` (m_full = −12.7), times `√sin h☾`, times the sunlight left on it in a
+  lunar eclipse, only once the daylight has gone. These levels are tuned to read on a display, not
+  measured. On a portrait screen the sky view's default look is 25° up (15° otherwise) when the
+  link carries no camera, so the ground takes less of the screen.
+
+- **Illustrative landscape** (`js/geo/horizon.js`, layer "Illustrative landscape", on by default).
+  The sky view's horizon is a made-up silhouette for each place, not surveyed terrain:
+  - a far ridge from periodic value noise, at most 0.5° (a 1.5° ridge would move sunset by
+    minutes against the panel);
+  - a near band of tree crowns, or of rooftops (flat or gabled, chimneys, the odd tower or dome)
+    where the cities within 30 km (data/cities.json, weighted by `e^(−d/6 km)`) add up to a town,
+    at most 1.2°;
+  - flat sea in the azimuths whose far ground (6–30 km out) is water on the ocean mask the globe
+    already loads, with a Fresnel sky reflection and an analytic glitter path under the Sun and the
+    Moon (Cox–Munk slopes, variance 0.02: one calm wind).
+
+  Everything random is seeded by the place rounded to 0.1°, so a place keeps its horizon. The
+  profile has 2048 azimuth samples, linear in between, uploaded as a float texture; the flare,
+  picking and the labels read the same array, so nothing is drawn behind a hill and still clickable
+  or flaring. The almanac, the rise and set times, the Sky panel's up/down and the beams keep the
+  mathematical horizon: with the landscape on, the Sun disappears behind a 0.3° ridge about two
+  minutes before the printed sunset at mid-latitudes. Turn the layer off to see the flat horizon
+  (the old look).
 
 ---
 
@@ -486,7 +533,8 @@ and AE's contacts to 0.1 s; the shapes are illustrative.
 | Beam far endpoint at 2000 Earth radii | `camDist / 2000` rad | 0.1° at the default 3.4 ER view. The beam is a line from the pin, so seen from elsewhere it converges at 2000 ER. |
 | Polar motion (ignored) | ≤ 0.5″ (≈ 15 m) | |
 | Star proper motion (catalogue fixed at J2000) | 0.2″–10″/yr | Negligible within a few centuries. The fastest naked-eye stars shift by up to about a degree 1000 years from 2000. |
-| Refraction model | several ′ near the horizon | Real refraction depends on temperature and pressure. Rise and set times are good to about a minute. |
+| Refraction model | several ′ near the horizon | Real refraction depends on temperature and pressure. Rise and set times are good to about a minute. The sky view draws the same model (§6). |
+| Illustrative landscape | up to 0.5° (ridge), 1.2° (trees, roofs) | Invented per place. Bodies set behind it minutes before the almanac's (mathematical-horizon) times; the layer can be turned off. |
 | Float32 on the GPU | ≈ 0.01″ | Unit vectors in single precision. |
 | Sub-points, footprint | geocentric | The footprint is the hemisphere where the body's geocentric direction is above the horizon. Parallax and refraction are not applied. It is a guide, not a contact time. |
 

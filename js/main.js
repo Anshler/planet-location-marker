@@ -25,6 +25,7 @@ import * as tz from './core/tz.js';
 import * as format from './core/format.js';
 import { loadCities, placeToObserver } from './geo/cities.js';
 import { createGeocoder, createLruCache } from './geo/geocode.js';
+import { createHorizon } from './geo/horizon.js';
 import { BODIES, isBodyId, bodyById } from './astro/bodies.js';
 import { createSnapshot, computeSnapshot } from './astro/snapshot.js';
 import { createAstroClient } from './astro/client.js';
@@ -84,6 +85,8 @@ const R = {
     /** @type {any} */ labelsFeed: null,
     /** @type {any} */ textures: null,
     /** @type {any} */ governor: null,
+    /** The sky view's illustrative landscape profile (geo/horizon.js), built by the ground module. */
+    /** @type {any} */ horizon: null,
     /** WebGL renderer string: the key of the governor's learned tier. */
     rendererString: '',
     /** @type {any} */ catalog: null,
@@ -552,7 +555,7 @@ async function boot() {
         enterTextMode(env.webgl2 ? 'no-importmap' : 'no-webgl2');
     } else {
         try {
-            await bootRender({ env, hash, store, bus, clock, actions, render, loop, snap, governor, renderModsP, skyJsonP, astro });
+            await bootRender({ env, hash, store, bus, clock, actions, render, loop, snap, governor, renderModsP, skyJsonP, astro, cities });
         } catch (err) {
             enterTextMode('context-failed', err);
         }
@@ -742,7 +745,7 @@ let currentCfg = null;
 let readyFlag = false;
 
 async function bootRender(ctx) {
-    const { env, hash, store, bus, clock, render, loop, snap, governor, renderModsP, skyJsonP, astro } = ctx;
+    const { env, hash, store, bus, clock, render, loop, snap, governor, renderModsP, skyJsonP, astro, cities } = ctx;
     const m = await renderModsP;
     if (!m?.context?.createRenderContext) throw new Error('The 3D engine could not be loaded.');
     loader.progress(0.35, 'Building the globe');
@@ -808,17 +811,21 @@ async function bootRender(ctx) {
         }
     };
     const rm = env.reducedMotion;
+    // One landscape profile for the whole stack: the ground builds and draws it; bodies (picking),
+    // the flare and the labels test against it, so they all agree with the silhouette.
+    const horizon = createHorizon();
+    R.horizon = horizon;
     const earth = create('earth', m.earth && (() => m.earth.createEarth(rc, { textures })));
     create('atmosphere', m.atmosphere && (() => m.atmosphere.createAtmosphere(rc)));
     const sky = create('sky', m.sky && (() => m.sky.createSky(rc, { catalog: catalog ?? emptyCatalog(), textures, reducedMotion: rm })));
-    create('bodies', m.bodies && (() => m.bodies.createBodies(rc, { textures })));
+    create('bodies', m.bodies && (() => m.bodies.createBodies(rc, { textures, horizon })));
     create('totality', m.totality && (() => m.totality.createTotality(rc)));
-    create('ground', m.ground && (() => m.ground.createGround(rc)));
+    create('ground', m.ground && (() => m.ground.createGround(rc, { textures, horizon, cities })));
     const trails = create('trails', m.trails && (() => m.trails.createTrails(rc)));
     const eclipseRibbon = create('eclipsePath', m.eclipsePath && (() => m.eclipsePath.createEclipsePath(rc)));
     const beams = create('beams', m.beams && (() => m.beams.createBeams(rc, { reducedMotion: rm })));
     const pin = create('pin', m.pin && (() => m.pin.createPin(rc)));
-    create('flare', m.flare && (() => m.flare.createFlare(rc, { textures })));
+    create('flare', m.flare && (() => m.flare.createFlare(rc, { textures, horizon })));
 
     // Labels and camera rig.
     let labels = null;
@@ -895,7 +902,10 @@ async function bootRender(ctx) {
     bindViewInsets(rig, store);
 
     // 7. Render.
-    loop.attach({ rc, rig, modules, moduleNames: names, labels, labelsFeed, governor: env.webdriver ? null : governor, getTierCfg: () => currentCfg });
+    loop.attach({
+        rc, rig, modules, moduleNames: names, labels, labelsFeed, governor: env.webdriver ? null : governor,
+        getTierCfg: () => currentCfg, horizon,
+    });
     bindRenderState({ store, bus, clock, rc, rig, loop, snap, astro, m, labels, labelsFeed, textures });
 
     // 8. Ready: critical imagery, or 5 s, or "continue with low detail".

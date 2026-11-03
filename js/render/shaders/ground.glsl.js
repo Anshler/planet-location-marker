@@ -162,6 +162,63 @@ void main() {
 `;
 
 /**
+ * The illustrative landscape's profile (geo/horizon.js), uploaded by ground.js as an N×1 RGBA float
+ * texture: r = far ridge, g = near band (trees, roofs), b = sea fraction, a = silhouette (degrees).
+ * Sample i sits at azimuth i·360°/N; between samples the profile is linear — the same interpolation
+ * as horizonAltDeg in JS, so the drawn hills and every JS horizon test agree.
+ * @type {string}
+ */
+export const LANDSCAPE_CHUNK = /* glsl */`
+uniform highp sampler2D uHorizon;
+vec4 horizonAt(float azDeg) {
+    int n = textureSize(uHorizon, 0).x;
+    float fn = float(n);
+    float x = azDeg / 360.0 * fn;
+    x -= floor(x / fn) * fn;
+    float i0 = floor(x);
+    int a = min(int(i0), n - 1);
+    int b = a + 1 >= n ? 0 : a + 1;
+    return mix(texelFetch(uHorizon, ivec2(a, 0), 0), texelFetch(uHorizon, ivec2(b, 0), 0), x - i0);
+}
+`;
+
+/**
+ * Sea sectors (LANDSCAPE_DETAIL): Fresnel (Schlick, water F0 = 0.02) between the light scattered up
+ * from the water and the sky in the mirrored direction — stood in for by the horizon haze, darkening
+ * toward the zenith — plus (LANDSCAPE_GLINT) the analytic glitter path under the Sun and the Moon:
+ * Cox & Munk's wind-roughened sea, facets tilted to mirror the source s into the eye along −d
+ * (normal n = normalize(s − d)) with Gaussian slopes of variance SEA_S2. The path is a vertically
+ * elongated lobe under the source that widens toward the viewer. Illustrative: one calm wind speed.
+ * @type {string}
+ */
+export const SEA_CHUNK = /* glsl */`
+const float SEA_S2 = 0.02;
+float glint(vec3 d, vec3 s) {
+    vec3 hv = s - d;
+    float l = length(hv);
+    if (l < 1e-4) return 0.0;
+    vec3 n = hv / l;
+    float c = clamp(dot(n, uUp), 0.05, 1.0);
+    float c2 = c * c;
+    float t2 = (1.0 - c2) / c2;
+    float mu = clamp(-dot(d, uUp), 0.02, 1.0);
+    float ci = clamp(dot(s, n), 0.0, 1.0);
+    float F = 0.02 + 0.98 * pow(max(1.0 - ci, 0.0), 5.0);
+    return F * exp(-t2 / SEA_S2) / (12.566371 * SEA_S2 * c2 * c2 * mu);
+}
+vec3 seaColor(vec3 d, float h, vec3 hazeH, vec3 groundCol) {
+    float mu = clamp(-h, 0.0, 1.0);
+    float F = 0.02 + 0.98 * pow(max(1.0 - mu, 0.0), 5.0);
+    vec3 skyR = hazeH * mix(1.0, 0.35, smoothstep(0.0, 0.5, mu));
+    vec3 c = mix(groundCol * vec3(0.10, 0.17, 0.22), skyR, F);
+#ifdef LANDSCAPE_GLINT
+    c += uSunGlint * glint(d, uSunDir) + uMoonGlint * glint(d, uMoonDir);
+#endif
+    return c;
+}
+`;
+
+/**
  * Premultiplied output (blend ONE, ONE_MINUS_SRC_ALPHA): the ground covers everything below the
  * horizon with normal-blend alpha, while the haze above it is purely additive. Drawn without a
  * depth test so the Moon, planets and Sun below the horizon are hidden too.
@@ -169,24 +226,42 @@ void main() {
  * By day the ground is lit like the land it stands for: albedo ~0.3 under skylight plus direct
  * Sun growing with its altitude, at the sky's own exposure, so it reads mid-grey under a blue sky
  * (it used to stay near-black, and the globe-to-sky descent dipped through a black screen).
- * Toward the horizon it fades into the haze (aerial perspective from the 3 km eye); at night it
- * is near-black. uDayGain/uEclFloor are the sky's eclipse terms (ground.js), so a solar eclipse
- * darkens the land with the sky instead of brightening it with the rising exposure. During a
- * globe ↔ sky transition uCover reaches 1 ahead of the sky blend, so the ground hides the globe
- * before the camera tilts its rim into view.
+ * Toward the horizon it fades into the haze (aerial perspective from the 3 km eye). Through civil
+ * and nautical twilight it stays a readable dim blue-grey (twilight-lit-ground: display-referred,
+ * ~0.025 at −3°, ~0.015 at −6°, ~0.003 at −12°, gone by −17°, about half the horizon band), and a
+ * moonlit night silvers it (uMoonLight, ground.js: phase, altitude and eclipse). uDayGain/uEclFloor
+ * are the sky's eclipse terms (ground.js), so a solar eclipse darkens the land with the sky instead
+ * of brightening it with the rising exposure. During a globe ↔ sky transition uCover reaches 1
+ * ahead of the sky blend, so the ground hides the globe before the camera tilts its rim into view.
+ *
+ * With uLandscape the edge is the illustrative landscape's silhouette (LANDSCAPE_CHUNK), anti-
+ * aliased with fwidth: a hazy far ridge and (LANDSCAPE_DETAIL: medium tier up) a dark near band of
+ * trees or roofs; sea sectors stay flat and reflect the sky (SEA_CHUNK). The low tier draws one
+ * flat-shaded silhouette and a plain sea.
  */
 export const GROUND_FRAG = /* glsl */`
 uniform vec3 uUp;
-uniform vec3 uSunDir;
+uniform vec3 uNorth;
+uniform vec3 uEast;
+uniform vec3 uSunDir;     // the Sun as drawn (refracted)
+uniform vec3 uMoonDir;    // the Moon as drawn (refracted)
 uniform float uSunAltDeg;
 uniform float uCover;     // groundCover(skyBlend) in ground.js: 0 in orbit view, 1 in sky view
 uniform float uDisplay;
 uniform float uDayGain;
 uniform float uEclFloor;
 uniform float uObscuration;
+uniform float uLandscape; // 1: the silhouette in uHorizon; 0: the flat mathematical horizon
+uniform float uMoonLight; // moonlight on the land, 0…1 (display-referred)
+uniform vec3 uSunGlint;   // glitter colour × gain (ground.js)
+uniform vec3 uMoonGlint;
 varying vec3 vDir;
 ${SMOOTH_FALL_CHUNK}
 ${ECLIPSE_RING_CHUNK}
+${LANDSCAPE_CHUNK}
+#ifdef LANDSCAPE_DETAIL
+${SEA_CHUNK}
+#endif
 void main() {
     vec3 d = normalize(vDir);
     float h = clamp(dot(d, uUp), -1.0, 1.0);
@@ -194,9 +269,16 @@ void main() {
     // Daylight on the ground (before exposure): skylight, which fades through civil twilight (the
     // land stays far darker than the glowing horizon at dusk), plus the direct Sun with its altitude.
     float sunS = sin(radians(clamp(uSunAltDeg, 0.0, 90.0)));
-    float sky = smoothstep(-7.0, 3.0, uSunAltDeg);
+    float sky = smoothstep(-4.0, 3.0, uSunAltDeg);
     float light = (0.30 * sky * sky + 0.70 * pow(max(sunS, 1e-6), 0.7) * smoothstep(-1.0, 2.0, uSunAltDeg)) * uDayGain;
+    // Twilight skylight (twilight-lit-ground): the dome's own twilight factor (TWILIGHT_CHUNK's k,
+    // with a slower 5.5° e-fold) keeps the land a readable blue-grey through civil and nautical
+    // twilight — ~0.025 at −3°, ~0.015 at −6°, ~0.003 at −12°, gone by −17° — while the haze
+    // band above the horizon (below) stays about twice as bright, so the horizon still reads.
+    float tw = smoothFall(4.0, -1.0, uSunAltDeg) * exp(-max(-uSunAltDeg, 0.0) / 5.5)
+        * smoothstep(-17.0, -10.0, uSunAltDeg) * (1.0 - smoothstep(2.0, 12.0, uSunAltDeg)) * uDayGain;
     vec3 groundCol = vec3(0.0022, 0.0026, 0.0036) * (1.0 - dayK) + vec3(0.36, 0.35, 0.29) * light
+        + vec3(0.038, 0.045, 0.061) * tw + vec3(0.010, 0.0125, 0.017) * uMoonLight
         + vec3(0.006, 0.009, 0.014) * uEclFloor;
     vec3 hazeCol = vec3(0.05, 0.07, 0.12) * (1.0 - dayK) + vec3(0.6, 0.7, 0.85) * dayK * uDayGain
         + vec3(0.03, 0.04, 0.07) * uEclFloor;
@@ -210,16 +292,44 @@ void main() {
     sw *= sw;
     hazeCol = mix(hazeCol, vec3(1.0, 0.55, 0.28) * (0.35 + 0.65 * dayK) * uDayGain, low * sw * sw);
     hazeCol *= mix(0.25, 1.0, smoothstep(-14.0, -2.0, uSunAltDeg));
+    // Twilight and moonlit haze: the horizon band stays brighter than the land it lights.
+    hazeCol += (vec3(0.066, 0.088, 0.143) * tw + vec3(0.025, 0.032, 0.050) * uMoonLight) * (1.0 - dayK);
     // Totality: the horizon ring lights the haze below it and, dimly, the land.
     float tot = smoothstep(0.985, 1.0, uObscuration);
     if (tot > 0.0) {
         hazeCol += vec3(0.30, 0.13, 0.04) * eclipseRing(dH, dl) * tot;
         groundCol += vec3(0.020, 0.013, 0.009) * uEclH1.w * tot;
     }
-    // Aerial perspective: the far ground fades into the horizon haze (only faintly at night).
-    float aer = exp(min(h, 0.0) / 0.07) * mix(0.2, 0.85, dayK);
-    vec3 ground = mix(groundCol, hazeCol * mix(0.25, 1.5, dayK), aer);
-    float a = smoothFall(0.0025, -0.0025, h);
+    // Aerial perspective: the far ground fades into the horizon haze (faintly at night, a little
+    // more in twilight, so the land lightens toward the horizon instead of darkening).
+    float night = max(tw, uMoonLight);
+    vec3 hazeH = hazeCol * mix(mix(0.25, 0.7, night), 1.5, dayK);
+    float aer = exp(min(h, 0.0) / 0.07) * mix(mix(0.2, 0.45, night), 0.85, dayK);
+    vec3 land = mix(groundCol, hazeH, aer);
+    vec3 ground = land;
+    float a;
+    if (uLandscape > 0.5) {
+        float hDeg = degrees(asin(clamp(h, -1.0, 1.0)));
+        float az = dl > 1e-6 ? degrees(atan(dot(dH, uEast), dot(dH, uNorth))) : 0.0;
+        vec4 P = horizonAt(az);
+        float w = clamp(0.75 * fwidth(hDeg), 0.003, 0.3);
+        a = 1.0 - smoothstep(-w, w, hDeg - P.a);
+        float above = smoothstep(-w, w, hDeg);
+#ifdef LANDSCAPE_DETAIL
+        // The far ridge, tens of km out, is washed into the haze; the near band of trees or roofs
+        // is a dark, backlit silhouette.
+        vec3 ridge = mix(groundCol, hazeH, mix(0.4, 0.8, dayK));
+        vec3 trees = mix(groundCol * 0.5, hazeH, 0.08);
+        vec3 sil = mix(ridge, trees, 1.0 - smoothstep(-w, w, hDeg - P.g));
+        vec3 below = P.b > 0.002 ? mix(land, seaColor(d, h, hazeH, groundCol), P.b) : land;
+#else
+        vec3 sil = mix(groundCol * 0.5, hazeH, 0.08);
+        vec3 below = mix(land, hazeH * 0.35, 0.6 * P.b);
+#endif
+        ground = mix(below, sil, above);
+    } else {
+        a = smoothFall(0.0025, -0.0025, h);
+    }
     vec3 haze = exp(-max(h, 0.0) / 0.03) * hazeCol * 0.25 * (1.0 - a);
     gl_FragColor = vec4((ground * a + haze) * uCover * uDisplay, a * uCover);
     #include <tonemapping_fragment>

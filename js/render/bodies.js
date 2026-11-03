@@ -10,7 +10,11 @@
  *   at its geocentric position; sky view along the snapshot's topocentric astrometric `dirS` at its
  *   topocentric distance from the eye, the same discs as `obscurationAtObserver` (snapshot.js).
  * - Selection reticle around the selected body, with a short "acquire" animation.
- * In sky view everything is dimmed and reddened by atmospheric extinction toward the horizon.
+ * In sky view everything is dimmed and reddened by atmospheric extinction toward the horizon, and
+ * drawn where refraction puts it (REFRACT_CHUNK, strength = the view blend): the at-infinity quads
+ * are lifted in their vertex shaders, the Moon per vertex (so a low Moon flattens), and the Sun's
+ * disc is mapped back to true altitude per fragment (DISC_FRAG). Picking uses the same lift and the
+ * illustrative landscape's silhouette (geo/horizon.js).
  */
 import * as THREE from 'three';
 import { BODIES, MOON_RADIUS_ER, SUN_ANG_RADIUS_1AU_RAD, sunAngularRadius } from '../astro/bodies.js';
@@ -20,6 +24,8 @@ import {
 import { skyViewExposure } from './sky.js';
 import { moonKeyFor } from './textures.js';
 import { discVisibleFraction } from '../astro/shadow.js';
+import { liftByRefraction, refractionDeg } from '../astro/photometry.js';
+import { clearanceDeg } from '../geo/horizon.js';
 import {
     coronaParams, createCoronaParams, coronaVisibility, coronaStretch, chromosphereFlash, photosphereAdapt,
 } from '../astro/totality.js';
@@ -130,11 +136,12 @@ const FALLBACK_MAG = [-26.7, -10, 0, -4, 1, -2.2, 0.6, 5.7, 7.8];
 /**
  * Creates the bodies module.
  * @param {object} rc RenderContext (SPEC C.6)
- * @param {{textures?:object|null, reducedMotion?:boolean}} [deps]
+ * @param {{textures?:object|null, reducedMotion?:boolean, horizon?:import('../geo/horizon.js').HorizonProfile|null}} [deps]
+ *   `horizon`: the shared landscape profile (picking leaves out bodies behind it)
  * @returns {object} RenderModule & {pickCandidates():Array<{id:string, dirS:Float64Array}>, setReducedMotion(on:boolean)}
  */
 export function createBodies(rc, deps = {}) {
-    const { textures = null } = deps;
+    const { textures = null, horizon = null } = deps;
     const group = new THREE.Group();
     group.name = 'bodies';
     let cfg = rc && rc.tier && typeof rc.tier === 'object' ? rc.tier : null;
@@ -157,6 +164,11 @@ export function createBodies(rc, deps = {}) {
     const moonDrawPos = new THREE.Vector3(60, 0, 0);    // where the mesh is drawn this frame
     const moonDirCam = new Float64Array([1, 0, 0]);
     const linColors = BODIES.map(b => new THREE.Color(b.color));
+    const upS = new Float64Array([0, 1, 0]);
+    const northS = new Float64Array([0, 0, -1]);
+    const eastS = new Float64Array([1, 0, 0]);
+    // Refraction lift (REFRACT_CHUNK) shared by every material here: the zenith and the view blend.
+    const refr = { uRefrUp: { value: new THREE.Vector3(0, 1, 0) }, uRefrK: { value: 0 } };
     let skyBlend = 0;
     let sunAltDeg = -90;
     let obscuration = 0;
@@ -192,6 +204,9 @@ export function createBodies(rc, deps = {}) {
         uPromPA: { value: new THREE.Vector4(1, 2, -1, -2) },
         uPromH: { value: new THREE.Vector4(0.04, 0.04, 0.04, 0.1) },
         uPromW: { value: new THREE.Vector4(0.06, 0.06, 0.06, 0.06) },
+        // Refraction: the disc flattens near the horizon (DISC_FRAG).
+        uRefrV: { value: new THREE.Vector4(0, 1, 0, 0) },
+        ...refr,
     };
     const sunMaterial = new THREE.ShaderMaterial({
         name: 'bodies.sun', uniforms: sunUniforms, vertexShader: DISC_VERT, fragmentShader: DISC_FRAG,
@@ -221,6 +236,8 @@ export function createBodies(rc, deps = {}) {
         uGlowScale: { value: 2.2 * DEG },
         uGlowGain: { value: 0 },
         uOcclude: { value: 0 },
+        uRefrV: { value: new THREE.Vector4(0, 1, 0, 0) },
+        ...refr,
     };
     const aureoleMaterial = new THREE.ShaderMaterial({
         name: 'bodies.aureole', uniforms: aureoleUniforms, vertexShader: DISC_VERT, fragmentShader: DISC_FRAG,
@@ -251,6 +268,7 @@ export function createBodies(rc, deps = {}) {
         uViewport: { value: new THREE.Vector2(1, 1) },
         uDpr: { value: 1 },
         uExposure: { value: 1 },
+        ...refr,
     };
     const glyphMaterial = new THREE.ShaderMaterial({
         name: 'bodies.glyphs', uniforms: glyphUniforms, vertexShader: GLYPH_VERT, fragmentShader: GLYPH_FRAG,
@@ -271,6 +289,7 @@ export function createBodies(rc, deps = {}) {
         uAlpha: { value: 0 },
         uRot: { value: 0 },
         uColor: { value: new THREE.Color(1, 1, 1) },
+        ...refr,
     };
     const reticleMaterial = new THREE.ShaderMaterial({
         name: 'bodies.reticle', uniforms: reticleUniforms, vertexShader: RETICLE_VERT, fragmentShader: RETICLE_FRAG,
@@ -302,6 +321,7 @@ export function createBodies(rc, deps = {}) {
         uUmbraGain: { value: 1 },
         // The Sun's angular radius seen from the Moon (sunAngularRadius; within 0.3 % of Earth's).
         uSunR: { value: SUN_ANG_RADIUS_1AU_RAD },
+        ...refr,
     };
     if (!moonUniforms.uMap.value) {
         const grey = new THREE.DataTexture(new Uint8Array([136, 136, 136, 255]), 1, 1, THREE.RGBAFormat);
@@ -313,7 +333,7 @@ export function createBodies(rc, deps = {}) {
     // (solar eclipses) even though its colour is added on top of the sky.
     // (No tonemapping/colorspace includes, unlike every other fragment: colour writes are off.)
     const moonDepthMaterial = new THREE.ShaderMaterial({
-        name: 'bodies.moon.depth', vertexShader: MOON_VERT,
+        name: 'bodies.moon.depth', vertexShader: MOON_VERT, uniforms: { ...refr },
         fragmentShader: 'void main() { gl_FragColor = vec4(0.0); }',
         colorWrite: false, depthWrite: true, depthTest: true,
         polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
@@ -371,7 +391,9 @@ export function createBodies(rc, deps = {}) {
     bindMoon(moonKeyFor(cfg));
 
     // --- picking -------------------------------------------------------------------------------------
-    const candidates = BODIES.map((b, i) => ({ id: b.id, dirS: i === MOON ? moonDirCam : dirs[i] }));
+    // Pick targets at their drawn (lifted) directions, refreshed by pickCandidates().
+    const pickDirs = BODIES.map(() => new Float64Array([1, 0, 0]));
+    const candidates = BODIES.map((b, i) => ({ id: b.id, dirS: pickDirs[i] }));
     const pickList = [];
 
     /** Moves the Moon mesh and its depth pass to world point `p` (orientation kept). */
@@ -397,6 +419,27 @@ export function createBodies(rc, deps = {}) {
         iParams.needsUpdate = true;
     }
 
+    /**
+     * DISC_FRAG's uRefrV for the Sun: the local vertical on screen in the quad's axes, the centre's
+     * apparent altitude and the strength. Off (w = 0) from orbit and for a high Sun, where the
+     * flattening is far below a pixel.
+     */
+    function writeFlattening(cam) {
+        const v = sunUniforms.uRefrV.value;
+        const altG = Math.asin(clamp(sinAlt[SUN], -1, 1)) / DEG;
+        if (!cam || !(skyBlend > 0) || altG > 30 || altG < -5) { v.w = 0; return; }
+        const sd = dirs[SUN];
+        const k = sinAlt[SUN];
+        const e = cam.projectionMatrix.elements;
+        if (!toNdc(cam, sd[0], sd[1], sd[2], ndcS)
+            || !toNdc(cam, sd[0] + 0.02 * (upS[0] - k * sd[0]), sd[1] + 0.02 * (upS[1] - k * sd[1]),
+                sd[2] + 0.02 * (upS[2] - k * sd[2]), ndcO)) { v.w = 0; return; }
+        const px = (ndcO.x - ndcS.x) / e[0], py = (ndcO.y - ndcS.y) / e[5];
+        const l = Math.hypot(px, py);
+        if (!(l > 1e-9)) { v.w = 0; return; }
+        v.set(px / l, py / l, altG + skyBlend * refractionDeg(altG), skyBlend);
+    }
+
     /** NDC of the direction (x, y, z) at infinity (rotation-only view, as the sky shaders); false behind. */
     function toNdc(cam, x, y, z, out) {
         tmpV4.set(x, y, z, 0).applyMatrix4(cam.matrixWorldInverse);
@@ -412,6 +455,11 @@ export function createBodies(rc, deps = {}) {
         if (!snap || !snap.bodies) return;
         haveSnap = true;
         const up = snap.observer && snap.observer.upS;
+        if (up) {
+            const o = snap.observer;
+            for (let k = 0; k < 3; k++) { upS[k] = up[k]; northS[k] = o.northS[k]; eastS[k] = o.eastS[k]; }
+            refr.uRefrUp.value.set(up[0], up[1], up[2]);
+        }
         for (let i = 0; i < BODIES.length && i < snap.bodies.length; i++) {
             const b = snap.bodies[i];
             const d = b.dirS;
@@ -469,6 +517,7 @@ export function createBodies(rc, deps = {}) {
     function update(fi) {
         if (!fi) return;
         skyBlend = Number.isFinite(fi.skyBlend) ? clamp(fi.skyBlend, 0, 1) : 0;
+        refr.uRefrK.value = skyBlend;
         const cam = fi.camera || (rc && rc.camera);
         const r = rc && rc.renderer;
         let w = 1, h = 1, dpr = 1;
@@ -493,6 +542,7 @@ export function createBodies(rc, deps = {}) {
         sunUniforms.uCoreR.value = Math.max(sunR, (3 * dpr) / pxPerRad);
         sunUniforms.uEdge.value = 1 / pxPerRad;
         sunUniforms.uOcclude.value = skyBlend;
+        writeFlattening(cam);
         extinctionRGB(sinAlt[SUN], tint);
         const tr = (1 + (tint[0] - 1) * skyBlend) * display;
         const tg = (1 + (tint[1] - 1) * skyBlend) * display;
@@ -697,13 +747,16 @@ export function createBodies(rc, deps = {}) {
 
     /**
      * Bodies as pick targets: Sun and planets at their (infinite) directions, the Moon along the
-     * camera→Moon ray. In sky view, bodies under the ground are left out.
+     * camera→Moon ray, each lifted by refraction as drawn. In sky view, bodies under the ground or
+     * behind the landscape's silhouette (the shared horizon profile) are left out.
      * @returns {Array<{id:string, dirS:Float64Array}>}
      */
     function pickCandidates() {
         pickList.length = 0;
         for (let i = 0; i < candidates.length; i++) {
-            if (skyBlend > 0.5 && sinAlt[i] < -0.01) continue;
+            const d = i === MOON ? moonDirCam : dirs[i];
+            if (skyBlend > 0.5 && clearanceDeg(horizon, d, upS, northS, eastS, skyBlend) < -0.3) continue;
+            liftByRefraction(d, upS, skyBlend, pickDirs[i]);
             pickList.push(candidates[i]);
         }
         return pickList;

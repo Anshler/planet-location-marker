@@ -141,6 +141,49 @@ export function refractionDeg(altDeg) {
 }
 
 /**
+ * Refraction for an apparent altitude (Bennett 1982): R = 1′ / tan(h + 7.31/(h + 4.4)), in degrees,
+ * clamped at h = −1°. The inverse of {@link refractionDeg} to 0.1′ for true altitudes above −0.6°
+ * (0.4′ at −0.9°); DISC_FRAG (bodies.glsl.js)
+ * uses it to map a fragment's apparent altitude back to true altitude, which flattens a low disc.
+ * @param {number} appAltDeg
+ * @returns {number} Degrees to subtract from the apparent altitude.
+ */
+export function refractionFromApparentDeg(appAltDeg) {
+    if (!(appAltDeg >= -90 && appAltDeg <= 90)) return 0;
+    const h = appAltDeg < -1 ? -1 : appAltDeg;
+    return 1 / Math.tan((h + 7.31 / (h + 4.4)) * DEG) / 60;
+}
+
+/**
+ * Lifts a direction by atmospheric refraction: its altitude above the plane normal to `up` grows by
+ * k·{@link refractionDeg}(altitude), its azimuth is kept. This is what the sky view draws (k = the
+ * view blend; INFINITY_VERT_CHUNK's refractLift in GLSL), so a setting Sun sits on the horizon at
+ * the almanac's sunset. The zenith and nadir are returned unchanged.
+ * @param {ArrayLike<number>} dir unit vector
+ * @param {ArrayLike<number>} up unit zenith
+ * @param {number} k strength, 0 (none) … 1 (full refraction)
+ * @param {Float64Array|number[]} out may alias `dir`
+ * @returns {Float64Array|number[]} out
+ */
+export function liftByRefraction(dir, up, k, out) {
+    const x = dir[0], y = dir[1], z = dir[2];
+    const s = Math.min(1, Math.max(-1, x * up[0] + y * up[1] + z * up[2]));
+    const hx = x - up[0] * s, hy = y - up[1] * s, hz = z - up[2] * s;
+    const l = Math.hypot(hx, hy, hz);
+    if (!(k > 0) || !(l > 1e-9)) {
+        out[0] = x; out[1] = y; out[2] = z;
+        return out;
+    }
+    const alt = Math.asin(s) / DEG;
+    const a = Math.min(90, alt + k * refractionDeg(alt)) * DEG;
+    const c = Math.cos(a) / l, sn = Math.sin(a);
+    out[0] = hx * c + up[0] * sn;
+    out[1] = hy * c + up[1] * sn;
+    out[2] = hz * c + up[2] * sn;
+    return out;
+}
+
+/**
  * Relative airmass (Kasten & Young 1989):
  * X = 1 / (sin h + 0.50572·(h + 6.07995°)^−1.6364). Altitudes below the
  * horizon are clamped to 0° (X ≈ 37.9) so callers never see Infinity.

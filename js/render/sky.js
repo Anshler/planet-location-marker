@@ -113,17 +113,24 @@ function makeLineGeometry(capacity) {
 /**
  * An anti-aliased line layer at infinity: one instance per segment, drawn as a screen-space quad.
  * @param {{capacity?:number, color:number[], alpha:number, halfWidthPx?:number, gapPx?:number,
- *   renderOrder?:number, defines?:object, name?:string, blending?:number}} opts
+ *   renderOrder?:number, defines?:object, name?:string, blending?:number,
+ *   refraction?:{uRefrUp:{value:THREE.Vector3}, uRefrK:{value:number}}|null}} opts `refraction`:
+ *   the owner's shared lift uniforms (REFRACT_CHUNK) for lines on the celestial sphere
  * @returns {{mesh:THREE.Mesh, uniforms:object, ensure(n:number):void, ab:Float32Array, st:Float32Array,
  *   setCount(n:number):void, commit():void, setViewport(w:number,h:number,dpr:number):void, dispose():void}}
  */
 export function createLineLayer(opts) {
     const {
         capacity = 64, color, alpha, halfWidthPx = 0.6, gapPx = 0, renderOrder = -80,
-        defines = {}, name = 'lines', blending = THREE.NormalBlending,
+        defines = {}, name = 'lines', blending = THREE.NormalBlending, refraction = null,
     } = opts;
     let buf = makeLineGeometry(capacity);
+    // Every line material declares its refraction uniforms (shared ones when given, else its own
+    // with strength 0): materials compiled to the same program must not inherit another's lift.
+    const refr = refraction || { uRefrUp: { value: new THREE.Vector3(0, 1, 0) }, uRefrK: { value: 0 } };
     const uniforms = {
+        uRefrUp: refr.uRefrUp,
+        uRefrK: refr.uRefrK,
         uViewport: { value: new THREE.Vector2(1, 1) },
         uHalfWidth: { value: halfWidthPx },
         uGap: { value: gapPx },
@@ -217,6 +224,9 @@ export function createSky(rc, deps = {}) {
     const eastS = new THREE.Vector3(1, 0, 0);
     const southS = new THREE.Vector3();
     const unspin = new THREE.Matrix4();
+    // Refraction lift (REFRACT_CHUNK), shared by stars, the Milky Way and the celestial lines: the
+    // observer's zenith and the view blend (sky view draws apparent positions).
+    const refr = { uRefrUp: { value: upS }, uRefrK: { value: 0 } };
 
     // --- Milky Way ------------------------------------------------------------------------------
     const M = EQJ_TO_GAL;
@@ -239,6 +249,7 @@ export function createSky(rc, deps = {}) {
         uUp: { value: upS },
         uDisplay: { value: 1 },
         uDpr: { value: 1 },
+        ...refr,
     };
     const mwMaterial = new THREE.ShaderMaterial({
         name: 'sky.milkyway', uniforms: mwUniforms,
@@ -295,6 +306,7 @@ export function createSky(rc, deps = {}) {
         uUp: { value: upS },
         uSaturation: { value: 0.85 },
         uDisplay: { value: 1 },
+        ...refr,
     };
     const starMaterial = new THREE.ShaderMaterial({
         name: 'sky.stars', uniforms: starUniforms,
@@ -321,7 +333,7 @@ export function createSky(rc, deps = {}) {
     // --- Lines ------------------------------------------------------------------------------------
     const cons = createLineLayer({
         name: 'sky.constellations', capacity: 1024, color: [0.35, 0.50, 0.80], alpha: CONS_ALPHA_SKY,
-        halfWidthPx: 0.55, gapPx: 5.0, renderOrder: -80, defines: { HIGHLIGHT: '' },
+        halfWidthPx: 0.55, gapPx: 5.0, renderOrder: -80, defines: { HIGHLIGHT: '' }, refraction: refr,
     });
     cons.uniforms.uHighlightColor.value.setRGB(0.62, 0.78, 1.0);
     group.add(cons.mesh);
@@ -333,10 +345,12 @@ export function createSky(rc, deps = {}) {
 
     const eqGrid = createLineLayer({
         name: 'sky.eqgrid', capacity: 5200, color: [0.3, 0.4, 0.6], alpha: 0.18, halfWidthPx: 0.5, renderOrder: -80,
+        refraction: refr,
     });
     group.add(eqGrid.mesh);
     const ecliptic = createLineLayer({
         name: 'sky.ecliptic', capacity: 200, color: [0.9, 0.7, 0.3], alpha: 0.35, halfWidthPx: 0.6, renderOrder: -80,
+        refraction: refr,
     });
     group.add(ecliptic.mesh);
     const altAz = createLineLayer({
@@ -509,6 +523,7 @@ export function createSky(rc, deps = {}) {
             exposure.milkyWay = fi.exposure.milkyWay;
         }
         skyBlend = Number.isFinite(fi.skyBlend) ? fi.skyBlend : 0;
+        refr.uRefrK.value = Math.max(0, Math.min(1, skyBlend));
         const cam = fi.camera || (rc && rc.camera);
         const r = rc && rc.renderer;
         let w = 1, h = 1, dpr = 1;

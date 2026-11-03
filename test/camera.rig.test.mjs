@@ -165,7 +165,8 @@ test('viewModeLook: entering sky view turns to the selected body, except after a
     const snap = snapAt(Date.parse('2027-08-02T10:05:00Z'), LUXOR);
     const jup = snap.bodies[BODY_INDEX.jupiter];
     assert.ok(jup.altGeomDeg > 0, 'Jupiter is up');
-    assert.deepEqual(viewModeLook('sky', 'actions', 'jupiter', snap), { azDeg: jup.azGeomDeg, altDeg: jup.altGeomDeg });
+    assert.deepEqual(viewModeLook('sky', 'actions', 'jupiter', snap), { azDeg: jup.azDeg, altDeg: jup.altDeg },
+        'the apparent (refracted) position the sky view draws');
     assert.deepEqual(viewModeLook('sky', undefined, 'jupiter', snap), selectionLook('jupiter', snap));
     // The jump has already aimed the rig at the event's instant: no second look from this frame.
     assert.equal(viewModeLook('sky', 'event', 'jupiter', snap), undefined);
@@ -174,7 +175,7 @@ test('viewModeLook: entering sky view turns to the selected body, except after a
     assert.equal(viewModeLook('sky', 'actions', null, snap), undefined);
     assert.equal(viewModeLook('sky', 'actions', 'pluto', snap), undefined);
     const down = ['sun', 'moon', 'mercury', 'venus', 'mars', 'saturn', 'uranus', 'neptune']
-        .find((id) => snap.bodies[BODY_INDEX[id]].altGeomDeg < 0);
+        .find((id) => !snap.bodies[BODY_INDEX[id]].above);
     assert.ok(down, 'some body is below the horizon');
     assert.equal(selectionLook(down, snap), undefined);
     assert.equal(selectionLook('jupiter', null), undefined);

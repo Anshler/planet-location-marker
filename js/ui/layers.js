@@ -28,6 +28,7 @@ export const LAYER_GROUPS = [
             ['ecliptic', 'Ecliptic', ['E'], 'The Sun’s yearly path; planets stay close to it'],
             ['eqGrid', 'Equatorial grid (of date)', ['G'], 'Right ascension and declination of date: the true pole and equinox'],
             ['altAzGrid', 'Horizon grid (Sky view)', null, 'Altitude and azimuth when standing on the ground'],
+            ['landscape', 'Illustrative landscape (Sky view)', null, 'Invented hills, trees and sea for your place; rise and set times use the flat horizon'],
         ],
     },
     {

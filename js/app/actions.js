@@ -54,7 +54,7 @@ export const LAYER_LABELS = Object.freeze({
     constellations: 'Constellation lines', constellationNames: 'Constellation names', starNames: 'Star names',
     milkyWay: 'Milky Way', clouds: 'Clouds', atmosphere: 'Atmosphere', ecliptic: 'Ecliptic', eqGrid: 'Equatorial grid (of date)',
     altAzGrid: 'Horizon grid', horizon: 'Horizon disc', footprint: 'Visibility footprint', subpoints: 'Sub-points',
-    trails: 'Path of selected body', labels: 'Labels',
+    trails: 'Path of selected body', labels: 'Labels', landscape: 'Illustrative landscape',
 });
 
 const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
@@ -281,7 +281,7 @@ export function lookSpanning(pts, minFovDeg = ECLIPSE_FOV_DEG) {
 
 /**
  * The sky look at the selected body when it is above the horizon, else undefined (the rig's
- * default look).
+ * default look). Apparent (refracted) position, as the sky view draws it.
  * @param {string|null|undefined} selection
  * @param {import('../core/types.js').Snapshot|null|undefined} snap
  * @returns {{azDeg:number, altDeg:number}|undefined}
@@ -289,7 +289,7 @@ export function lookSpanning(pts, minFovDeg = ECLIPSE_FOV_DEG) {
 export function selectionLook(selection, snap) {
     if (!selection || !isBodyId(selection)) return undefined;
     const b = snap?.bodies?.[BODY_INDEX[selection]];
-    return b && b.altGeomDeg > 0 ? { azDeg: b.azGeomDeg, altDeg: b.altGeomDeg } : undefined;
+    return b && b.above && Number.isFinite(b.altDeg) ? { azDeg: b.azDeg, altDeg: b.altDeg } : undefined;
 }
 
 /**

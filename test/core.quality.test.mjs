@@ -1,7 +1,10 @@
 // Tests for js/core/quality.js — the E.6 table, detectTier cases and the governor.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { TIERS, TIER_ORDER, detectTier, tierConfig, createGovernor, isTier } from '../js/core/quality.js';
+import {
+    TIERS, TIER_ORDER, detectTier, tierConfig, createGovernor, isTier, autoStartTier, learnedTierRecord,
+    LEARNED_TIER_TTL_MS, MAX_CADENCE_MS, CADENCE_PROBE_TICKS,
+} from '../js/core/quality.js';
 
 test('TIERS holds the exact E.6 values', () => {
     assert.deepEqual(TIERS.low, {
@@ -84,6 +87,13 @@ test('tierConfig: device adjustments on a copy', () => {
     assert.notEqual(c.bloom, TIERS.high.bloom);
 });
 
+/** A governor that has already seen a 60 Hz display idle: the cadence is known, so no probe. */
+function gov60(opts) {
+    const gov = createGovernor(opts);
+    for (let i = 0; i < 31; i++) gov.idle(1000 / 60);
+    return gov;
+}
+
 /** Feeds `ms` of frames of duration `dt`; returns every non-null result. */
 function feed(gov, dt, ms) {
     const out = [];
@@ -95,7 +105,7 @@ function feed(gov, dt, ms) {
 }
 
 test('governor steps down after 2 s over budget: DPR first, then the tier', () => {
-    const gov = createGovernor({ tier: 'high', ceiling: 'high', dpr: 2 });
+    const gov = gov60({ tier: 'high', ceiling: 'high', dpr: 2 });
     assert.deepEqual(feed(gov, 16, 10000), [], 'on budget: nothing happens');
     assert.deepEqual(feed(gov, 30, 1500), [], 'not yet 2 s');
     const r1 = feed(gov, 30, 1500);
@@ -119,7 +129,7 @@ test('governor steps down after 2 s over budget: DPR first, then the tier', () =
 });
 
 test('governor never steps up and does not oscillate', () => {
-    const gov = createGovernor({ tier: 'medium', ceiling: 'medium', dpr: 1 });
+    const gov = gov60({ tier: 'medium', ceiling: 'medium', dpr: 1 });
     const results = [];
     for (let cycle = 0; cycle < 10; cycle++) {
         results.push(...feed(gov, 40, 3000));
@@ -130,21 +140,21 @@ test('governor never steps up and does not oscillate', () => {
 });
 
 test('governor: DPR step is skipped when it would not change the effective DPR', () => {
-    const gov = createGovernor({ tier: 'high', ceiling: 'high', dpr: 1 });
+    const gov = gov60({ tier: 'high', ceiling: 'high', dpr: 1 });
     assert.deepEqual(feed(gov, 30, 2200), ['medium']);
-    const unknownDpr = createGovernor({ tier: 'high' });
+    const unknownDpr = gov60({ tier: 'high' });
     assert.deepEqual(feed(unknownDpr, 30, 2200), ['high'], 'unknown device DPR: assume the cap is in effect');
     assert.equal(unknownDpr.dprCap, 1.75);
 });
 
 test('governor: the 1.3 × budget threshold, coarse budget and EMA smoothing', () => {
-    const desktop = createGovernor({ tier: 'medium', dpr: 1 });
+    const desktop = gov60({ tier: 'medium', dpr: 1 });
     assert.deepEqual(feed(desktop, 21, 10000), [], '21 ms < 1.3 × 16.7');
     assert.deepEqual(feed(desktop, 23, 3000), ['low'], '23 ms > 21.71');
-    const mobile = createGovernor({ tier: 'medium', coarse: true, dpr: 3 });
+    const mobile = gov60({ tier: 'medium', coarse: true, dpr: 3 });
     assert.deepEqual(feed(mobile, 40, 10000), [], '40 ms is fine on a 33.4 ms budget');
     assert.deepEqual(feed(mobile, 50, 2500), ['medium'], 'over 43.4 ms: DPR step');
-    const spiky = createGovernor({ tier: 'medium', dpr: 1 });
+    const spiky = gov60({ tier: 'medium', dpr: 1 });
     for (let i = 0; i < 2000; i++) assert.equal(spiky.sample(i % 60 === 0 ? 120 : 14), null, 'isolated hitches are absorbed');
 });
 
@@ -156,7 +166,7 @@ test('governor ignores gaps and junk samples', () => {
 });
 
 test('governor: pin disables it; pin(null) returns to auto at the ceiling', () => {
-    const gov = createGovernor({ tier: 'medium', ceiling: 'medium', dpr: 1 });
+    const gov = gov60({ tier: 'medium', ceiling: 'medium', dpr: 1 });
     assert.equal(gov.pin('high'), 'high', 'the user may pin above the ceiling');
     assert.equal(gov.pinned, 'high');
     assert.deepEqual(feed(gov, 50, 10000), [], 'pinned: no automatic changes');
@@ -170,8 +180,174 @@ test('governor: pin disables it; pin(null) returns to auto at the ceiling', () =
     assert.equal(gov.emaMs, null);
 });
 
+/** Feeds `n` idle (display cadence) intervals produced by `f(i)`. */
+function idle(gov, n, f) {
+    for (let i = 0; i < n; i++) gov.idle(typeof f === 'function' ? f(i) : f);
+}
+
+test('governor: a 30 Hz-capped display (Energy Saver, Low Power Mode) never downgrades a capable GPU', () => {
+    // Without the cadence (and with no loop to probe it) the rAF interval alone reads as slowness,
+    // as in the review's trace: high → DPR step → medium → DPR step → low.
+    const blind = createGovernor({ tier: 'high', ceiling: 'high', dpr: 2 });
+    assert.deepEqual(feed(blind, 33.3, 30000), ['high', 'medium', 'medium', 'low']);
+
+    const gov = createGovernor({ tier: 'high', ceiling: 'high', dpr: 2 });
+    idle(gov, 40, 33.3);
+    assert.equal(gov.cadenceMs, 33.3);
+    assert.equal(gov.budgetMs, 33.3);
+    assert.deepEqual(feed(gov, 33.3, 60000), [], 'frames at the display cadence are on budget');
+    assert.equal(gov.tier, 'high');
+    assert.equal(gov.dprCap, 2);
+});
+
+test('governor: a 48 Hz panel with jitter keeps its tier', () => {
+    // 48 Hz = 20.8 ms; jittered rendered intervals average 21.9 ms, above 1.3 × 16.7 = 21.7.
+    const jitter = (i) => [19.3, 22.3, 20.8, 21.2, 20.4][i % 5];
+    const blind = createGovernor({ tier: 'medium', ceiling: 'medium', dpr: 1 });
+    let out = [];
+    for (let i = 0; i < 3000; i++) { const r = blind.sample(21.9 + (i % 2 ? 1.5 : -1.5)); if (r) out.push(r); }
+    assert.deepEqual(out, ['low'], 'the old budget drops it');
+
+    const gov = createGovernor({ tier: 'medium', ceiling: 'medium', dpr: 1 });
+    idle(gov, 31, jitter);
+    assert.equal(gov.cadenceMs, 20.8, 'median of the jittered idle intervals');
+    out = [];
+    for (let i = 0; i < 3000; i++) { const r = gov.sample(21.9 + (i % 2 ? 1.5 : -1.5)); if (r) out.push(r); }
+    assert.deepEqual(out, []);
+    assert.equal(gov.tier, 'medium');
+});
+
+test('governor: real overload under a 30 Hz cap still steps down', () => {
+    const gov = createGovernor({ tier: 'high', ceiling: 'high', dpr: 1 });
+    idle(gov, 31, 33.3);
+    assert.deepEqual(feed(gov, 66.7, 2100), ['medium'], 'every frame takes two display intervals');
+});
+
+test('governor: the cadence is a robust, sliding, bounded median', () => {
+    const gov = createGovernor({ tier: 'medium', dpr: 1 });
+    idle(gov, 5, 33.3);
+    assert.equal(gov.cadenceMs, null, 'fewer than 6 intervals: not trusted yet');
+    assert.equal(gov.budgetMs, 16.7);
+    idle(gov, 1, 33.3);
+    assert.equal(gov.cadenceMs, 33.3);
+
+    const hitchy = createGovernor({ tier: 'medium', dpr: 1 });
+    idle(hitchy, 31, (i) => (i % 3 === 0 ? 100 : 16.7));
+    assert.equal(hitchy.cadenceMs, 16.7, 'a third of the idle ticks delayed by long tasks: still 60 Hz');
+
+    const fast = createGovernor({ tier: 'high', dpr: 1 });
+    idle(fast, 31, 6.9);
+    assert.equal(fast.cadenceMs, 6.9);
+    assert.equal(fast.budgetMs, 16.7, '144 Hz: the budget never drops below 16.7 ms');
+    assert.equal(createGovernor({ coarse: true }).budgetMs, 33.4);
+
+    const stalled = createGovernor({ tier: 'medium', dpr: 1 });
+    idle(stalled, 31, 95);
+    assert.equal(stalled.budgetMs, MAX_CADENCE_MS, 'a stalled main thread is not a display cap');
+    assert.deepEqual(feed(stalled, 70, 2100), ['low']);
+
+    const sliding = createGovernor({ tier: 'medium', dpr: 1 });
+    idle(sliding, 31, 33.3);
+    idle(sliding, 31, 16.7);
+    assert.equal(sliding.cadenceMs, 16.7, 'Energy Saver turned off: the window forgets the old cap');
+    for (const junk of [0, -1, Number.NaN, 5000, 'x']) sliding.idle(junk);
+    assert.equal(sliding.cadenceMs, 16.7, 'junk and tab-switch gaps are ignored');
+});
+
+/**
+ * A loop at a display of `cadence` ms whose frames take `frameMs` (≥ cadence), rendering
+ * continuously for `ms` (the intro): asks probe() every tick, feeds idle() on consecutive idle
+ * ticks and sample() on consecutive rendered ones. Returns the steps and the ticks held back.
+ */
+function continuous(gov, cadence, frameMs, ms) {
+    const steps = [];
+    let held = 0;
+    let rendered = false;
+    let idleBefore = false;
+    for (let t = 0; t < ms;) {
+        if (gov.probe()) {
+            held++;
+            if (idleBefore) gov.idle(cadence);
+            idleBefore = true;
+            rendered = false;
+            t += cadence;
+            continue;
+        }
+        if (rendered) {
+            const r = gov.sample(frameMs);
+            if (r !== null) steps.push(r);
+        }
+        rendered = true;
+        idleBefore = false;
+        t += frameMs;
+    }
+    return { steps, held };
+}
+
+test('governor: with no cadence known yet, a due step first holds a few frames back to measure it', () => {
+    // The first-visit intro renders from the first frame: no idle ticks before the decision.
+    const capped = createGovernor({ tier: 'high', ceiling: 'high', dpr: 2 });
+    const a = continuous(capped, 33.3, 33.3, 30000);
+    assert.deepEqual(a.steps, [], '30 Hz cap, capable GPU: measured, then kept');
+    assert.ok(a.held >= 7 && a.held <= CADENCE_PROBE_TICKS, `held ${a.held} ticks once`);
+    assert.equal(capped.cadenceMs, 33.3);
+
+    const slow = createGovernor({ tier: 'high', ceiling: 'high', dpr: 1 });
+    assert.deepEqual(continuous(slow, 16.7, 40, 4000).steps, [], 'probed at 2 s');
+    assert.equal(slow.cadenceMs, 16.7);
+    assert.deepEqual(continuous(slow, 16.7, 40, 500).steps, ['medium'], '60 Hz display, slow GPU: 2 s over the measured budget');
+
+    const noProbe = createGovernor({ tier: 'high', ceiling: 'high', dpr: 1 });
+    assert.deepEqual(feed(noProbe, 40, 2100), [], 'the probe is offered at 2 s');
+    assert.equal(noProbe.probe(), true);
+    assert.deepEqual(feed(noProbe, 40, 2100), ['medium'], 'a loop that never probes: 2 s later on the base budget');
+
+    const known = createGovernor({ tier: 'high', ceiling: 'high', dpr: 1 });
+    idle(known, 31, 16.7);
+    assert.deepEqual(feed(known, 40, 2200), ['medium']);
+    assert.equal(known.probe(), false, 'cadence known: no probe');
+});
+
+test('governor: a single 400 ms hitch is absorbed', () => {
+    const gov = createGovernor({ tier: 'high', ceiling: 'high', dpr: 1 });
+    idle(gov, 31, 16.7);
+    const out = [...feed(gov, 16.7, 5000)];
+    if (gov.sample(400) !== null) out.push('hitch');
+    out.push(...feed(gov, 16.7, 10000));
+    assert.deepEqual(out, []);
+});
+
+test('autoStartTier: a learned tier drop for this GPU, below the ceiling, under 30 days old', () => {
+    const gpu = 'ANGLE (NVIDIA, NVIDIA GeForce RTX 3060 Laptop GPU Direct3D11 vs_5_0 ps_5_0, D3D11)';
+    const now = Date.UTC(2026, 10, 3);
+    const rec = learnedTierRecord('medium', gpu, now - 864e5);
+    assert.deepEqual(rec, { tier: 'medium', renderer: gpu, atMs: now - 864e5 });
+    assert.equal(autoStartTier('high', rec, gpu, now), 'medium');
+    assert.equal(autoStartTier('high', JSON.parse(JSON.stringify(rec)), gpu, now), 'medium', 'survives prefs JSON');
+    assert.equal(autoStartTier('high', rec, 'ANGLE (Intel, Intel(R) UHD Graphics 630)', now), 'high', 'another GPU');
+    assert.equal(autoStartTier('high', rec, gpu, now - 864e5 + LEARNED_TIER_TTL_MS), 'high', 'expired');
+    assert.equal(autoStartTier('high', rec, gpu, now - 2 * 864e5), 'high', 'from the future: ignored');
+    assert.equal(autoStartTier('medium', learnedTierRecord('low', gpu, now), gpu, now), 'low');
+    assert.equal(autoStartTier('low', rec, gpu, now), 'low', 'never above the ceiling');
+    for (const junk of [null, undefined, 'medium', 42, {}, { tier: 'ultra', renderer: gpu, atMs: now }, { tier: 'low', renderer: gpu }]) {
+        assert.equal(autoStartTier('high', junk, gpu, now), 'high', JSON.stringify(junk));
+    }
+    assert.equal(autoStartTier('high', learnedTierRecord('low', undefined, now), '', now), 'low', 'unknown renderer string');
+});
+
+test('governor: starts at the learned tier, pin(null) returns there, never above the ceiling', () => {
+    const gov = createGovernor({ tier: 'medium', ceiling: 'high', dpr: 1 });
+    assert.equal(gov.tier, 'medium');
+    assert.equal(gov.start, 'medium');
+    assert.equal(gov.ceiling, 'high');
+    assert.equal(gov.pin('high'), 'high');
+    assert.equal(gov.pin(null), 'medium', 'auto again: the learned start, not the ceiling');
+    assert.equal(createGovernor({ tier: 'high', ceiling: 'medium' }).tier, 'medium', 'clamped to the ceiling');
+    assert.equal(createGovernor({ tier: 'bogus', ceiling: 'low' }).tier, 'low');
+});
+
 test('governor config() is cached until something changes', () => {
-    const gov = createGovernor({ tier: 'high', dpr: 2, coarse: false, maxTextureSize: 16384 });
+    const gov = gov60({ tier: 'high', dpr: 2, coarse: false, maxTextureSize: 16384 });
     const a = gov.config();
     assert.equal(gov.config(), a);
     feed(gov, 40, 2200);

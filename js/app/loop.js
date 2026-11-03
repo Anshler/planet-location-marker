@@ -9,7 +9,9 @@
 //     render when something is dirty or in motion (camera motion, tweens, time-lapse, intro,
 //     pointer held): module.update(fi) → rc.render() → labels
 //     star twinkle alone (sky view, stars actually visible) renders at most at ~30 Hz
-//     governor.sample(dt) on consecutive rendered frames only
+//     governor.sample(dt) on consecutive rendered frames only; consecutive idle ticks feed
+//     governor.idle(dt), its estimate of the display's own frame interval; while governor.probe()
+//     says so (once, before a first step with no cadence known) the tick draws nothing
 //
 // Live 1× therefore redraws about twice a second; a paused, idle app draws nothing. The loop stops
 // on visibilitychange:hidden and resumes dirty.
@@ -84,7 +86,8 @@ const FEATURE_NAMES = Object.freeze({
  *          snap?:Snapshot, snapFull?:Snapshot,
  *          onApply?:(snap:Snapshot)=>void, onGovernor?:(result:any)=>void, onRenderFailure?:(err:unknown)=>void,
  *          win?:Window, doc?:Document}} deps
- *   `rc`…`getTierCfg` may be omitted here and supplied later through `attach()`.
+ *   `rc`…`getTierCfg` may be omitted here and supplied later through `attach()`. A `governor` given
+ *   here is fed idle ticks (display cadence) while the loop runs headless.
  * @returns {{start():void, stop():void, invalidate():void, snap:Snapshot, snapFull:Snapshot,
  *            attach(renderDeps:object):void, broadcast(method:string, a?:any, b?:any):void,
  *            callModule(m:RenderModule, method:string, a?:any, b?:any, c?:any):boolean, isDisabled(m:RenderModule):boolean,
@@ -111,7 +114,8 @@ export function createLoop(deps) {
     const names = new Map();
     let labels = null;
     let labelsFeed = null;
-    let governor = null;
+    // Given up front, the governor already learns the display cadence from the headless boot ticks.
+    let governor = deps.governor ?? null;
     let getTierCfg = () => null;
     let debug = null;
     const hooks = {
@@ -155,6 +159,7 @@ export function createLoop(deps) {
     let fpsWindowFrames = 0;
     let lastRenderMs = 0;
     let lastRenderAt = -Infinity;
+    let idleLastFrame = false;
 
     // Preallocated per-frame objects.
     const exposure = { stars: 1, planets: 1, milkyWay: 1 };
@@ -325,8 +330,10 @@ export function createLoop(deps) {
                 || pointers.size > 0;
             // Twinkle alone: only while stars are actually shown, and at most ~30 Hz.
             const twinkleDue = !motion && !dirty && now - lastRenderAt >= TWINKLE_FRAME_MS && twinkling(cfg, skyBlend);
+            // Once per session at most, the governor holds a few frames back to measure the display.
+            const held = governor !== null && probeCadence();
 
-            if (dirty || motion || twinkleDue) {
+            if (!held && (dirty || motion || twinkleDue)) {
                 // Cleared before the updates so a module that calls rc.invalidate() while animating
                 // (texture swap, launch tween, reticle) gets the next frame too.
                 dirty = false;
@@ -391,6 +398,7 @@ export function createLoop(deps) {
                     if (result != null && hooks.onGovernor) hooks.onGovernor(result);
                 }
                 renderedLastFrame = true;
+                idleLastFrame = false;
                 lastRenderAt = now;
             } else {
                 renderedLastFrame = false;
@@ -399,10 +407,39 @@ export function createLoop(deps) {
                     fpsWindowStart = now;
                     fpsWindowFrames = 0;
                 }
+                feedCadence(dt);
             }
+        } else {
+            feedCadence(dt);
         }
 
         handle = raf(frame);
+    }
+
+    /**
+     * A tick that drew nothing. When the tick before it drew nothing either, `dt` is the display's
+     * own frame interval, free of render cost: the governor's budget follows it (30 Hz caps, 48 Hz
+     * panels).
+     */
+    function feedCadence(dt) {
+        if (idleLastFrame && governor) {
+            try {
+                governor.idle(dt);
+            } catch (err) {
+                reportOnce('governor.idle', err);
+            }
+        }
+        idleLastFrame = true;
+    }
+
+    /** governor.probe(), guarded: true when this tick should draw nothing (cadence probe). */
+    function probeCadence() {
+        try {
+            return governor.probe?.() === true;
+        } catch (err) {
+            reportOnce('governor.probe', err);
+            return false;
+        }
     }
 
     /**
@@ -441,6 +478,7 @@ export function createLoop(deps) {
         dirty = true;
         jumped = true;
         renderedLastFrame = false;
+        idleLastFrame = false;
         handle = raf(frame);
     }
 
@@ -553,6 +591,7 @@ export function createLoop(deps) {
                 fps: Math.round(fps * 10) / 10,
                 frames,
                 renderMs: Math.round(lastRenderMs * 100) / 100,
+                cadenceMs: governor?.cadenceMs ?? null,
                 rendering: rc !== null && !renderPaused && !renderFailed,
                 disabled: [...disabled].map(nameOf),
             };

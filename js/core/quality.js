@@ -122,29 +122,90 @@ export function tierConfig(name, { coarse = false, maxTextureSize, dprCap } = {}
     return deepFreeze(cfg);
 }
 
+/** How long a tier the governor learned stays the starting tier on that GPU: 30 days (ms). */
+export const LEARNED_TIER_TTL_MS = 30 * 864e5;
+
+/**
+ * The tier Auto starts at: the governor's last tier drop (prefs 'qualityLearned') when it was
+ * saved for this renderer string under 30 days ago and is below the ceiling, else the ceiling.
+ * It expires, so one bad session cannot cap a device for good.
+ * @param {TierName} ceiling
+ * @param {unknown} learned the saved learnedTierRecord, or null
+ * @param {string} rendererString
+ * @param {number} nowMs epoch ms
+ * @returns {TierName}
+ */
+export function autoStartTier(ceiling, learned, rendererString, nowMs) {
+    const ceil = isTier(ceiling) ? ceiling : 'medium';
+    if (!learned || typeof learned !== 'object') return ceil;
+    const { tier, renderer, atMs } = /** @type {any} */ (learned);
+    if (!isTier(tier) || renderer !== String(rendererString ?? '')) return ceil;
+    const age = nowMs - atMs;
+    if (!(age >= 0 && age < LEARNED_TIER_TTL_MS)) return ceil;
+    return rank(tier) < rank(ceil) ? tier : ceil;
+}
+
+/**
+ * What main.js saves when the governor drops a tier (read back by autoStartTier).
+ * @param {TierName} tier
+ * @param {string} rendererString
+ * @param {number} nowMs epoch ms
+ */
+export function learnedTierRecord(tier, rendererString, nowMs) {
+    return { tier, renderer: String(rendererString ?? ''), atMs: nowMs };
+}
+
+/** The display cadence: the median of the last 31 idle intervals, once 6 are in. */
+const CADENCE_WINDOW = 31;
+const CADENCE_MIN_SAMPLES = 6;
+/** Ticks the cadence probe holds back: about 130 ms at 60 Hz, 270 ms at 30 Hz, once. */
+export const CADENCE_PROBE_TICKS = 8;
+/** Slowest believable display (20 Hz): slower idle ticks are a stalled main thread. */
+export const MAX_CADENCE_MS = 50;
+
 /**
  * Downgrade-only frame-time governor (SPEC §E.6).
  *
- * Feed it the dt of consecutive rendered frames. It keeps an EMA (α = 0.05) and when the EMA stays
- * above 1.3 × budget (16.7 ms, or 33.4 ms on coarse pointers) for 2 s of rendered time it steps
- * down: first the DPR cap by 0.25 (once per tier, never below 1.0, only if that actually lowers
- * the effective DPR), then one tier. Each step starts a 5 s cooldown with a fresh EMA. It never
- * steps up, so it cannot oscillate. pin(tier) (Settings or ?q=) disables it; pin(null) returns to
- * auto at the ceiling.
+ * Feed sample(dt) the dt of consecutive rendered frames. It keeps an EMA (α = 0.05) and when the
+ * EMA stays above 1.3 × budget for 2 s of rendered time it steps down: first the DPR cap by 0.25
+ * (once per tier, never below 1.0, only if that actually lowers the effective DPR), then one tier.
+ * Each step starts a 5 s cooldown with a fresh EMA. It never steps up, so it cannot oscillate.
+ * pin(tier) (Settings or ?q=) disables it; pin(null) returns to auto at the start tier.
+ *
+ * The budget is 16.7 ms (33.4 ms on coarse pointers), or the display's own frame interval when
+ * longer: Energy Saver and Low Power Mode cap rAF at 30 Hz, and a 48 Hz panel never ticks faster
+ * than 20.8 ms. Feed idle(dt) the dt of consecutive rAF ticks that drew nothing. Only those show
+ * the display: a frame that takes two intervals looks like a display twice as slow.
+ *
+ * The intro renders from its first frame, so a step can come due before any idle tick. Then,
+ * once per session, probe() returns true for up to CADENCE_PROBE_TICKS ticks (the loop draws
+ * nothing) and the step needs another 2 s over the measured budget.
  *
  * sample(dt) returns the tier name whenever the configuration changed (a tier drop OR a DPR step)
  * and null otherwise; apply `config()` (a resolved TierCfg including the reduced dprCap).
  * dt values over 1 s are treated as gaps (not consecutive) and ignored; dt is capped at 250 ms.
  *
  * @param {{tier?:TierName, ceiling?:TierName, coarse?:boolean, dpr?:number, maxTextureSize?:number,
- *          budgetMs?:number}} [opts]
+ *          budgetMs?:number}} [opts] `tier`: the Auto start (≤ ceiling); `budgetMs`: the base budget.
  * @returns {import('./types.js').Governor}
  */
 export function createGovernor({ tier = 'medium', ceiling, coarse = false, dpr, maxTextureSize, budgetMs } = {}) {
     const ceil = isTier(ceiling) ? ceiling : isTier(tier) ? tier : 'medium';
-    let cur = isTier(tier) ? tier : ceil;
-    const budget = Number.isFinite(budgetMs) && budgetMs > 0 ? budgetMs : coarse ? 33.4 : 16.7;
+    const start = isTier(tier) && rank(tier) < rank(ceil) ? tier : ceil;
+    let cur = start;
+    const baseBudget = Number.isFinite(budgetMs) && budgetMs > 0 ? budgetMs : coarse ? 33.4 : 16.7;
     const deviceDpr = Number.isFinite(dpr) && dpr > 0 ? dpr : null;
+
+    // Idle intervals and a scratch copy to sort (no per-frame allocation).
+    const ring = new Float64Array(CADENCE_WINDOW);
+    const sorted = new Float64Array(CADENCE_WINDOW);
+    let ringCount = 0;
+    let ringNext = 0;
+    let ringDirty = false;
+    /** @type {number|null} */
+    let cadence = null;
+    let probed = false;
+    let probeLeft = 0;
 
     /** @type {TierName|null} */
     let pinned = null;
@@ -191,6 +252,32 @@ export function createGovernor({ tier = 'medium', ceiling, coarse = false, dpr, 
         return true;
     }
 
+    /** The median idle interval or null; re-sorted only after idle(). */
+    function cadenceMs() {
+        if (!ringDirty) return cadence;
+        ringDirty = false;
+        if (ringCount < CADENCE_MIN_SAMPLES) return (cadence = null);
+        sorted.set(ring);
+        if (ringCount < CADENCE_WINDOW) sorted.fill(Infinity, ringCount); // unfilled slots sort last
+        sorted.sort();
+        cadence = sorted[(ringCount - 1) >> 1];
+        return cadence;
+    }
+
+    function budget() {
+        const c = cadenceMs();
+        return c === null ? baseBudget : Math.max(baseBudget, Math.min(c, MAX_CADENCE_MS));
+    }
+
+    function idle(dtMs) {
+        const dt = Number(dtMs);
+        if (!(dt > 0) || dt > 1000) return;
+        ring[ringNext] = dt;
+        ringNext = (ringNext + 1) % CADENCE_WINDOW;
+        if (ringCount < CADENCE_WINDOW) ringCount++;
+        ringDirty = true;
+    }
+
     function sample(dtMs) {
         if (pinned !== null) return null;
         const dt = Number(dtMs);
@@ -201,13 +288,31 @@ export function createGovernor({ tier = 'medium', ceiling, coarse = false, dpr, 
             return null;
         }
         ema = ema === null ? d : ema + 0.05 * (d - ema);
-        if (ema > 1.3 * budget) overMs += d;
+        if (ema > 1.3 * budget()) overMs += d;
         else overMs = 0;
         if (overMs < 2000) return null;
+        if (!probed && cadenceMs() === null) {
+            // Measure the display before blaming the GPU.
+            probed = true;
+            probeLeft = CADENCE_PROBE_TICKS;
+            overMs = 0;
+            return null;
+        }
         resetMeasure();
         if (!stepDown()) return null;
         cooldownMs = 5000;
         return cur;
+    }
+
+    /** Asked once per rAF tick: true while the loop should draw nothing. */
+    function probe() {
+        if (probeLeft <= 0) return false;
+        if (cadenceMs() !== null) {
+            probeLeft = 0;
+            return false;
+        }
+        probeLeft--;
+        return true;
     }
 
     function pin(t) {
@@ -216,7 +321,7 @@ export function createGovernor({ tier = 'medium', ceiling, coarse = false, dpr, 
             setTier(t);
         } else {
             pinned = null;
-            setTier(ceil);
+            setTier(start);
         }
         return cur;
     }
@@ -228,6 +333,8 @@ export function createGovernor({ tier = 'medium', ceiling, coarse = false, dpr, 
 
     return {
         sample,
+        idle,
+        probe,
         pin,
         config,
         reset() {
@@ -236,8 +343,11 @@ export function createGovernor({ tier = 'medium', ceiling, coarse = false, dpr, 
         },
         get tier() { return cur; },
         get ceiling() { return ceil; },
+        get start() { return start; },
         get pinned() { return pinned; },
         get dprCap() { return dprCap; },
         get emaMs() { return ema; },
+        get cadenceMs() { return cadenceMs(); },
+        get budgetMs() { return budget(); },
     };
 }

@@ -107,9 +107,11 @@
  * @typedef {{webgl2:boolean, rendererString?:string, maxTextureSize?:number, dpr?:number, deviceMemory?:number, cores?:number,
  *   coarse?:boolean, screenW?:number, screenH?:number, saveData?:boolean}} TierProbe */
 /** @typedef {{tier:'low'|'medium'|'high', ceiling:'low'|'medium'|'high', textMode:boolean, reason:string}} TierDecision */
-/** @typedef {{ sample:(dtMs:number)=>('low'|'medium'|'high'|null), pin:(tier:'low'|'medium'|'high'|null)=>('low'|'medium'|'high'),
+/** @typedef {{ sample:(dtMs:number)=>('low'|'medium'|'high'|null), idle:(dtMs:number)=>void,
+ *   pin:(tier:'low'|'medium'|'high'|null)=>('low'|'medium'|'high'),
  *   config:()=>TierCfg, reset:()=>void, readonly tier:'low'|'medium'|'high', readonly ceiling:'low'|'medium'|'high',
- *   readonly pinned:'low'|'medium'|'high'|null, readonly dprCap:number, readonly emaMs:number|null }} Governor */
+ *   readonly start:'low'|'medium'|'high', readonly pinned:'low'|'medium'|'high'|null, readonly dprCap:number,
+ *   readonly emaMs:number|null, readonly cadenceMs:number|null, readonly budgetMs:number }} Governor */
 
 /** Wall-clock fields in a time zone (js/core/tz.js). `mo` is 1-based.
  * @typedef {{y:number, mo:number, d:number, h:number, mi:number, s:number}} ZonedFields */

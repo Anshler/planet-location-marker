@@ -11,7 +11,7 @@ test('TIERS holds the exact E.6 values', () => {
     });
     assert.deepEqual(TIERS.medium, {
         name: 'medium', dprCap: 1.5, composer: true, msaa: 4, bloom: { strength: 0.55, radius: 0.4, threshold: 0.9, scale: 0.5 },
-        earthSegments: [96, 48], dayTex: 'day4k', oceanMask: 'specular', clouds: 'clouds1k', cloudShadows: false, bump: false,
+        earthSegments: [96, 48], dayTex: 'day4k', oceanMask: 'roughness2k', clouds: 'clouds2k', cloudShadows: false, bump: false,
         atmosphere: 'analytic', atmoSteps: 0, starMagLimit: 6.0, flare: true, labelCap: 24, twinkle: false, beamGlowPx: 12, finalPass: true,
     });
     assert.deepEqual(TIERS.high, {
@@ -74,7 +74,7 @@ test('tierConfig: device adjustments on a copy', () => {
     assert.equal(tierConfig('medium', { maxTextureSize: 16384 }).dayTex, 'day4k');
     assert.equal(tierConfig('medium').dayTex, 'day4k', 'unknown size keeps 4k');
     const tiny = tierConfig('high', { maxTextureSize: 2048 });
-    assert.deepEqual([tiny.dayTex, tiny.clouds, tiny.oceanMask, tiny.bump, tiny.cloudShadows], ['day2k', 'clouds1k', 'specular', false, false]);
+    assert.deepEqual([tiny.dayTex, tiny.clouds, tiny.oceanMask, tiny.bump, tiny.cloudShadows], ['day2k', 'clouds2k', 'roughness2k', false, false]);
     assert.equal(tierConfig('high', { dprCap: 1.75 }).dprCap, 1.75);
     assert.equal(tierConfig('medium', { dprCap: 1.75 }).dprCap, 1.5, 'never above the tier cap');
     assert.equal(tierConfig('low', { dprCap: 0.5 }).dprCap, 1, 'never below 1');

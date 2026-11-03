@@ -33,12 +33,14 @@ void main() {
 
 /**
  * Cloud density lookup shared by the surface and the cloud shell. Needs the
- * uniforms uCloudMode (0 none, 1 clouds1k: alpha carries density, 2 brc4k:
- * blue channel) and uCloudShift (eastward drift in u).
+ * uniforms uCloudMode (0 none, 1 clouds2k: grey, 2 brc4k: blue channel) and
+ * uCloudShift (eastward drift in u).
  *
- * clouds1k is only 1024 px around the globe (39 km texels), so magnified
- * lookups use a 4-tap B-spline filter instead of bilinear (no diamond/blocky
- * texels up close). Both maps' smeared polar caps are tapered out.
+ * clouds2k is brc4k's blue channel at half size (scripts/build-textures.mjs),
+ * so both modes read the same cloud field through the same density curve and
+ * every tier shows the same weather. At 2048 px around the globe (20 km
+ * texels), magnified lookups use a 4-tap B-spline filter instead of bilinear
+ * (no diamond/blocky texels up close). The smeared polar caps are tapered out.
  */
 export const CLOUD_LOOKUP = /* glsl */ `
 vec4 pcCubicW(float v) {
@@ -66,19 +68,24 @@ vec4 pcTextureBSpline(sampler2D tex, vec2 uv) {
     return mix(mix(t3, t2, sx), mix(t1, t0, sx), sy);
 }
 
+// Cloud cover from the stored value (identical for both cloud maps).
+float cloudDensity(float v) {
+    return smoothstep(0.2, 1.0, v);
+}
+
 float cloudAt(sampler2D tex, vec2 uv) {
     if (uCloudMode < 0.5) return 0.0;
     vec2 st = vec2(uv.x - uCloudShift, uv.y);
-    // Both cloud maps converge into radial streaks at the poles: taper them out.
+    // The cloud field converges into radial streaks at the poles: taper it out.
     float polar = 1.0 - smoothstep(0.84, 0.95, abs(uv.y - 0.5) * 2.0);
     if (uCloudMode < 1.5) {
         vec2 sz = vec2(textureSize(tex, 0));
         vec2 dx = dFdx(st) * sz, dy = dFdy(st) * sz;
         float lod = 0.5 * log2(max(max(dot(dx, dx), dot(dy, dy)), 1e-8));
-        vec4 c = mix(pcTextureBSpline(tex, st), textureLod(tex, st, max(lod, 0.0)), smoothstep(-0.5, 0.5, lod));
-        return c.a * max(c.r, max(c.g, c.b)) * polar;
+        float v = mix(pcTextureBSpline(tex, st).r, textureLod(tex, st, max(lod, 0.0)).r, smoothstep(-0.5, 0.5, lod));
+        return cloudDensity(v) * polar;
     }
-    return smoothstep(0.2, 1.0, texture(tex, st).b) * polar;
+    return cloudDensity(texture(tex, st).b) * polar;
 }
 `;
 
@@ -99,9 +106,7 @@ uniform float uBumpScale;
 uniform float uGlintGain;
 uniform float uHazeE;       // in-scatter radiance scale (matches the atmosphere shell)
 
-uniform float uMaskMode;    // 0 derived from day map, 1 specular (white = water), 2 roughness (brc4k.g)
-uniform vec2 uDerivedWin;   // smoothstep window on (b - r) for the derived mask, per day map
-uniform float uDayGain;     // per-map albedo gain (the 2k map is darker than the 4k one)
+uniform float uMaskMode;    // 0 derived from day map, 1 roughness in .g (brc4k, or its grey 2k copy)
 uniform float uBumpOn;      // 1 when uMask is brc4k (height in .r)
 uniform float uCloudMode;
 uniform float uCloudShift;
@@ -139,16 +144,17 @@ void main() {
     vec2 uvRaw = localDirToUv(pl);
     vec2 uv = seamlessUv(uvRaw);
 
-    vec3 albedoRaw = texture(uDay, uv).rgb;
-    vec3 albedo = albedoRaw * uDayGain;
+    // Both day maps are the same image (day2k is day4k at half size), so they share
+    // one colour and one derived-mask window.
+    vec3 albedo = texture(uDay, uv).rgb;
     vec4 maskTex = texture(uMask, uv);
 
-    // --- ocean mask (derived from the raw map: windows were fitted on it) ---
-    float lum = dot(albedoRaw, vec3(0.2126, 0.7152, 0.0722));
-    float derived = smoothstep(uDerivedWin.x, uDerivedWin.y, albedoRaw.b - albedoRaw.r)
+    // --- ocean mask: roughness ~ 0 is water; until a mask loads (and on low),
+    //     blue-over-red water from the day map, window fitted against a water mask ---
+    float lum = dot(albedo, vec3(0.2126, 0.7152, 0.0722));
+    float derived = smoothstep(0.02, 0.10, albedo.b - albedo.r)
                   * (1.0 - smoothstep(0.25, 0.45, lum));   // bright = ice or cloud, not water
-    float ocean = uMaskMode < 0.5 ? derived
-                : (uMaskMode < 1.5 ? maskTex.r : 1.0 - smoothstep(0.25, 0.45, maskTex.g));
+    float ocean = uMaskMode < 0.5 ? derived : 1.0 - smoothstep(0.25, 0.45, maskTex.g);
 
     float cloud = cloudAt(uClouds, uv);
 

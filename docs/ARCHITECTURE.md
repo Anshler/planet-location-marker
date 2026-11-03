@@ -296,7 +296,7 @@ change.
 | DPR cap | 1.0 | 1.5 | 2.0 |
 | Composer / MSAA | none (context antialias) | yes / 4 (0 on touch) | yes / 4 |
 | Bloom | none | 0.55 / 0.4 / 0.9 @ ½ res | 0.6 / 0.45 / 0.9 |
-| Earth | 64×32, `day2k`, derived ocean mask, no clouds | 96×48, `day4k`, specular mask, 1k clouds | 128×64, `day4k`, roughness, 4k clouds + shadows + bump |
+| Earth | 64×32, `day2k` + `night2k`, derived ocean mask, no clouds | 96×48, `day4k`, 2k roughness mask, 2k clouds | 128×64, `day4k`, 4k roughness, 4k clouds + shadows + bump |
 | Atmosphere | analytic | analytic | ray-marched (8 steps) |
 | Stars to mag | 5.0 | 6.0 | 6.5 |
 | Flare / twinkle | — / — | ✓ / — | ✓ / ✓ |
@@ -310,6 +310,13 @@ change.
   tier, with a 5 s cooldown. Under `navigator.webdriver` the governor is never sampled.
 - **Applying a tier.** `applyTierCfg` calls `rc.setTier` and each module's `setQuality`, then loads
   the tier's textures. The scene graph is never rebuilt.
+- **One planet on every tier.** The 2k maps are the 4k maps at half size, made by
+  `scripts/build-textures.mjs`: `day2k` and `night2k` from the day and night maps (filtered in
+  linear light, like the GPU's own mip 1), and `clouds2k` and `roughness2k` from the blue (cloud)
+  and green (water) channels of `brc4k`. The shader reads both cloud maps through one density
+  curve and both water masks through one window. A Settings change or a governor step therefore
+  changes sharpness and effects, never the colours, the coastlines or the weather. The night map
+  follows the day map (`nightKeyFor`), so medium on a GPU under 8192 px also gets `night2k`.
 
 ---
 
@@ -370,9 +377,14 @@ are applied live through `onExternalChange`.
   `HTMLScriptElement.supports=()=>false` for no import maps), `--fail=data/sky.json,earth_day`
   (those requests get HTTP 404 and are not judged) and `--at=1000,3000` (timed screenshots
   `<out>-<ms>.png`; the run then skips its wait for the intro to finish).
-- **`npm run size`** enforces the per-tier transfer budgets (low 3.8 MB, medium 4.3 MB, high
+- **`npm run size`** enforces the per-tier transfer budgets (low 3.35 MB, medium 4.25 MB, high
   5.4 MB raw, re-baselined from the spec's estimate to the measured unminified module graph; every
   tier stays under 6 MB) and the 12 MB deploy limit.
+- **`npm run textures`** (`scripts/build-textures.mjs`) re-encodes the derived textures in headless
+  Chrome and rewrites `vendor/DERIVED.json`. Run it after changing a recipe or a source map, and
+  review the result visually. `--check` (in CI) compares hashes only, with no browser, because
+  JPEG and WebP encoder output differs between Chrome versions. The vendored upstream files stay
+  in `vendor/VENDOR.json` with their upstream hashes.
 
 ## 12. Conventions
 

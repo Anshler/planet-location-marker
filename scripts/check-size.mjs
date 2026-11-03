@@ -8,11 +8,13 @@
 // Raw bytes on disk are budgeted (1 MB = 10⁶ B); gzip "wire" sizes are informational
 // (GitHub Pages compresses JS/CSS/JSON/SVG/HTML).
 //
-//   low ≤ 3.8 MB · medium ≤ 4.3 MB · high ≤ 5.4 MB · staged site ≤ 12 MB
+//   low ≤ 3.35 MB · medium ≤ 4.25 MB · high ≤ 5.4 MB · staged site ≤ 12 MB
 //   SPEC §E.6 set 3.0 / 3.6 / 4.8 MB from an estimate of ≈ 1.35 MB of JavaScript. The shipped,
 //   unminified-by-design module graph (no build step) measures ≈ 2.0 MB raw incl. CSS
 //   (≈ 0.6 MB gzipped; three.js + astronomy-engine alone are 1.17 MB raw), so the budgets were
-//   re-baselined to the measured sizes plus ≈ 5 % headroom. The spec's hard line, every tier
+//   re-baselined to the measured sizes plus ≈ 5 % headroom. The derived 2k maps
+//   (scripts/build-textures.mjs) then took low from 3.71 to 3.17 MB and medium from 4.21 to
+//   4.05 MB, and low and medium were lowered to lock that in. The spec's hard line, every tier
 //   under 6 MB, still holds and is asserted in test/repo.tooling.test.mjs.
 //   plus per-file ceilings for generated data, icons and the social image.
 
@@ -26,7 +28,7 @@ import { siteFiles } from './stage-site.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MB = 1e6, KB = 1e3;
 
-export const TIER_BUDGETS = { low: 3.8 * MB, medium: 4.3 * MB, high: 5.4 * MB };
+export const TIER_BUDGETS = { low: 3.35 * MB, medium: 4.25 * MB, high: 5.4 * MB };
 export const STAGING_BUDGET = 12 * MB;
 export const FILE_BUDGETS = {
     'data/milkyway.png': 250 * KB,
@@ -41,16 +43,16 @@ export const FILE_BUDGETS = {
 
 /** SPEC §C.5 ASSETS, used only if js/render/textures.js cannot be read. */
 const FALLBACK_ASSETS = {
-    day4k: 'assets/textures/earth_day_4096.jpg', day2k: 'assets/textures/earth_atmos_2048.jpg',
-    night: 'assets/textures/earth_night_4096.jpg', specular: 'assets/textures/earth_specular_2048.jpg',
-    clouds1k: 'assets/textures/earth_clouds_1024.png', brc4k: 'assets/textures/earth_bump_roughness_clouds_4096.jpg',
-    moon: 'assets/textures/moon_1024.jpg', flare0: 'assets/textures/lensflare0.png', flare3: 'assets/textures/lensflare3.png',
-    milkyway: 'data/milkyway.png',
+    day4k: 'assets/textures/earth_day_4096.jpg', day2k: 'assets/textures/earth_day_2048.webp',
+    night4k: 'assets/textures/earth_night_4096.jpg', night2k: 'assets/textures/earth_night_2048.webp',
+    roughness2k: 'assets/textures/earth_roughness_2048.webp', clouds2k: 'assets/textures/earth_clouds_2048.webp',
+    brc4k: 'assets/textures/earth_bump_roughness_clouds_4096.jpg', moon: 'assets/textures/moon_1024.jpg',
+    flare0: 'assets/textures/lensflare0.png', flare3: 'assets/textures/lensflare3.png', milkyway: 'data/milkyway.png',
 };
 /** SPEC §E.6 tier table, used only if js/core/quality.js cannot be imported. */
 const FALLBACK_TIERS = {
     low: { dayTex: 'day2k', oceanMask: 'derived', clouds: 'none', flare: false },
-    medium: { dayTex: 'day4k', oceanMask: 'specular', clouds: 'clouds1k', flare: true },
+    medium: { dayTex: 'day4k', oceanMask: 'roughness2k', clouds: 'clouds2k', flare: true },
     high: { dayTex: 'day4k', oceanMask: 'roughness', clouds: 'brc4k', flare: true },
 };
 
@@ -90,12 +92,13 @@ export async function readTiers() {
     return { tiers: FALLBACK_TIERS, source: 'SPEC §E.6 (quality.js not importable)' };
 }
 
-/** Texture keys loaded at boot + idle for a tier (mirrors keysForTier). */
+/** Texture keys loaded at boot + idle for a tier (mirrors keysForTier: the night map follows the day map). */
 export function tierTextureKeys(cfg) {
-    const keys = [cfg.dayTex === 'day2k' ? 'day2k' : 'day4k', 'night'];
-    const mask = { specular: 'specular', roughness: 'brc4k' }[cfg.oceanMask];
+    const small = cfg.dayTex === 'day2k';
+    const keys = [small ? 'day2k' : 'day4k', small ? 'night2k' : 'night4k'];
+    const mask = { roughness2k: 'roughness2k', roughness: 'brc4k' }[cfg.oceanMask];
     if (mask) keys.push(mask);
-    if ((cfg.clouds === 'clouds1k' || cfg.clouds === 'brc4k') && !keys.includes(cfg.clouds)) keys.push(cfg.clouds);
+    if ((cfg.clouds === 'clouds2k' || cfg.clouds === 'brc4k') && !keys.includes(cfg.clouds)) keys.push(cfg.clouds);
     keys.push('moon', 'milkyway');
     if (cfg.flare) keys.push('flare0', 'flare3');
     return keys;

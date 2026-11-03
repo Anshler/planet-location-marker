@@ -34,6 +34,10 @@ jobs:
       - name: Vendored files match vendor/VENDOR.json
         run: node scripts/fetch-vendor.mjs --check
 
+      # Hashes only: re-encoding is a deliberate, reviewed step (encoder output varies by Chrome version).
+      - name: Derived textures match vendor/DERIVED.json
+        run: node scripts/build-textures.mjs --check
+
       - name: Generated data is up to date with data/raw
         run: |
           node scripts/build-sky.mjs --check

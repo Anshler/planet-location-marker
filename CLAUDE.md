@@ -18,6 +18,7 @@ npm run smoke                 # headless Chrome, every non-local host blocked, S
 npm run size                  # transfer budgets per quality tier
 npm run vendor                # re-fetch pinned vendor files, verify sha256 (vendor/VENDOR.json)
 npm run data                  # rebuild data/sky.json, data/milkyway.png, data/cities.json from data/raw
+npm run textures              # re-encode the derived 2k textures in headless Chrome (vendor/DERIVED.json; --check in CI)
 ```
 
 - Node 22+ is needed for the tooling only.

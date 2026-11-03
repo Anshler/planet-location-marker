@@ -8,9 +8,11 @@ import { MANIFEST, sha256 } from '../scripts/fetch-vendor.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const LOCK = JSON.parse(fs.readFileSync(path.join(ROOT, 'vendor/VENDOR.json'), 'utf8'));
+/** Re-encoded textures (scripts/build-textures.mjs) have their own lock; see repo.textures.test.mjs. */
+const DERIVED = JSON.parse(fs.readFileSync(path.join(ROOT, 'vendor/DERIVED.json'), 'utf8'));
 
 test('lock entries have the documented shape and pinned https URLs', () => {
-    assert.ok(Array.isArray(LOCK) && LOCK.length >= 30);
+    assert.ok(Array.isArray(LOCK) && LOCK.length >= 25);
     for (const e of LOCK) {
         for (const k of ['name', 'version', 'url', 'path', 'sha256', 'license']) assert.equal(typeof e[k], 'string', `${e.path}: ${k}`);
         assert.match(e.sha256, /^[0-9a-f]{64}$/);
@@ -34,7 +36,7 @@ test('every vendored file matches its sha256 and size', () => {
 });
 
 test('no unlisted files under vendor/ or assets/textures/ (unused addons stay deleted)', () => {
-    const listed = new Set([...LOCK.map((e) => e.path), 'vendor/VENDOR.json']);
+    const listed = new Set([...LOCK.map((e) => e.path), ...DERIVED.map((e) => e.path), 'vendor/VENDOR.json', 'vendor/DERIVED.json']);
     const walk = (dir) => fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })
         .flatMap((d) => (d.isDirectory() ? walk(`${dir}/${d.name}`) : [`${dir}/${d.name}`]));
     const extra = [...walk('vendor'), ...walk('assets/textures')].filter((f) => !listed.has(f));

@@ -36,7 +36,7 @@ export const FALLBACK_TIERS = Object.freeze({
     medium: Object.freeze({
         name: 'medium', dprCap: 1.5, composer: true, msaa: 4,
         bloom: Object.freeze({ strength: 0.55, radius: 0.4, threshold: 0.9, scale: 0.5 }),
-        earthSegments: [96, 48], dayTex: 'day4k', oceanMask: 'specular', clouds: 'clouds1k', cloudShadows: false,
+        earthSegments: [96, 48], dayTex: 'day4k', oceanMask: 'roughness2k', clouds: 'clouds2k', cloudShadows: false,
         bump: false, atmosphere: 'analytic', atmoSteps: 0, starMagLimit: 6.0, flare: true, labelCap: 24, twinkle: false,
         beamGlowPx: 12, finalPass: true,
     }),

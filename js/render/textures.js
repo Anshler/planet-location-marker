@@ -17,14 +17,21 @@ import * as THREE from 'three';
 /**
  * Every image the app loads. `bytes` are the on-disk sizes used to weight
  * loader progress; `cs` is the colour space ('srgb' for colour, 'linear' for data).
+ *
+ * The .webp maps are made from the vendored 4096 maps by scripts/build-textures.mjs
+ * (vendor/DERIVED.json): day2k and night2k are those maps at half size, filtered like
+ * their own mip 1, and clouds2k and roughness2k are the blue (cloud) and green (water)
+ * channels of brc4k as grey, so every tier shows the same planet, water and weather.
+ * Every browser that runs the 3D view (it needs import maps) decodes WebP.
  */
 export const ASSETS = {
     day4k: { url: 'assets/textures/earth_day_4096.jpg', bytes: 473e3, cs: 'srgb' },
-    day2k: { url: 'assets/textures/earth_atmos_2048.jpg', bytes: 513e3, cs: 'srgb' },
-    night: { url: 'assets/textures/earth_night_4096.jpg', bytes: 267e3, cs: 'srgb' },
-    specular: { url: 'assets/textures/earth_specular_2048.jpg', bytes: 223e3, cs: 'linear' },
-    clouds1k: { url: 'assets/textures/earth_clouds_1024.png', bytes: 226e3, cs: 'linear' },
-    brc4k: { url: 'assets/textures/earth_bump_roughness_clouds_4096.jpg', bytes: 1434e3, cs: 'linear' },
+    day2k: { url: 'assets/textures/earth_day_2048.webp', bytes: 144e3, cs: 'srgb' },
+    night4k: { url: 'assets/textures/earth_night_4096.jpg', bytes: 267e3, cs: 'srgb' },
+    night2k: { url: 'assets/textures/earth_night_2048.webp', bytes: 75e3, cs: 'srgb' },
+    roughness2k: { url: 'assets/textures/earth_roughness_2048.webp', bytes: 56e3, cs: 'linear' },
+    clouds2k: { url: 'assets/textures/earth_clouds_2048.webp', bytes: 235e3, cs: 'linear' },
+    brc4k: { url: 'assets/textures/earth_bump_roughness_clouds_4096.jpg', bytes: 1508e3, cs: 'linear' },
     moon: { url: 'assets/textures/moon_1024.jpg', bytes: 238e3, cs: 'srgb' },
     flare0: { url: 'assets/textures/lensflare0.png', bytes: 65e3, cs: 'srgb' },
     flare3: { url: 'assets/textures/lensflare3.png', bytes: 3e3, cs: 'srgb' },
@@ -33,7 +40,7 @@ export const ASSETS = {
 
 /** Placeholder colours (sRGB hex) shown until a key loads; everything else is black. */
 const PLACEHOLDER_HEX = {
-    day4k: 0x1b3a5c, day2k: 0x1b3a5c, night: 0x000000, specular: 0xffffff, moon: 0x888888,
+    day4k: 0x1b3a5c, day2k: 0x1b3a5c, moon: 0x888888,
 };
 
 /** Learned from the renderer by createTextureStore; drives the day-map choice on medium. */
@@ -52,23 +59,34 @@ export function dayKeyFor(cfg) {
 }
 
 /**
- * Ocean-mask key for a tier, or null when the mask is derived from the day map.
- * @param {{oceanMask?:'derived'|'specular'|'roughness'}} cfg
- * @returns {'specular'|'brc4k'|null}
+ * Night-lights key for a tier: it follows the day map, so a tier that saves memory
+ * with the 2k day map does not hold a 4k night map either.
+ * @param {{name?:string, dayTex?:'day2k'|'day4k'}} cfg TierCfg
+ * @returns {'night2k'|'night4k'}
+ */
+export function nightKeyFor(cfg) {
+    return dayKeyFor(cfg) === 'day2k' ? 'night2k' : 'night4k';
+}
+
+/**
+ * Ocean-mask key for a tier, or null when the mask is derived from the day map. Both
+ * masks are the same roughness data (water ~ 0): brc4k's green channel, or its 2k copy.
+ * @param {{oceanMask?:'derived'|'roughness2k'|'roughness'}} cfg
+ * @returns {'roughness2k'|'brc4k'|null}
  */
 export function maskKeyFor(cfg) {
-    if (cfg?.oceanMask === 'specular') return 'specular';
+    if (cfg?.oceanMask === 'roughness2k') return 'roughness2k';
     if (cfg?.oceanMask === 'roughness') return 'brc4k';
     return null;
 }
 
 /**
  * Cloud-map key for a tier, or null when the tier has no clouds.
- * @param {{clouds?:'none'|'clouds1k'|'brc4k'}} cfg
- * @returns {'clouds1k'|'brc4k'|null}
+ * @param {{clouds?:'none'|'clouds2k'|'brc4k'}} cfg
+ * @returns {'clouds2k'|'brc4k'|null}
  */
 export function cloudsKeyFor(cfg) {
-    if (cfg?.clouds === 'clouds1k') return 'clouds1k';
+    if (cfg?.clouds === 'clouds2k') return 'clouds2k';
     if (cfg?.clouds === 'brc4k') return 'brc4k';
     return null;
 }
@@ -87,7 +105,7 @@ export function keysForTier(cfg) {
     if (clouds && clouds !== mask) deferred.push(clouds);
     deferred.push('moon', 'milkyway');
     if (cfg?.flare) deferred.push('flare0', 'flare3');
-    return { critical: [dayKeyFor(cfg), 'night'], deferred };
+    return { critical: [dayKeyFor(cfg), nightKeyFor(cfg)], deferred };
 }
 
 /**

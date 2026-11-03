@@ -332,7 +332,7 @@ change.
   Earth's limb, the Moon, the pin). Stars, lines and beams are anti-aliased where they are drawn
   and write no depth; FXAA would turn a small star into an X. A context created for a composer
   tier has no canvas MSAA, so a later switch to Low keeps a lean chain (no bloom, no MSAA, FXAA)
-  instead of the direct path.
+  instead of the direct path. A Low boot keeps the direct path even if the driver refused MSAA.
 - **Applying a tier.** `applyTierCfg` calls `rc.setTier` and each module's `setQuality`, then loads
   the tier's textures. The scene graph is never rebuilt.
 
@@ -348,7 +348,7 @@ change.
 | A render module throws at creation | That feature is skipped and the rest renders. |
 | A render module throws per frame | Three strikes, then it is hidden, with one toast. |
 | The renderer throws | Text mode (`context-failed`). |
-| `webglcontextlost` | Rendering pauses (the panels keep updating) and a non-blocking "Graphics were reset — restoring…" overlay appears. On restore, `textures.restore()` runs, the composer targets are rebuilt by the context, and rendering resumes. |
+| `webglcontextlost` | Rendering pauses (the panels keep updating) and a non-blocking "Graphics were reset — restoring…" overlay appears. On restore, `textures.restore()` runs, the context drops the old composer unreleased (its GL objects died with the lost context) and builds a new one, and rendering resumes. |
 | A texture fails | The placeholder stays, with one "Some imagery couldn't load." toast. |
 | `sky.json` fails | No stars or constellations, and a toast. |
 | The worker fails | The client falls back to the main thread transparently. |

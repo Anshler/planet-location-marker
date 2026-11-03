@@ -73,9 +73,11 @@ function deviceDpr() {
  */
 export function createRenderContext(canvas, { tierCfg } = {}) {
     let cfg = resolveTier(tierCfg);
+    /** The context was created for the direct path: canvas MSAA requested, no composer. */
+    const createdLow = cfg.name === 'low';
     const renderer = new THREE.WebGLRenderer({
         canvas,
-        antialias: cfg.name === 'low',
+        antialias: createdLow,
         powerPreference: 'high-performance',
         alpha: false,
         stencil: false,
@@ -114,13 +116,12 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
     // The canvas's own MSAA is fixed when the context is created, and only a 'low' boot asks for it.
     // A context created for a composer tier has none, so a later switch to low (governor or
     // Settings) would render with no anti-aliasing at all. Such a low tier keeps a lean chain
-    // instead: no MSAA, no bloom, and the final pass with FXAA (postfx.js).
-    let canvasAA = cfg.name === 'low';
-    try { canvasAA = !!renderer.getContext().getContextAttributes()?.antialias; } catch { /* keep the request */ }
-
-    /** The post chain a tier actually gets (see canvasAA). Called on tier changes only. */
+    // instead: no MSAA, no bloom, and the final pass with FXAA (postfx.js). A low boot keeps the
+    // direct path whatever the driver granted: those are the weakest GPUs, and the lean chain
+    // costs a half-float target and a depth texture.
+    /** The post chain a tier actually gets (see above). Called on tier changes only. */
     function chainCfg(c) {
-        if (c.composer || canvasAA || postfxFailed) return c;
+        if (c.composer || createdLow || postfxFailed) return c;
         return { ...c, composer: true, msaa: 0, bloom: null, finalPass: true };
     }
 
@@ -352,11 +353,12 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
     };
     const onRestored = () => {
         lost = false;
-        // three re-creates GL state lazily; rebuild the composer targets explicitly.
-        if (postfx) {
-            try { postfx.dispose(); } catch { /* ignore */ }
-            postfx = null;
-        }
+        // three re-creates GL state lazily; rebuild the composer targets explicitly. Its own
+        // restore listener (added with the renderer, so it runs first) has already reset its GL
+        // bookkeeping: the old composer's framebuffers, textures and vertex arrays died with the
+        // lost context, and dispose() would delete them on the new one (INVALID_OPERATION, one
+        // warning each). Drop it unreleased instead.
+        postfx = null;
         ensurePostFx();
         forceResize = true;
         resize();

@@ -158,6 +158,14 @@ test('rates: every ladder value and off-ladder timelapse rates', () => {
     assert.equal(fmtRate(Number.NaN), DASH);
 });
 
+test('compact rates: real time becomes 1×, every other label is unchanged', () => {
+    assert.equal(fmtRate(1, { compact: true }), '1×');
+    assert.equal(fmtRate(-1, { compact: true }), `${M}1×`);
+    for (const r of RATES) if (r !== 1) assert.equal(fmtRate(r, { compact: true }), fmtRate(r));
+    assert.equal(fmtRate(Number.NaN, { compact: true }), DASH);
+    assert.equal(fmtRate(1, {}), 'Real time');
+});
+
 test('magnitude, percentages and angular sizes', () => {
     assert.equal(fmtMag(0.6), '0.6');
     assert.equal(fmtMag(-0.04), '0.0');

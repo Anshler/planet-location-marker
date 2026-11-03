@@ -249,6 +249,7 @@ export function mountTimebar(root, ctx) {
             toolsEl.hidden = true;
         }
         geomDirty = true;
+        syncControls(true); // the rate label is compact on the phone
         kick();
     }
 
@@ -390,7 +391,8 @@ export function mountTimebar(root, ctx) {
         setAttr(btnFwd, 'aria-label', `Step forward ${unitLong}`);
         btnBack.dataset.tip = `Back ${unitLong}`;
         btnFwd.dataset.tip = `Forward ${unitLong}`;
-        setText(rateOut, range ? 'Timelapse' : ui.fmt('fmtRate', rate));
+        // The phone row is tight: real time reads '1×' there so the date keeps its year.
+        setText(rateOut, range ? 'Timelapse' : ui.fmt('fmtRate', rate, { compact: ui.layout === 'mobile' }));
         rateOut.classList.toggle('is-reverse', rate < 0 && !range);
         btnSlower.disabled = !!range || rate <= -RATE_MAX;
         btnFaster.disabled = !!range || rate >= RATE_MAX;
@@ -402,6 +404,7 @@ export function mountTimebar(root, ctx) {
         root.classList.toggle('is-paused', !playing);
         lapseBtn.classList.toggle('is-on', !!range);
         setAttr(lapseBtn, 'aria-pressed', String(!!range));
+        stampTime.classList.toggle('is-h12', !!store.get().display?.hour12);
         syncStamp(force);
         syncTz();
     }
@@ -423,14 +426,22 @@ export function mountTimebar(root, ctx) {
         const st = store.get();
         const mode = st.display?.tzMode || 'observer';
         const off = ui.offsetText(clock.tMs);
-        let text, place = '', label;
+        let text, place = '', label, tipText = 'Change time zone';
         if (mode === 'utc') { text = 'UTC'; label = 'Times in UTC. Switch to observer time'; }
         else if (mode === 'device') { text = off; place = ' · This device'; label = `Times in this device's zone, ${off}. Switch to UTC`; }
         else if (st.observer?.tzApprox) { text = `${off} (approx.)`; label = `Times at the observer, ${off}, approximate. Switch to this device's time`; }
-        else { const p = ui.placeShort(st.observer); text = off; place = ` · ${p}`; label = `Times in ${p}, ${off}. Switch to this device's time`; }
-        // The place part is its own span so the phone layout can drop it (the top bar already names the place).
+        else {
+            // The location chip already names the observer's place: the chip shows the offset
+            // only, and the place stays in its accessible name and tooltip.
+            const p = ui.placeShort(st.observer);
+            text = off;
+            label = `Times in ${p}, ${off}. Switch to this device's time`;
+            tipText = `Times in ${p}. Change time zone`;
+        }
+        // The place part is its own span so the phone layout can drop it.
         if (tzChip.textContent !== text + place) tzChip.replaceChildren(text, place ? h('span', { class: 'tb-tz__place' }, place) : '');
         setAttr(tzChip, 'aria-label', label);
+        if (tzChip.dataset.tip !== tipText) tzChip.dataset.tip = tipText;
     }
 
     // ================================================================ scrubber engine

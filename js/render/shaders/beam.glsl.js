@@ -38,7 +38,7 @@ import { FINITE_CHUNK } from './common.glsl.js';
 export const BEAM_VERT = /* glsl */ `
 uniform float uNear;      // camera near plane (view-space units)
 uniform vec2 uViewport;   // drawing-buffer size in px
-uniform float uGlowPx;    // unselected ribbon half-width in drawing-buffer px
+uniform float uGlowPx;    // ribbon half-width in drawing-buffer px
 
 attribute vec3 iOrigin;
 attribute vec3 iDir;
@@ -59,7 +59,9 @@ void main() {
     vState = iState;
     vDist = 0.0;
     vLine = vec4(0.0);
-    float halfW = uGlowPx * (iState.x > 0.5 ? 1.4 : 1.0);
+    // A selected beam keeps the common width: it stands out by its core (BEAM_FRAG), so a zoomed-out
+    // globe is not crossed by a bar wider than the planet.
+    float halfW = uGlowPx;
     float full = max(iLen, L0);
     float len = iState.w >= 1.0 ? full : L0 * pow(full / L0, clamp(iState.w, 0.0, 1.0));
     vLen = vec3(len, full, halfW);
@@ -201,13 +203,15 @@ void main() {
 #else
     // Below the horizon: a thin, dim, dashed core with only a whisper of glow, so the
     // bodies you can actually see keep the visual hierarchy.
-    float k = mix(1.0, 0.3, below) * mix(1.0, 1.6, sel) * (1.0 - 0.45 * uSelActive * (1.0 - sel));
+    float k = mix(1.0, 0.3, below) * (1.0 - 0.45 * uSelActive * (1.0 - sel));
     float dashA = mix(1.0, dash, below);
-    float glowK = mix(1.0, 0.3, below);
+    // The selected beam stands out by its core (wider and brighter) while the soft glow, which
+    // carries the body's colour, only rises a little: "that colour, brighter", not a white bar.
+    float glowK = mix(1.0, 0.3, below) * mix(1.0, 1.2, sel);
     // A travelling pulse is a bead: the core dips slightly between beads and each bead
     // carries its own wider halo, so the motion reads even where the core saturates.
     float bead = pulse * exp(-side / (halfW * 0.5));
-    float coreK = 2.2 * (1.0 - 0.3 * uPulses) + 2.6 * pulse + 3.0 * head;
+    float coreK = (2.2 * (1.0 - 0.3 * uPulses) + 2.6 * pulse + 3.0 * head) * mix(1.0, 1.35, sel);
     // Only the core is dashed (see pass B); the faint glow of a beam below the horizon is continuous.
     vec3 c = vColor * (core * coreK * dashA + glow * glowIn * glowK * mix(0.6, 0.3, below) + bead * glowIn * 1.6 * dashA)
            * fadeIn * fadeOut * k;

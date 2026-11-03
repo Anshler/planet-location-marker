@@ -149,8 +149,9 @@ void main() {
     vec3 albedo = texture(uDay, uv).rgb;
     vec4 maskTex = texture(uMask, uv);
 
-    // --- ocean mask: roughness ~ 0 is water; until a mask loads (and on low),
-    //     blue-over-red water from the day map, window fitted against a water mask ---
+    // --- ocean mask: roughness ~ 0 is water. Until the mask loads, blue-over-red water
+    //     from the day map (window fitted against the mask). That stand-in runs on chroma,
+    //     which lossy maps store at half resolution, so it misses small islands. ---
     float lum = dot(albedo, vec3(0.2126, 0.7152, 0.0722));
     float derived = smoothstep(0.02, 0.10, albedo.b - albedo.r)
                   * (1.0 - smoothstep(0.25, 0.45, lum));   // bright = ice or cloud, not water

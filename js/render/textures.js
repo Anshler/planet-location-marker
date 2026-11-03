@@ -71,6 +71,8 @@ export function nightKeyFor(cfg) {
 /**
  * Ocean-mask key for a tier, or null when the mask is derived from the day map. Both
  * masks are the same roughness data (water ~ 0): brc4k's green channel, or its 2k copy.
+ * Every tier ships one: the derived mask (the stand-in while a mask loads) reads the day
+ * map's chroma, which WebP and JPEG store at half resolution, so it loses small islands.
  * @param {{oceanMask?:'derived'|'roughness2k'|'roughness'}} cfg
  * @returns {'roughness2k'|'brc4k'|null}
  */

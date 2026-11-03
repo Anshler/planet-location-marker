@@ -20,7 +20,7 @@ function deepFreeze(o) {
 export const TIERS = deepFreeze({
     low: {
         name: 'low', dprCap: 1.0, composer: false, msaa: 0, bloom: null,
-        earthSegments: [64, 32], dayTex: 'day2k', oceanMask: 'derived',
+        earthSegments: [64, 32], dayTex: 'day2k', oceanMask: 'roughness2k',
         clouds: 'none', cloudShadows: false, bump: false, atmosphere: 'analytic', atmoSteps: 0,
         starMagLimit: 5.0, flare: false, labelCap: 12, twinkle: false, beamGlowPx: 8, finalPass: false,
     },

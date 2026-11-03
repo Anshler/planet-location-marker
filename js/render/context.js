@@ -30,7 +30,7 @@ import { createPostFx } from './postfx.js';
 export const FALLBACK_TIERS = Object.freeze({
     low: Object.freeze({
         name: 'low', dprCap: 1.0, composer: false, msaa: 0, bloom: null, earthSegments: [64, 32], dayTex: 'day2k',
-        oceanMask: 'derived', clouds: 'none', cloudShadows: false, bump: false, atmosphere: 'analytic', atmoSteps: 0,
+        oceanMask: 'roughness2k', clouds: 'none', cloudShadows: false, bump: false, atmosphere: 'analytic', atmoSteps: 0,
         starMagLimit: 5.0, flare: false, labelCap: 12, twinkle: false, beamGlowPx: 8, finalPass: false,
     }),
     medium: Object.freeze({

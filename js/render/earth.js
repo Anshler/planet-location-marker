@@ -35,7 +35,7 @@ const CLOUD_DRIFT_EPOCH_MS = Date.UTC(2000, 0, 1, 12);
 
 /** Tier knobs this module reads, used when rc.tier is a name or a partial config. */
 const TIER_DEFAULTS = {
-    low: { name: 'low', earthSegments: [64, 32], dayTex: 'day2k', oceanMask: 'derived', clouds: 'none', cloudShadows: false, bump: false },
+    low: { name: 'low', earthSegments: [64, 32], dayTex: 'day2k', oceanMask: 'roughness2k', clouds: 'none', cloudShadows: false, bump: false },
     medium: { name: 'medium', earthSegments: [96, 48], dayTex: 'day4k', oceanMask: 'roughness2k', clouds: 'clouds2k', cloudShadows: false, bump: false },
     high: { name: 'high', earthSegments: [128, 64], dayTex: 'day4k', oceanMask: 'roughness', clouds: 'brc4k', cloudShadows: true, bump: true },
 };

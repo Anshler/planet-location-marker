@@ -102,6 +102,10 @@ test('every tier, and every device adjustment of it, loads only shipped textures
         }
         const keys = tierTextureKeys(cfg);
         assert.equal(keys[0] === 'day2k', keys[1] === 'night2k', `${cfg.name}: the night map follows the day map`);
+        // The mask derived from the day map runs on chroma, which the lossy 2k day map stores
+        // at 1024 px: most islands of a few texels read as sea. So every tier loads the real
+        // water mask, and the derived one only stands in while it loads.
+        assert.ok(keys.includes('roughness2k') || keys.includes('brc4k'), `${cfg.name}: loads a water mask`);
     }
     for (const r of RECIPES) assert.ok(Object.values(ASSET_URLS).includes(r.path), `${r.path} is used by the app`);
 });
@@ -115,7 +119,7 @@ test('the cloud and water maps are clamped to the windows the earth shader reads
     assert.match(clouds, /cloudDensity\(texture\(tex, st\)\.b\)/);
     assert.match(clouds, /pcTextureBSpline\(tex, st\)\.r/);
     assert.deepEqual(recipeFor('clouds2k').recipe.clamp, [0.2, 1]);
-    // One water mask for medium and high: roughness in .g through the same window.
+    // One water mask for every tier: roughness in .g through the same window.
     assert.match(stripComments(EARTH_SHADER.fragment), /1\.0 - smoothstep\(0\.25, 0\.45, maskTex\.g\)/);
     assert.deepEqual(recipeFor('roughness2k').recipe.clamp, [0.25, 0.45]);
     assert.ok(!/uDayGain/.test(EARTH_SHADER.fragment), 'both day maps are one image: no per-map gain');

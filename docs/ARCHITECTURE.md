@@ -296,7 +296,7 @@ change.
 | DPR cap | 1.0 | 1.5 | 2.0 |
 | Composer / MSAA | none (context antialias) | yes / 4 (0 on touch) | yes / 4 |
 | Bloom | none | 0.55 / 0.4 / 0.9 @ ½ res | 0.6 / 0.45 / 0.9 |
-| Earth | 64×32, `day2k` + `night2k`, derived ocean mask, no clouds | 96×48, `day4k`, 2k roughness mask, 2k clouds | 128×64, `day4k`, 4k roughness, 4k clouds + shadows + bump |
+| Earth | 64×32, `day2k` + `night2k`, 2k roughness mask, no clouds | 96×48, `day4k`, 2k roughness mask, 2k clouds | 128×64, `day4k`, 4k roughness, 4k clouds + shadows + bump |
 | Atmosphere | analytic | analytic | ray-marched (8 steps) |
 | Stars to mag | 5.0 | 6.0 | 6.5 |
 | Flare / twinkle | — / — | ✓ / — | ✓ / ✓ |
@@ -317,6 +317,15 @@ change.
   curve and both water masks through one window. A Settings change or a governor step therefore
   changes sharpness and effects, never the colours, the coastlines or the weather. The night map
   follows the day map (`nightKeyFor`), so medium on a GPU under 8192 px also gets `night2k`.
+- **Every tier loads a water mask.** Low loads the 56 KB `roughness2k` that medium uses. The
+  mask the shader can derive from the day map (blue over red) is only a stand-in while the mask
+  loads. It runs on chroma, which lossy WebP and JPEG store at half resolution, so it reads most
+  islands a few texels wide as sea and they vanish under the sun glint.
+- **Known limit of the 2k maps.** Lossy WebP always stores chroma at 4:2:0, so isolated city
+  lights in `night2k` are less saturated than in the 4k map. They are paler and whiter-yellow,
+  with the same brightness. The shader's orange tint hides part of it. Encodes that keep the
+  chroma cost 2.5 to 9 times the 75 KB: 4:4:4 JPEG is 190 to 700 KB and lossless WebP about
+  434 KB.
 
 ---
 

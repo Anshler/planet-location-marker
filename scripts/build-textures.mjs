@@ -65,7 +65,7 @@ export const RECIPES = [
         path: 'assets/textures/earth_clouds_2048.webp', from: 'assets/textures/earth_bump_roughness_clouds_4096.jpg',
         recipe: { size: [2048, 1024], colour: 'data', channel: 'b', clamp: [0.2, 1], type: 'image/webp', quality: 0.7 },
     },
-    // Medium-tier water mask: the high tier's own (brc4k green, roughness), read as
+    // Low- and medium-tier water mask: the high tier's own (brc4k green, roughness), read as
     // 1 - smoothstep(0.25, 0.45, v). Clamped to that window it is almost flat: 57 KB.
     {
         path: 'assets/textures/earth_roughness_2048.webp', from: 'assets/textures/earth_bump_roughness_clouds_4096.jpg',

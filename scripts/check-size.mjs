@@ -13,8 +13,9 @@
 //   unminified-by-design module graph (no build step) measures ≈ 2.0 MB raw incl. CSS
 //   (≈ 0.6 MB gzipped; three.js + astronomy-engine alone are 1.17 MB raw), so the budgets were
 //   re-baselined to the measured sizes plus ≈ 5 % headroom. The derived 2k maps
-//   (scripts/build-textures.mjs) then took low from 3.71 to 3.17 MB and medium from 4.21 to
-//   4.05 MB, and low and medium were lowered to lock that in. The spec's hard line, every tier
+//   (scripts/build-textures.mjs) then took low from 3.71 to 3.22 MB (incl. the 56 KB water
+//   mask it shares with medium) and medium from 4.21 to 4.05 MB, and low and medium were
+//   lowered to lock that in. The spec's hard line, every tier
 //   under 6 MB, still holds and is asserted in test/repo.tooling.test.mjs.
 //   plus per-file ceilings for generated data, icons and the social image.
 
@@ -51,7 +52,7 @@ const FALLBACK_ASSETS = {
 };
 /** SPEC §E.6 tier table, used only if js/core/quality.js cannot be imported. */
 const FALLBACK_TIERS = {
-    low: { dayTex: 'day2k', oceanMask: 'derived', clouds: 'none', flare: false },
+    low: { dayTex: 'day2k', oceanMask: 'roughness2k', clouds: 'none', flare: false },
     medium: { dayTex: 'day4k', oceanMask: 'roughness2k', clouds: 'clouds2k', flare: true },
     high: { dayTex: 'day4k', oceanMask: 'roughness', clouds: 'brc4k', flare: true },
 };

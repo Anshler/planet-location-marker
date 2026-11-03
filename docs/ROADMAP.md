@@ -68,15 +68,15 @@ Fill the empty ground, make night and twilight physically right.
 
 | Status | ID | Item | Impact | Effort | Notes |
 |---|---|---|---|---|---|
-| todo | `procedural-landscape` | Ground 2.0: a per-place horizon silhouette, sea horizons with a moon-glitter path, and sky-lit land ★ | 4 | L |  |
-| todo | `twilight-lit-ground` | Quick win: the ground stays visible through civil twilight and moonlight, and portrait framing shows less of it | 3 | S |  |
-| todo | `real-sky-brightness` | 'Your real sky': moonlit sky plus light pollution estimated from the shipped night-lights map, with a Bortle slider ★ | 4 | L |  |
-| todo | `human-vision-rendering` | Night that looks like night: a human-eye vision model with the Purkinje shift, rod desaturation and dark adaptation | 3 | M |  |
-| todo | `sky-view-refraction` | Draw refraction in sky view: the Sun is hidden at the official sunset, and low discs never flatten | 3 | M |  |
-| todo | `procedural-flare` | Procedural lens flare: clean aperture ghosts instead of muddy textured discs (and −68 KB) | 2 | M |  |
-| todo | `zodiacal-light-airglow` | Zodiacal light, gegenschein and true-colour airglow for dark skies | 2 | M |  |
-| todo | `chromatic-scintillation` | Chromatic scintillation for bright low stars (Sirius flashing colours on the horizon) | 2 | S |  |
-| todo | `physical-sky-lut` | Physically based atmosphere (Hillaire 2020 LUTs) with the Moon's umbra inside the air ★ | 4 | XL |  |
+| done | `procedural-landscape` | Ground 2.0: a per-place horizon silhouette, sea horizons with a moon-glitter path, and sky-lit land ★ | 4 | L | a64d96d (js/geo/horizon.js per-place profile, rooftops/trees/sea sectors with glitter; one profile drives flare, picking and labels; layer 'd'). |
+| done | `twilight-lit-ground` | Quick win: the ground stays visible through civil twilight and moonlight, and portrait framing shows less of it | 3 | S | a64d96d. |
+| done | `real-sky-brightness` | 'Your real sky': moonlit sky plus light pollution estimated from the shipped night-lights map, with a Bortle slider ★ | 4 | L | 94afa61 (js/astro/skyglow.js: KS91 moonlight, Walker's law from cities.json, Bortle/SQM, Settings 'Sky darkness', sky= in URL). |
+| done | `human-vision-rendering` | Night that looks like night: a human-eye vision model with the Purkinje shift, rod desaturation and dark adaptation | 3 | M | 94afa61 (subtle mesopic desaturation in sky view). |
+| done | `sky-view-refraction` | Draw refraction in sky view: the Sun is hidden at the official sunset, and low discs never flatten | 3 | M | a64d96d (drawn refraction; upper limb on the horizon at the official sunset). |
+| done | `procedural-flare` | Procedural lens flare: clean aperture ghosts instead of muddy textured discs (and −68 KB) | 2 | M | 94afa61 (procedural ghosts and starburst; lens-flare textures dropped). |
+| done | `zodiacal-light-airglow` | Zodiacal light, gegenschein and true-colour airglow for dark skies | 2 | M | 94afa61 (medium+). |
+| done | `chromatic-scintillation` | Chromatic scintillation for bright low stars (Sirius flashing colours on the horizon) | 2 | S | 94afa61 (high/max). |
+| todo | `physical-sky-lut` | Physically based atmosphere (Hillaire 2020 LUTs) with the Moon's umbra inside the air ★ | 4 | XL | Deferred 2026-11-04: highest cost, and the tuned Preetham + skyglow look is now good; if done, high/max only. |
 
 ## Phase 3: Planets that are planets
 
@@ -192,3 +192,6 @@ Use the 1000–3000 range and the unused Astronomy Engine APIs.
   don't refresh on a 12/24 h toggle (same as 'tonight'); the brown lunar disc at the diamond ring is bloom (by design).
 - 2026-11-04: Max quality tier merged (owner request): manual only, pinned against the governor, no size budget (max is
   ~20.7 MB; staged-site budget raised 12 → 32 MB). low/medium/high budgets unchanged. CLAUDE.md updated (four tiers).
+- 2026-11-04: Phase 2 (Sky view 2.0) merged: landscape + twilight ground + refraction (a64d96d) and night-sky brightness,
+  vision, zodiacal light, scintillation, procedural flare (94afa61). npm test (552), size, smoke, smoke:mobile, text mode pass.
+  Budgets now low 3.6 / medium 4.4 / high 5.6 MB. physical-sky-lut deferred in favour of Phases 3–4.

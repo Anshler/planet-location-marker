@@ -204,3 +204,58 @@ export function exposureFor(sunAltDeg, skyBlend, out) {
     o.milkyWay = 1 + (milkyWay - 1) * k;
     return o;
 }
+
+const clamp01 = (x) => Math.min(1, Math.max(0, Number.isFinite(x) ? x : 0));
+
+/**
+ * Exposure of the star field as drawn (render/sky.js), which also gates star and constellation
+ * names: the twilight curve, lifted in sky view by totality, max(stars, 0.8·smoothstep(0.97, 1,
+ * obscuration)·skyBlend).
+ * @param {number} starsExp exposureFor(…).stars
+ * @param {number} obscuration solar-eclipse obscuration at the observer, 0…1
+ * @param {number} skyBlend 0 = orbit view, 1 = sky view
+ * @returns {number} 0…1
+ */
+export function starExposure(starsExp, obscuration, skyBlend) {
+    const eclipse = 0.8 * smoothstep(0.97, 1.0, Number.isFinite(obscuration) ? obscuration : 0) * clamp01(skyBlend);
+    return clamp01(Math.max(Number.isFinite(starsExp) ? starsExp : 1, eclipse));
+}
+
+/**
+ * Limiting magnitude of the drawn star field at exposure e: mix(−1, magLimit, √e), as in STAR_VERT
+ * (render/shaders/sky.glsl.js). Twilight brightens it, so faint stars go first.
+ * @param {number} e star exposure, 0…1
+ * @param {number} magLimit the tier's limiting magnitude (TierCfg.starMagLimit)
+ * @returns {number}
+ */
+export function starLimitMag(e, magLimit) {
+    return -1 + (magLimit + 1) * Math.sqrt(clamp01(e));
+}
+
+/**
+ * How visible a star of magnitude `mag` is drawn, 0…1: STAR_VERT's
+ * smoothFall(lim + 0.35, lim − 0.45, mag) · smoothstep(0, 0.04, e).
+ * @param {number} mag
+ * @param {number} e star exposure, 0…1
+ * @param {number} magLimit the tier's limiting magnitude
+ * @returns {number}
+ */
+export function starVisibility(mag, e, magLimit) {
+    const ee = clamp01(e);
+    const lim = starLimitMag(ee, magLimit);
+    return smoothstep(lim + 0.35, lim - 0.45, mag) * smoothstep(0, 0.04, ee);
+}
+
+/**
+ * Brightness of the sky behind the labels, 0…1 (their halo style): smoothstep(−6°, 10°, h☉) in sky
+ * view, dark again in totality (smoothstep(0.9, 1, obscuration)), 0 from orbit.
+ * @param {number} sunAltDeg
+ * @param {number} obscuration solar-eclipse obscuration at the observer, 0…1
+ * @param {number} skyBlend 0 = orbit view, 1 = sky view
+ * @returns {number}
+ */
+export function skyBrightness(sunAltDeg, obscuration, skyBlend) {
+    const a = Number.isFinite(sunAltDeg) ? sunAltDeg : -90;
+    const ecl = smoothstep(0.9, 1.0, Number.isFinite(obscuration) ? obscuration : 0);
+    return smoothstep(-6, 10, a) * (1 - ecl) * clamp01(skyBlend);
+}

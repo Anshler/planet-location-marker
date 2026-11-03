@@ -107,3 +107,41 @@ test('smoothstep matches GLSL', () => {
     assert.equal(P.smoothstep(0, 1, 0.5), 0.5);
     assert.equal(P.smoothstep(1, 0, 0.25), P.smoothstep(0, 1, 0.75));
 });
+
+test('starExposure: the twilight curve, lifted by totality in sky view only', () => {
+    assert.equal(P.starExposure(1, 0, 0), 1, 'orbit view');
+    assert.equal(P.starExposure(0, 0, 1), 0, 'daylight sky view');
+    close(P.starExposure(0, 1, 1), 0.8, 1e-12, 'totality brings stars out by day');
+    assert.equal(P.starExposure(0, 1, 0), 0, 'only from the ground');
+    assert.equal(P.starExposure(0, 0.96, 1), 0, 'a deep partial phase is still daylight');
+    assert.equal(P.starExposure(0.9, 1, 1), 0.9, 'never darker than the twilight curve');
+    assert.equal(P.starExposure(NaN, NaN, NaN), 1);
+});
+
+test('starLimitMag / starVisibility mirror STAR_VERT: lim = mix(−1, magLimit, √e); vis = smoothFall(lim+0.35, lim−0.45, mag)·smoothstep(0, 0.04, e)', () => {
+    assert.equal(P.starLimitMag(1, 6), 6);
+    assert.equal(P.starLimitMag(0, 6), -1);
+    close(P.starLimitMag(0.25, 6), 2.5, 1e-12);
+    assert.equal(P.starVisibility(5.55, 1, 6), 1, 'mag ≤ lim − 0.45 is fully drawn');
+    assert.equal(P.starVisibility(6.35, 1, 6), 0, 'mag ≥ lim + 0.35 is gone');
+    close(P.starVisibility(5.95, 1, 6), 0.5, 1e-12, 'midway');
+    assert.equal(P.starVisibility(-1.46, 0, 6), 0, 'no star at all at zero exposure, even Sirius');
+    assert.ok(P.starVisibility(-1.46, 0.1, 6) > 0.99, 'Sirius early in twilight');
+    assert.equal(P.starVisibility(2.43, 0.1, 6), 0, 'mag 2.4 still invisible at e = 0.1 (lim ≈ 1.2)');
+    let prev = -1;
+    for (let e = 0; e <= 1.0001; e += 0.05) {
+        const v = P.starVisibility(1.5, e, 6);
+        assert.ok(v >= prev - 1e-12, `non-decreasing in e at ${e}`);
+        prev = v;
+    }
+});
+
+test('skyBrightness: 0 from orbit and at night, 1 by day in sky view, dark again in totality', () => {
+    assert.equal(P.skyBrightness(40, 0, 0), 0);
+    assert.equal(P.skyBrightness(40, 0, 1), 1);
+    assert.equal(P.skyBrightness(-10, 0, 1), 0);
+    close(P.skyBrightness(2, 0, 1), 0.5, 1e-12);
+    assert.equal(P.skyBrightness(60, 1, 1), 0);
+    assert.ok(P.skyBrightness(60, 0.8, 1) > 0.99, 'a partial eclipse keeps a bright sky');
+    assert.equal(P.skyBrightness(NaN, NaN, NaN), 0);
+});

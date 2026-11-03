@@ -29,13 +29,19 @@
  * per text change (batched reads, never per frame). When rendering goes idle a
  * single timer finishes any pending declutter or `is-new` removal.
  *
- * Optional anchor fields beyond the spec: `selected` (boolean; otherwise
- * priority ≥ 100 means selected), `below` (boolean), `gate` (() => boolean,
- * evaluated per frame; false hides the label). `update` also accepts
- * `opts.upS` (live observer zenith): body anchors with a `dirS` then get
- * `is-below` from the live direction, so it never goes stale between
- * setAnchors calls. A non-finite anchor position simply hides the label
- * (e.g. beams.labelAnchor before the beam has landed).
+ * Optional anchor fields beyond the spec, all read per frame so a feed can
+ * flip them without a setAnchors call: `selected` (boolean; otherwise
+ * priority ≥ 100 means selected), `below` (boolean → `is-below`), `hidden`
+ * (true hides the label), `faint` (boolean → `is-faint`), `gate`
+ * (() => boolean; false hides the label). `update` also accepts `opts.upS`
+ * (live observer zenith): a body anchor with a `dirS` and no `below` flag
+ * then gets `is-below` from the live direction. A non-finite anchor position
+ * simply hides the label (e.g. beams.labelAnchor before the beam has landed).
+ *
+ * `opts.skyLum` (0…1, the brightness of the sky behind the labels) is written,
+ * quantised to 0.05 and only when it changes, as `--sky-lum` on the root, which
+ * also gets `is-daysky` on a bright sky; G7's CSS swaps the dark text halo for
+ * a light one there.
  *
  * @module render/labels
  */
@@ -83,6 +89,9 @@ export function labelExtent(id) {
 
 // sin(−0.3°): a name whose anchor is just under the horizon line is already behind the ground.
 const HORIZON_SIN = -0.005;
+/** `--sky-lum` steps, and the level from which the root carries `is-daysky`. */
+const SKY_LUM_STEPS = 20;
+const DAYSKY_LUM = 0.6;
 const KIND_RANK = { body: 0, observer: 1, cardinal: 2, trail: 3, star: 4, constellation: 5 };
 
 function nowMs() {
@@ -91,15 +100,16 @@ function nowMs() {
 
 /**
  * @typedef {{ id:string, text:string, kind:'body'|'observer'|'star'|'constellation'|'cardinal'|'trail',
- *   priority:number, color?:string, dirS?:ArrayLike<number>, posS?:ArrayLike<number>, offsetPx?:[number,number],
- *   ariaLabel?:string, interactive:boolean, selected?:boolean, below?:boolean, gate?:()=>boolean }} LabelAnchor
+ *   priority:number, color?:string, dirS?:ArrayLike<number>, posS?:ArrayLike<number>, offsetPx?:ArrayLike<number>,
+ *   ariaLabel?:string, interactive:boolean, selected?:boolean, below?:boolean, hidden?:boolean, faint?:boolean,
+ *   gate?:()=>boolean }} LabelAnchor
  */
 
 /**
  * Creates the label pool inside `rootEl` (#labels-root).
  * @param {HTMLElement} rootEl
  * @param {{cap?:number, now?:()=>number}} [opts]
- * @returns {{setAnchors(list:LabelAnchor[]):void, update(camera:object, viewport:{w:number,h:number}, opts?:{cap?:number, upS?:ArrayLike<number>}):number,
+ * @returns {{setAnchors(list:LabelAnchor[]):void, update(camera:object, viewport:{w:number,h:number}, opts?:{cap?:number, upS?:ArrayLike<number>, horizon?:boolean, skyLum?:number}):number,
  *   onActivate(cb:(id:string)=>void):()=>void, relayout():void, dispose():void, readonly visibleCount:number}}
  */
 export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
@@ -122,6 +132,7 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
     const lastVp = { w: 0, h: 0, insets: null };
     let lastOpts = null;
     let horizonOn = false;   // sky view: hide star/constellation names below the horizon
+    let skyLum = -1;         // last --sky-lum written (quantised)
     // Placed rectangles for the greedy declutter (x0, y0, x1, y1 per label).
     let rects = new Float64Array(4 * 64);
     const M = new Float64Array(16);
@@ -169,6 +180,7 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
         it.isNew = false;
         it.sel = false;
         it.below = false;
+        it.faint = false;
         // A pooled element keeps its last transform; park it at the origin so the first
         // measurement (relative to wx, wy) is right.
         el.style.transform = 'translate3d(0px, 0px, 0)';
@@ -233,7 +245,7 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
                         text: null, aria: null, color: null,
                         rx0: -4, ry0: -9, rx1: 40, ry1: 9, measured: false,
                         sx: 0, sy: 0, ok: false, placed: false,
-                        shown: false, isNew: false, newUntil: 0, sel: false, below: false, wx: NaN, wy: NaN,
+                        shown: false, isNew: false, newUntil: 0, sel: false, below: false, faint: false, wx: NaN, wy: NaN,
                     };
                     items.set(id, it);
                     applyAnchorToEl(it, a);
@@ -351,6 +363,7 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
     function project(it, cx, cy, cz, w, h, upS) {
         const a = it.anchor;
         it.ok = false;
+        if (a.hidden === true) return false;
         if (typeof a.gate === 'function') {
             let pass = true;
             try { pass = a.gate() !== false; } catch { pass = false; }
@@ -406,12 +419,15 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
         }
         it.sx = qx;
         it.sy = qy;
-        // Live below-horizon state for bodies (opts.upS), else the anchor's static flag.
-        if (upS && a.dirS && it.kind === 'body') {
-            it.belowNow = a.dirS[0] * upS[0] + a.dirS[1] * upS[1] + a.dirS[2] * upS[2] < 0;
+        // The anchor's below flag (a feed keeps it live); without one, a body with a direction
+        // takes it from the live zenith (opts.upS).
+        if (typeof a.below === 'boolean') {
+            it.belowNow = a.below;
         } else {
-            it.belowNow = a.below === true;
+            it.belowNow = !!(upS && a.dirS && it.kind === 'body'
+                && a.dirS[0] * upS[0] + a.dirS[1] * upS[1] + a.dirS[2] * upS[2] < 0);
         }
+        it.faintNow = a.faint === true;
         it.ok = true;
         return true;
     }
@@ -447,8 +463,9 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
      * @param {object} camera THREE.PerspectiveCamera (matrices current)
      * @param {{w:number, h:number, insets?:{left?:number, right?:number, top?:number, bottom?:number}}} viewport
      *   CSS px of #labels-root / the canvas; `insets` is the UI-covered band on each edge
-     * @param {{cap?:number, upS?:ArrayLike<number>, horizon?:boolean}} [opts] `horizon`: sky view, hide
-     *   star and constellation names below the horizon
+     * @param {{cap?:number, upS?:ArrayLike<number>, horizon?:boolean, skyLum?:number}} [opts] `horizon`: sky
+     *   view, hide star and constellation names below the horizon; `skyLum`: sky brightness behind the
+     *   labels, 0…1 (see module docs)
      * @returns {number} labels visible after this update
      */
     function update(camera, viewport, opts) {
@@ -473,6 +490,7 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
         const capNow = Number.isFinite(opts?.cap) ? opts.cap : defaultCap;
         const upS = opts?.upS || null;
         horizonOn = opts?.horizon === true;
+        writeSkyLum(opts?.skyLum);
         const t = now();
         if (!idle) lastFrameT = t;
         // UI chrome rects: on demand, every OCCLUDER_MS, and once more after a burst of frames.
@@ -535,6 +553,10 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
                     el.classList.toggle('is-below', !!it.belowNow);
                     it.below = !!it.belowNow;
                 }
+                if (it.faintNow !== it.faint) {
+                    el.classList.toggle('is-faint', !!it.faintNow);
+                    it.faint = !!it.faintNow;
+                }
             } else if (it.shown) {
                 el.classList.add('is-hidden');
                 it.shown = false;
@@ -551,6 +573,16 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
         visibleCount = count;
         if (pendingNew || measureDirty || stale || (!idle && occAt < t)) schedule();
         return count;
+    }
+
+    /** Writes `--sky-lum` and `is-daysky` on the root when the quantised level changes. */
+    function writeSkyLum(v) {
+        const x = Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0;
+        const q = Math.round(x * SKY_LUM_STEPS) / SKY_LUM_STEPS;
+        if (q === skyLum) return;
+        skyLum = q;
+        rootEl.style.setProperty('--sky-lum', String(q));
+        rootEl.classList.toggle('is-daysky', q >= DAYSKY_LUM);
     }
 
     /** One idle timer finishes a pending declutter / is-new removal when frames stop. */

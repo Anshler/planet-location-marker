@@ -141,7 +141,9 @@ moonPhaseDeg  = AE.MoonPhase(time)
 - **Elongation side.** "Morning" when the body's ecliptic longitude is west of the Sun's, otherwise
   "evening".
 - **Up.** The Sun and Moon count as up while their upper limb clears the horizon: refracted
-  altitude plus the semi-diameter, above 0.
+  altitude plus the semi-diameter, above 0. The beams, the Sky panel and orbit-view labels use
+  this flag. Sky-view labels use the geometric altitude instead, because bodies are drawn there
+  without refraction: for a few minutes around sunset the drawn Sun is already below the ground.
 
 ### Why the drawing uses astrometric J2000 and the tables use apparent of-date
 
@@ -211,6 +213,12 @@ from the true Sun direction. The phase you see is therefore correct by construct
 
   Stars fade with the dawn, and Venus and Jupiter stay visible in twilight. The daylight dome is
   the Preetham–Shirley–Smits analytic sky driven by the true Sun.
+- **Drawn star field.** `starExposure` lifts the stars curve in totality:
+  `e = max(stars, 0.8·smoothstep(0.97, 1, obscuration)·skyBlend)`. The star shader's limiting
+  magnitude is `lim = −1 + (m_tier + 1)·√e`, and a star of magnitude m is drawn at
+  `smoothstep(lim + 0.35, lim − 0.45, m)·smoothstep(0, 0.04, e)` (`starLimitMag`,
+  `starVisibility`). Star names use the same curve, so a name never outlives its star.
+  Constellation names need `e ≳ 0.3`.
 
 ---
 

@@ -25,7 +25,7 @@
 // and indexed loops (R5).
 
 import { createSnapshot, computeSnapshot } from '../astro/snapshot.js';
-import { exposureFor } from '../astro/photometry.js';
+import { exposureFor, starExposure, skyBrightness } from '../astro/photometry.js';
 
 /** Recompute the 'frame' snapshot when simulated time has moved this far (ms). */
 export const SNAP_STALE_MS = 500;
@@ -153,8 +153,12 @@ export function createLoop(deps) {
         pulsesActive: false, exposure,
     };
     // upS is the snapshot's live zenith: the label pool derives is-below for direction anchors from it,
-    // and in sky view (horizon) hides star and constellation names that the ground covers.
-    const labelOpts = { cap: 24, upS: snap.observer.upS, horizon: false };
+    // and in sky view (horizon) hides star and constellation names that the ground covers. skyLum is
+    // the brightness of the sky behind the labels (their halo style).
+    const labelOpts = { cap: 24, upS: snap.observer.upS, horizon: false, skyLum: 0 };
+    // The label feed's per-frame inputs (labels-feed LabelView): star and constellation names follow
+    // the drawn star field; body label offsets scale with the viewport.
+    const labelView = { starExposure: 1, magLimit: 6, viewportH: 0 };
 
     const offs = [];
     offs.push(store.subscribe((s) => s.observer, () => { observerDirty = true; dirty = true; }));
@@ -345,10 +349,17 @@ export function createLoop(deps) {
 
                 if (labels && !disabled.has(labels)) {
                     try {
-                        if (labelsFeed) labelsFeed.sync(camera, skyBlend >= 0.5 ? 'sky' : 'orbit');
+                        const obsc = snap.eclipse ? snap.eclipse.obscurationAtObserver : 0;
+                        if (labelsFeed) {
+                            labelView.starExposure = starExposure(exposure.stars, obsc, skyBlend);
+                            labelView.magLimit = cfg && Number.isFinite(cfg.starMagLimit) ? cfg.starMagLimit : 6;
+                            labelView.viewportH = rc.size && rc.size.h > 0 ? rc.size.h : 0;
+                            labelsFeed.sync(camera, skyBlend >= 0.5 ? 'sky' : 'orbit', labelView);
+                        }
                         const tierCap = cfg && Number.isFinite(cfg.labelCap) ? cfg.labelCap : 24;
                         labelOpts.cap = skyBlend >= 0.5 ? tierCap : Math.min(tierCap, ORBIT_LABEL_CAP);
                         labelOpts.horizon = skyBlend >= 0.5;
+                        labelOpts.skyLum = skyBrightness(snap.observer.sunAltDeg, obsc, skyBlend);
                         labels.update(camera, rc.size, labelOpts);
                     } catch (err) {
                         strike(labels, 'update', err);

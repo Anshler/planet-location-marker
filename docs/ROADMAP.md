@@ -84,9 +84,9 @@ One planet impostor shader drives beam-end medallions, the body card and a teles
 
 | Status | ID | Item | Impact | Effort | Notes |
 |---|---|---|---|---|---|
-| todo | `galilean-moons` | Jupiter's four Galilean moons, live from AE.JupiterMoons | 3 | M |  |
-| todo | `body-card-moons-rings-libration` | Details card: Jupiter's moon line-up, Saturn's ring tilt and the Moon's libration (works in text mode) | 2 | S | Also covers `eyepiece-portraits`. |
-| todo | `planet-impostor-medallions` | Real planets at the end of every beam: phase-correct mini-globes with Saturn's rings at today's tilt ★ | 4 | L |  |
+| done | `galilean-moons` | Jupiter's four Galilean moons, live from AE.JupiterMoons | 3 | M | 772a1a2 (js/astro/moons.js; transit/shadow flags; checked against the 2015-01-24 triple shadow transit). |
+| done | `body-card-moons-rings-libration` | Details card: Jupiter's moon line-up, Saturn's ring tilt and the Moon's libration (works in text mode) | 2 | S | Also covers `eyepiece-portraits`. 772a1a2 (ui/eyepiece.js portraits: textured Moon with libration, Jupiter + moons, Saturn's rings and edge-on dates, phases; text mode). |
+| done | `planet-impostor-medallions` | Real planets at the end of every beam: phase-correct mini-globes with Saturn's rings at today's tilt ★ | 4 | L | 772a1a2 (render/planets.js + shaders/planets.glsl.js shared impostor; magnified, schematic bands). |
 | todo | `sidereal-tracking` | Star-lock and body tracking in sky view ("the Earth turns, not the sky") ★ | 4 | M |  |
 | todo | `telescope-zoom` | Telescope zoom in sky view: dive from the whole sky into Jupiter and its moons ★ | 4 | XL | Also covers `eyepiece-mode`. |
 | todo | `retrograde-timelapse` | Retrograde loop as a time-lapse composite: weekly planet images that swell toward opposition ★ | 3 | M |  |
@@ -97,12 +97,12 @@ Globe photorealism.
 
 | Status | ID | Item | Impact | Effort | Notes |
 |---|---|---|---|---|---|
-| todo | `sculpted-clouds` | Sculpted clouds: relief, self-shadow, thickness and silver linings from the existing cloud map ★ | 4 | M |  |
-| todo | `moonlight-moonglint` | Real moonlight on the night side, plus a silver moonglint on dark oceans | 3 | S |  |
-| todo | `close-zoom-lights` | Close-zoom city lights: bicubic filter, sub-texel light grain, restored highlights | 3 | S |  |
-| todo | `aurora-oval` | Physically placed auroral ovals with volumetric curtains ★ | 4 | L |  |
+| done | `sculpted-clouds` | Sculpted clouds: relief, self-shadow, thickness and silver linings from the existing cloud map ★ | 4 | M | da679f0. |
+| done | `moonlight-moonglint` | Real moonlight on the night side, plus a silver moonglint on dark oceans | 3 | S | da679f0. |
+| done | `close-zoom-lights` | Close-zoom city lights: bicubic filter, sub-texel light grain, restored highlights | 3 | S | da679f0. |
+| done | `aurora-oval` | Physically placed auroral ovals with volumetric curtains ★ | 4 | L | da679f0 (js/astro/geomag.js IGRF dipole + Starkov ovals; face-on term all tiers, limb curtains high/max; Settings 'Aurora activity', au= in URL; no live data). |
 | todo | `orbital-horizon-view` | Orbital horizon view (ISS cupola mode): tilt the camera at low altitude ★ | 4 | L | Also covers `tilt-on-zoom-horizon`. |
-| todo | `ozone-twilight-limb` | Ozone absorption in the atmosphere model: the blue band above the orbital sunset | 2 | S |  |
+| todo | `ozone-twilight-limb` | Ozone absorption in the atmosphere model: the blue band above the orbital sunset | 2 | S | Skipped in Phase 4: touches the shared ATMO_MODEL and the tuned sunset ring. |
 | todo | `ocean-glint-wind` | A sunglint with texture: wind-roughness field, calm lee wakes, Fresnel sky sheen | 3 | M |  |
 | todo | `seasonal-earth` | Seasonal Earth: NASA Blue Marble monthly surfaces crossfaded by simulated date ★ | 3 | L |  |
 | todo | `living-weather` | Living weather time-lapse: zonal-wind flow-map advection instead of a rigid cloud spin | 2 | M |  |
@@ -195,3 +195,7 @@ Use the 1000–3000 range and the unused Astronomy Engine APIs.
 - 2026-11-04: Phase 2 (Sky view 2.0) merged: landscape + twilight ground + refraction (a64d96d) and night-sky brightness,
   vision, zodiacal light, scintillation, procedural flare (94afa61). npm test (552), size, smoke, smoke:mobile, text mode pass.
   Budgets now low 3.6 / medium 4.4 / high 5.6 MB. physical-sky-lut deferred in favour of Phases 3–4.
+- 2026-11-05: Phases 3 (planet shader, Galilean moons, eyepiece card) and 4 (aurora, moonlight, close-zoom lights,
+  sculpted clouds) merged at da679f0; npm test (584), size, smoke, smoke:mobile, text mode pass. Budgets low 3.72 / medium 4.47 /
+  high 5.7 MB — high is near the spec's 6 MB hard line, so new code should lean on lazy loading. The telescope agent hit
+  the usage limit with no work saved; restarted from da679f0.

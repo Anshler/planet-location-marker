@@ -431,7 +431,7 @@ test('range loop: progress, wrap, effective rate, seek', () => {
     const from = Date.UTC(2026, 0, 1), to = Date.UTC(2026, 0, 11);
     assert.equal(c.setRange({ fromMs: from, toMs: to, durationS: 1, loop: 'loop' }), true);
     assert.deepEqual(ev.types, ['range', 'rate', 'jump']);
-    assert.deepEqual(c.range, { fromMs: from, toMs: to, durationS: 1, loop: 'loop' });
+    assert.deepEqual(c.range, { fromMs: from, toMs: to, durationS: 1, loop: 'loop', ease: null });
     assert.equal(c.tMs, from);
     assert.equal(c.progress(), 0);
     assert.equal(c.rate, 10 * 86400, 'effective rate: 10 days per second');
@@ -471,6 +471,34 @@ test('range pingpong bounces between the endpoints and flips the effective rate'
     assert.ok(c.rate < 0, 'now playing backwards');
     assert.ok(ev.types.includes('rate'));
     assert.equal(c.playing, true);
+});
+
+test('range ease: out decelerates into the end, in leaves the start from rest, seek follows the ease', () => {
+    const near = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg}: ${a} vs ${b}`);
+    const from = T0, to = T0 + 10 * DAY;
+    const run = (ease) => {
+        const c = createClock({ now: fakeNow() });
+        assert.equal(c.setRange({ fromMs: from, toMs: to, durationS: 1, loop: 'once', ease }), true);
+        assert.equal(c.range.ease, ease ?? null);
+        assert.equal(c.rate, 10 * 86400, 'rate reports the mean rate');
+        const d = driver(c, 10);
+        d.run(500);
+        return c;
+    };
+    near(run('out').tMs, from + 7.5 * DAY, 1, 'out: 3/4 of the span at half time');
+    near(run('in').tMs, from + 2.5 * DAY, 1, 'in: 1/4 at half time');
+    near(run('inOut').tMs, from + 5 * DAY, 1, 'inOut: half at half time');
+    near(run(undefined).tMs, from + 5 * DAY, 1, 'linear by default');
+    const c = run('out');
+    c.seek(0.5);
+    near(c.tMs, from + 7.5 * DAY, 1, 'seek maps through the ease');
+    const e = run('out');
+    driver(e, 10).run(1000);
+    assert.equal(e.tMs, to, 'ends exactly at toMs');
+    assert.equal(e.playing, false);
+    const bad = createClock({ now: fakeNow() });
+    bad.setRange({ fromMs: from, toMs: to, ease: 'bounce' });
+    assert.equal(bad.range.ease, null, 'unknown eases are linear');
 });
 
 test('range once pauses at the end; play() replays from the start', () => {

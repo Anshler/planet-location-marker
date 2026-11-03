@@ -21,10 +21,17 @@
  * Extras: `prime()` hides the pin until `drop()`; `cardinals` exposes live
  * world points at the disc's N/E/S/W rim for optional orbit-view labels.
  *
+ * Eclipse-aware (ROADMAP eclipse-aware-pin): while the Moon's shadow axis meets the Earth within
+ * ≈ 1 800–2 700 km of the pin (`umbraNear`, per snapshot), the pin steps out of the umbra's way:
+ * the disc keeps only its rim and cardinal ticks (fill × 0.15), the foot glow and the halo fade
+ * and the body shrinks to 40 %, eased over ≈ 300 ms. With the beams' roots (beams.js) cleared the
+ * same way, the umbra reads as a dark spot in its penumbra at the default zoom.
+ *
  * @module render/pin
  */
 import * as THREE from 'three';
 import { latLonToLocal, enuLocal } from '../astro/frames.js';
+import { umbraNear } from '../astro/eclipse-path.js';
 
 const HEAD_R = 0.012;
 const SPIKE_H = 0.05;
@@ -38,6 +45,9 @@ const RIPPLE_MS = 1150;
 const RIPPLE_STAGGER = 190;
 const REF_DIST = 2.4;      // camera→pin distance at the default view, where the pin is drawn at scale 1
 const HALO_SIZE = 0.07;    // halo quad size (view-space units) at pin scale 1
+// Eclipse clearance (astro/eclipse-path.js umbraNear: the shadow axis within 0.28 rad of the pin
+// clears it fully, beyond 0.42 not at all), eased over about this long.
+const CLEAR_EASE_MS = 300;
 
 const ACCENT = new THREE.Color('#7cc4ff');
 const NORTH = new THREE.Color('#ff5a4a');
@@ -70,6 +80,7 @@ void main() {
 const DISC_FRAG = /* glsl */ `
 #define PI 3.14159265359
 uniform float uAlpha;
+uniform float uClear;   // 1: out of the Moon's umbra's way (rim and cardinal ticks only)
 uniform vec3 uColor;
 uniform vec3 uNorth;
 varying vec2 vP;
@@ -99,6 +110,10 @@ void main() {
     float north = ticks(ang, r, 2.0 * PI, 0.011, 0.64, 0.99);   // period 2π: only the north tick
     // Only after every fwidth() above: derivatives are undefined once lanes have been discarded.
     if (r > 1.0 + ar) discard;
+    float inner = 1.0 - 0.85 * uClear;
+    fill *= inner;
+    ring *= inner;
+    minor *= inner;
 
     vec3 col = uColor * (fill * 0.18 + rim * 0.55 + ring * 0.25 + minor * 0.35 + major * 0.75);
     float a = fill * 0.18 + rim * 0.5 + ring * 0.15 + minor * 0.3 + major * 0.7;
@@ -244,6 +259,7 @@ export function createPin(rc, deps = {}) {
         name: 'pin.disc',
         uniforms: {
             uAlpha: { value: 1 },
+            uClear: { value: 0 },
             uColor: { value: new THREE.Color(0.62, 0.8, 1.0) },
             uNorth: { value: NORTH.clone() },
         },
@@ -353,6 +369,10 @@ export function createPin(rc, deps = {}) {
     let skyBlend = 0;
     let pinScale = 1;
     let primed = false;
+    // Eclipse clearance (0 normal … 1 out of the umbra's way): the target from the snapshot, eased.
+    let clearT = 0;
+    let clearK = 0;
+    let bodyK = 1;
     let anim = null; // {t0}
     /** @type {null|((done:boolean)=>void)} */
     let dropResolve = null;
@@ -399,6 +419,8 @@ export function createPin(rc, deps = {}) {
         const o = snap.observer;
         if (o) setObserver(o.latDeg, o.lonDeg);
         writeCardinals();
+        clearT = umbraNear(snap);
+        if (clearT !== clearK) invalidate();
     }
 
     function settleDrop(done) {
@@ -444,25 +466,35 @@ export function createPin(rc, deps = {}) {
         disc.visible = layers.horizon !== false;
         const discK = orbitK;
         discMat.uniforms.uAlpha.value = discK;
-        rippleMat.uniforms.uAlpha.value = orbitK;
+        discMat.uniforms.uClear.value = clearK;
+        rippleMat.uniforms.uAlpha.value = orbitK * (1 - 0.8 * clearK);
         spikeMat.uniforms.uAlpha.value = orbitK;
         headMat.uniforms.uAlpha.value = orbitK;
-        haloMat.uniforms.uAlpha.value = orbitK;
+        haloMat.uniforms.uAlpha.value = orbitK * (1 - 0.75 * clearK);
     }
 
     function update(fi) {
         if (fi && Number.isFinite(fi.skyBlend)) skyBlend = fi.skyBlend;
+        if (clearK !== clearT) {
+            const dt = fi && Number.isFinite(fi.dtMs) ? fi.dtMs : 16;
+            const k = reducedMotion ? 1 : 1 - Math.exp(-dt / CLEAR_EASE_MS * 3);
+            clearK += (clearT - clearK) * k;
+            if (Math.abs(clearT - clearK) < 1e-3) clearK = clearT;
+            else invalidate();
+        }
         const cam = (fi && fi.camera) || rc?.camera;
         if (cam && Number.isFinite(lat)) {
-            // Keep a near-constant screen size.
+            // Keep a near-constant screen size (smaller while clearing the umbra's way).
             pinW.set(posL[0], posL[1], posL[2]).applyMatrix4(earthM);
             const d = tmp.copy(cam.position).sub(pinW).length();
             const s = Math.min(3, Math.max(0.06, d / REF_DIST));
-            if (Math.abs(s - pinScale) > 1e-4) {
+            const bk = 1 - 0.6 * clearK;
+            if (Math.abs(s - pinScale) > 1e-4 || bk !== bodyK) {
                 pinScale = s;
-                body.scale.setScalar(s);
+                bodyK = bk;
+                body.scale.setScalar(s * bk);
                 ripple.scale.setScalar(s * RIPPLE_R * 2);
-                haloMat.uniforms.uSize.value = HALO_SIZE * s;
+                haloMat.uniforms.uSize.value = HALO_SIZE * s * bk;
             }
         }
         if (anim) {

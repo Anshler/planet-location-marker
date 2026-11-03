@@ -91,7 +91,7 @@
 
 /** Clock change event (js/core/clock.js). Extra fields describe the clock right after the change.
  * @typedef {{type:'play'|'pause'|'rate'|'jump'|'live'|'range'|'clamp', tMs:number, rate:number, playing:boolean, live:boolean}} ClockEvent */
-/** @typedef {{fromMs:number, toMs:number, durationS:number, loop:'once'|'loop'|'pingpong'}} ClockRange */
+/** @typedef {{fromMs:number, toMs:number, durationS:number, loop:'once'|'loop'|'pingpong', ease:'in'|'out'|'inOut'|null}} ClockRange */
 /** @typedef {{ readonly tMs:number, readonly rate:number, readonly baseRate:number, readonly playing:boolean,
  *   readonly live:boolean, readonly range:ClockRange|null, readonly tweening:boolean,
  *   tick:(wallMs?:number)=>number, play:()=>void, pause:()=>void, toggle:()=>void,

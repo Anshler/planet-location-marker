@@ -4,7 +4,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { eclipsePath, citiesInPath, nearestCentrePoint, pathAt, shadowPoint, PATH_STRIDE, PATH_COL } from '../js/astro/eclipse-path.js';
+import {
+    eclipsePath, citiesInPath, nearestCentrePoint, pathAt, shadowPoint, PATH_STRIDE, PATH_COL,
+    shadowAxisPoint, pathFrameLocal, ribbonMesh, umbraNear, UMBRA_NEAR_RAD,
+} from '../js/astro/eclipse-path.js';
+import { createSnapshot, computeSnapshot } from '../js/astro/snapshot.js';
 import { shadowPoint as actionsShadowPoint } from '../js/app/actions.js';
 import { AE } from '../js/astro/ae.js';
 import * as W from '../js/astro/worker.js';
@@ -188,4 +192,130 @@ test('worker op eclipsePath: packed cities in, samples transferred, and the clie
 
 test('shadowPoint moved to js/astro (actions.js re-exports it)', () => {
     assert.equal(actionsShadowPoint, shadowPoint);
+});
+
+// ---- render support: shadowAxisPoint, pathFrameLocal, ribbonMesh -------------------------------------
+
+/** Geometry-local unit vector → lat/lon (frames.localToLatLon). */
+const toLatLon = (v) => ({ latDeg: Math.atan2(v[1], Math.hypot(v[0], v[2])) * 180 / Math.PI, lonDeg: Math.atan2(-v[2], v[0]) * 180 / Math.PI });
+
+test('shadowAxisPoint: the axis ground point in the scene frame, and whether the axis hits', () => {
+    const s = createSnapshot();
+    computeSnapshot(Date.parse('2027-08-02T10:07:00Z'), { latDeg: 25.7, lonDeg: 32.6, elevM: 0 }, s, { detail: 'frame' });
+    const out = new Float64Array(3);
+    const miss = shadowAxisPoint(s.moonPosS, s.sunDirS, out);
+    assert.ok(miss < 1, `the axis hits the Earth (closest ${miss.toFixed(3)} R)`);
+    near(Math.hypot(out[0], out[1], out[2]), 1, 1e-12, 'unit vector');
+    // Same point as shadowPoint, through the Earth matrix (geometry-local = Eᵀ·P).
+    const e = s.earthMatrix;
+    const l = [e[0] * out[0] + e[1] * out[1] + e[2] * out[2], e[4] * out[0] + e[5] * out[1] + e[6] * out[2], e[8] * out[0] + e[9] * out[1] + e[10] * out[2]];
+    const a = toLatLon(l), b = shadowPoint(s);
+    assert.ok(distanceKm(a.latDeg, a.lonDeg, b.latDeg, b.lonDeg) < 0.01, 'agrees with shadowPoint');
+    // And with the path: within the band of its own instant.
+    const p = pathAt(aug2027, s.tMs);
+    assert.ok(distanceKm(a.latDeg, a.lonDeg, p.latDeg, p.lonDeg) < 40, 'on the path (sphere vs ellipsoid)');
+    // A day later the axis misses.
+    computeSnapshot(Date.parse('2027-08-03T10:07:00Z'), { latDeg: 25.7, lonDeg: 32.6, elevM: 0 }, s, { detail: 'frame' });
+    assert.ok(shadowAxisPoint(s.moonPosS, s.sunDirS, out) > 1, 'misses a day later');
+});
+
+test('umbraNear: 1 with the umbra on the observer, easing to 0 by UMBRA_NEAR_RAD.far, 0 without an eclipse', () => {
+    const at = (iso, latDeg, lonDeg, ...r) => {
+        const s = createSnapshot();
+        computeSnapshot(Date.parse(iso), { latDeg, lonDeg, elevM: 0 }, s, { detail: 'frame' });
+        return umbraNear(s, ...r);
+    };
+    near(at('2027-08-02T10:07:00Z', 25.7, 32.6), 1, 1e-12, 'Luxor in totality');
+    assert.equal(at('2027-08-02T10:07:00Z', 48.85, 2.35), 0, 'Paris: the umbra is ~3 000 km away');
+    assert.equal(at('2027-08-03T10:07:00Z', 25.7, 32.6), 0, 'no eclipse a day later');
+    // Aswan is ~180 km from Luxor: still fully cleared; the tighter reach of the beams' roots less so.
+    near(at('2027-08-02T10:07:00Z', 24.09, 32.9), 1, 1e-12, 'Aswan');
+    const k = at('2027-08-02T10:07:00Z', 24.09, 32.9, 0.02, 0.05);
+    assert.ok(k > 0 && k < 1, `partial weight ${k}`);
+    // Half-way between near and far: about one half.
+    const mid = (UMBRA_NEAR_RAD.near + UMBRA_NEAR_RAD.far) / 2;
+    const p = pathAt(aug2027, Date.parse('2027-08-02T10:07:00Z'));
+    const lat = p.latDeg + mid * 180 / Math.PI;
+    near(at('2027-08-02T10:07:00Z', lat, p.lonDeg), 0.5, 0.1, 'half-way');
+});
+
+test('pathFrameLocal: the centre line in the globe frame, its direction of motion, NaN outside', () => {
+    const p = aug2027;
+    const pos = new Float64Array(3), fwd = new Float64Array(3);
+    for (const t of [p.startMs, p.startMs + 600e3, p.peakMs, p.endMs - 600e3, p.endMs]) {
+        const r = pathFrameLocal(p, t, pos, fwd);
+        const at = pathAt(p, t);
+        near(r, at.radiusKm, 1e-9, 'radius');
+        const ll = toLatLon(pos);
+        assert.ok(distanceKm(ll.latDeg, ll.lonDeg, at.latDeg, at.lonDeg) < 0.01, `same point as pathAt at ${new Date(t).toISOString()}`);
+        near(Math.hypot(...fwd), 1, 1e-9, 'unit heading');
+        near(pos[0] * fwd[0] + pos[1] * fwd[1] + pos[2] * fwd[2], 0, 1e-9, 'heading square to the point');
+        // The heading points to where the shadow goes next.
+        if (t < p.endMs) {
+            const next = new Float64Array(3);
+            pathFrameLocal(p, Math.min(p.endMs, t + 120e3), next);
+            const d = [next[0] - pos[0], next[1] - pos[1], next[2] - pos[2]];
+            assert.ok(d[0] * fwd[0] + d[1] * fwd[1] + d[2] * fwd[2] > 0, 'heading along the motion');
+        }
+    }
+    // West → east across Africa at greatest eclipse: east component positive.
+    pathFrameLocal(p, p.peakMs, pos, fwd);
+    const ll = toLatLon(pos), lon = ll.lonDeg * Math.PI / 180;
+    const east = [-Math.sin(lon), 0, -Math.cos(lon)];
+    assert.ok(fwd[0] * east[0] + fwd[2] * east[2] > 0.5, 'moves east');
+    pos.fill(7);
+    assert.ok(Number.isNaN(pathFrameLocal(p, p.startMs - 1, pos, fwd)), 'NaN before the start');
+    assert.ok(Number.isNaN(pathFrameLocal(p, p.endMs + 1, pos)), 'NaN after the end');
+    assert.deepEqual([...pos], [7, 7, 7], 'out untouched');
+    assert.ok(Number.isNaN(pathFrameLocal(null, p.peakMs, pos)), 'no path');
+    // Annular: the sign of the antumbra.
+    assert.ok(pathFrameLocal(feb2027, feb2027.peakMs, pos) < 0, 'annular: negative radius');
+});
+
+test('ribbonMesh: rows × cols vertices on the sphere, limits at the band edges, monotonic time', () => {
+    const p = aug2027;
+    const m = ribbonMesh(p, { radius: 1.007, cols: 9 });
+    assert.equal(m.cols, 9);
+    assert.equal(m.rows, p.count);
+    assert.equal(m.vertexCount, p.count * 9);
+    assert.equal(m.position.length, m.vertexCount * 3);
+    assert.equal(m.attr.length, m.vertexCount * 4);
+    assert.equal(m.index.length, (p.count - 1) * 8 * 6);
+    assert.ok(m.index instanceof Uint16Array, 'small enough for 16-bit indices');
+    near(m.durationS, (p.endMs - p.startMs) / 1000, 1e-6, 'duration');
+    let maxIdx = 0;
+    for (const i of m.index) maxIdx = Math.max(maxIdx, i);
+    assert.ok(maxIdx < m.vertexCount);
+    for (let i = 0; i < m.rows; i++) {
+        for (let j = 0; j < 9; j++) {
+            const k = i * 9 + j;
+            const x = m.position[k * 3], y = m.position[k * 3 + 1], z = m.position[k * 3 + 2];
+            assert.ok(Number.isFinite(x + y + z));
+            near(Math.hypot(x, y, z), 1.007, 1e-5, 'radius');
+            near(m.attr[k * 4], (j - 4) / 4, 1e-6, 'v across the band');
+            if (i > 0) assert.ok(m.attr[k * 4 + 1] > m.attr[(k - 9) * 4 + 1], 'time increases along the rows');
+            assert.ok(m.attr[k * 4 + 3] >= 1, 'total: positive w');
+        }
+        // Columns 0, 4, 8 are the southern limit, the centre line and the northern limit.
+        for (const [j, la, lo] of [[0, 5, 6], [4, 1, 2], [8, 3, 4]]) {
+            const k = i * 9 + j;
+            const ll = toLatLon([m.position[k * 3], m.position[k * 3 + 1], m.position[k * 3 + 2]]);
+            assert.ok(distanceKm(ll.latDeg, ll.lonDeg, col(p, i, la), col(p, i, lo)) < 0.05, `row ${i} column ${j}`);
+        }
+    }
+    near(m.attr[1], 0, 1e-9, 't starts at 0');
+    // The along-track distance: about 15 000 km for 2027-08-02 (Atlantic to the Indian Ocean).
+    const along = m.attr[(m.vertexCount - 1) * 4 + 2];
+    assert.ok(along > 10000 && along < 20000, `along-track ${along.toFixed(0)} km`);
+    // At greatest eclipse the band is ~258 km across: the limit columns' separation.
+    let gi = 0;
+    while (gi + 1 < p.count && col(p, gi + 1, 0) <= p.peakMs) gi++;
+    const a = toLatLon(m.position.slice(gi * 27, gi * 27 + 3)), b = toLatLon(m.position.slice(gi * 27 + 24, gi * 27 + 27));
+    near(distanceKm(a.latDeg, a.lonDeg, b.latDeg, b.lonDeg), 260, 25, 'band width near greatest eclipse');
+    // Annular: negative w all along; the default columns; nothing for no path.
+    const f = ribbonMesh(feb2027);
+    assert.equal(f.cols, 9);
+    for (let k = 0; k < f.vertexCount; k++) assert.ok(f.attr[k * 4 + 3] <= -1, 'annular: negative w');
+    assert.equal(ribbonMesh(null), null);
+    assert.equal(ribbonMesh(p, { cols: 4 }).cols, 5, 'cols rounded up to odd');
 });

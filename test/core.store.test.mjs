@@ -17,7 +17,7 @@ test('DEFAULT_STATE matches the spec and is deeply frozen', () => {
     });
     assert.deepEqual(DEFAULT_STATE.display, { tzMode: 'observer', hour12: false });
     assert.deepEqual(DEFAULT_STATE.quality, { setting: 'auto', active: 'medium', ceiling: 'medium' });
-    assert.deepEqual(DEFAULT_STATE.ui, { panel: 'sky', sheet: 'peek', cinema: false, help: false, palette: false });
+    assert.deepEqual(DEFAULT_STATE.ui, { panel: 'sky', sheet: 'peek', cinema: false, help: false, palette: false, eclipse: null });
     assert.deepEqual(DEFAULT_STATE.status, {
         phase: 'boot', progress: 0, webgl: true, onlineSearch: 'unknown', reducedMotion: false, coarse: false, introPlaying: false,
     });

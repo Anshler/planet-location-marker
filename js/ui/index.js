@@ -438,7 +438,8 @@ function createUiHub(ctx, rootEl) {
         const evStale = !events.list || events.key !== key || t < events.fromMs + 20 * DAY || t > events.toMs - 300 * DAY;
         if (evStale && !alm.pending.events && now - alm.lastReq.events > gapFor('events', 2500)) {
             const fromMs = t - 365 * DAY;
-            request('events', 'events', { observer: astroObserver(st.observer), fromMs, days: 730 }, (list) => {
+            const evArgs = { observer: astroObserver(st.observer), fromMs, days: 730, tz: observerTz(st.observer), hour12: !!st.display?.hour12 };
+            request('events', 'events', evArgs, (list) => {
                 if (!Array.isArray(list)) return;
                 events.list = list.slice().sort((a, b) => a.tMs - b.tMs);
                 events.fromMs = fromMs;

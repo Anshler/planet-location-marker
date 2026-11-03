@@ -29,7 +29,7 @@ import { BODIES, isBodyId, bodyById } from './astro/bodies.js';
 import { createSnapshot, computeSnapshot } from './astro/snapshot.js';
 import { createAstroClient } from './astro/client.js';
 import { decodeSky, emptyCatalog } from './data/catalog.js';
-import { createActions, normalizeObserver, selectionLook, viewModeLook } from './app/actions.js';
+import { createActions, normalizeObserver, selectionLook, viewModeLook, eclipseFocusExpired } from './app/actions.js';
 import { createLoop } from './app/loop.js';
 import { createLabelsFeed } from './app/labels-feed.js';
 import { playIntro } from './app/intro.js';
@@ -485,12 +485,17 @@ async function boot() {
     // ---- Actions (render objects are filled in later) ---------------------------------------
     const render = { rig: null, beams: null, pin: null, earth: null, governor };
     const actions = createActions({
-        store, bus, clock, prefs, tz, cities, render,
+        store, bus, clock, prefs, tz, cities, render, astro,
         getSnap: () => snap,
         runIntro: (opts) => runIntro(opts),
         toggleDebug: () => toggleDebug(),
     });
     R.actions = actions;
+    // The eclipse in focus (ui.eclipse, set by an eclipse jump) lapses once the time leaves its day.
+    bus.on('readout', (s) => {
+        const ui = store.get().ui;
+        if (eclipseFocusExpired(ui.eclipse, s?.tMs, clock.tweening)) store.set({ ui: { ...ui, eclipse: null } }, 'actions');
+    });
 
     // ---- 3. Loop (headless until the renderer exists) and the UI ----------------------------
     const loop = createLoop({
@@ -1337,7 +1342,9 @@ async function pushAlmanac({ store, bus, clock, astro }) {
         sunSeries: val(sun) ? { fromMs: t - half, toMs: t + half, values: val(sun) } : null,
     });
     try {
-        const list = await astro.call('events', { observer, fromMs: t - 2 * 864e5, days: 367 });
+        const list = await astro.call('events', {
+            observer, fromMs: t - 2 * 864e5, days: 367, tz: o.tz || undefined, hour12: !!store.get().display?.hour12,
+        });
         if (Array.isArray(list)) bus.emit('events', list);
     } catch (err) {
         if (err?.name !== 'AbortError') console.error('[main] event search failed', err);

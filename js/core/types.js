@@ -16,12 +16,18 @@
 /** @typedef {{beams:boolean, ghostBeams:boolean, sunMoonBeams:boolean, stars:boolean, constellations:boolean,
  *   constellationNames:boolean, starNames:boolean, milkyWay:boolean, clouds:boolean, atmosphere:boolean, ecliptic:boolean,
  *   eqGrid:boolean, altAzGrid:boolean, horizon:boolean, footprint:boolean, subpoints:boolean, trails:boolean, labels:boolean}} Layers */
+/** The solar eclipse in focus: set by actions.jumpToEvent for a solar eclipse event, cleared by any
+ * other jump and once simulated time is more than a day from `peakMs` (main.js, eclipseFocusExpired).
+ * `peakMs` is the event's instant (global greatest eclipse, or the local maximum when `local`);
+ * either works for eclipsePath / actions.eclipsePath. `kind` is the event's eclipseKind.
+ * @typedef {{peakMs:number, kind:'total'|'annular'|'partial'|null, local:boolean, eventId:string|null}} EclipseFocus */
 /** @typedef {{ observer:Observer, selection:BodyId|null,
  *   view:{mode:'orbit'|'sky', earthLock:boolean},
  *   layers:Layers,
  *   display:{tzMode:'observer'|'device'|'utc', hour12:boolean},
  *   quality:{setting:'auto'|'low'|'medium'|'high', active:'low'|'medium'|'high', ceiling:'low'|'medium'|'high'},
- *   ui:{panel:'sky'|'details'|'events'|'layers'|'settings'|'about', sheet:'peek'|'half'|'full', cinema:boolean, help:boolean, palette:boolean},
+ *   ui:{panel:'sky'|'details'|'events'|'layers'|'settings'|'about', sheet:'peek'|'half'|'full', cinema:boolean, help:boolean, palette:boolean,
+ *       eclipse:EclipseFocus|null},
  *   status:{phase:'boot'|'loading'|'ready'|'error', progress:number, webgl:boolean, onlineSearch:'unknown'|'ok'|'down',
  *           reducedMotion:boolean, coarse:boolean, introPlaying:boolean} }} AppState */
 /** BodyState: every vector is in SCENE frame (see section D).

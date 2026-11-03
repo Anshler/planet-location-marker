@@ -590,6 +590,10 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
             q0L: camera.quaternion.clone().premultiply(qEInv),
             fov0: camera.fov,
             dur: !animate || reduced ? 0 : MODE_MS,
+            // A field of view of its own (an event framing) is a zoom chained after the descent,
+            // which always lands at SKY_FOV: the look is reached first, then the field narrows onto
+            // it (stepTween hands over in the same frame; the promise resolves after the zoom).
+            thenFov: Number(look?.fovDeg), animate,
         };
         return startTween(t);
     }
@@ -730,11 +734,14 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         _v2.copy(northW).multiplyScalar(Math.cos(az1 * DEG)).addScaledVector(eastW, Math.sin(az1 * DEG))
             .multiplyScalar(Math.cos(alt1 * DEG)).addScaledVector(upW, Math.sin(alt1 * DEG));
         const arc = Math.acos(clamp(_v1.dot(_v2), -1, 1));
-        const dur = !animate || reduced ? 0 : Number.isFinite(durationMs) ? Math.max(0, durationMs) : 600 + 900 * arc / Math.PI;
+        const fov1 = Number.isFinite(fovDeg) ? clamp(fovDeg, SKY_FOV_MIN, SKY_FOV_MAX) : sky.fov;
+        // A deep zoom (70° → 5° is ~3.8 octaves) gets 250 ms per octave on top of the turn.
+        const zoomMs = 250 * Math.abs(Math.log2(fov1 / Math.max(sky.fov, 1e-6)));
+        const dur = !animate || reduced ? 0 : Number.isFinite(durationMs) ? Math.max(0, durationMs) : 600 + 900 * arc / Math.PI + zoomMs;
         sky.vAz = sky.vAlt = 0;
         return startTween({
             kind: 'look', cancellable: true, az0: sky.az, alt0: sky.alt, fov0: sky.fov,
-            az1, alt1, fov1: Number.isFinite(fovDeg) ? clamp(fovDeg, SKY_FOV_MIN, SKY_FOV_MAX) : sky.fov, dur,
+            az1, alt1, fov1, dur,
         });
     }
 
@@ -754,7 +761,13 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         else if (t.kind === 'toSky') stepToSky(t, u);
         else if (t.kind === 'toOrbit') stepToOrbit(t, u);
         else if (t.kind === 'look') stepLook(t, u);
-        if (u >= 1) finishTween(true);
+        if (u >= 1 && t.kind === 'toSky' && Number.isFinite(t.thenFov) && tween === t) {
+            // Hand the finished descent over to its zoom; the caller's promise follows the zoom.
+            tween = null;
+            startLook(t.look.az, t.look.alt, { animate: t.animate, fovDeg: t.thenFov }).then(t.resolve);
+        } else if (u >= 1) {
+            finishTween(true);
+        }
         return true;
     }
 
@@ -1102,7 +1115,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
     function setModeNow(target, { animate = true, look } = {}) {
         if (target === mode) {
             if (target === 'sky' && look && Number.isFinite(look.azDeg) && Number.isFinite(look.altDeg)) {
-                return startLook(look.azDeg, look.altDeg, { animate });
+                return startLook(look.azDeg, look.altDeg, { animate, fovDeg: Number(look.fovDeg) });
             }
             return Promise.resolve(true);
         }
@@ -1286,8 +1299,10 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         /**
          * Switches between globe and sky view. A call made during a running
          * transition waits for it (a transition is never abandoned halfway).
+         * `look.fovDeg` (clamped to 5–100°) also sets the field: in sky view the turn and the zoom
+         * are one look tween; from the globe the zoom follows the descent, which lands at 70°.
          * @param {'orbit'|'sky'} next
-         * @param {{animate?:boolean, look?:{azDeg:number, altDeg:number}}} [opts]
+         * @param {{animate?:boolean, look?:{azDeg:number, altDeg:number, fovDeg?:number}}} [opts]
          * @returns {Promise<boolean>}
          */
         setMode(next, opts = {}) {

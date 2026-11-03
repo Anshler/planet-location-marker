@@ -15,7 +15,9 @@
  *
  * Drawing runs on requestAnimationFrame only while time is animating, the user
  * is dragging, or the re-centre tween runs; otherwise it redraws on demand.
- * The per-frame path reuses preallocated buffers (no typed-array churn).
+ * The per-frame path reuses preallocated buffers (no typed-array churn), never reads layout
+ * (the scrubber is measured when a ResizeObserver flags it), and slides the cached gradient row
+ * instead of recomputing every column.
  *
  * @module ui/timebar
  */
@@ -121,6 +123,38 @@ export function halfWindowFor(rate) {
     if (r <= 21600) return 3 * DAY;
     if (r <= 604800) return 30 * DAY;
     return 365.25 * DAY;
+}
+
+/**
+ * Re-aims a cached gradient row (RGBA, one pixel per column) at a window that now starts at
+ * `start`. A slide of under half a column keeps the row as it is; a longer one shifts it by whole
+ * columns. Sets `out` to the columns still to compute, [from, to), and moves `cache.start` to the
+ * start the row now represents (within half a column of `start`). Allocation-free.
+ * @param {{start: number}} cache
+ * @param {Uint8ClampedArray} data `width * 4` bytes
+ * @param {number} width columns
+ * @param {number} colMs window span / width
+ * @param {number} start
+ * @param {{from: number, to: number}} out
+ * @returns {{from: number, to: number}} `out`
+ */
+export function slideGradientRow(cache, data, width, colMs, start, out) {
+    const k = Math.round((start - cache.start) / colMs);
+    out.from = 0; out.to = 0;
+    if (k === 0) return out;
+    if (k > 0 && k < width) {
+        data.copyWithin(0, k * 4, width * 4);
+        out.from = width - k; out.to = width;
+        cache.start += k * colMs;
+    } else if (k < 0 && -k < width) {
+        data.copyWithin(-k * 4, 0, (width + k) * 4);
+        out.to = -k;
+        cache.start += k * colMs;
+    } else {
+        out.to = width;
+        cache.start = start;
+    }
+    return out;
 }
 
 const pad2 = (n) => (n < 10 ? '0' : '') + n;
@@ -249,6 +283,7 @@ export function mountTimebar(root, ctx) {
             toolsEl.hidden = true;
         }
         geomDirty = true;
+        syncControls(true); // the rate label is compact on the phone
         kick();
     }
 
@@ -390,7 +425,8 @@ export function mountTimebar(root, ctx) {
         setAttr(btnFwd, 'aria-label', `Step forward ${unitLong}`);
         btnBack.dataset.tip = `Back ${unitLong}`;
         btnFwd.dataset.tip = `Forward ${unitLong}`;
-        setText(rateOut, range ? 'Timelapse' : ui.fmt('fmtRate', rate));
+        // The phone row is tight: real time reads '1×' there so the date keeps its year.
+        setText(rateOut, range ? 'Timelapse' : ui.fmt('fmtRate', rate, { compact: ui.layout === 'mobile' }));
         rateOut.classList.toggle('is-reverse', rate < 0 && !range);
         btnSlower.disabled = !!range || rate <= -RATE_MAX;
         btnFaster.disabled = !!range || rate >= RATE_MAX;
@@ -402,6 +438,7 @@ export function mountTimebar(root, ctx) {
         root.classList.toggle('is-paused', !playing);
         lapseBtn.classList.toggle('is-on', !!range);
         setAttr(lapseBtn, 'aria-pressed', String(!!range));
+        stampTime.classList.toggle('is-h12', !!store.get().display?.hour12);
         syncStamp(force);
         syncTz();
     }
@@ -423,14 +460,22 @@ export function mountTimebar(root, ctx) {
         const st = store.get();
         const mode = st.display?.tzMode || 'observer';
         const off = ui.offsetText(clock.tMs);
-        let text, place = '', label;
+        let text, place = '', label, tipText = 'Change time zone';
         if (mode === 'utc') { text = 'UTC'; label = 'Times in UTC. Switch to observer time'; }
         else if (mode === 'device') { text = off; place = ' · This device'; label = `Times in this device's zone, ${off}. Switch to UTC`; }
         else if (st.observer?.tzApprox) { text = `${off} (approx.)`; label = `Times at the observer, ${off}, approximate. Switch to this device's time`; }
-        else { const p = ui.placeShort(st.observer); text = off; place = ` · ${p}`; label = `Times in ${p}, ${off}. Switch to this device's time`; }
-        // The place part is its own span so the phone layout can drop it (the top bar already names the place).
+        else {
+            // The location chip already names the observer's place: the chip shows the offset
+            // only, and the place stays in its accessible name and tooltip.
+            const p = ui.placeShort(st.observer);
+            text = off;
+            label = `Times in ${p}, ${off}. Switch to this device's time`;
+            tipText = `Times in ${p}. Change time zone`;
+        }
+        // The place part is its own span so the phone layout can drop it.
         if (tzChip.textContent !== text + place) tzChip.replaceChildren(text, place ? h('span', { class: 'tb-tz__place' }, place) : '');
         setAttr(tzChip, 'aria-label', label);
+        if (tzChip.dataset.tip !== tipText) tzChip.dataset.tip = tipText;
     }
 
     // ================================================================ scrubber engine
@@ -440,9 +485,19 @@ export function mountTimebar(root, ctx) {
     const lineCtx = lineCanvas.getContext('2d');
     let lineImg = null;
     let cssW = 0, cssH = 0, dpr = 1;
+    // Set by the ResizeObserver, window resizes and layout switches. Without a ResizeObserver
+    // the scrubber is measured on every draw, as a fallback.
     let geomDirty = true;
+    const observesSize = typeof ResizeObserver === 'function';
+    let scrubLeft = 0;                // viewport x of the scrubber, read with its size and per gesture
     let geom = { tickY: 0, trackY: 10, trackH: 18, labelY: 34 };
     const series = { fromMs: 0, toMs: 0, n: 0, values: null, key: '' };
+    let seriesRev = 0;                // bumped whenever `series` gets new values (gradient cache key)
+    // Gradient cache: `lineImg` holds the gradient of a window that started at `grad.start`.
+    // While the window slides, whole columns are shifted and only the exposed ones computed.
+    const grad = { start: 0, span: 0, width: 0, wide: false, useSeries: false, rev: -1, obsKey: '' };
+    const gradCols = { from: 0, to: 0 };
+    let sheen = null, sheenY = -1, sheenH = -1;
     let seriesCtl = null, seriesLast = 0, seriesFails = 0;
     const labelCache = new Map();
     const tickX = new Float32Array(512);
@@ -454,21 +509,27 @@ export function mountTimebar(root, ctx) {
     let raf = 0;
     let hoverX = -1;
     let lastAria = 0;
-    let win = { start: 0, span: 1, range: false };
+    const win = { start: 0, span: 1, range: false };
 
+    /** Reads the scrubber's box only when something flagged it: draw() never forces a layout. */
     function resizeCanvas() {
+        if (!geomDirty && observesSize) return;
         const r = scrub.getBoundingClientRect();
+        scrubLeft = r.left;
         const w = Math.max(40, Math.round(r.width));
         const hgt = Math.max(24, Math.round(r.height));
         const d = Math.min(2, window.devicePixelRatio || 1);
         if (w === cssW && hgt === cssH && d === dpr && !geomDirty) return;
-        cssW = w; cssH = hgt; dpr = d;
-        canvas.width = Math.round(w * d);
-        canvas.height = Math.round(hgt * d);
-        canvas.style.width = `${w}px`;
-        canvas.style.height = `${hgt}px`;
-        lineCanvas.width = canvas.width;
-        lineImg = lineCtx.createImageData(canvas.width, 1);
+        if (w !== cssW || hgt !== cssH || d !== dpr || !lineImg) {
+            cssW = w; cssH = hgt; dpr = d;
+            canvas.width = Math.round(w * d);
+            canvas.height = Math.round(hgt * d);
+            canvas.style.width = `${w}px`;
+            canvas.style.height = `${hgt}px`;
+            lineCanvas.width = canvas.width;
+            lineImg = lineCtx.createImageData(canvas.width, 1);
+            grad.width = 0;
+        }
         const compact = ui.layout === 'mobile';
         geom = compact
             ? { tickY: 1, trackY: 8, trackH: Math.max(12, hgt - 22), labelY: hgt - 3 }
@@ -476,16 +537,17 @@ export function mountTimebar(root, ctx) {
         geomDirty = false;
     }
 
+    /** Updates `win` in place (it is read every frame). */
     function computeWindow() {
         const range = clock.range;
         if (range && Number.isFinite(range.fromMs) && range.toMs > range.fromMs) {
-            win = { start: range.fromMs, span: range.toMs - range.fromMs, range: true };
+            win.start = range.fromMs; win.span = range.toMs - range.fromMs; win.range = true;
             return;
         }
         const W = halfWindowFor(clock.rate);
         const t = clock.tMs;
         const centre = drag ? drag.centre : t + offsetMs;
-        win = { start: centre - W, span: 2 * W, range: false };
+        win.start = centre - W; win.span = 2 * W; win.range = false;
     }
 
     function ensureSeries() {
@@ -499,6 +561,7 @@ export function mountTimebar(root, ctx) {
         if (app?.values?.length > 1 && app.key === key && s0 >= app.fromMs && s1 <= app.toMs
             && !(series.values && series.key === key && s0 >= series.fromMs && s1 <= series.toMs)) {
             series.fromMs = app.fromMs; series.toMs = app.toMs; series.n = app.values.length; series.values = app.values; series.key = key;
+            seriesRev += 1;
         }
         const astro = ctx.services?.astro;
         if (!astro?.call || seriesCtl) return;
@@ -517,21 +580,46 @@ export function mountTimebar(root, ctx) {
             if (!values || !(values.length > 1)) { seriesFails += 1; return; }
             seriesFails = 0;
             series.fromMs = fromMs; series.toMs = toMs; series.n = values.length; series.values = values; series.key = key;
+            seriesRev += 1;
             kick();
         }, () => { seriesCtl = null; if (!ac.signal.aborted) seriesFails += 1; });
     }
     offs.push(store.subscribe((s) => s.observer, () => { seriesCtl?.abort(); seriesCtl = null; seriesLast = 0; series.values = null; kick(); }));
 
-    function drawGradient(obs) {
+    /**
+     * Updates the cached gradient row for the current window. A window that slid by less than
+     * one column reuses it as is (the error is under a device pixel); a longer slide shifts the
+     * row by whole columns and computes only the exposed ones, so steady time-lapse costs a few
+     * columns of trig per frame instead of the whole width.
+     * @returns {boolean} whether the row changed
+     */
+    function updateGradient(obs) {
+        const cw = canvas.width;
+        const wide = win.span > 6.5 * DAY;
+        const key = ui.observerKey(obs);
+        const useSeries = !!(!wide && series.values && series.key === key);
+        if (grad.width === cw && grad.span === win.span && grad.wide === wide && grad.useSeries === useSeries
+            && grad.rev === seriesRev && grad.obsKey === key) {
+            slideGradientRow(grad, lineImg.data, cw, win.span / cw, win.start, gradCols);
+            if (gradCols.to <= gradCols.from) return false;
+        } else {
+            grad.start = win.start; grad.span = win.span; grad.width = cw;
+            grad.wide = wide; grad.useSeries = useSeries; grad.rev = seriesRev; grad.obsKey = key;
+            gradCols.from = 0; gradCols.to = cw;
+        }
+        fillGradient(obs, gradCols.from, gradCols.to, wide, useSeries);
+        lineCtx.putImageData(lineImg, 0, 0);
+        return true;
+    }
+
+    /** Computes gradient columns [from, to) of the cached row (window start `grad.start`). */
+    function fillGradient(obs, from, to, wide, useSeries) {
         const cw = canvas.width;
         const data = lineImg.data;
         const lat = obs.latDeg, lon = obs.lonDeg;
-        const wide = win.span > 6.5 * DAY;
-        const key = ui.observerKey(obs);
-        const useSeries = !wide && series.values && series.key === key;
         const sv = series.values, sn = series.n, sf = series.fromMs, sspan = series.toMs - series.fromMs;
-        for (let x = 0; x < cw; x += 1) {
-            const t = win.start + ((x + 0.5) / cw) * win.span;
+        for (let x = from; x < to; x += 1) {
+            const t = grad.start + ((x + 0.5) / cw) * grad.span;
             let r, g, b;
             if (wide) {
                 const k = smooth(0.22, 0.78, dayFraction(t, lat));
@@ -554,18 +642,25 @@ export function mountTimebar(root, ctx) {
             const o = x * 4;
             data[o] = r; data[o + 1] = g; data[o + 2] = b; data[o + 3] = 255;
         }
-        lineCtx.putImageData(lineImg, 0, 0);
+    }
+
+    function drawGradient(obs) {
+        updateGradient(obs);
+        const cw = canvas.width;
         const y = geom.trackY * dpr, th = geom.trackH * dpr;
         g2d.save();
         roundRect(g2d, 0, y, cw, th, Math.min(8, geom.trackH / 2) * dpr);
         g2d.clip();
         g2d.imageSmoothingEnabled = false;
         g2d.drawImage(lineCanvas, 0, 0, cw, 1, 0, y, cw, th);
-        // Soft top sheen for depth.
-        const sheen = g2d.createLinearGradient(0, y, 0, y + th);
-        sheen.addColorStop(0, 'rgba(255,255,255,0.10)');
-        sheen.addColorStop(0.45, 'rgba(255,255,255,0.0)');
-        sheen.addColorStop(1, 'rgba(0,0,0,0.18)');
+        // Soft top sheen for depth (rebuilt only when the track moves).
+        if (!sheen || sheenY !== y || sheenH !== th) {
+            sheen = g2d.createLinearGradient(0, y, 0, y + th);
+            sheen.addColorStop(0, 'rgba(255,255,255,0.10)');
+            sheen.addColorStop(0.45, 'rgba(255,255,255,0.0)');
+            sheen.addColorStop(1, 'rgba(0,0,0,0.18)');
+            sheenY = y; sheenH = th;
+        }
         g2d.fillStyle = sheen;
         g2d.fillRect(0, y, cw, th);
         g2d.restore();
@@ -751,7 +846,9 @@ export function mountTimebar(root, ctx) {
     function kick() { if (!raf) raf = requestAnimationFrame(frame); }
 
     // -- interaction ---------------------------------------------------------
-    const xFromEvent = (e) => clamp(e.clientX - scrub.getBoundingClientRect().left, 0, cssW);
+    // The scrubber's left edge is read once per gesture (pointerenter / pointerdown), not per move.
+    const readLeft = () => { scrubLeft = scrub.getBoundingClientRect().left; };
+    const xFromEvent = (e) => clamp(e.clientX - scrubLeft, 0, cssW);
     function tickAt(x, maxPx = 6) {
         let best = -1, bd = maxPx;
         for (let i = 0; i < tickCount; i += 1) {
@@ -788,9 +885,11 @@ export function mountTimebar(root, ctx) {
         }
         if (e.pointerType === 'mouse') { hoverX = xFromEvent(e); showTip(hoverX); }
     }));
+    offs.push(on(scrub, 'pointerenter', readLeft));
     offs.push(on(scrub, 'pointerleave', () => { hoverX = -1; if (!drag) tip.hidden = true; }));
     offs.push(on(scrub, 'pointerdown', (e) => {
         if (e.button > 0) return;
+        readLeft();
         computeWindow();
         try { scrub.setPointerCapture?.(e.pointerId); } catch { /* pointer already gone */ }
         drag = {

@@ -1602,7 +1602,9 @@ body.tier-medium:not(.is-coarse) .glass {
 }
 .ui[data-sheet="peek"] .sheet__body { visibility: hidden; }
 .ui[data-layout="mobile"] .timebar { position: static; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; gap: 0; }
-.ui[data-layout="mobile"] .tb-main { flex-wrap: nowrap; gap: 6px; height: 46px; }
+/* The main row is tight: the date must keep its year ("Wed 11 Nov 2026") at 390 px for every
+   weekday and rate label, so the gaps and the rate floor are small and real time reads "1×". */
+.ui[data-layout="mobile"] .tb-main { flex-wrap: nowrap; gap: 4px; height: 46px; }
 .ui[data-layout="mobile"] .tb-rate .icon-btn { width: 34px; min-width: 34px; }
 .ui[data-layout="mobile"] .tb-date .stamp { min-width: 0; max-width: 100%; overflow: hidden; }
 .ui[data-layout="mobile"] .stamp__day, .ui[data-layout="mobile"] .stamp__time { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
@@ -1611,12 +1613,16 @@ body.tier-medium:not(.is-coarse) .glass {
 .ui[data-layout="mobile"] .tb-date__icon, .ui[data-layout="mobile"] .stamp__sep { display: none; }
 .ui[data-layout="mobile"] .stamp { flex-direction: column-reverse; align-items: flex-start; gap: 1px; line-height: 1.12; }
 .ui[data-layout="mobile"] .stamp__time { font-size: 18px; font-weight: 750; }
+.ui[data-layout="mobile"] .stamp__time.is-h12 { font-size: 16px; } /* "12:00:00 AM" */
 .ui[data-layout="mobile"] .stamp__day { color: var(--muted); font-size: 11.5px; font-weight: 600; }
-.ui[data-layout="mobile"] .tb-rate__value { min-width: 60px; font-size: 12.5px; }
+.ui[data-layout="mobile"] .tb-rate__value { min-width: 46px; font-size: 12.5px; }
 .ui[data-layout="mobile"] .tb-rate { height: 36px; }
 .ui[data-layout="mobile"] .btn--now__long { display: none; }
 .ui[data-layout="mobile"] .btn--now__short { display: inline; }
-.ui[data-layout="mobile"] .btn--now { gap: 5px; padding: 0 10px 0 8px; height: 34px; }
+/* Text-only on the phone: the icon's width goes to the date (long rate labels such as "−10 min/s"
+   and "Timelapse" only ever show with this button, never with the LIVE pill). */
+.ui[data-layout="mobile"] .btn--now { gap: 5px; padding: 0 12px; height: 34px; }
+.ui[data-layout="mobile"] .btn--now > svg { display: none; }
 .ui[data-layout="mobile"] .live-pill { height: 34px; padding: 0 10px; letter-spacing: .12em; }
 .ui[data-layout="mobile"] .tb-scrub { height: 36px; margin: 0; }
 .ui[data-layout="mobile"] .tb-tools {

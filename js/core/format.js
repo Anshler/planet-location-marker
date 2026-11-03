@@ -257,13 +257,15 @@ export function fmtLightTime(sec) {
 /**
  * Simulation rate (sim-seconds per wall-second): 1 → 'Real time', 10 → '10×', 60 → '1 min/s',
  * 3600 → '1 h/s', −86400 → '−1 d/s', 31557600 → '1 yr/s'. Off-ladder rates (timelapse) work too.
+ * `compact` (the phone time bar) writes real time as '1×', like the rest of the × ladder.
  * @param {number} rate
+ * @param {{compact?: boolean}} [opts]
  * @returns {string}
  */
-export function fmtRate(rate) {
+export function fmtRate(rate, { compact = false } = {}) {
     const x = num(rate);
     if (!fin(x)) return DASH;
-    if (x === 1) return 'Real time';
+    if (x === 1) return compact ? '1×' : 'Real time';
     if (x === 0) return 'Paused';
     const a = Math.abs(x), sign = x < 0 ? MINUS : '';
     if (a >= 31557600 * 0.9995) return `${sign}${sig3(a / 31557600)} yr/s`;

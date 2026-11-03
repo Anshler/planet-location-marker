@@ -1011,6 +1011,7 @@ function bindViewInsets(rig, store) {
     if (!root) return;
     let frame = 0;
     let lastKey = '';
+    let lastLayout = '';
     const clampPx = (v, max) => Math.round(Math.min(max, Math.max(0, v)));
     const measure = () => {
         frame = 0;
@@ -1018,6 +1019,7 @@ function bindViewInsets(rig, store) {
         const ins = { left: 0, right: 0, top: 0, bottom: 0 };
         if (!store.get().ui.cinema) {
             const layout = root.dataset.layout;
+            if (layout !== lastLayout) { lastLayout = layout; watch(); }
             if (layout === 'desktop') {
                 const panel = root.querySelector('.panel')?.getBoundingClientRect();
                 if (panel && panel.width > 0 && panel.left > W * 0.4) ins.right = clampPx(W - panel.left, W * 0.5);
@@ -1040,16 +1042,28 @@ function bindViewInsets(rig, store) {
     const schedule = () => {
         if (!frame) frame = requestAnimationFrame(measure);
     };
+    // Classes and the layout anywhere in the UI; inline styles only where they move the sheet
+    // (the root's --sheet-h and the sheet's drag transform). Watching `style` on the whole
+    // subtree woke this up on every time-bar thumb and tooltip write.
+    let styleObs = null;
     try {
-        new MutationObserver(schedule).observe(root, { attributes: true, subtree: true, attributeFilter: ['class', 'data-layout', 'style'] });
+        new MutationObserver(schedule).observe(root, { attributes: true, subtree: true, attributeFilter: ['class', 'data-layout'] });
+        styleObs = new MutationObserver(schedule);
+        styleObs.observe(root, { attributes: true, attributeFilter: ['style'] });
     } catch { /* very old browser: window resize still works */ }
-    if (typeof ResizeObserver === 'function') {
-        const ro = new ResizeObserver(schedule);
+    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(schedule) : null;
+    const watched = new Set();
+    // The sheet exists only in the phone layout, so the set is refreshed after layout switches.
+    const watch = () => {
         for (const sel of ['.panel', '.timebar', '.sheet']) {
             const el = root.querySelector(sel);
-            if (el) ro.observe(el);
+            if (!el || watched.has(el)) continue;
+            watched.add(el);
+            ro?.observe(el);
+            if (sel === '.sheet') styleObs?.observe(el, { attributes: true, attributeFilter: ['style'] });
         }
-    }
+    };
+    watch();
     window.addEventListener('resize', schedule);
     store.subscribe((s) => s.ui.cinema, schedule);
     schedule();

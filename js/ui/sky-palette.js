@@ -64,3 +64,16 @@ export function skyLutIndex(alt) {
     const a = alt > LUT_MIN ? Math.min(alt, LUT_MIN + (LUT_N - 1) * LUT_STEP) : LUT_MIN;
     return Math.round((a - LUT_MIN) / LUT_STEP) * 3;
 }
+
+/**
+ * '#rrggbb' → [r, g, b] (a body's colour token, astro/bodies.js), or `fallback`.
+ * @param {string} hex
+ * @param {number[]} [fallback]
+ * @returns {number[]}
+ */
+export function hexRgb(hex, fallback = [216, 221, 230]) {
+    const m = /^#([\da-f]{6})$/i.exec(hex || '');
+    if (!m) return fallback;
+    const n = parseInt(m[1], 16);
+    return [n >> 16, (n >> 8) & 255, n & 255];
+}

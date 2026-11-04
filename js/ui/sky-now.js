@@ -1,9 +1,11 @@
 /**
  * Sky Now: one row per body — colour dot, name, a mini sky compass (needle at the
- * azimuth, dot at the polar-projected altitude), "34° · SE" or "below horizon",
- * "Rises 21:14" / "Sets 05:02", magnitude and an Up / Down badge. Bodies above
+ * azimuth, dot at the polar-projected altitude), "34° · SE" or, below the horizon, a countdown
+ * ("rises in 3 h 36 min"), "Rises 21:14" / "Sets 05:02", magnitude, an Up / Down badge and a
+ * 24-h altitude sparkline (tonight's noon-to-noon series, ui/tonight.js). Bodies above
  * the horizon come first by altitude, then the rest by next rise. Clicking a row
- * selects the body (fly in orbit view, aim in sky view) and opens Details.
+ * selects the body (fly in orbit view, aim in sky view) and opens Details. The Tonight card
+ * (ui/tonight.js: the dusk-to-dawn chart) sits at the top.
  *
  * This list is also the text alternative to the 3D view (and the main content
  * of text mode), so every row carries a full spoken label.
@@ -24,6 +26,7 @@ import { auroraText } from '../astro/geomag.js';
 import { compareSight } from '../astro/parallax.js';
 import { h, s, on, setText, setAttr } from './dom.js';
 import { icon } from './icons.js';
+import { mountTonight, drawSparkline } from './tonight.js';
 
 const TWILIGHT_LABEL = {
     day: 'Daytime', civil: 'Civil twilight', nautical: 'Nautical twilight', astronomical: 'Astronomical twilight', night: 'Night',
@@ -76,6 +79,19 @@ function riseSetText(ui, id, up, t) {
 }
 
 /**
+ * The right-hand column of a row below the horizon: how long until it rises.
+ * @returns {string}
+ */
+export function downText(ui, rs, t) {
+    if (rs.nextRiseMs != null) {
+        const rel = ui.fmt('fmtRelative', rs.nextRiseMs, t);
+        if (rel === 'now') return 'rising now';
+        if (rel !== '—' && !rel.endsWith('ago')) return `rises ${rel}`;
+    }
+    return rs.status === 'never' ? 'stays down' : 'below horizon';
+}
+
+/**
  * Mounts the Sky Now list.
  * @param {HTMLElement} root tab panel
  * @param {any} ctx UiCtx
@@ -116,9 +132,10 @@ export function mountSkyNow(root, ctx) {
     offs.push(on(cmpRemove, 'click', () => ui.act('setObserver2', null)));
     const sight = { sepDeg: 0, baselineKm: 0, perpKm: 0, distKm: NaN };
 
+    const tonightCard = mountTonight(ctx);
     root.append(
         h('div', { class: 'section-head' }, h('h2', { class: 'panel-title' }, 'Sky now'), status),
-        summary, compare, empty, list,
+        summary, tonightCard.el, compare, empty, list,
         h('p', { class: 'note' }, 'Tip: press ', h('kbd', { class: 'kbd' }, '1'), '–', h('kbd', { class: 'kbd' }, '9'),
             ' to select a body, ', h('kbd', { class: 'kbd' }, 'V'), ' to stand on the ground and look up.'));
 
@@ -132,13 +149,15 @@ export function mountSkyNow(root, ctx) {
         const sub = h('span', { class: 'body-row__sub' });
         const alt = h('span', { class: 'body-row__alt' });
         const dir = h('span', { class: 'body-row__dir' });
+        const spark = h('canvas', { class: 'body-row__spark', 'aria-hidden': 'true', hidden: true });
         const button = h('button', {
             class: 'body-row', type: 'button', 'data-id': b.id, style: { '--c': `var(--body-${b.id})` },
         }, h('span', { class: 'body-row__compass' }, comp.el),
         h('span', { class: 'body-row__main' }, name, sub),
-        h('span', { class: 'body-row__pos' }, alt, h('span', { class: 'body-row__sep', 'aria-hidden': 'true' }, '·'), dir));
+        h('span', { class: 'body-row__pos' },
+            h('span', { class: 'body-row__now' }, alt, h('span', { class: 'body-row__sep', 'aria-hidden': 'true' }, '·'), dir), spark));
         const li = h('li', { class: 'body-list__item' }, button);
-        rows[b.id] = { li, button, comp, sub, alt, dir, badge, nameText, up: null, order: -1 };
+        rows[b.id] = { li, button, comp, sub, alt, dir, badge, nameText, spark, sparkKey: '', up: null, order: -1 };
     }
     offs.push(on(list, 'click', (e) => {
         const btn = /** @type {HTMLElement} */ (e.target).closest('.body-row');
@@ -157,6 +176,8 @@ export function mountSkyNow(root, ctx) {
         const items = [];
         // Standing on Mars, slot 4 is the Earth (astro/bodies.js hostBodies).
         const table = hostBodies(snap.host);
+        // Tonight's noon-to-noon altitudes (the Earth observer's) feed the sparklines.
+        const series = snap.host === 'mars' ? null : ui.almanac.night?.tonight?.series ?? null;
         for (const b of snap.bodies) {
             const r = rows[b.id];
             if (!r) continue;
@@ -173,7 +194,7 @@ export function mountSkyNow(root, ctx) {
             r.button.classList.toggle('is-down', !up);
             r.button.classList.toggle('is-selected', sel === b.id);
             setAttr(r.button, 'aria-current', sel === b.id ? 'true' : null);
-            const altTxt = up ? `${Math.max(0, Math.round(alt))}°` : 'below horizon';
+            const altTxt = up ? `${Math.max(0, Math.round(alt))}°` : downText(ui, rs, t);
             const dirTxt = up ? ui.compass(az) : '';
             setText(r.alt, altTxt);
             setText(r.dir, dirTxt);
@@ -185,9 +206,10 @@ export function mountSkyNow(root, ctx) {
             r.badge.classList.toggle('badge--down', !up);
             const spoken = up
                 ? `${ui.bodyName(b.id)}: ${Math.round(alt)} degrees up in the ${ui.compassWords(az)}.`
-                : `${ui.bodyName(b.id)}: below the horizon.`;
+                : `${ui.bodyName(b.id)}: below the horizon${altTxt.startsWith('rises') ? `, ${altTxt}` : ''}.`;
             setAttr(r.button, 'aria-label', `${spoken} ${rsTxt ? rsTxt + '.' : ''} ${magTxt ? 'Magnitude ' + ui.fmt('fmtMag', b.mag) + '.' : ''}`.trim());
             r.up = up;
+            updateSpark(r, b.id, t, series);
         }
         items.sort((a, b) => (a.up !== b.up ? (a.up ? -1 : 1) : a.up ? b.alt - a.alt : a.rise - b.rise));
         const nUp = items.filter((i) => i.up).length;
@@ -213,6 +235,25 @@ export function mountSkyNow(root, ctx) {
         status.dataset.tw = tw || '';
         setText(summary, summaryText(snap));
         updateCompare(snap);
+        tonightCard.update(snap);
+    }
+
+    /** A row's 24-h sparkline, redrawn when the series changes or the now dot moves a pixel. */
+    const SPARK_W = 44, SPARK_H = 16;
+    let sparkRev = 0, sparkOf = null;
+    function updateSpark(r, id, t, s) {
+        const row = s ? (id === 'sun' ? -1 : s.ids.indexOf(id)) : -2;
+        const show = row >= -1;
+        if (r.spark.hidden === show) r.spark.hidden = !show;
+        if (!show) return;
+        if (s !== sparkOf) { sparkOf = s; sparkRev += 1; }
+        const dpr = Math.min(2, globalThis.devicePixelRatio || 1);
+        const key = `${sparkRev}|${dpr}|${Math.round(((t - s.t0Ms) / ((s.n - 1) * s.stepMs)) * SPARK_W)}`;
+        if (key === r.sparkKey) return;
+        r.sparkKey = key;
+        if (r.spark.width !== SPARK_W * dpr) { r.spark.width = SPARK_W * dpr; r.spark.height = SPARK_H * dpr; }
+        const c = r.spark.getContext('2d');
+        if (c) drawSparkline(c, SPARK_W, SPARK_H, dpr, s, row, t, BODIES[BODY_INDEX[id]].color);
     }
 
     /** The two-places card: the selected body (else the Moon) from both, and their angle apart. */
@@ -301,7 +342,7 @@ export function mountSkyNow(root, ctx) {
 
     return {
         update,
-        destroy() { offs.forEach((off) => off()); root.textContent = ''; },
+        destroy() { offs.forEach((off) => off()); tonightCard.destroy(); root.textContent = ''; },
     };
 }
 

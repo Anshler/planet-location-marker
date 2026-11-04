@@ -1147,6 +1147,27 @@ body.no-webgl .vb-ruler, body.no-webgl .vb-point { display: none; }
 .skynow__summary { margin: -4px 0 12px; color: var(--muted); font-size: 12.5px; line-height: 1.5; font-variant-numeric: tabular-nums; }
 .skynow__summary:empty { display: none; }
 
+/* Tonight (js/ui/tonight.js): the dusk-to-dawn chart, a collapsible card at the top of Sky now. */
+.tonight { margin: 0 0 12px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255, 255, 255, .035); }
+.tonight[hidden] { display: none; }
+.tonight__head {
+    display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 12px;
+    border: 0; border-radius: 12px; background: transparent; color: var(--text); text-align: left; cursor: pointer;
+}
+.tonight__head:hover { background: rgba(255, 255, 255, .04); }
+.tonight__head:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.tonight__title { font-size: 13px; font-weight: 750; }
+.tonight__meta { flex: 1; min-width: 0; overflow: hidden; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
+.tonight__chev { display: grid; color: var(--muted); transition: transform var(--t1) var(--ease); }
+.tonight.is-open .tonight__chev { transform: rotate(180deg); }
+.tonight__body { padding: 0 10px 10px; }
+.tonight__body[hidden] { display: none; }
+.tonight__cv { display: block; width: 100%; height: 143px; cursor: ew-resize; touch-action: pan-y; }
+.tonight__cv.is-dragging { cursor: grabbing; }
+.tonight__note, .tonight__legend { margin: 6px 2px 0; color: var(--muted); font-size: 11px; line-height: 1.4; }
+.tonight__note { color: var(--text-2); font-size: 12px; }
+.tonight__note[hidden] { display: none; }
+
 .body-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
 .body-list__item { margin: 0; }
 .body-list__group {
@@ -1186,7 +1207,10 @@ body.no-webgl .vb-ruler, body.no-webgl .vb-point { display: none; }
 .body-row__main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .body-row__name { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 650; }
 .body-row__sub { overflow: hidden; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; text-overflow: ellipsis; }
-.body-row__pos { display: flex; align-items: baseline; gap: 5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.body-row__pos { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.body-row__now { display: flex; align-items: baseline; gap: 5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.body-row__spark { display: block; width: 44px; height: 16px; }
+.body-row__spark[hidden] { display: none; }
 .body-row__alt { font-size: 16px; font-weight: 750; }
 .body-row__dir { min-width: 2.4em; color: var(--muted); font-size: 12px; font-weight: 650; letter-spacing: .03em; }
 .body-row__dir:empty { display: none; }

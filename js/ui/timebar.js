@@ -30,7 +30,7 @@ import { h, on, setText, setAttr, clamp, openPopover, uid } from './dom.js';
 import { icon, swapIcon } from './icons.js';
 import { parseCalendarInput, toCalendar, fromCalendar } from '../core/tz.js';
 import { createMarsTime, marsTimeTT, marsClockText, marsSunAltDeg, marsSiteNear } from '../astro/mars-clock.js';
-import { SKY_LUT, skyLutIndex, smooth, C_DAY, C_NIGHT } from './sky-palette.js';
+import { SKY_LUT, skyLutIndex, smooth, hexRgb, C_DAY, C_NIGHT } from './sky-palette.js';
 
 const MIN_MS = Date.UTC(1000, 0, 1);
 const MAX_MS = Date.UTC(3000, 0, 1);
@@ -54,12 +54,6 @@ const LUT = SKY_LUT;
 const MOON_RGB = [0xd8, 0xdd, 0xe6];
 const MOON_UP_DEG = -0.27;          // the Moon's upper limb on the refracted horizon
 const BAND_PX = 3;                  // the Moon and selected-body bands, CSS px
-
-/** '#rrggbb' → [r, g, b]. */
-function hexRgb(hex) {
-    const n = parseInt(String(hex).slice(1), 16);
-    return Number.isFinite(n) ? [n >> 16, (n >> 8) & 255, n & 255] : MOON_RGB;
-}
 
 /** Event-kind colours for scrubber ticks. */
 function tickColor(ev) {
@@ -672,7 +666,7 @@ export function mountTimebar(root, ctx) {
         if (id !== bodySeries.id) {
             dropSeries(bodySeries);
             bodySeries.id = id;
-            bodyRgb = id ? hexRgb(BODIES[BODY_INDEX[id]].color) : MOON_RGB;
+            bodyRgb = id ? hexRgb(BODIES[BODY_INDEX[id]].color, MOON_RGB) : MOON_RGB;
             seriesRev += 1;
         }
         if (id) ensureOne(bodySeries, key);

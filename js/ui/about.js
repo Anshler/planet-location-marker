@@ -12,7 +12,6 @@ import { APP_NAME, VERSION, REPO_URL } from '../version.js';
 import { h } from './dom.js';
 import { icon } from './icons.js';
 import { brandMark } from './topbar.js';
-import { helpButton } from './help.js';
 import { mountInstall } from './install.js';
 import { mountReport } from './report.js';
 
@@ -41,13 +40,10 @@ export const CREDITS = [
  * @returns {{destroy(): void}}
  */
 export function mountAbout(root, ctx) {
-    const { ui } = ctx;
     const offs = [];
     const link = (href, text, cls = 'link') => h('a', { class: cls, href, target: '_blank', rel: 'noopener noreferrer' },
         text, icon('external', { size: 13 }));
 
-    const keys = helpButton(ui);
-    offs.push(keys.off);
     // 'Install app' (beforeinstallprompt) or how to add it to an iPhone's Home Screen (ui/install.js).
     const install = mountInstall(ctx);
     // Copy diagnostics and the prefilled issue link (ui/report.js).
@@ -87,8 +83,7 @@ export function mountAbout(root, ctx) {
         report.el,
         h('div', { class: 'btn-row btn-row--wrap' },
             link(REPO_URL, 'Source code', 'btn btn--soft'),
-            h('a', { class: 'btn btn--soft', href: 'THIRD_PARTY_NOTICES.md', target: '_blank', rel: 'noopener' }, 'Third-party notices'),
-            keys.el),
+            h('a', { class: 'btn btn--soft', href: 'THIRD_PARTY_NOTICES.md', target: '_blank', rel: 'noopener' }, 'Third-party notices')),
         h('p', { class: 'note' }, `${APP_NAME} ${VERSION}. Made for curious people everywhere.`));
 
     return { destroy() { offs.forEach((off) => off()); install.destroy(); root.textContent = ''; } };

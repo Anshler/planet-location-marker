@@ -10,7 +10,9 @@
  *   with a 0.5 px/ms fling threshold, an `aria-expanded` handle and a focus trap at full;
  * - **text** (`body.no-webgl`): a readable single-column document with Sky Now first.
  *
- * Tabs follow the WAI-ARIA tabs pattern (roving tabindex, arrows / Home / End).
+ * In every layout the status stack (ui/modes.js, the mode chips) follows the top bar, so its
+ * chips come after the location chip in the Tab order. Tabs follow the WAI-ARIA tabs pattern
+ * (roving tabindex, arrows / Home / End).
  *
  * @module ui/shell
  */
@@ -30,6 +32,7 @@ import { mountLocation } from './location.js';
 import { mountHelp } from './help.js';
 import { mountEclipseHud } from './eclipse-hud.js';
 import { mountTourBar } from './tour-bar.js';
+import { mountModes } from './modes.js';
 
 /** Panel tabs, in display order. */
 export const TABS = [
@@ -58,7 +61,7 @@ export function mountShell(root, ctx) {
     root.textContent = '';
 
     // ------------------------------------------------------------------ regions
-    const skip = h('a', { class: 'skip-link', href: '#tp-sky' }, 'Skip to the sky table');
+    const skip = h('a', { class: 'skip-link', href: '#tp-sky' }, 'Skip to the sky list');
     offs.push(on(skip, 'click', (e) => { e.preventDefault(); openPanel('sky', { focus: true }); }));
 
     const topbarEl = h('header', { class: 'topbar' });
@@ -107,15 +110,13 @@ export function mountShell(root, ctx) {
     const safeProbe = h('div', { class: 'safe-probe', 'aria-hidden': 'true' });
 
     // ------------------------------------------------------------------ misc overlays
-    const hint = h('div', { class: 'hint', role: 'status', hidden: true },
-        h('span', { class: 'hint__icon' }, icon('pin', { size: 18 })),
-        h('span', { class: 'hint__text' }, 'Click or tap anywhere on Earth'),
-        h('button', { class: 'hint__close', type: 'button', 'aria-label': 'Cancel picking' }, icon('close', { size: 16 })));
     const cinemaExit = h('button', { class: 'cinema-exit', type: 'button' }, icon('eye', { size: 18 }), 'Show interface');
-    overlay.append(hint, cinemaExit, safeProbe);
+    overlay.append(cinemaExit, safeProbe);
 
     // ------------------------------------------------------------------ mount modules
-    children.push(mountTopbar(topbarEl, ctx));
+    // The status stack first: the modules below set their mode chips as they mount.
+    const modes = mountModes(root, ctx);
+    children.push(mountTopbar(topbarEl, ctx), modes);
     const timebar = mountTimebar(timebarEl, ctx);
     children.push(timebar);
     children.push(mountViewSwitch(viewbarEl, ctx));
@@ -147,8 +148,10 @@ export function mountShell(root, ctx) {
             const mod = tabs[id].mod;
             if (ui.snap) try { mod?.update?.(ui.snap); } catch (err) { console.error('[ui] tab update failed', err); }
             mod?.shown?.();
+            // On phones the sheet's body is the scroller.
             tabs[id].pane.scrollTop = 0;
             body.scrollTop = 0;
+            sheetBody.scrollTop = 0;
             placeInk();
         }
         if (focusTab) tabs[id].tab.focus();
@@ -277,13 +280,14 @@ export function mountShell(root, ctx) {
         if (!onHandle && t.closest('button, a, input, select, textarea, [role="slider"], .strip, .tb-scrub')) return;
         const vis = heights[currentSnap];
         drag = { id: e.pointerId, y0: e.clientY, vis0: vis, vis, lastY: e.clientY, lastT: e.timeStamp, v: 0, moved: false };
-        sheet.setPointerCapture?.(e.pointerId);
     }));
-    offs.push(on(sheet, 'pointermove', (e) => {
+    // On the window: before the capture, a quick drag may leave the sheet's top edge.
+    offs.push(on(window, 'pointermove', (e) => {
         if (!drag || e.pointerId !== drag.id) return;
         const dy = e.clientY - drag.y0;
         if (!drag.moved && Math.abs(dy) < 4) return;
-        if (!drag.moved) { drag.moved = true; sheet.classList.add('is-dragging'); }
+        // Captured only once it is a drag: a press that does not move still clicks the handle.
+        if (!drag.moved) { drag.moved = true; sheet.classList.add('is-dragging'); sheet.setPointerCapture?.(e.pointerId); }
         let vis = drag.vis0 - dy;
         // Rubber-band beyond the end points.
         if (vis > heights.full) vis = heights.full + (vis - heights.full) * 0.25;
@@ -315,8 +319,8 @@ export function mountShell(root, ctx) {
         }
         setSnap(target, { animate: true });
     };
-    offs.push(on(sheet, 'pointerup', endDrag));
-    offs.push(on(sheet, 'pointercancel', endDrag));
+    offs.push(on(window, 'pointerup', endDrag));
+    offs.push(on(window, 'pointercancel', endDrag));
     offs.push(on(handle, 'click', () => {
         if (suppressClick) return;
         const next = currentSnap === 'peek' ? 'half' : currentSnap === 'half' ? 'full' : 'peek';
@@ -353,14 +357,14 @@ export function mountShell(root, ctx) {
             setRail(false);
             sheetHead.append(timebarEl, stripEl, timebar.toolsEl);
             sheetBody.append(panelEl);
-            root.append(skip, topbarEl, hudEl, viewbarEl, sheet, overlay);
+            root.append(skip, topbarEl, modes.el, hudEl, viewbarEl, sheet, overlay);
         } else {
             sheetBody.inert = false;
             timebar.toolsEl.inert = false;
             timebarEl.append(timebar.toolsEl);
             // Text mode: the Eclipse Companion sits inline above Sky now.
-            if (mode === 'text') root.append(skip, topbarEl, timebarEl, hudEl, panelEl, viewbarEl, overlay);
-            else root.append(skip, topbarEl, hudEl, viewbarEl, timebarEl, panelEl, overlay);
+            if (mode === 'text') root.append(skip, topbarEl, modes.el, timebarEl, hudEl, panelEl, viewbarEl, overlay);
+            else root.append(skip, topbarEl, modes.el, hudEl, viewbarEl, timebarEl, panelEl, overlay);
             sheet.remove();
             stripEl.remove();
         }
@@ -425,22 +429,19 @@ export function mountShell(root, ctx) {
     }
     offs.push(store.subscribe((s) => s.selection, showSelection));
 
-    // ------------------------------------------------------------------ pick-on-globe hint
+    // ------------------------------------------------------------------ pick on the globe (a mode chip)
     let hintTimer = 0;
     let hintOff = null;
     ui.pickHint = (show) => {
         clearTimeout(hintTimer);
         hintOff?.(); hintOff = null;
-        hint.hidden = !show;
-        hint.classList.toggle('is-open', !!show);
-        if (!show) return;
+        if (!show) { ui.modes.clear('pick'); return; }
+        ui.modes.set('pick', { icon: 'pin', title: 'Pick a place', detail: 'Click or tap anywhere on Earth',
+            exit: { label: 'Cancel', done: 'Picking cancelled', run: () => ui.pickHint(false) } });
+        ctx.bus.emit('announce', 'Pick a place: click or tap anywhere on Earth');
         hintTimer = setTimeout(() => ui.pickHint(false), 15000);
-        const offObs = store.subscribe((s) => s.observer, () => ui.pickHint(false));
-        // preventDefault tells the global shortcut handler this Esc is consumed (no deselect).
-        const offKey = on(document, 'keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); ui.pickHint(false); } }, true);
-        hintOff = () => { offObs(); offKey(); };
+        hintOff = store.subscribe((s) => s.observer, () => ui.pickHint(false));
     };
-    offs.push(on(hint.querySelector('.hint__close'), 'click', () => ui.pickHint(false)));
 
     // ------------------------------------------------------------------ cinema exit (touch-friendly)
     let wakeTimer = 0;

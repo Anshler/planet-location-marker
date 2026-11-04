@@ -1,6 +1,6 @@
 # UI redesign: a calm skeleton
 
-Status: **approved spec**, ready to implement in four chunks (§13). Branch `p7/redesign`, base `40131ce`.
+Status: **approved spec**, ready to implement in four chunks (§13). Branch `p7/redesign`, base `40131ce`. Chunk 1 is implemented; its deviations are in §15.
 
 The owner asked for this: "We've added quite a bit so the UI is getting quite dense and complex. Complex is fine but it has to be intuitive — see if we can improve that."
 
@@ -1566,3 +1566,65 @@ Then check the screenshots listed under the chunk. Each chunk removes an old con
 9. **Hard rules.** `npm test` (including the import-boundary, no-external-URL and preload tests), both smokes and the perf gates pass. There are no layout reads in rAF and no per-frame allocation.
 10. **Budget.** Net ≤ +15 KB raw (target ≤ −3 KB); medium and low stay within their budgets.
 11. **i18n readiness.** No new user-visible string is built by concatenating fragments. Every template has named placeholders.
+
+---
+
+## 15. Deviations
+
+Where the spec was wrong in practice, or a detail had to be decided while building, the chunk did
+the right thing and records it here.
+
+### Chunk 1 (modes, menus and the toolbar)
+
+- **Telescope.**
+  - The zoom-out rule (`max(10°, 3 × fovDeg)`) only counts once the zoom-in has arrived. The
+    telescope starts from the current field (often 60–70°) and eases in, so a 4 Hz check during
+    the ease ended the scope at once.
+  - `leaveTelescope()` restores a free look's field with `rig.setMode('sky', {look: {…, fovDeg}})`.
+    `rig.telescope(fov)` only sets the field the next tracking engage zooms to, so it is used only
+    when the telescope found Follow on.
+  - The chip shows the telescope's framing (`ui.scope.fovDeg`), not the live field: the live field
+    would need `actions.getView()`, which reads the canvas size (a layout read) on every readout.
+  - "Follow set to Look around freely" is checked as a state (no following while a scope is up)
+    on any change of selection, view or Follow, which has the same effect as the transition.
+- **Mode chips.**
+  - The loop chip has no Edit action yet: it opens Time › Loop, which arrives with the Time
+    popover in chunk 2.
+  - The chips do not announce themselves: the actions already say "Telescope on Jupiter.",
+    "Following the stars…", "Loop started." and so on, and a second announcement would collide in
+    the announcer's 2 s throttle. Picking a place announces from `shell.js`, because the old hint
+    was a live region.
+  - Text mode shows the stack (§3.4 said only the flash), because loops run without WebGL and
+    Esc stops them. There it sits in the flow under the top bar (sticky), and the flash floats.
+  - The phone's "+{n} more" chip reads "Show fewer" while the stack is unfolded.
+- **Menus.**
+  - Items need no `id`. An item may instead be `{note}`, a line of text: the long-exposure group
+    keeps the deleted popover's "Low quality stacks without the glow (bloom)." that way.
+  - Telescope on {name} is a `menuitemcheckbox` inside the Follow group, as the mock-up draws it.
+  - Turn with the Earth is hidden while a viewpoint or the solar system is shown, where it does
+    nothing (as the old lock button was).
+  - Rows show a kbd only where a key exists (the Look from radios have none).
+- **Toolbar.** On desktop `.viewbar` spans the canvas (right-aligned, the bar itself
+  `pointer-events: none`) and is the `viewbar` container, because a query container needs a
+  definite width. The labels hide under 560 px and the view labels under 420 px, as specified.
+- **Deleted a chunk early, because ⋯ ships on every layout now** (R1, one home per control):
+  `helpButton()` (§4.12) with its Settings and About copies, and Settings' Show interface tips
+  (§4.11). Tips stay in ⋯ and the help foot; shortcuts in ⋯ and `?`.
+- **Help.** The two step rows stay one key per row ("Step 1 day (or Shift with a step button)",
+  "… sidereal day (or Alt …)") instead of one merged row. The `/` row keeps "Search places" until
+  chunk 4 adds the sky.
+- **Renamed early, to match the chips and menus:** the narrator's "Loop started." / "Loop
+  stopped." (the time bar keeps "Timelapse" until chunk 2), the Details card's Track button
+  (now Follow; chunk 4 rebuilds the row), the recorder's own preset label ("A night of turning
+  stars"), and the skip link ("Skip to the sky list", §4.6, with the DOM-order fix).
+- **Sheet handle.** Besides capturing only after the 4 px threshold, the drag's move and up
+  listeners are on `window`, so a quick mouse drag from the handle's top edge, which leaves the
+  sheet before the threshold, still drags.
+- **Fixed on the way (pre-existing):** in text mode, `.ui[data-layout="text"] *` turned pointer
+  events back on for the full-screen reduced-motion veil (`.fade-overlay`, z-index 60), so no click
+  reached the page. The veil, and the text-mode stack, are now `pointer-events: none !important`.
+- **Bytes.** Net −0.6 KB raw against `40131ce` (estimate −7 KB; medium 5,828,815 B, low
+  5,071,915 B). `modes.js` is 6.7 KB, not 2 KB: it holds a DOM-free core for the tests, the loop
+  chip and the phone's "+{n} more". `menu()` is about 3 KB. To stay under zero, the chunk also
+  deleted seven icons nothing referenced (`fullscreen-exit`, `chevron-left`, `clock`, `panel`,
+  `grid`, `signal`, `signal-off`) and shortened the rewritten modules' JSDoc.

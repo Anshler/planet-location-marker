@@ -2,8 +2,8 @@
  * Settings tab: quality (Auto / Low / Medium / High / Max with the running tier),
  * time display zone (Observer / Device / UTC), 24-hour clock, sky darkness
  * (Auto from location / Pristine / Bortle 1–9), aurora activity (Quiet / Typical / Storm: the
- * modelled ovals, not live data), Earth-lock, night vision (the screen dim red and kept awake;
- * main.js bindNightVision), Replay intro, Show interface tips (ui/coach.js), keyboard shortcuts (gestures on touch) and
+ * modelled ovals, not live data), night vision (the screen dim red and kept awake;
+ * main.js bindNightVision), Replay intro and
  * Reset all settings (with confirmation).
  *
  * @module ui/settings
@@ -13,7 +13,6 @@ import { DEFAULT_STATE } from '../core/store.js';
 import { ovalSummary } from '../astro/geomag.js';
 import { h, on, setText, segmented, switchRow } from './dom.js';
 import { icon } from './icons.js';
-import { helpButton } from './help.js';
 
 const TIER_NAME = { low: 'Low', medium: 'Medium', high: 'High', max: 'Max' };
 /** Bortle's names for classes 1…9. */
@@ -80,12 +79,6 @@ export function mountSettings(root, ctx) {
     const auroraHint = h('p', { class: 'setting__hint' });
     offs.push(on(aurora, 'change', () => ui.act('setAuroraActivity', aurora.value)));
 
-    // View.
-    const lock = switchRow({
-        label: 'Lock view to Earth', keys: ['L'], desc: 'The camera turns with the Earth, so your location stays in view',
-        checked: !!st0.view?.earthLock, onChange: (v) => ui.act('setEarthLock', v),
-    });
-
     // Night vision: a device preference (display.red, saved, never in links).
     const red = switchRow({
         label: 'Night vision', keys: ['Shift', 'N'],
@@ -96,9 +89,6 @@ export function mountSettings(root, ctx) {
 
     // Actions.
     const replay = h('button', { class: 'btn btn--soft', type: 'button' }, icon('play', { size: 14 }), 'Replay intro');
-    // The coach marks again (ui/coach.js; the 3D view only).
-    const tips = h('button', { class: 'btn btn--soft', type: 'button' }, icon('sparkle', { size: 16 }), 'Show interface tips');
-    const keys = helpButton(ui);
     const reset = h('button', { class: 'btn btn--danger-ghost', type: 'button' }, icon('undo', { size: 16 }), 'Reset all settings');
     const confirmYes = h('button', { class: 'btn btn--danger', type: 'button' }, 'Reset');
     const confirmNo = h('button', { class: 'btn btn--ghost', type: 'button' }, 'Cancel');
@@ -113,13 +103,11 @@ export function mountSettings(root, ctx) {
         h('div', { class: 'group' }, h('h3', { class: 'group-title' }, 'Time display'), tzMode.el, tzHint, clock24.el),
         h('div', { class: 'group' }, h('h3', { class: 'group-title' }, h('label', { for: skyId }, 'Sky darkness')), skyDark, skyHint),
         h('div', { class: 'group' }, h('h3', { class: 'group-title' }, h('label', { for: auroraId }, 'Aurora activity')), aurora, auroraHint),
-        h('div', { class: 'group' }, h('h3', { class: 'group-title' }, 'View'), lock.el, red.el),
-        h('div', { class: 'group group--actions' }, h('div', { class: 'btn-row' }, replay, tips, keys.el), reset, confirm),
+        h('div', { class: 'group' }, h('h3', { class: 'group-title' }, 'View'), red.el),
+        h('div', { class: 'group group--actions' }, h('div', { class: 'btn-row' }, replay), reset, confirm),
         motion);
 
     offs.push(on(replay, 'click', () => ui.act('replayIntro')));
-    offs.push(on(tips, 'click', () => ui.showTips()));
-    offs.push(keys.off);
     offs.push(on(reset, 'click', () => { confirm.hidden = false; reset.hidden = true; confirmNo.focus(); }));
     offs.push(on(confirmNo, 'click', () => { confirm.hidden = true; reset.hidden = false; reset.focus(); }));
     offs.push(on(confirmYes, 'click', () => {
@@ -159,16 +147,13 @@ export function mountSettings(root, ctx) {
         const au = st.display?.aurora || 'typical';
         if (aurora.value !== au) aurora.value = au;
         setText(auroraHint, ovalSummary(au));
-        lock.set(!!st.view?.earthLock);
         red.set(!!st.display?.red);
-        tips.hidden = st.status?.webgl === false;
         setText(motion, st.status?.reducedMotion || ui.reducedMotion()
             ? 'Reduced motion is on (system setting): transitions are cuts and the intro is skipped.'
             : 'Animations follow your system’s motion preference.');
     };
     offs.push(store.subscribe((s) => s.quality, sync));
     offs.push(store.subscribe((s) => s.display, sync));
-    offs.push(store.subscribe((s) => s.view, sync));
     offs.push(store.subscribe((s) => s.observer, sync));
     offs.push(store.subscribe((s) => s.status, sync));
     // The estimated class arrives with the readouts (snap.skyglow).

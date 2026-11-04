@@ -45,6 +45,14 @@
     --r-1: 10px;
     --r-2: 16px;
     --r-pill: 999px;
+    /* The visual system (docs/roadmap/UI-REDESIGN.md §9.1): new components use only these. */
+    --fs-1: 11px; --fs-2: 12px; --fs-3: 13.5px; --fs-4: 16px; --fs-5: 20px;
+    --fw-1: 400; --fw-2: 600; --fw-3: 750;
+    --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; --sp-4: 16px; --sp-5: 24px;
+    --r-s: 8px; --r-m: 12px; --r-l: 16px;
+    --h-ctl: 36px; --h-chip: 30px;
+    --nav-h: calc(56px + var(--safe-b));
+    --surface-solid: rgb(9, 13, 21);
     --font: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     --t1: 160ms;
     --t2: 240ms;
@@ -670,7 +678,7 @@ body.tier-medium:not(.is-coarse) .glass {
     [data-tip-side="bottom"]:focus-visible::after { top: calc(100% + 9px); bottom: auto; }
     [data-tip-side="left"]:hover::after,
     [data-tip-side="left"]:focus-visible::after { top: 50%; right: calc(100% + 10px); bottom: auto; left: auto; transform: translateY(-50%); }
-    .panel:not(.is-rail) .tab[data-tip]::after { display: none; }
+    .panel:not(.is-rail) .tab[data-tip]::after, [aria-expanded="true"][data-tip]::after { display: none; }
     .ui[data-layout="mobile"] [data-tip]::after { display: none; }
 }
 @keyframes tip-in { from { opacity: 0; } to { opacity: 1; } }
@@ -716,12 +724,15 @@ body.tier-medium:not(.is-coarse) .glass {
 }
 .ui[data-layout="desktop"] .viewbar {
     position: fixed;
+    left: calc(var(--gutter) + var(--safe-l));
     right: calc(var(--gutter) * 2 + var(--panel-w) + var(--safe-r));
     bottom: calc(var(--gutter) + var(--tb-h) + 12px + var(--safe-b));
     z-index: 10;
     display: flex;
     align-items: center;
+    justify-content: flex-end;
     gap: 8px;
+    container: viewbar / inline-size;
     pointer-events: none;
     transition: right var(--t2) var(--ease);
 }
@@ -1063,47 +1074,63 @@ body.tier-medium:not(.is-coarse) .glass {
     .ui:not([data-layout="mobile"]) .tb-zone--right .tb-live { margin-left: auto; }
 }
 
-/* 10 ─ View switch ---------------------------------------------------------------- */
-.seg--view { gap: 3px; padding: 4px; border-radius: 15px; }
-.seg--view .seg__btn { height: 34px; padding: 0 14px 0 11px; border-radius: 11px; font-size: 13px; }
+/* 10 ─ Toolbar and mode chips (js/ui/view-switch.js, modes.js) ------------------------------- */
+/* [Globe | Sky | Map] [Tools ▾] [Share ▾] [⋯]: labels give way under a narrow canvas (the bar spans
+   it as a container), the controls never do. */
+.seg--view { gap: 3px; padding: 4px; border-radius: var(--r-l); }
+.seg--view .seg__btn { height: 34px; padding: 0 14px 0 11px; border-radius: var(--r-m); font-size: 13px; }
 .seg--view .seg__btn.is-on { background: var(--accent); color: var(--accent-ink); box-shadow: 0 2px 10px rgba(124, 196, 255, .3); }
-.vb-lock.is-on, .vb-track.is-on, .vb-ruler.is-on, .vb-point.is-on { color: var(--accent); }
-.vb-lock[hidden], .vb-track[hidden], .vb-fs[hidden], .vb-ruler[hidden], .vb-point[hidden] { display: none; }
+.vb-btn { position: relative; display: inline-flex; align-items: center; gap: var(--sp-2); height: 42px; padding: 0 var(--sp-3); border-radius: var(--r-l); color: var(--text); font-size: var(--fs-3); font-weight: var(--fw-2); cursor: pointer; }
+.ui .vb-btn:hover { background-color: rgba(28, 36, 52, .92); }
+.vb-btn__chev { margin-left: calc(var(--sp-1) * -1); color: var(--muted); }
+.vb-more { width: 42px; padding: 0; justify-content: center; }
+.vb-more .vb-btn__label { display: none; }
+/* A tool in use: the accent and a dot (a shape, so it reads without colour too). */
+.vb-tools.is-on { color: var(--accent); }
+.vb-btn__dot { position: absolute; top: 6px; right: 6px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.vb-tools:not(.is-on) .vb-btn__dot { display: none; }
+@container viewbar (max-width: 560px) {
+    .vb-btn { width: 42px; padding: 0; justify-content: center; }
+    .vb-btn__label, .vb-btn__chev { display: none; }
+}
+@container viewbar (max-width: 420px) {
+    .seg--view .seg__label { display: none; }
+    .seg--view .seg__btn { padding: 0 var(--sp-3); }
+}
 
-/* Sky tools (ui/sky-tools.js): the ruler's reading and the pointing status, under the top bar (and
-   under the Eclipse Companion while it shows: --ecl-h, set by ui/eclipse-hud.js). */
-.stools {
-    position: fixed;
-    top: calc(var(--gutter) + 54px + var(--safe-t) + var(--ecl-h, 0px));
-    left: calc((100vw - var(--panel-w) - var(--gutter)) / 2);
-    z-index: 9;
-    display: flex; flex-direction: column; align-items: center; gap: 8px;
-    max-width: calc(100vw - var(--panel-w) - var(--gutter) * 4);
-    translate: -50% 0;
-    pointer-events: none;
-}
-.stool {
-    display: flex; align-items: center; gap: 10px;
-    max-width: 100%;
-    padding: 6px 6px 6px 12px;
-    border-radius: var(--r-pill);
-    pointer-events: auto;
-    animation: toast-in var(--t2) var(--ease-out) both;
-}
-.stool[hidden] { display: none; }
-.stool__icon { display: flex; color: #ffcc6b; }
-.stool--aim .stool__icon { color: var(--accent); }
-.stool__text { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
-.stool__name { overflow: hidden; font-size: 13px; font-weight: 750; text-overflow: ellipsis; white-space: nowrap; }
-.stool__detail { overflow: hidden; color: var(--muted); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
-.stool__x { flex: none; width: 32px; height: 32px; }
-.stool__btn { flex: none; height: 32px; padding: 0 12px; border-radius: var(--r-pill); }
-.ui[data-layout="mobile"] .stools { top: calc(66px + var(--safe-t) + var(--ecl-h, 0px)); left: calc(12px + var(--safe-l)); align-items: flex-start; max-width: calc(100vw - 84px); translate: none; }
-.ui[data-layout="mobile"] .stool { flex-wrap: wrap; row-gap: 6px; border-radius: 18px; }
-.ui[data-layout="mobile"] .stool__text { flex: 1 1 150px; }
-.ui[data-layout="mobile"] .stool__detail { white-space: normal; }
-.ui[data-layout="text"] .stools { display: none; }
-body.no-webgl .vb-ruler, body.no-webgl .vb-point { display: none; }
+/* The status stack: a chip per mode under the top bar (and under the Eclipse Companion: --ecl-h,
+   set by ui/eclipse-hud.js), oldest first, then the shortcut flash. */
+.status-stack { position: fixed; top: calc(64px + var(--safe-t) + var(--ecl-h, 0px)); left: calc((100vw - var(--panel-w) - var(--gutter)) / 2); z-index: 11; display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); max-width: calc(100vw - var(--panel-w) - var(--gutter) * 4); translate: -50% 0; pointer-events: none; }
+.status-stack > * { pointer-events: auto; }
+.mode { display: flex; align-items: center; gap: var(--sp-2); max-width: 100%; min-height: 40px; padding: var(--sp-1) var(--sp-1) var(--sp-1) var(--sp-3); border-radius: var(--r-pill); }
+.mode__icon { display: flex; flex: none; color: var(--accent); }
+.mode[data-mode="ruler"] .mode__icon { color: var(--warn); }
+.mode[data-mode="expose"] .mode__icon { color: var(--live); animation: xp-blink 1.6s ease-in-out infinite; }
+@keyframes xp-blink { 50% { opacity: .35; } }
+.mode__text { display: flex; flex-direction: column; min-width: 0; margin-right: var(--sp-1); line-height: 1.25; }
+.mode__title { overflow: hidden; font-size: var(--fs-3); font-weight: var(--fw-3); text-overflow: ellipsis; white-space: nowrap; }
+.mode__detail { overflow: hidden; color: var(--muted); font-size: var(--fs-2); font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
+.mode__detail[hidden] { display: none; }
+.mode__acts { display: flex; gap: var(--sp-1); }
+.mode__acts:empty { display: none; }
+.mode__btn { flex: none; height: 32px; padding: 0 var(--sp-3); border-radius: var(--r-pill); }
+body.is-coarse .ui .mode__btn { height: 44px; }
+/* The newest chip's exit is what Esc does: it carries the key (fine pointers; coarse hides kbd). */
+.mode__kbd { display: none; margin-left: var(--sp-1); }
+.mode:nth-last-child(2) .mode__kbd { display: inline-flex; }
+.mode-more { height: var(--h-chip); padding: 0 var(--sp-3); border-radius: var(--r-pill); color: var(--text); font-size: var(--fs-2); font-weight: var(--fw-2); }
+.mode-more[hidden] { display: none; }
+.flash { padding: var(--sp-2) var(--sp-4); border: 1px solid var(--line-2); border-radius: var(--r-pill); background: rgba(8, 12, 20, .9); box-shadow: 0 8px 26px rgba(0, 0, 0, .4); font-size: 13px; font-weight: var(--fw-2); white-space: nowrap; opacity: 0; pointer-events: none !important; transform: translateY(-6px); transition: opacity var(--t1) var(--ease), transform var(--t1) var(--ease); }
+.flash.is-on { opacity: 1; transform: none; }
+.ui[data-layout="mobile"] .status-stack { top: calc(66px + var(--safe-t) + var(--ecl-h, 0px)); left: calc(12px + var(--safe-l)); right: calc(76px + var(--safe-r)); align-items: flex-start; max-width: none; translate: none; }
+.ui[data-layout="mobile"] .mode { flex-wrap: wrap; row-gap: 6px; border-radius: 18px; }
+.ui[data-layout="mobile"] .mode__text { flex: 1 1 150px; }
+.ui[data-layout="mobile"] .mode__detail { white-space: normal; }
+/* Phones show the newest two chips: older ones fold into '+n more' (the flash is the last child). */
+.ui[data-layout="mobile"] .status-stack:not(.is-all) > .mode:nth-last-child(n+4) { display: none; }
+/* Text mode: in the flow under the top bar (sticky; the margins cancel its empty gap), the flash floats. */
+.ui[data-layout="text"] .status-stack { position: sticky; top: var(--sp-2); left: auto; margin: -7px 0; max-width: none; translate: none; pointer-events: none !important; }
+.ui[data-layout="text"] .flash { position: fixed; top: calc(16px + var(--safe-t)); left: 50%; z-index: 1300; translate: -50% 0; }
 
 /* Off-screen pointers (render/edge-chips.js): a chip at the edge per body outside the field. */
 .echips { position: absolute; inset: 0; z-index: 1; pointer-events: none; }   /* above the scene labels */
@@ -1676,36 +1703,7 @@ body.is-coarse .help:not(.is-keys) .help__grid { display: none; }
 .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .field__label { color: var(--muted); font-size: 12px; font-weight: 650; }
 
-/* Share menu, postcard dialog, long exposure (js/ui/view-switch.js, postcard.js, expose.js) ------------ */
-.pop-share { width: 320px; padding: 8px; }
-.share-opt, .xp-opt {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    width: 100%;
-    padding: 10px 10px;
-    border: 1px solid transparent;
-    border-radius: 12px;
-    background: none;
-    color: var(--text);
-    text-align: left;
-    cursor: pointer;
-}
-.share-opt svg { flex: none; margin-top: 1px; color: var(--accent); }
-.share-opt:hover, .xp-opt:hover { background: rgba(255, 255, 255, .06); }
-.share-opt__text, .xp-opt { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.share-opt__title, .xp-opt__title { font-size: 14px; font-weight: 700; }
-.share-opt__desc, .xp-opt__desc { color: var(--muted); font-size: 12.5px; line-height: 1.35; }
-.pop-expose { width: 360px; }
-.pop-expose .pop__hint { margin-bottom: 8px; }
-.xp-opts { display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; }
-.xp-opt { border-color: var(--line); }
-.xp-opt.is-on { border-color: rgba(124, 196, 255, .42); background: var(--accent-soft); }
-.xp-opt.is-on .xp-opt__title { color: var(--accent); }
-.xp-low[hidden], .pop-expose .btn[hidden] { display: none; }
-.vb-expose.is-on { color: var(--accent); }
-.vb-expose[hidden] { display: none; }
-
+/* The postcard dialog (js/ui/postcard.js), which also saves long exposures. */
 .pc { width: min(560px, 100%); }
 .pc__presets { margin-bottom: 12px; }
 .pc__presets[hidden] { display: none; }
@@ -1738,7 +1736,7 @@ body.is-coarse .help:not(.is-keys) .help__grid { display: none; }
 .pc__actions .btn[hidden] { display: none; }
 
 /* Time-lapse video (ui/video.js): presets, frame size, progress with a live preview, the clip. */
-.vid__setup[hidden], .vid__frame[hidden], .vid__bar[hidden], .vid__preview[hidden], .vid__player[hidden], .share-opt[hidden] { display: none; }
+.vid__setup[hidden], .vid__frame[hidden], .vid__bar[hidden], .vid__preview[hidden], .vid__player[hidden] { display: none; }
 .vid__presets, .vid__sizes { margin-bottom: 8px; }
 .vid__detail { margin: 0 0 12px; color: var(--text-2); font-size: 13px; line-height: 1.4; }
 .vid__support { margin: 4px 0 12px; color: var(--muted); font-size: 12px; line-height: 1.4; }
@@ -1751,49 +1749,10 @@ body.is-coarse .help:not(.is-keys) .help__grid { display: none; }
 .is-recording #scene, .is-recording #labels-root { opacity: 0; }
 @media (prefers-reduced-motion: reduce) { .vid__fill { transition: none; } }
 
-/* The exposure's status pill: under the top bar, centred on the free area (beside the floating column on the phone). */
-.xp {
-    position: fixed;
-    top: calc(var(--gutter) + 54px + var(--safe-t));
-    left: calc((100vw - var(--panel-w) - var(--gutter)) / 2);
-    z-index: 11;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    width: max-content;
-    max-width: calc(100vw - var(--panel-w) - var(--gutter) * 4);
-    min-width: 320px;
-    padding: 7px 8px 7px 14px;
-    border-radius: var(--r-pill);
-    transform: translateX(-50%);
-    pointer-events: auto;
-    animation: toast-in var(--t2) var(--ease-out) both;
-}
-.xp[hidden] { display: none; }
-.xp__dot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--live); box-shadow: 0 0 10px var(--live); animation: xp-blink 1.6s ease-in-out infinite; }
-.xp.is-gated .xp__dot { background: var(--warn); box-shadow: 0 0 8px var(--warn); animation: none; }
-.xp__text { display: flex; flex: 1; flex-direction: column; min-width: 0; line-height: 1.2; }
-.xp__title { font-size: 12.5px; font-weight: 750; }
-.xp__status { overflow: hidden; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
-@keyframes xp-blink { 50% { opacity: .35; } }
-.ui[data-layout="mobile"] .xp {
-    top: calc(66px + var(--safe-t));
-    left: calc(12px + var(--safe-l));
-    right: calc(64px + var(--safe-r));
-    width: auto;
-    max-width: none;
-    min-width: 0;
-    gap: 8px;
-    padding: 6px 6px 6px 12px;
-    border-radius: var(--r-2);
-    transform: none;
-}
-.ui[data-layout="mobile"] .xp .btn--sm { padding: 0 8px; }
-.ui[data-layout="text"] .vb-expose, .ui[data-layout="text"] .xp { display: none; }
 /* While exposing, the stack is the picture: no DOM labels over it. */
 body.is-exposing #labels-root { visibility: hidden; }
 
-/* 17 ─ Toasts, flash, hint, cinema, fade ----------------------------------------------------------- */
+/* 17 ─ Toasts, cinema, fade ------------------------------------------------------------------------- */
 .toasts {
     position: fixed;
     left: calc((100vw - var(--panel-w) - var(--gutter)) / 2);
@@ -1834,54 +1793,6 @@ body.is-exposing #labels-root { visibility: hidden; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(10px) scale(.98); } to { opacity: 1; transform: none; } }
 @keyframes toast-out { to { opacity: 0; transform: translateY(6px) scale(.98); } }
 @keyframes toast-bump { 0% { transform: scale(1); } 40% { transform: scale(1.03); } 100% { transform: scale(1); } }
-
-.flash {
-    position: fixed;
-    top: calc(var(--gutter) + 58px + var(--safe-t));
-    left: calc((100vw - var(--panel-w) - var(--gutter)) / 2);
-    z-index: 45;
-    padding: 8px 15px;
-    border: 1px solid var(--line-2);
-    border-radius: var(--r-pill);
-    background: rgba(8, 12, 20, .9);
-    box-shadow: 0 8px 26px rgba(0, 0, 0, .4);
-    color: var(--text);
-    font-size: 13px;
-    font-weight: 650;
-    white-space: nowrap;
-    opacity: 0;
-    pointer-events: none;
-    transform: translate(-50%, -6px);
-    transition: opacity var(--t1) var(--ease), transform var(--t1) var(--ease);
-}
-.flash.is-on { opacity: 1; transform: translate(-50%, 0); }
-
-.hint {
-    position: fixed;
-    top: calc(var(--gutter) + 58px + var(--safe-t));
-    left: calc((100vw - var(--panel-w) - var(--gutter)) / 2);
-    z-index: 44;
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 6px 6px 6px 14px;
-    border: 1px solid rgba(124, 196, 255, .48);
-    border-radius: var(--r-pill);
-    background: rgba(10, 18, 31, .95);
-    box-shadow: 0 10px 34px rgba(0, 0, 0, .45), 0 0 0 4px rgba(124, 196, 255, .08);
-    color: var(--text);
-    font-weight: 650;
-    white-space: nowrap;
-    pointer-events: auto;
-    transform: translateX(-50%);
-    animation: hint-in var(--t2) var(--ease-out) both;
-}
-.hint[hidden] { display: none; }
-.hint__icon { display: grid; color: var(--accent); animation: hint-bob 1.5s ease-in-out infinite; }
-.hint__close { display: grid; width: 30px; height: 30px; place-items: center; border: 0; border-radius: 50%; background: rgba(255, 255, 255, .08); color: var(--text-2); cursor: pointer; }
-.hint__close:hover { background: rgba(255, 255, 255, .14); color: var(--text); }
-@keyframes hint-in { from { opacity: 0; transform: translate(-50%, -8px); } to { opacity: 1; transform: translate(-50%, 0); } }
-@keyframes hint-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
 
 /* Eclipse Companion (js/ui/eclipse-hud.js): under the top bar; inline above Sky now in text mode. */
 .ecl {
@@ -1982,45 +1893,27 @@ body.is-touring .toasts { bottom: calc(var(--gutter) + var(--tb-h) + 180px + var
 }
 .cinema-exit:focus-visible { opacity: 1; }
 
-/* Vantage points (js/ui/view-switch.js): the menu, and the caption pill while one is shown. The
-   observer's labels stay off there (main.js toggles body.is-vantage with the 3D furniture). */
-.vmenu { width: 320px; padding: 6px; }
-.vmenu__item {
-    display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 9px 10px;
-    border: 0; border-radius: 10px; background: none; color: var(--text); text-align: left; cursor: pointer;
-}
+/* Menus (dom.js menu(): Tools, Share, ⋯): a name and a one-line detail per row, the key on the
+   right, ● or ✓ before a checked choice, eyebrow titles over groups. */
+.vmenu { width: 340px; max-height: calc(100dvh - 24px); overflow-y: auto; padding: var(--sp-1); }
+.vmenu__title { padding: var(--sp-2) var(--sp-3) var(--sp-1); color: var(--muted); font-size: var(--fs-1); font-weight: var(--fw-2); letter-spacing: .08em; text-transform: uppercase; }
+.vmenu__sep { height: 1px; margin: var(--sp-1) var(--sp-2); background: var(--line); }
+.vmenu__item { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 9px 10px; border: 0; border-radius: 10px; background: none; color: var(--text); text-align: left; cursor: pointer; }
 .vmenu__item:hover, .vmenu__item:focus-visible { background: rgba(255, 255, 255, .07); }
 .vmenu__item svg { flex: none; margin-top: 1px; color: var(--muted); }
 .vmenu__item[aria-checked="true"] svg, .vmenu__item[aria-checked="true"] .vmenu__name { color: var(--accent); }
-.vmenu__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.vmenu:has([aria-checked]) .vmenu__item::before { content: ''; flex: 0 0 10px; color: var(--accent); font-size: var(--fs-2); line-height: 18px; }
+.vmenu__item[role="menuitemradio"][aria-checked="true"]::before { content: '●'; }
+.vmenu__item[role="menuitemcheckbox"][aria-checked="true"]::before { content: '✓'; font-weight: var(--fw-3); }
+.vmenu__item[aria-disabled="true"] { cursor: default; }
+.vmenu__item[aria-disabled="true"] .vmenu__name { color: var(--muted); }
+.vmenu__text { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 0; }
 .vmenu__name { font-size: 13.5px; font-weight: 700; }
 .vmenu__detail { color: var(--muted); font-size: 12px; line-height: 1.35; }
-.vcap {
-    position: fixed;
-    top: calc(var(--gutter) + 54px + var(--safe-t) + var(--ecl-h, 0px));
-    left: calc((100vw - var(--panel-w) - var(--gutter)) / 2);
-    z-index: 9;
-    display: flex; align-items: center; gap: 10px;
-    max-width: calc(100vw - var(--panel-w) - var(--gutter) * 4);
-    padding: 6px 6px 6px 12px;
-    border-radius: var(--r-pill);
-    pointer-events: auto;
-    translate: -50% 0;   /* not transform: toast-in animates that */
-    animation: toast-in var(--t2) var(--ease-out) both;
-}
-.vcap[hidden] { display: none; }
-.vcap__icon { display: flex; color: var(--accent); }
-.vcap__text { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
-.vcap__name { font-size: 13px; font-weight: 750; }
-.vcap__detail { overflow: hidden; color: var(--muted); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
-.vcap__back { flex: none; height: 32px; padding: 0 12px; border-radius: var(--r-pill); }
-.ui[data-layout="mobile"] .vcap { top: calc(66px + var(--safe-t) + var(--ecl-h, 0px)); left: calc(12px + var(--safe-l)); max-width: calc(100vw - 84px); translate: none; }
-.ui[data-layout="text"] .vcap { display: none; }
+.vmenu__kbd { align-self: center; margin-left: var(--sp-2); }
+.vmenu__note { margin: 0; padding: var(--sp-1) var(--sp-3) var(--sp-2); color: var(--muted); font-size: var(--fs-2); }
+/* The observer's labels stay off at a viewpoint (main.js toggles body.is-vantage with the 3D furniture). */
 body.is-vantage #labels-root { visibility: hidden; }
-body.no-webgl .vb-vantage, body.no-webgl .vcap { display: none; }
-/* The world map (view mode 'map') shares the caption: its detail keys the twilight lines. */
-body.is-map .vcap__detail { white-space: normal; }
-body.is-map .vb-track, body.is-map .vb-expose { display: none; }
 
 /* Two places (js/ui/sky-now.js, location.js): the side-by-side card and the second place's colour. */
 .compare {
@@ -2071,7 +1964,6 @@ body.is-map .vb-track, body.is-map .vb-expose { display: none; }
 .coach__title { margin-top: 4px !important; font-size: 16px; font-weight: 780; }
 .coach__text { margin-top: 6px !important; color: var(--text-2); font-size: 13.5px; line-height: 1.45; }
 .coach__acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
-.ui:not([data-layout="mobile"]) .vb-more { display: none; }
 
 /* The intro's title card (ui/intro-caption.js): on <body>, outside #ui-root, which the intro hides. */
 .intro-cap {
@@ -2133,10 +2025,14 @@ body.is-map .vb-track, body.is-map .vb-expose { display: none; }
     gap: 8px;
     pointer-events: none;
 }
-.ui[data-layout="mobile"] .seg--view { flex-direction: column; padding: 4px; }
-.ui[data-layout="mobile"] .seg--view .seg__btn { width: 36px; height: 36px; padding: 0; }
-.ui[data-layout="mobile"] .seg--view .seg__label { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.ui[data-layout="mobile"] .vb-fs, .ui[data-layout="mobile"] .vb-help { display: none; }
+/* The floating column: every button captioned, none squashed by the column's height. */
+.ui[data-layout="mobile"] .seg--view { flex-direction: column; padding: var(--sp-1); }
+.ui[data-layout="mobile"] .seg--view .seg__btn,
+.ui[data-layout="mobile"] .vb-btn { flex-direction: column; flex: none; justify-content: center; gap: 2px; padding: 0; font-size: var(--fs-1); font-weight: var(--fw-2); }
+.ui[data-layout="mobile"] .seg--view .seg__btn { width: 44px; height: 48px; }
+.ui[data-layout="mobile"] .vb-btn { width: 52px; height: 52px; }
+.ui[data-layout="mobile"] .vb-btn__chev { display: none; }
+.ui[data-layout="mobile"] .vb-more .vb-btn__label { display: inline; }
 .ui[data-layout="mobile"] .glass { -webkit-backdrop-filter: none; backdrop-filter: none; background: linear-gradient(180deg, rgba(255, 255, 255, .03), rgba(255, 255, 255, 0) 34%), var(--panel-solid); }
 
 .ui[data-layout="mobile"] .sheet {
@@ -2222,14 +2118,12 @@ body.is-map .vb-track, body.is-map .vb-expose { display: none; }
 .ui[data-layout="mobile"] .tb-tz__place { display: none; }
 .ui[data-layout="mobile"] .strip { padding: 4px 0 6px; }
 .ui[data-layout="mobile"] .panel { position: static; display: block; width: auto; border: 0; border-radius: 0; background: none; box-shadow: none; }
-.ui[data-layout="mobile"] .panel__head { position: sticky; top: 0; z-index: 2; padding: 0 6px; background: rgba(9, 13, 21, .98); }
+.ui[data-layout="mobile"] .panel__head { position: sticky; top: 0; z-index: 2; padding: 0 6px; background: var(--surface-solid); }
 .ui[data-layout="mobile"] .panel__collapse { display: none; }
 .ui[data-layout="mobile"] .panel__body { overflow: visible; }
 .ui[data-layout="mobile"] .tab { height: 44px; padding: 0 2px; font-size: 12px; }
 .ui[data-layout="mobile"] .tabpanel { padding: 14px 14px calc(22px + var(--safe-b)); }
-.ui[data-layout="mobile"] .toasts { left: 50%; bottom: calc(var(--sheet-h, 132px) + 12px); }
-.ui[data-layout="mobile"] .flash,
-.ui[data-layout="mobile"] .hint { left: 50%; top: calc(64px + var(--safe-t)); }
+.ui[data-layout="mobile"] .toasts { left: 50%; bottom: min(calc(var(--sheet-h, 132px) + 12px), calc(100dvh - 140px)); }
 /* Left of the floating column, and never under the sheet: it scrolls when the sheet is raised. */
 .ui[data-layout="mobile"] .ecl {
     top: calc(66px + var(--safe-t));
@@ -2311,9 +2205,8 @@ body.no-webgl #ui-root { position: static; inset: auto; pointer-events: auto; }
 .ui[data-layout="text"] .panel__collapse { display: none; }
 .ui[data-layout="text"] .tabpanel { padding: 18px 18px 22px; }
 .ui[data-layout="text"] .viewbar { position: static; display: flex; justify-content: flex-end; gap: 8px; }
-.ui[data-layout="text"] .seg--view, .ui[data-layout="text"] .vb-lock, .ui[data-layout="text"] .vb-track, .ui[data-layout="text"] .vb-fs { display: none; }
+.ui[data-layout="text"] .seg--view, .ui[data-layout="text"] .vb-tools { display: none; }
 .ui[data-layout="text"] .toasts { left: 50%; bottom: 20px; position: fixed; }
-.ui[data-layout="text"] .flash, .ui[data-layout="text"] .hint { left: 50%; }
 .ui[data-layout="text"] .body-row { padding: 10px; }
 .ui[data-layout="text"] .body-row__name { font-size: 15px; }
 .ui[data-layout="text"] .glass { background: rgba(14, 19, 30, .92); }
@@ -2340,8 +2233,8 @@ body.is-ready #ui-root .timebar { animation-delay: 140ms; }
 .ui.is-cinema .sheet,
 .ui.is-cinema .toasts,
 .ui.is-cinema .ecl,
-body.is-cinema .vcap,
-body.is-cinema .stools,
+.ui.is-cinema .status-stack,
+body.is-cinema .ui .status-stack,
 body.is-cinema .ui .topbar,
 body.is-cinema .ui .panel,
 body.is-cinema .ui .timebar,
@@ -2375,6 +2268,7 @@ body.is-sky { --panel: rgba(12, 16, 26, .9); --faint: #8e9ab0; }
 body.is-sky .ui .glass { border-color: rgba(255, 255, 255, .1); }
 
 /* Coarse pointers: comfortable targets. */
+body.is-coarse { --h-ctl: 44px; --h-chip: 44px; }
 body.is-coarse .ui .icon-btn { min-width: 40px; min-height: 40px; }
 body.is-coarse .ui .switch-row { min-height: 48px; }
 body.is-coarse .ui .chip { height: 34px; }
@@ -2500,7 +2394,7 @@ body.is-mars .ui[data-layout="mobile"] .tb-date { padding: 0 4px; }
     .seg__btn, .seg__opt span { background: transparent; color: ButtonText; }
     .seg .seg__btn.is-on, .seg .seg__btn[aria-checked="true"], .seg__opt input:checked + span,
     .chip--filter[aria-pressed="true"], .btn[aria-pressed="true"], .btn--ghost.is-on { background: Highlight; color: HighlightText; box-shadow: none; }
-    .tabs__ink { background: Highlight; }
+    .tabs__ink, .vb-btn__dot { forced-color-adjust: none; background: Highlight; }
     .tb-scrub__thumb::before { background: CanvasText; box-shadow: 0 0 0 1px Canvas; }
     .tb-scrub__knob { background: Highlight; box-shadow: 0 0 0 2px CanvasText; }
     .ui :focus-visible, .lbl:focus-visible, .tb-scrub:focus-visible { outline: 2px solid Highlight; box-shadow: none; }

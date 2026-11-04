@@ -51,6 +51,27 @@ function standalone() {
     } catch { return false; }
 }
 const onIos = () => isIos(globalThis.navigator || {});
+/** What this browser offers now. */
+export const offerNow = () => installOffer({ standalone: standalone(), prompt: !!window.__pcInstall, ios: onIos() });
+
+/** Installs: the browser's dialog (inside the tap), else the iPhone's steps as a toast. */
+export async function install(ctx) {
+    const ev = window.__pcInstall;
+    if (!ev) {
+        if (onIos()) ctx.bus.emit('toast', { message: `Add it to your Home Screen: in Safari, ${IOS_STEPS}.`, kind: 'info', timeoutMs: 10000 });
+        return;
+    }
+    // One prompt per event: a new one arrives if the browser offers again.
+    window.__pcInstall = null;
+    let outcome = 'failed';
+    try {
+        await ev.prompt();
+        outcome = (await ev.userChoice)?.outcome || 'dismissed';
+    } catch { outcome = 'failed'; }
+    if (outcome === 'failed') {
+        ctx.bus.emit('toast', { message: 'Your browser’s menu can install it: look for ‘Install app’ or ‘Add to Home screen’.', kind: 'info' });
+    }
+}
 
 /**
  * The About tab's Install group.
@@ -64,7 +85,7 @@ export function mountInstall(ctx) {
     const el = h('div', { class: 'group install', hidden: true }, h('h3', { class: 'group-title' }, 'Install'), text, btn);
 
     const sync = () => {
-        const offer = installOffer({ standalone: standalone(), prompt: !!window.__pcInstall, ios: onIos() });
+        const offer = offerNow();
         el.hidden = !offer;
         btn.hidden = offer !== 'prompt';
         text.textContent = offer === 'ios'
@@ -73,20 +94,7 @@ export function mountInstall(ctx) {
     };
     offs.push(on(window, 'beforeinstallprompt', (e) => { window.__pcInstall = e; sync(); }));
     offs.push(on(window, 'appinstalled', () => { window.__pcInstall = null; sync(); }));
-    offs.push(on(btn, 'click', async () => {
-        const ev = window.__pcInstall;
-        // One prompt per event: a new one arrives if the browser offers again.
-        window.__pcInstall = null;
-        sync();
-        let outcome = 'failed';
-        try {
-            await ev.prompt();
-            outcome = (await ev.userChoice)?.outcome || 'dismissed';
-        } catch { outcome = 'failed'; }
-        if (outcome === 'failed') {
-            ctx.bus.emit('toast', { message: 'Your browser’s menu can install it: look for ‘Install app’ or ‘Add to Home screen’.', kind: 'info' });
-        }
-    }));
+    offs.push(on(btn, 'click', () => { install(ctx); sync(); }));
     sync();
     return { el, destroy() { offs.forEach((off) => off()); } };
 }

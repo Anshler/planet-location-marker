@@ -79,12 +79,12 @@ test('fmtCountdown: hh:mm:ss, rounded up, hours past 24', () => {
     assert.equal(fmtCountdown(25 * 3600e3), '25:00:00');
 });
 
-test('layout: the view caption and the sky tools stack under the companion (--ecl-h), on both layouts', async () => {
+test('layout: the status stack (mode chips) sits under the companion (--ecl-h), on both layouts', async () => {
     const { readFile } = await import('node:fs/promises');
     const css = await readFile(new URL('../css/app.css', import.meta.url), 'utf8');
     const src = await readFile(new URL('../js/ui/eclipse-hud.js', import.meta.url), 'utf8');
     assert.match(src, /setProperty\('--ecl-h'/, 'the companion publishes its height');
-    for (const sel of ['.stools', '.vcap', '.ui[data-layout="mobile"] .stools', '.ui[data-layout="mobile"] .vcap']) {
+    for (const sel of ['.status-stack', '.ui[data-layout="mobile"] .status-stack']) {
         const at = css.indexOf(`\n${sel} {`);
         assert.ok(at >= 0, `${sel} rule`);
         const rule = css.slice(at, css.indexOf('}', at));

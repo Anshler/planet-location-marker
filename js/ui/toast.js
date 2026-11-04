@@ -1,6 +1,6 @@
 /**
- * Toasts (`bus 'toast'` → `{message, kind, actionLabel?, onAction?, timeoutMs?}`)
- * and the shortcut "flash" pill.
+ * Toasts (`bus 'toast'` → `{message, kind, actionLabel?, onAction?, timeoutMs?}`). The shortcut
+ * flash is the status stack's (ui/modes.js).
  *
  * - At most three toasts are visible; the oldest leaves first.
  * - An identical message already on screen is refreshed instead of duplicated.
@@ -112,28 +112,4 @@ export function mountToasts(root, bus) {
     };
     instances.set(bus, api);
     return api;
-}
-
-/**
- * Mounts the shortcut feedback pill ("Beams off", "Speed 1 h/s").
- * Purely visual: the announcer covers screen readers.
- * @param {HTMLElement} root container
- * @returns {{show(text:string): void, destroy(): void}}
- */
-export function mountFlash(root) {
-    const el = h('div', { class: 'flash', 'aria-hidden': 'true' });
-    root.appendChild(el);
-    let timer = 0;
-    return {
-        show(text) {
-            if (!text) return;
-            el.textContent = text;
-            el.classList.remove('is-on');
-            void el.offsetWidth;
-            el.classList.add('is-on');
-            clearTimeout(timer);
-            timer = setTimeout(() => el.classList.remove('is-on'), 1200);
-        },
-        destroy() { clearTimeout(timer); el.remove(); },
-    };
 }

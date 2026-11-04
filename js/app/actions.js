@@ -785,13 +785,12 @@ export function createActions(deps) {
         if (!TRACK_KINDS.has(kind)) return false;
         const st = store.get();
         if (kind === 'body' && !st.selection) {
-            toast('Select a body to track it.', 'info');
+            toast('Select something first, then follow it.', 'info');
             return false;
         }
         if ((st.view.track ?? 'none') === kind) return true;
         store.set({ view: { ...st.view, track: kind } }, 'actions');
-        const name = kind === 'body' ? nameOf(st.selection) : '';
-        say(kind === 'body' ? `Tracking ${name}` : kind === 'stars' ? 'Locked to the stars: the Earth turns beneath them' : 'Tracking off');
+        say(kind === 'body' ? `Following ${nameOf(st.selection)}.` : kind === 'stars' ? 'Following the stars: the Earth turns beneath them.' : 'Not following.');
         return true;
     }
 
@@ -805,7 +804,8 @@ export function createActions(deps) {
     }
 
     /**
-     * 'Telescope': sky view on the body at a field that frames it (telescopeFov), tracking it.
+     * 'Telescope': sky view on the body at a field that frames it (telescopeFov), following it.
+     * `ui.scope` {id, fovDeg, prevFovDeg, prevTrack} is its chip and way back (never in links).
      * @param {string} [id] defaults to the selection
      * @returns {boolean} started
      */
@@ -822,13 +822,67 @@ export function createActions(deps) {
         }
         const fov = telescopeFov(id, getSnap(), rig().camera?.aspect);
         if (fov === null) return false;
+        // A second telescope keeps the first one's way back.
+        const was = store.get().ui.scope;
+        const prev = was ? { prevFovDeg: was.prevFovDeg, prevTrack: was.prevTrack }
+            : { prevFovDeg: camView()?.fovDeg ?? null, prevTrack: store.get().view.track ?? 'none' };
         if (store.get().selection !== id) store.set({ selection: id }, 'actions');
         rig().telescope?.(fov);
         const view = store.get().view;
         store.set({ view: { ...view, mode: 'sky', track: 'body', vantage: 'none' } }, 'actions');
-        say(`Telescope on ${nameOf(id)}`);
+        store.set({ ui: { ...store.get().ui, scope: { id, fovDeg: fov, ...prev } } }, 'actions');
+        say(`Telescope on ${nameOf(id)}.`);
         return true;
     }
+
+    /** Leaves the telescope for the field (60° from the globe) and following it found; the selection stays. */
+    function leaveTelescope() {
+        const sc = store.get().ui.scope;
+        if (!sc) return false;
+        endScope();
+        const fov = sc.prevFovDeg ?? 60;
+        const trk = sc.prevTrack === 'stars' || (sc.prevTrack === 'body' && store.get().selection) ? sc.prevTrack : 'none';
+        const r = rig();
+        // Following zooms when it engages; a free look glides out.
+        if (trk !== 'none') r?.telescope?.(fov);
+        setTracking(trk);
+        const v = camView();
+        if (trk === 'none' && v?.mode === 'sky') settle(r?.setMode?.('sky', { animate: !reducedMotion(), look: { azDeg: v.azDeg, altDeg: v.altDeg, fovDeg: fov } }));
+        say('Telescope off.');
+        return true;
+    }
+
+    /** A link's telescope (view=sky, a selection, a sky `cam` ≤ 5°; main.js): its chip, back to a 60° free look. */
+    function scopeFromLink(cam) {
+        const st = store.get();
+        if (st.ui.scope || !st.selection || st.view.mode !== 'sky' || cam?.mode !== 'sky' || !(cam.fovDeg <= 5)) return;
+        store.set({ ui: { ...st.ui, scope: { id: st.selection, fovDeg: cam.fovDeg, prevFovDeg: 60, prevTrack: 'none' } } }, 'actions');
+    }
+
+    /** The rig's CamView (no layout read), or null. */
+    function camView() {
+        try {
+            return rig()?.getView?.() ?? null;
+        } catch {
+            return null;
+        }
+    }
+
+    // The chip ends with its premise: another selection, the globe, Follow set free, or a field
+    // zoomed out well past the telescope's (on the 4 Hz readout, once the zoom-in has arrived).
+    function endScope() { store.set({ ui: { ...store.get().ui, scope: null } }, 'actions'); }
+    store.subscribe?.((s) => `${s.selection}|${s.view.mode}|${s.view.track}`, () => {
+        const st = store.get(), sc = st.ui.scope;
+        if (sc && (st.selection !== sc.id || st.view.mode !== 'sky' || (st.view.track ?? 'none') === 'none')) endScope();
+    });
+    let settled = null;
+    bus.on?.('readout', () => {
+        const sc = store.get().ui.scope;
+        const f = sc && camView()?.fovDeg;
+        if (!(f > 0)) return;
+        if (f <= Math.max(10, 3 * sc.fovDeg)) settled = sc;
+        else if (settled === sc) endScope();
+    });
 
     /** @param {boolean} on */
     function setEarthLock(on) {
@@ -836,7 +890,7 @@ export function createActions(deps) {
         const next = on === undefined ? !view.earthLock : !!on;
         if (view.earthLock === next) return;
         store.set({ view: { ...view, earthLock: next } }, 'actions');
-        say(next ? 'View locked to Earth' : 'View unlocked: the Earth turns beneath you');
+        say(next ? 'Turning with the Earth: your place stays in view.' : 'Holding the view still: the Earth turns beneath it.');
     }
 
     /**
@@ -1625,7 +1679,8 @@ export function createActions(deps) {
 
     return {
         setObserver, undoObserver, locateMe,
-        select, flyToBody, setViewMode, cycleView, setEarthLock, setTracking, cycleTracking, telescope, setVantage,
+        select, flyToBody, setViewMode, cycleView, setEarthLock, setTracking, cycleTracking, telescope, leaveTelescope, scopeFromLink,
+        setVantage,
         // Phase 5: the flat world map, a second place to compare with, the solar-system zoom.
         toggleMap, setObserver2, compareWith, frameObservers, setSystem,
         // Phase 6: stand on Mars (the sky view from an areographic site) and back.

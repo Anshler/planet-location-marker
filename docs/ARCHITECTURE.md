@@ -156,12 +156,12 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `data/dso.json` | 140 deep-sky objects (`scripts/build-dso.mjs`; Messier from d3-celestial, the rest hand-entered); fetched after boot, precached. |
 | | `data/starinfo.json` | Parallaxes and designations of the base stars (`scripts/build-sky.mjs` from `data/raw/hip2.json` and starnames); fetched on the first star selection, precached. |
 | | `data/stars8.json` | The max tier's 36,367 deeper stars (`scripts/build-stars.mjs`, Hipparcos V 6–8); fetched only on max, cached on first use (not precached). |
-| UI | `js/ui/index.js` and its modules | Shell, top bar, time bar, Sky Now, body card (with `eyepiece.js`: the 2D-canvas eyepiece portrait, also in text mode), events (with the guided tours), Eclipse Companion, the tour's lower third (`tour-bar.js`), layers, settings, about, help, toasts, shortcuts, announcer; the share menu, `postcard.js` (postcard and Save-image dialog, the typographic band), `video.js` (the time-lapse video dialog: presets, frame size, progress and preview, the burned-in date stamp) and `expose.js` (Expose presets and the exposure's status pill); the vantage menu and its caption pill (`view-switch.js`: vantage points, the world map, the solar system).; the ruler and 'Point at the sky' buttons with their status pills (`sky-tools.js`); the body card's 'Find it' line.; the world map entry and the second place (`Compare with…` in the place search) |
+| UI | `js/ui/index.js` and its modules | Shell, top bar, time bar, Sky Now, body card (with `eyepiece.js`: the 2D-canvas eyepiece portrait, also in text mode), events (with the guided tours), Eclipse Companion, the tour's lower third (`tour-bar.js`), layers, settings, about, help, toasts, shortcuts, announcer; the share menu, `postcard.js` (postcard and Save-image dialog, the typographic band), `video.js` (the time-lapse video dialog: presets, frame size, progress and preview, the burned-in date stamp) and `expose.js` (the long-exposure presets and the exposure's mode chip); the toolbar (`view-switch.js`: `[Globe | Sky | Map] [Tools] [Share] [⋯]`, menus built by `dom.js menu()`, the viewpoint, map, telescope and following chips); the status stack (`modes.js`: `ui.modes`, one chip per active mode, the shortcut flash, Esc's `exitTop`); the ruler's and pointing's chips (`sky-tools.js`); the body card's 'Find it' line; the second place (`Compare with…` in the place search) |
 | | `js/render/meteors.js` | Layer `meteors` (`r`, sky view): radiant rings with label anchors (`anchors()`, appended by the labels feed's `getSkyExtras`) for showers within 25 % of maximum, and illustrative meteors on a `METEOR` line layer: live (medium+, clock running, no reduced motion; launched as sim time passes each hash-seeded meteor, played for 0.3–0.8 s of wall time, launches capped at 2.5/s, frames requested only while a streak flies) or a static one-hour composite (paused or reduced motion, any tier). `stats()`. |
 | | `js/render/sunpath.js` | Layer `sunPath` (`y`): today's path with hour ticks, the solstice and equinox paths and the noon analemma as line layers in the observer's ENU frame (sky view), and the subsolar figure-8 as a line on the globe (Earth-fixed); figures from the worker via `request(snap)` (main.js `requestSunFigures`), only while the layer is on. `stats()`. |
 | Camera | `js/camera/rig.js`, `picking.js` | Orbit and sky-view camera, Earth-lock, fly-to tweens, `follow()` (the shadow chase), sidereal tracking, `setVantage()` (View from L1, Earthrise), the flat map (`setMode('map')`, `mapK`, `mapFrame`), the system zoom past 150 R (`setSystem`, `system`, `systemBlend`, `onSystemChange`), `frameSpan()` (the Earth–Moon framing), `setAiming()`/`setSkyAim()` (the phone steers the look); analytic globe, map (`pickMap`), glyph and map-point (`pickPoint`) picking. |
 | | `js/camera/aim.js` | 'Point at the sky' (loaded on first use, no three.js): device orientation → the rear camera's direction and the screen's up in ENU (`deviceVectors`), a level look (`lookOf`), an adaptive vector low-pass (`aimFilterStep`), and `createAim` (sensor events, iOS compass learning, deadband, Align offset, idle and hidden stops; holds the shared wake lock's `'aim'` reason, `deps.wake`). |
-| UI | `js/ui/index.js` and its modules | Shell, top bar, time bar (its strip coloured by `sky-palette.js`, the sky's colours by the Sun's altitude), Sky Now (with `tonight.js`: the Tonight card's dusk-to-dawn chart and the rows' 24-h sparklines, and `sky-dome.js`: the all-sky chart, the hero of text mode, both also in text mode), body card (with `eyepiece.js`: the 2D-canvas eyepiece portrait, also in text mode; `year-planner.js`: the planets' 12-month chart on a 2D canvas and the Sun's solstice paths in words, from the worker, also in text mode), events (with the guided tours and the Moon/Planets/Eclipses/Meteors/Seasons filters; `event-glyphs.js`: each event's inline SVG glyph; `ics.js`: 'Add to calendar', the pure RFC 5545 builder and the file hand-off), Eclipse Companion, the tour's lower third (`tour-bar.js`), layers, settings (with the Night vision switch, `actions.setNightVision`; Shift+N in `shortcuts.js`, before plain N), about, help, toasts, shortcuts, announcer; the share menu, `postcard.js` (postcard and Save-image dialog, the typographic band), `video.js` (the time-lapse video dialog: presets, frame size, progress and preview, the burned-in date stamp) and `expose.js` (Expose presets and the exposure's status pill); the vantage menu and its caption pill (`view-switch.js`: vantage points, the world map, the solar system).; the ruler and 'Point at the sky' buttons with their status pills (`sky-tools.js`); the body card's 'Find it' line.; the world map entry and the second place (`Compare with…` in the place search); the place search's sky preview per result (`location.js placeSky`); first-run onboarding: `intro-caption.js` (the intro's title card), `coach.js` (the three coach marks, `ui.showTips()`), `install.js` (About's Install group and the one-time iOS hint), the help dialog's gestures (`help.js GESTURES`, `helpButton`) and the phone's ⋯ menu (`view-switch.js`) |
+| UI | `js/ui/index.js` and its modules | Shell, top bar, time bar (its strip coloured by `sky-palette.js`, the sky's colours by the Sun's altitude), Sky Now (with `tonight.js`: the Tonight card's dusk-to-dawn chart and the rows' 24-h sparklines, and `sky-dome.js`: the all-sky chart, the hero of text mode, both also in text mode), body card (with `eyepiece.js`: the 2D-canvas eyepiece portrait, also in text mode; `year-planner.js`: the planets' 12-month chart on a 2D canvas and the Sun's solstice paths in words, from the worker, also in text mode), events (with the guided tours and the Moon/Planets/Eclipses/Meteors/Seasons filters; `event-glyphs.js`: each event's inline SVG glyph; `ics.js`: 'Add to calendar', the pure RFC 5545 builder and the file hand-off), Eclipse Companion, the tour's lower third (`tour-bar.js`), layers, settings (with the Night vision switch, `actions.setNightVision`; Shift+N in `shortcuts.js`, before plain N), about, help, toasts, shortcuts, announcer; the share menu, `postcard.js` (postcard and Save-image dialog, the typographic band), `video.js` (the time-lapse video dialog: presets, frame size, progress and preview, the burned-in date stamp) and `expose.js` (the long-exposure presets and the exposure's mode chip); the toolbar (`view-switch.js`: `[Globe | Sky | Map] [Tools] [Share] [⋯]`, menus built by `dom.js menu()`, the viewpoint, map, telescope and following chips); the status stack (`modes.js`: `ui.modes`, one chip per active mode, the shortcut flash, Esc's `exitTop`); the ruler's and pointing's chips (`sky-tools.js`); the body card's 'Find it' line; the second place (`Compare with…` in the place search); the place search's sky preview per result (`location.js placeSky`); first-run onboarding: `intro-caption.js` (the intro's title card), `coach.js` (the three coach marks, `ui.showTips()`), `install.js` (About's Install group, ⋯ › Install the app and the one-time iOS hint), the help dialog's gestures and mouse (`help.js GESTURES`, `MOUSE`) and the ⋯ menu on every layout (`view-switch.js`) |
 | | `js/ui/report.js` | About's 'Report a problem' (`mountReport`): Copy diagnostics (`actions.copyDiagnostics`; a selectable textarea when the clipboard is blocked) and `issueUrl()`, a new issue on `REPO_URL` with a short template. |
 
 ---
@@ -417,10 +417,31 @@ critical CSS read them.
   releasing blend the orientation over 600 ms, a drag moves the tracked aim, and below −8° the
   rig ends it and `main.js` toasts. `actions.telescope(id)` frames a body at `telescopeFov` (Jupiter
   with its moons, the Moon whole, else the 0.2° `SKY_FOV_MIN`) with tracking on; the zoom eases in
-  log space. Below `FINE_FOV_DEG` (2°) the loop recomputes the frame snapshot on every frame that
+  log space. It records `ui.scope = {id, fovDeg, prevFovDeg, prevTrack}` (never in the URL): the
+  telescope's mode chip and its way out, `actions.leaveTelescope()` (the field and the following it
+  found, 60° from the globe; the selection stays). The scope ends with another selection, a view
+  other than Sky, Follow set free, or a field zoomed out past max(10°, 3 × fovDeg) once the zoom-in
+  has arrived (on the 4 Hz readout, through `rig.getView()`, no layout read). A link with
+  `view=sky`, a selection and a sky `cam` of 5° or less gets one too (`scopeFromLink`, `main.js`). Below `FINE_FOV_DEG` (2°) the loop recomputes the frame snapshot on every frame that
   sim time moved and keeps drawing while the clock runs. Planets cross-fade from glyphs to the
   shared impostor at true size (`astro/disc.js scopeBlend`, `render/planets.js` telescope mesh),
   Jupiter's moons become discs below 6°, and the star limit gains up to 3.5 mag (`scopeGainMag`).
+- **Modes, menus and Esc** (docs/roadmap/UI-REDESIGN.md §4.2–4.4, §5.1). `ui/modes.js` keeps one
+  status stack after the top bar (`role=region` 'Active modes'): each mode's owner sets a chip with
+  `ui.modes.set(id, {icon, title, detail, actions, exit, guard})` and clears it when the mode ends
+  (`view`, `map`, `scope`, `follow` in `view-switch.js`; `ruler`, `aim` in `sky-tools.js`;
+  `expose`; `pick` in `shell.js`; `loop`, a `clock.range` that is not the analemma's stride, in
+  `modes.js`). Chips keep activation order, the flash (`ui.flash`, an alias of `ui.modes.flash`) is
+  always the last child, and the newest chip's exit carries `Esc`. `shortcuts.js` Esc runs: Search,
+  Help, a text field, the hidden interface, `ui.modes.exitTop()` (the newest chip's exit, flashing
+  its `done` text), then the selection; menus, dialogs, tours and the phone sheet at full take it
+  first. `dom.js menu({button, label, items, placement})` builds Tools, Share and ⋯: rebuilt from
+  `items` on each open (no store subscriptions), `menuitem`/`menuitemradio`/`menuitemcheckbox` in
+  titled groups, ● and ✓ for checked rows, a kbd column on fine pointers, arrow-key roving
+  (`rovingKeys`, shared with `segmented`), Esc back to the button, Tab onward. Tools' contents follow
+  the view (its accessible name too: 'Tools for the globe / map / Sky view'), and its 6-px dot
+  marks any tool in use. Labels (`render/labels.js`) treat the chips and the Eclipse Companion as
+  occluders.
 - **The eclipse in focus**, `ui.eclipse = {peakMs, kind, local, eventId}`: set by a jump to a solar
   eclipse, cleared by any other jump and once simulated time is more than a day from `peakMs`
   (`main.js`, on `readout`, never during the jump's sweep). Render and HUD modules key their
@@ -469,7 +490,8 @@ critical CSS read them.
   frame, then only the Sun's HDR core). While exposing `main.js` gives the renderers
   `photoLayers` (no constellation figures, grids, ecliptic or paths) and no selection (no reticle),
   hides the flare and stops twinkle; CSS hides the DOM labels (`body.is-exposing`). The store's
-  layers and selection are untouched. `actions.exposeStatus()` feeds the status pill.
+  layers and selection are untouched. `actions.exposeStatus()` feeds the `expose` chip; the
+  first Esc with frames stacked only warns (the chip's `guard`), a second within 3 s stops.
 - **Capture** (postcards, Save image). `actions.capture({width, height, scale, labels,
   insetBottom})` → `app/capture.js` → `rc.capture`: in one task the renderer, the composer (the
   stack frozen and bypassed) and the camera (aspect; the shorter side keeps the screen's shorter
@@ -549,9 +571,9 @@ critical CSS read them.
   observer (keys the tour added are cleared), selection, view, layers, cinema, sheet, the eclipse
   in focus, the clock and, unless input ended it, the camera. Text mode plays captions and time
   jumps; reduced motion lands sweeps on their last day. A link opened during a tour ends it first.
-- **Vantage points** (`view.vantage`: `'none' | 'l1' | 'moon'`, url `vt=l1|moon`; the menu by the
-  Globe/Sky switch, 'Earthrise' on the Moon's card). `actions.setVantage(kind)` sets the globe view
-  with it; 'Globe', 'Sky' and Esc clear it. `main.js` hands it to `rig.setVantage`, which loads
+- **Vantage points** (`view.vantage`: `'none' | 'l1' | 'moon'`, url `vt=l1|moon`; Tools › Look from
+  on the globe, 'Earthrise' on the Moon's card). `actions.setVantage(kind)` sets the globe view
+  with it; 'Globe', 'Sky', the `view` chip and Esc clear it. `main.js` hands it to `rig.setVantage`, which loads
   `astro/vantage.js` and flies there in 4 s (a cut with reduced motion or from a link), the pose
   then recomputed from every frame snapshot: L1 looks back from 235 R sunward at 0.7°; the
   Earthrise orbiter keeps orbiting with sim time from the orbit planned at entry (the Earth 2.2°
@@ -577,7 +599,7 @@ critical CSS read them.
     point (unprojected, refraction taken off). `render/ruler.js` keeps the two ends (bodies follow
     their snapshot direction), draws the arc and 9-px end rings at true directions (the line
     shader lifts them), measures between the lifted places and reports through `onChange`, which
-    `main.js` writes to `ui.ruler` (the pill in `ui/sky-tools.js`) and turns into a label rebuild
+    `main.js` writes to `ui.ruler` (the `ruler` chip, `ui/sky-tools.js`) and turns into a label rebuild
     (the feed appends `ruler.anchors()`). Leaving sky view or Esc ends it.
   - *'Find it'* in the body card: `findIt(guideRefs(snap))` from the readout, also in text mode.
     Never for the Sun.
@@ -591,8 +613,8 @@ critical CSS read them.
     where the phone points and saves the azimuth offset (`prefs.aimOffset`). It stops on Stop or
     Esc, after 2 min without movement, when the page is hidden, when sky view is left, or when no
     reading arrives in 3 s; a screen wake lock is held meanwhile.
-- **The flat map** (`view.mode = 'map'`, url `view=map` with `cam=m:lat,lon,dist`; M, the vantage
-  menu's 'World map'; Esc or 'Globe' returns). The rig orients a plane (`geo/mapview.js`: north up,
+- **The flat map** (`view.mode = 'map'`, url `view=map` with `cam=m:lat,lon,dist`; M, the Map
+  segment of the toolbar; its `map` chip, Esc or 'Globe' returns). The rig orients a plane (`geo/mapview.js`: north up,
   square to the camera's direction, fixed in the world) and glides the camera to face it in 1.1 s
   while `rig.mapK` runs 0 → 1; from sky view it passes through the globe both ways. The loop hands
   `fi.mapK` and `fi.map` (the frame) to the modules: the Earth's vertex shader (`SURFACE_VERTEX`)
@@ -637,7 +659,7 @@ critical CSS read them.
   (the snapshot's `helio`). The globe camera's near/far follow the Earth's distance out there.
   Past one half the label feed builds 'system' anchors (the orrery's live points, an 'Earth' label
   that flies home, no cardinals), clicks pick the orrery's sprites and arrows, and the UI shows the
-  'Solar system · distances to scale · planets enlarged' caption with a Globe button (Esc too). Any
+  'Solar system · distances to scale · planets enlarged' chip with 'Back to the globe' (Esc too). Any
   other camera move (a fly-to, sky view, the flat map, a vantage, the chase, `frameSpan`) first
   zooms back to 150 R (1.8 s), then runs, so the map's morph and the system zoom never overlap
   (`systemBlend` is 0 while `mapK` > 0, and `labelMode` checks the map first); 'Solar system' from
@@ -647,7 +669,7 @@ critical CSS read them.
   recorder) sets `FrameInfo.systemBlend`, so a time-lapse shows the orrery too. The second place's
   beams fade with the first set's. Orbits come once from the worker (`orbits`); a selected planet
   gets the retrograde figure (ASTRONOMY.md §4). Low tier: lines and sprites only (no disc-shader
-  Sun). Text mode: n/a (the vantage menu is hidden).
+  Sun). Text mode: n/a (Tools is not shown).
 - **`bus`** carries transient events. `readout` is the full-detail snapshot at 4 Hz, published
   only when time or the observer changed. The UI requests its own almanac data through
   `services.astro`. `main.js` pushes one almanac and events set at boot as a head start.
@@ -1495,7 +1517,11 @@ About's 'Install app' (`ui/install.js`); the browser's own install UI is left al
   a pass (a DOM-only page fell from ≈ 58 to 13 fps with this chain, 7 with a six-function one), so
   the chain is kept short. Real GPUs run it as one colour-matrix pass over the page. Copy that
   relies on colour alone reads poorly in red (the accent becomes just a brightness), so a state in
-  a menu says it in words ('On: tap for full colour again').
+  a menu says it in words ('On: choose again for full colour'), and checked menu rows carry ● or ✓.
+- **The visual system** (docs/roadmap/UI-REDESIGN.md §9.1): `:root` holds the type, weight,
+  spacing, radius and control-height tokens (`--fs-1…5`, `--fw-1…3`, `--sp-1…5`, `--r-s/m/l`,
+  `--h-ctl`, `--h-chip`, `--nav-h`, `--surface-solid`); new components (the toolbar, menus, mode
+  chips) use only tokens, and `body.is-coarse` raises `--h-ctl` and `--h-chip` to 44 px.
 - **Contrast.** Secondary text (`--muted`, `--faint`) keeps 4.5:1 on the panels, also in sky view
   over a pale daytime sky, where the blur tiers' glass is .9 opaque and `--faint` a step lighter
   (`body.is-sky`); `test/ui.a11y-css.test.mjs` computes it from the tokens. Focus rings are the
@@ -1505,7 +1531,7 @@ About's 'Install app' (`ui/install.js`); the browser's own install UI is left al
   `--text-2`, `--muted` and `--faint` (≥ 7:1), makes panels opaque and edges panels, chips,
   segments and soft buttons with `--line-2`; `forced-colors: active` gives panels and controls
   system-colour edges and draws fill-only states (switches, segmented choices, pressed chips, the
-  active tab's ink, the time bar's thumb) in `Highlight`, keeps canvases on a dark ground and
+  active tab's ink, the time bar's thumb, the Tools button's in-use dot) in `Highlight`, keeps canvases on a dark ground and
   leaves the scene's labels (`#labels-root`, over the unforced 3D view) in their own colours. New
   controls whose state is only a background need a line there. Override selectors include
   `body.is-sky` where the sky view sets the same token.

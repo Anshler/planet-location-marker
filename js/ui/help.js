@@ -1,8 +1,7 @@
 /**
- * Help overlay (`?`): the keyboard shortcut table from SPEC F.3, as a modal
- * dialog bound to `state.ui.help`. On a touch-first device (body.is-coarse) it opens on the
- * gestures instead, with the key table one tap away (a tablet may have a keyboard).
- * `helpButton(ui)` is the 'Keyboard shortcuts' / 'Gestures and help' button of Settings and About.
+ * Help overlay (`?`, ⋯): the keyboard shortcuts (SPEC F.3) and the mouse, as a modal dialog bound
+ * to `state.ui.help`. On a touch-first device (body.is-coarse) it opens on the gestures instead,
+ * with the key table one tap away (a tablet may have a keyboard).
  *
  * @module ui/help
  */
@@ -19,25 +18,25 @@ export const SHORTCUTS = [
         ['[|]', 'Slower / faster'],
         ['R', 'Reverse direction'],
         [',|.', 'Step back / forward 1 hour'],
-        ['Shift+,|Shift+.', 'Step 1 day'],
-        ['Alt+,|Alt+.', 'Step 1 sidereal day'],
+        ['Shift+,|Shift+.', 'Step 1 day (or Shift with a step button)'],
+        ['Alt+,|Alt+.', 'Step 1 sidereal day (or Alt with a step button)'],
         ['N', 'Now (live)'],
     ] },
     { title: 'Bodies', rows: [
         ['1–9', 'Select Sun, Moon, Mercury … Neptune'],
-        ['0|Esc', 'Deselect / close dialog'],
+        ['0', 'Deselect'],
     ] },
     { title: 'View', rows: [
         ['V', 'Globe / Sky view'],
         ['M', 'World map (the globe unrolled) and back'],
-        ['Esc', 'Leave a vantage point (View from L1, Earthrise) or the world map'],
-        ['L', 'Lock view to Earth'],
-        ['K', 'Sky view: track the body, then the stars'],
+        ['Esc', 'Close a menu or dialog, then leave the newest mode shown at the top of the view, then clear the selection'],
+        ['L', 'Turn with the Earth, or hold the view still'],
+        ['K', 'Sky view: follow the selection, then the stars, then look freely'],
         ['A', 'Sky view: measure the angle between two things (ruler)'],
         ['←|→|↑|↓', 'Rotate the globe / look around'],
         ['+|−', 'Zoom'],
-        ['Home', 'Reset camera'],
-        ['H', 'Hide the interface'],
+        ['Home', 'Reset the view (also in Tools)'],
+        ['H', 'Hide the interface (also in ⋯)'],
         ['Shift+N', 'Night vision: a dim red screen that stays awake'],
         ['F', 'Fullscreen'],
     ] },
@@ -71,17 +70,17 @@ export const GESTURES = [
     ['Tap the place name', 'Search for somewhere else'],
 ];
 
-/**
- * The button that opens this dialog: 'Keyboard shortcuts' with a mouse, 'Gestures and help' on touch.
- * @param {any} ui the UI hub
- * @returns {{el: HTMLElement, off: () => void}}
- */
-export function helpButton(ui) {
-    const el = h('button', { class: 'btn btn--soft', type: 'button' },
-        h('span', { class: 'for-fine' }, icon('keyboard', { size: 16 }), 'Keyboard shortcuts'),
-        h('span', { class: 'for-coarse' }, icon('help', { size: 16 }), 'Gestures and help'));
-    return { el, off: on(el, 'click', () => ui.toggleHelp(true)) };
-}
+/** The mouse (fine pointers; the twin of GESTURES). */
+export const MOUSE = [
+    ['Click a world, its label or a row', 'Select it'],
+    ['Click the Earth', 'Stand there (Undo in the message)'],
+    ['Double-click', 'Fly closer; in Sky view, glide there and zoom in'],
+    ['Drag', 'Turn the globe; in Sky view, look around'],
+    ['Scroll', 'Zoom, from a telescope’s field out to the whole solar system'],
+];
+
+const actionList = (rows) => h('dl', { class: 'help__list' }, rows.map(([g, d]) => h('div', { class: 'help__row' },
+    h('dt', { class: 'help__gesture' }, g), h('dd', null, d))));
 
 function keysEl(spec) {
     const wrap = h('span', { class: 'help__keys' });
@@ -108,12 +107,11 @@ export function mountHelp(root, ctx) {
     const dialog = h('div', { class: 'dialog help glass', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'help-title' },
         h('header', { class: 'dialog__head' },
             h('h2', { class: 'dialog__title', id: 'help-title' },
-                h('span', { class: 'for-fine' }, icon('keyboard', { size: 20 }), 'Keyboard shortcuts'),
+                h('span', { class: 'for-fine' }, icon('keyboard', { size: 20 }), 'Keyboard shortcuts and mouse'),
                 h('span', { class: 'for-coarse' }, icon('help', { size: 20 }), 'Gestures')),
             closeBtn),
-        h('section', { class: 'help__group help__touch for-coarse' },
-            h('dl', { class: 'help__list' }, GESTURES.map(([g, d]) => h('div', { class: 'help__row' },
-                h('dt', { class: 'help__gesture' }, g), h('dd', null, d))))),
+        h('section', { class: 'help__group help__touch for-coarse' }, actionList(GESTURES)),
+        h('section', { class: 'help__group help__mouse for-fine' }, h('h3', { class: 'group-title' }, 'Mouse'), actionList(MOUSE)),
         h('div', { class: 'help__grid' }, SHORTCUTS.map((g) => h('section', { class: 'help__group' },
             h('h3', { class: 'group-title' }, g.title),
             h('dl', { class: 'help__list' }, g.rows.map(([k, d]) => h('div', { class: 'help__row' },

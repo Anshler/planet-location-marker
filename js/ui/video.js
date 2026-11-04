@@ -1,6 +1,6 @@
 /**
  * Time-lapse video export (ROADMAP timelapse-video-export): the Share menu's 'Video' dialog.
- * Presets (a day here, a night of star trails, the 2027 eclipse chase), landscape 1920×1080 or
+ * Presets (a day here, a night of turning stars, the 2027 eclipse chase), landscape 1920×1080 or
  * vertical 1080×1920, then Record: progress with a live preview and Cancel, then the clip with
  * Download and (where the browser shares files) Share. The date stamp, the place and the brand are
  * burned into every frame here (`paintStamp`); labels come from the capture.
@@ -21,7 +21,7 @@ import { drawMark, fileStem } from './postcard.js';
 /** Mirrors app/recorder.js VIDEO_PRESETS / VIDEO_SIZES (the recorder loads on the first Record). */
 export const VIDEO_UI_PRESETS = Object.freeze([
     Object.freeze({ id: 'day', label: 'A day', detail: 'The next 24 hours from here, in this view · 12 s' }),
-    Object.freeze({ id: 'night', label: 'Star trails', detail: 'Dusk to dawn as a growing long exposure · 15 s' }),
+    Object.freeze({ id: 'night', label: 'A night of turning stars', detail: 'Dusk to dawn as a growing long exposure · 15 s' }),
     Object.freeze({ id: 'eclipse', label: '2027 eclipse', detail: 'Ride the Moon’s shadow across the Earth, 2 August 2027 · 24 s' }),
 ]);
 const SIZES = Object.freeze([

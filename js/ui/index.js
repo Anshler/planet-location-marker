@@ -25,7 +25,7 @@ import { BODIES, BODY_INDEX, hostBodies } from '../astro/bodies.js';
 import { APP_NAME } from '../version.js';
 import { createEmitter, prefersReducedMotion } from './dom.js';
 import { mountShell } from './shell.js';
-import { mountToasts, mountFlash } from './toast.js';
+import { mountToasts } from './toast.js';
 import { mountAnnouncer } from './announcer.js';
 import { bindShortcuts } from './shortcuts.js';
 import { mountInstallHint } from './install.js';
@@ -69,9 +69,7 @@ export function mountUI(rootEl, ctx) {
     const overlay = shell.overlay;
 
     const toasts = mountToasts(overlay, ctx.bus);
-    const flash = mountFlash(overlay);
     const announcer = mountAnnouncer(overlay, ctx.bus);
-    ui.flash = (text) => flash.show(text);
     offs.push(bindShortcuts(uctx));
 
     const narrator = startNarrator(uctx);
@@ -113,7 +111,6 @@ export function mountUI(rootEl, ctx) {
             coach.destroy();
             ui.dispose();
             toasts.destroy();
-            flash.destroy();
             announcer.destroy();
             shell.destroy();
             rootEl.classList.remove('ui');
@@ -694,7 +691,7 @@ function startNarrator(ctx) {
             if (ui.scrubbing) return;
             if (type === 'live') { say('Live: showing the sky right now'); return; }
             if (type === 'rate') { say(`Speed ${ui.fmt('fmtRate', clock.rate)}`); return; }
-            if (type === 'range') { say(clock.range ? 'Timelapse started' : 'Timelapse stopped'); return; }
+            if (type === 'range') { say(clock.range ? 'Loop started.' : 'Loop stopped.'); return; }
             if (type === 'pause' || type === 'jump' || type === 'play') {
                 // Debounced so a burst of steps reads out once, with the final time.
                 clearTimeout(timeTimer);

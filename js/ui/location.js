@@ -482,8 +482,9 @@ export function mountLocation(root, ctx) {
             if (active >= 0 && options[active]) choose(options[active]);
             else if (query) searchOnline(true);
         } else if (e.key === 'Escape') {
+            // One press closes, whatever was typed (× clears the text).
             e.preventDefault(); e.stopPropagation();
-            if (input.value) { input.value = ''; runSearch(); } else ui.closePalette();
+            ui.closePalette();
         }
     }));
     offs.push(on(list, 'pointermove', (e) => {

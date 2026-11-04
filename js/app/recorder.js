@@ -30,7 +30,7 @@ import { createMp4Muxer } from './mp4.js';
 /** The video presets: id, Share-menu label, how long the clip runs (s). */
 export const VIDEO_PRESETS = Object.freeze([
     Object.freeze({ id: 'day', label: 'A day', detail: 'The next 24 hours in this view', seconds: 12 }),
-    Object.freeze({ id: 'night', label: 'Star trails', detail: 'Dusk to dawn as a growing long exposure', seconds: 15 }),
+    Object.freeze({ id: 'night', label: 'A night of turning stars', detail: 'Dusk to dawn as a growing long exposure', seconds: 15 }),
     Object.freeze({ id: 'eclipse', label: '2027 eclipse', detail: 'Ride the Moon’s shadow across the Earth, 2 August 2027', seconds: 20 }),
 ]);
 /** Frame sizes (device px). The low tier records at 720p. */

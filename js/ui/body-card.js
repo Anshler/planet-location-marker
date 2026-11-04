@@ -8,8 +8,8 @@
  * - the light-time sentence ("The light you see from Mars left 12 min 31 s ago.");
  * - Moon extras: phase name and age;
  * - the eyepiece portrait (ui/eyepiece.js): the body as a small telescope shows it now;
- * - actions: Look from here · Center · Telescope (sky view at a field that frames it, tracked) ·
- *   Track (sky view: keep it centred as time runs) · View from <body> (globe view) ·
+ * - actions: Look from here · Center · Telescope (sky view at a field that frames it, followed) ·
+ *   Follow (sky view: keep it centred as time runs) · View from <body> (globe view) ·
  *   Earthrise (the Moon: the lunar-orbit vantage point) · Path ±6 months · Show where it's visible;
  * - fact grid: altitude/azimuth (refracted), rise · transit · set, distance,
  *   magnitude, phase, elongation, angular size, constellation, RA/Dec J2000 and
@@ -20,7 +20,7 @@
  * An extra object (core/selection.js `comet:halley`, `guest:sn1054`, `craft:voyager1`, …) gets the
  * same card from its ExtraState and its provider's ExtraCard (astro/extras.js; ctx.extras): the
  * kind line, the position sentence and 'find it', the provider's lines (light or radio time, the
- * history), Look/Center/Telescope/Track, altitude, azimuth, rise · transit · set when known,
+ * history), Look/Center/Telescope/Follow, altitude, azimuth, rise · transit · set when known,
  * magnitude, constellation and J2000 RA/Dec, the provider's facts, its caveat and sources.
  *
  * @module ui/body-card
@@ -103,8 +103,8 @@ export function mountBodyCard(root, ctx) {
 
     const actLook = actionBtn('sky', 'Look from here', 'Stand at the observer and look toward it');
     const actCenter = actionBtn('target', 'Center', 'Turn the view toward it');
-    const actScope = actionBtn('eye', 'Telescope', 'Zoom in on it at its true size and orientation, tracking it');
-    const actTrack = actionBtn('crosshair', 'Track', 'Keep it centred as time runs (K)', true);
+    const actScope = actionBtn('eye', 'Telescope', 'Zoom in on it at its true size and orientation, following it');
+    const actTrack = actionBtn('crosshair', 'Follow', 'Keep it centred as time runs (K)', true);
     const actFrom = actionBtn('globe', 'View from it', 'See the Earth from its direction: the side where it is overhead');
     const actRise = actionBtn('vantage', 'Earthrise', 'Watch the Earth rise over the Moon’s limb from lunar orbit (Esc returns)', true);
     const actPath = actionBtn('path', 'Path ±6 months', 'Show its apparent path for six months either side', true);

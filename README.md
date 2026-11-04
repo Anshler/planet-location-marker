@@ -77,6 +77,13 @@ browser, and nothing needs the network.
     sky at that moment ('06:14 · sunrise in 12 min', 'night, Moon up').
   - Click the globe (with Undo), type coordinates in decimal or DMS, or use your location.
   - Online place search is an optional extra.
+- **One toolbar, the same in every view.** `Globe | Sky | Map`, then **Tools** (on the globe:
+  where to look from, Turn with the Earth, Reset the view; in Sky view: Follow, Telescope, the
+  angle ruler, pointing the phone and long exposures), **Share** (link, postcard, time-lapse video)
+  and **⋯** (shortcuts and mouse, interface tips, night vision, hide the interface, fullscreen,
+  install, About). Every mode you enter (a viewpoint, the map, the telescope, following, the ruler,
+  an exposure, a loop) shows a chip at the top of the view with its own way out, and
+  <kbd>Esc</kbd> leaves the newest one first.
 - **Deep links.** Every view is a shareable URL: place, time, speed, selection, layers and camera.
 - **Works offline after the first visit.** The deployed site installs as a whole: every module and
   the star, city and event data are cached in the background on the first visit, so it opens with
@@ -97,12 +104,12 @@ browser, and nothing needs the network.
   `prefers-reduced-transparency` (solid panels), `prefers-contrast: more` (brighter text, edged
   panels and chips) and `forced-colors` (Windows High Contrast).
 - **Night vision for real observing.** Settings → Night vision, <kbd>Shift</kbd>+<kbd>N</kbd> or
-  the phone's ⋯ menu turns the whole screen dim red, so your eyes stay dark-adapted, and keeps the
+  the ⋯ menu turns the whole screen dim red, so your eyes stay dark-adapted, and keeps the
   screen awake (also in Sky view on a phone). It is a setting of the device, never part of a
   shared link.
 - **Made for the device in your hand.** On a touch screen the tips talk in taps and drags, Help
-  opens on the gestures (the ⋯ button on a phone), and a first visit ends with three short
-  interface tips (Settings → Show interface tips replays them). It installs as an app: About →
+  opens on the gestures (⋯ → Gestures and help), and a first visit ends with three short
+  interface tips (⋯ → Interface tips replays them). It installs as an app: About →
   Install app, or Share → Add to Home Screen on an iPhone, with shortcuts to Sky view and Events.
 
 ## Keyboard shortcuts
@@ -113,24 +120,29 @@ browser, and nothing needs the network.
 | <kbd>[</kbd> / <kbd>]</kbd> | Slower / faster |
 | <kbd>R</kbd> | Reverse time |
 | <kbd>,</kbd> / <kbd>.</kbd> | Step −/+ 1 hour |
-| <kbd>Shift</kbd>+<kbd>,</kbd> / <kbd>.</kbd> | Step −/+ 1 day |
-| <kbd>Alt</kbd>+<kbd>,</kbd> / <kbd>.</kbd> | Step −/+ 1 sidereal day |
+| <kbd>Shift</kbd>+<kbd>,</kbd> / <kbd>.</kbd> | Step −/+ 1 day (or Shift with a step button) |
+| <kbd>Alt</kbd>+<kbd>,</kbd> / <kbd>.</kbd> | Step −/+ 1 sidereal day (or Alt with a step button) |
 | <kbd>N</kbd> | Now (Live) |
 | <kbd>1</kbd>–<kbd>9</kbd> | Select the Sun, Moon, Mercury … Neptune |
-| <kbd>0</kbd> or <kbd>Esc</kbd> | Deselect / close a dialog |
-| <kbd>V</kbd> | Globe ↔ Sky view |
-| <kbd>L</kbd> | Lock the view to the Earth |
-| <kbd>B</kbd> <kbd>C</kbd> <kbd>Shift</kbd>+<kbd>C</kbd> <kbd>M</kbd> <kbd>E</kbd> <kbd>G</kbd> <kbd>O</kbd> <kbd>T</kbd> | Beams, constellation lines, constellation names, Milky Way, ecliptic, equatorial grid, visibility footprint, path of the selected body |
+| <kbd>0</kbd> | Deselect |
+| <kbd>Esc</kbd> | Close a menu or dialog, then leave the newest mode shown at the top of the view, then clear the selection |
+| <kbd>V</kbd> · <kbd>M</kbd> | Globe ↔ Sky view · world map ↔ globe |
+| <kbd>L</kbd> | Turn with the Earth, or hold the view still |
+| <kbd>K</kbd> · <kbd>A</kbd> | Sky view: follow the selection, then the stars, then look freely · the angle ruler |
+| <kbd>B</kbd> <kbd>C</kbd> <kbd>Shift</kbd>+<kbd>C</kbd> <kbd>Shift</kbd>+<kbd>M</kbd> <kbd>E</kbd> <kbd>G</kbd> <kbd>O</kbd> <kbd>T</kbd> | Beams, constellation lines, constellation names, Milky Way, ecliptic, equatorial grid, visibility footprint, path of the selected body |
 | <kbd>/</kbd> or <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>K</kbd> | Search places |
 | <kbd>S</kbd> | Share a link to this view |
 | <kbd>F</kbd> | Fullscreen |
 | <kbd>H</kbd> | Hide the interface |
 | <kbd>Shift</kbd>+<kbd>N</kbd> | Night vision (dim red screen, kept awake) |
 | <kbd>?</kbd> | Help |
-| Arrows · <kbd>+</kbd> / <kbd>−</kbd> · <kbd>Home</kbd> | Rotate or look around · zoom · reset the camera |
+| Arrows · <kbd>+</kbd> / <kbd>−</kbd> · <kbd>Home</kbd> | Rotate or look around · zoom · reset the view (also in Tools) |
 
-On a touch screen: drag to turn the globe or look around, pinch to zoom, tap a world to meet it,
-tap the Earth to stand there, double-tap to fly closer, and drag the time bar to travel in time.
+With a mouse: click a world, its label or a row to select it, click the Earth to stand there
+(Undo in the message), double-click to fly closer, drag to turn the globe or look around, and
+scroll to zoom from a telescope's field out to the whole solar system. On a touch screen: drag
+to turn the globe or look around, pinch to zoom, tap a world to meet it, tap the Earth to stand
+there, double-tap to fly closer, and drag the time bar to travel in time.
 
 ## Running locally
 

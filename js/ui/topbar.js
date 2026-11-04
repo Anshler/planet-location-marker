@@ -7,7 +7,7 @@
  */
 
 import { APP_NAME } from '../version.js';
-import { h, s, on, setText } from './dom.js';
+import { h, s, on, setText, uid } from './dom.js';
 import { icon } from './icons.js';
 import { marsSiteNear } from '../astro/mars-clock.js';
 
@@ -16,13 +16,15 @@ import { marsSiteNear } from '../astro/mars-clock.js';
  * @returns {SVGElement}
  */
 export function brandMark(size = 22) {
+    // A page-unique gradient id: the mark is drawn twice (top bar, About), and a hidden copy's id would not paint.
+    const id = uid('pc-brand');
     return s('svg', { viewBox: '0 0 24 24', width: size, height: size, 'aria-hidden': 'true', class: 'brand__mark' },
         s('defs', null,
-            s('radialGradient', { id: 'pc-brand-earth', cx: '36%', cy: '34%', r: '72%' },
+            s('radialGradient', { id, cx: '36%', cy: '34%', r: '72%' },
                 s('stop', { offset: '0', 'stop-color': '#a8dcff' }),
                 s('stop', { offset: '0.55', 'stop-color': '#3a7fc4' }),
                 s('stop', { offset: '1', 'stop-color': '#0f2a4d' }))),
-        s('circle', { cx: 9.6, cy: 14.4, r: 7.2, fill: 'url(#pc-brand-earth)' }),
+        s('circle', { cx: 9.6, cy: 14.4, r: 7.2, fill: `url(#${id})` }),
         s('path', { d: 'M3 15.2c2.6 1.4 6.8 1.7 10.4.2', stroke: 'rgba(255,255,255,.35)', 'stroke-width': 0.9, fill: 'none', 'stroke-linecap': 'round' }),
         s('path', { d: 'M9.6 14.4L19.6 4.4', stroke: '#ffd36b', 'stroke-width': 1.7, 'stroke-linecap': 'round' }),
         s('circle', { cx: 19.9, cy: 4.1, r: 2, fill: '#ff6a3d' }),

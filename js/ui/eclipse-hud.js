@@ -243,7 +243,7 @@ export function mountEclipseHud(root, ctx) {
     offs.push(store.subscribe((s) => s.ui?.eclipse, refresh), store.subscribe((s) => s.observer, refresh),
         ui.on('events', refresh), ui.on('display', refresh));
 
-    // The other HUDs under the top bar (the view caption, the sky tools' pills) stack below the
+    // The status stack under the top bar (ui/modes.js: the mode chips) stacks below the
     // panel (css: --ecl-h, its height and a gap, 0 while it is hidden), never under it.
     const host = ui?.root ?? root.ownerDocument?.documentElement ?? null;
     let lastH = -1;

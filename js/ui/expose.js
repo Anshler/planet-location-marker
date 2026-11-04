@@ -1,16 +1,11 @@
 /**
- * Long-exposure controls (ROADMAP lighten-stacking-exposure): the sky view's Expose button opens a
- * popover of presets (Star trails · Analemma · Free); while an exposure runs, a status pill shows
- * what is being stacked, with Save image (the postcard dialog's photo mode) and Stop.
- *
- * State lives in the store (`ui.expose`); the stack's progress comes from
- * `actions.exposeStatus()`, read on the 4 Hz readout.
+ * Long exposures (ROADMAP lighten-stacking-exposure): presets in the Sky view's Tools menu
+ * (ui/view-switch.js); while one runs, a mode chip (ui/modes.js) shows the stack's progress
+ * (`actions.exposeStatus()`, on the 4 Hz readout) with Save image (the postcard's photo mode) and
+ * Stop. Esc asks twice once frames are stacked. State: `ui.expose`.
  *
  * @module ui/expose
  */
-
-import { h, on, setText, openPopover } from './dom.js';
-import { icon } from './icons.js';
 
 export const EXPOSE_PRESETS = Object.freeze([
     Object.freeze({ id: 'trails', title: 'Star trails', desc: 'Tonight from dusk at 10 min/s, facing the celestial pole.' }),
@@ -20,7 +15,7 @@ export const EXPOSE_PRESETS = Object.freeze([
 const TITLES = Object.fromEntries(EXPOSE_PRESETS.map((p) => [p.id, p.title]));
 
 /**
- * The pill's status line.
+ * The exposure chip's status line.
  * @param {{frames:number, fromMs:number, toMs:number, gated:boolean, active:boolean, kind:string|null}|null} st
  * @param {(ms:number)=>string} fmtDuration
  * @param {number} [sunAltDeg]
@@ -41,68 +36,18 @@ export function exposeStatusText(st, fmtDuration, sunAltDeg = NaN) {
 }
 
 /**
- * Wires the Expose button and mounts the status pill.
- * @param {HTMLElement} btn the view bar's Expose button
- * @param {HTMLElement} host where the popover and the pill live
- * @param {any} ctx UiCtx
+ * Keeps the exposure's chip in step with the store and the readout.
+ * @param {any} ctx UiCtx (with ui.modes)
  * @param {{savePhoto:(caption:string)=>void}} hooks
  * @returns {{destroy():void}}
  */
-export function mountExpose(btn, host, ctx, { savePhoto }) {
+export function mountExpose(ctx, { savePhoto }) {
     const { store, ui, bus } = ctx;
-    const offs = [];
-
-    // ---------------------------------------------------------------- popover
-    const items = EXPOSE_PRESETS.map((p) => h('button', { class: 'xp-opt', type: 'button', 'data-kind': p.id, 'aria-pressed': 'false' },
-        h('span', { class: 'xp-opt__title' }, p.title), h('span', { class: 'xp-opt__desc' }, p.desc)));
-    const lowNote = h('p', { class: 'pop__hint xp-low', hidden: true }, 'Low quality stacks without the glow (bloom).');
-    const stopBtn = h('button', { class: 'btn btn--ghost', type: 'button', hidden: true }, 'Stop exposure');
-    const pop = h('div', { class: 'popover pop-expose', role: 'dialog', 'aria-label': 'Long exposure', hidden: true },
-        h('div', { class: 'pop__title' }, icon('aperture', { size: 16 }), 'Long exposure'),
-        h('p', { class: 'pop__hint' }, 'Every frame is stacked, brightest wins: a camera on a tripod with the shutter open.'),
-        h('div', { class: 'xp-opts' }, items), lowNote,
-        h('div', { class: 'pop__actions' }, stopBtn));
-    host.appendChild(pop);
-    let popCtl = null;
-    const closePop = () => { popCtl?.close(); popCtl = null; };
-    function openPop() {
-        if (popCtl) { closePop(); return; }
-        syncPop();
-        popCtl = openPopover(btn, pop, { placement: ui.layout === 'mobile' ? 'bottom' : 'top', onClose: () => { popCtl = null; } });
-    }
-    function syncPop() {
-        const cur = store.get().ui.expose;
-        for (const it of items) {
-            const on_ = it.dataset.kind === cur;
-            it.classList.toggle('is-on', on_);
-            it.setAttribute('aria-pressed', String(on_));
-        }
-        stopBtn.hidden = !cur;
-        lowNote.hidden = store.get().quality?.active !== 'low';
-    }
-    offs.push(on(btn, 'click', openPop));
-    for (const it of items) {
-        offs.push(on(it, 'click', () => {
-            ui.act('expose', it.dataset.kind);
-            closePop();
-        }));
-    }
-    offs.push(on(stopBtn, 'click', () => { ui.act('expose', null); closePop(); }));
-
-    // ---------------------------------------------------------------- status pill
-    const title = h('span', { class: 'xp__title' });
-    const status = h('span', { class: 'xp__status' });
-    const saveBtn = h('button', { class: 'btn btn--primary btn--sm', type: 'button' }, icon('download', { size: 14 }), 'Save image');
-    const endBtn = h('button', { class: 'btn btn--ghost btn--sm', type: 'button' }, 'Stop');
-    const pill = h('section', { class: 'xp glass', role: 'status', 'aria-label': 'Long exposure', hidden: true },
-        h('span', { class: 'xp__dot', 'aria-hidden': 'true' }),
-        h('span', { class: 'xp__text' }, title, status), saveBtn, endBtn);
-    host.appendChild(pill);
-    offs.push(on(endBtn, 'click', () => ui.act('expose', null)));
+    const status = () => ctx.actions?.exposeStatus?.() ?? null;
 
     /** "Star trails · Paranal, Chile · 10 Nov 2026 01:00 → 05:10 (4 h 10 min)". */
     function caption() {
-        const st = ctx.actions?.exposeStatus?.() ?? null;
+        const st = status();
         const kind = store.get().ui.expose;
         const parts = [TITLES[kind] ?? 'Long exposure', ui.placeLabel(store.get().observer)];
         if (st && Number.isFinite(st.fromMs) && Number.isFinite(st.toMs)) {
@@ -114,30 +59,23 @@ export function mountExpose(btn, host, ctx, { savePhoto }) {
         }
         return parts.join(' · ');
     }
-    offs.push(on(saveBtn, 'click', () => savePhoto(caption())));
+    const text = () => exposeStatusText(status(), (ms) => ui.fmt('fmtDuration', ms), ui.snap?.observer?.sunAltDeg);
 
-    let lastText = '';
-    function syncPill() {
+    function sync() {
         const kind = store.get().ui.expose;
-        pill.hidden = !kind;
-        btn.classList.toggle('is-on', !!kind);
-        btn.setAttribute('aria-pressed', String(!!kind));
-        if (!kind) { lastText = ''; return; }
-        const st = ctx.actions?.exposeStatus?.() ?? null;
-        setText(title, TITLES[kind] ?? 'Long exposure');
-        const text = exposeStatusText(st, (ms) => ui.fmt('fmtDuration', ms), ui.snap?.observer?.sunAltDeg);
-        if (text !== lastText) { lastText = text; setText(status, text); }
-        pill.classList.toggle('is-gated', !!st?.gated);
+        if (!kind) { ui.modes.clear('expose'); return; }
+        ui.modes.set('expose', {
+            icon: 'aperture', title: `Long exposure: ${TITLES[kind] ?? kind}`, detail: text(), live: true,
+            actions: [{ label: 'Save image', run: () => savePhoto(caption()) }],
+            exit: { label: 'Stop', done: 'Long exposure stopped', run: () => ui.act('expose', null) },
+            // With frames stacked, a stray Esc must not throw the picture away.
+            guard: () => (status()?.frames > 0 ? 'Press Esc again to stop the exposure, or choose Save image' : null),
+        });
     }
-    offs.push(store.subscribe((s) => s.ui.expose, () => { syncPill(); if (popCtl) syncPop(); }, { immediate: true }));
-    offs.push(bus.on('readout', syncPill));
-
-    return {
-        destroy() {
-            closePop();
-            offs.forEach((off) => off());
-            pop.remove();
-            pill.remove();
-        },
-    };
+    const offs = [
+        store.subscribe((s) => s.ui.expose, sync),
+        bus.on('readout', () => { if (store.get().ui.expose) ui.modes.update('expose', { detail: text() }); }),
+    ];
+    sync();
+    return { destroy() { offs.forEach((off) => off()); ui.modes.clear('expose'); } };
 }

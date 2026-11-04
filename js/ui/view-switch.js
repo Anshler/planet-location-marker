@@ -1,275 +1,207 @@
 /**
- * View switch cluster: the `Globe | Sky` segmented control, Earth-lock (Globe
- * only), tracking (Sky only: off → the selected body → the stars, K), the angle ruler and 'Point at
- * the sky' (Sky only, ui/sky-tools.js), Expose (Sky only: long exposures, ui/expose.js), Share,
- * Fullscreen and Help. On mobile it becomes a floating column (Globe/Sky, lock, tracking, ruler,
- * point, expose, share, ⋯), where a ⋯ menu stands in for Help and Fullscreen: Gestures and help,
- * Interface tips (ui/coach.js), Hide the interface, Night vision, Fullscreen.
- *
- * Vantage points (globe view): a menu button offers 'View from L1' and 'Earthrise'
- * (actions.setVantage), the flat 'World map' (view mode 'map', M) and 'Solar system'
- * (actions.setSystem, the zoom out into the orrery); while one is shown a caption pill names it
- * under the top bar with a way back (the map's also keys its twilight lines; the solar system's
- * says what is to scale), and 'Globe' (or Esc) returns to the globe.
- *
- * Owns the share UX (SPEC F.4): the Share button opens a two-option popover. 'Share link' is
- * `actions.share()` → 'shared' (system sheet, no toast) | 'copied' ("Link copied") | 'failed' (a
- * dialog with a selectable link and a Copy button); the S shortcut goes straight there. 'Postcard'
- * opens the postcard dialog (ui/postcard.js), which also saves long exposures; 'Video' (3D view
- * only) the time-lapse recorder's dialog (ui/video.js). Under reduced
- * motion, view and place changes are cuts, so a 200 ms fade overlay softens them.
+ * The toolbar (docs/roadmap/UI-REDESIGN.md §4.2), the same four labelled controls in every view:
+ * [Globe | Sky | Map] [Tools ▾] [Share ▾] [⋯]. Only Tools follows the view: on the globe, where to
+ * look from, Turn with the Earth, Reset the view and Sky view tools…; in Sky view, Follow, the
+ * telescope, the ruler and pointing (sky-tools.js) and long exposures (expose.js). Globe stays
+ * checked at L1, Earthrise and the solar system, and returns to the close view. Phones get a
+ * captioned floating column; text mode keeps Share and ⋯. It sets the camera's mode chips (the
+ * viewpoint, the map, the telescope, following) and owns the share flow (SPEC F.4): actions.share()
+ * → 'shared' (the system sheet, inside the click) | 'copied' (a toast) | 'failed' (a dialog with
+ * the link); S goes straight there. Under reduced motion a 200 ms fade softens view and place cuts.
  *
  * @module ui/view-switch
  */
 
-import { h, on, setAttr, trapFocus, openPopover } from './dom.js';
-import { icon, swapIcon } from './icons.js';
+import { h, on, setAttr, trapFocus, menu, rovingKeys } from './dom.js';
+import { icon } from './icons.js';
 import { mountPostcard } from './postcard.js';
 import { mountVideo } from './video.js';
-import { mountExpose } from './expose.js';
-import { mountSkyTools } from './sky-tools.js';
+import { mountExpose, EXPOSE_PRESETS } from './expose.js';
+import { mountSkyTools, canPointAtSky } from './sky-tools.js';
+import { offerNow, install } from './install.js';
 
-/** The vantage menu: [kind, name, detail]. */
-const VANTAGE_ITEMS = Object.freeze([
-    ['none', 'Globe', 'Orbit the Earth from close by'],
-    ['map', 'World map', 'The globe unrolled: night, twilight and where each body is overhead (M)'],
-    ['l1', 'View from L1', 'The sunlit Earth from 1.5 million km, as NASA’s DSCOVR sees it'],
-    ['moon', 'Earthrise', 'The Earth rising over the Moon’s limb, from lunar orbit'],
-    ['system', 'Solar system', 'Zoom out until the beams become lines across the solar system'],
-]);
-const VANTAGE_CAPTION = Object.freeze({
-    l1: ['View from L1', '1.5 million km sunward'],
-    moon: ['Earthrise', 'Lunar orbit, 150 km up · play time to watch it rise'],
-    map: ['World map', 'Lines: sunset · civil · nautical · astronomical twilight · dots: overhead now'],
-    system: ['Solar system', 'Distances to scale · planets enlarged, not to scale'],
+/** The viewpoints' chips: [title, detail, icon]. */
+const VANTAGE_CHIP = Object.freeze({
+    l1: ['View from L1', '1.5 million km sunward', 'sun'],
+    moon: ['Earthrise', 'Lunar orbit, 150 km up · play time to watch it rise', 'moon'],
+    system: ['Solar system', 'Distances to scale · planets enlarged, not to scale', 'planet'],
 });
-const ITEM_ICON = Object.freeze({ none: 'globe', map: 'map', l1: 'sun', moon: 'moon', system: 'planet' });
-
 const RED_DETAIL = 'A dim red screen for dark-adapted eyes, kept awake';
+const TOOLS_NAME = { orbit: 'Tools for the globe', map: 'Tools for the map', sky: 'Tools for the Sky view' };
 
 /**
- * The phone's ⋯ menu (CSS shows its button only in the mobile layout, where Help and Fullscreen
- * are hidden): Gestures and help, Interface tips, Hide the interface, Night vision (a checkbox:
- * actions.setNightVision), Fullscreen.
- * @param {HTMLElement} host where the menu lives
- * @param {any} ctx UiCtx
- * @returns {{btn: HTMLElement, destroy(): void}}
- */
-function mountMoreMenu(host, ctx) {
-    const { ui, store } = ctx;
-    const btn = h('button', { class: 'icon-btn icon-btn--glass glass vb-more', type: 'button', 'aria-haspopup': 'menu', 'aria-expanded': 'false', 'aria-label': 'More' },
-        icon('more', { size: 19 }));
-    const item = (id, iconName, name, detail) => h('button', { class: 'vmenu__item', type: 'button', role: 'menuitem', 'data-act': id },
-        icon(iconName, { size: 18 }), h('span', { class: 'vmenu__text' }, h('span', { class: 'vmenu__name' }, name), h('span', { class: 'vmenu__detail' }, detail)));
-    const items = [
-        item('help', 'help', 'Gestures and help', 'Drag, pinch and tap: what each one does'),
-        item('tips', 'sparkle', 'Interface tips', 'The three tips from the first visit, again'),
-        item('cinema', 'eye-off', 'Hide the interface', 'Just the view; tap Show interface to come back'),
-        item('red', 'eye', 'Night vision', RED_DETAIL),
-        item('fs', 'fullscreen', 'Fullscreen', 'Use the whole screen'),
-    ];
-    items[3].setAttribute('role', 'menuitemcheckbox');
-    const menu = h('div', { class: 'popover vmenu', role: 'menu', 'aria-label': 'More', hidden: true }, ...items);
-    host.appendChild(menu);
-    let pop = null;
-    const close = () => { pop?.close(); pop = null; };
-    const offs = [
-        on(btn, 'click', () => {
-            if (pop) { close(); return; }
-            items[1].hidden = store.get().status?.webgl === false;
-            items[4].hidden = !document.fullscreenEnabled && !document.webkitFullscreenEnabled;
-            // Night vision: in red the accent is no cue, so the words say it is on.
-            const red = !!store.get().display?.red;
-            items[3].setAttribute('aria-checked', String(red));
-            items[3].querySelector('.vmenu__detail').textContent = red ? 'On: tap for full colour again' : RED_DETAIL;
-            pop = openPopover(btn, menu, { placement: 'bottom', onClose: () => { pop = null; } });
-        }),
-        on(menu, 'click', (e) => {
-            const b = /** @type {HTMLElement} */ (e.target).closest('[data-act]');
-            if (!b) return;
-            close();
-            const a = b.dataset.act;
-            if (a === 'help') ui.toggleHelp(true);
-            else if (a === 'tips') ui.showTips();
-            else if (a === 'red') ui.act('setNightVision');
-            else ui.act(a === 'fs' ? 'toggleFullscreen' : 'toggleCinema');
-        }),
-        on(menu, 'keydown', (e) => {
-            if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
-            e.preventDefault();
-            const list = items.filter((b) => !b.hidden);
-            const i = list.indexOf(/** @type {any} */ (document.activeElement));
-            list[(i + (e.key === 'ArrowDown' ? 1 : list.length - 1)) % list.length].focus();
-        }),
-    ];
-    return { btn, destroy() { offs.forEach((off) => off()); close(); menu.remove(); } };
-}
-
-/**
- * Mounts the view switch.
+ * Mounts the toolbar.
  * @param {HTMLElement} root `.viewbar`
- * @param {any} ctx UiCtx
+ * @param {any} ctx UiCtx (with ui.modes)
  * @returns {{destroy(): void}}
  */
 export function mountViewSwitch(root, ctx) {
     const { store, ui, bus } = ctx;
+    const host = ui.root || document.body;
     const offs = [];
+    const st = () => store.get();
+    const gl = () => st().status?.webgl !== false;
+    const sel = () => st().selection;
+    const selName = () => ui.bodyName(sel());
 
-    // ---------------------------------------------------------------- Globe | Sky
-    const globeBtn = h('button', { class: 'seg__btn', type: 'button', role: 'radio', 'aria-checked': 'true', 'data-mode': 'orbit', 'data-tip': 'Globe view', 'data-kbd': 'V' },
-        icon('globe', { size: 18 }), h('span', { class: 'seg__label' }, 'Globe'));
-    const skyBtn = h('button', { class: 'seg__btn', type: 'button', role: 'radio', 'aria-checked': 'false', 'data-mode': 'sky', 'data-tip': 'Stand here and look up', 'data-kbd': 'V' },
-        icon('sky', { size: 18 }), h('span', { class: 'seg__label' }, 'Sky'));
-    const seg = h('div', { class: 'seg seg--view glass', role: 'radiogroup', 'aria-label': 'View' }, globeBtn, skyBtn);
-    const lockBtn = h('button', { class: 'icon-btn icon-btn--glass glass vb-lock', type: 'button', 'aria-pressed': 'true', 'aria-label': 'Lock view to Earth', 'data-tip': 'Lock view to Earth', 'data-kbd': 'L' },
-        icon('lock', { size: 19 }));
-    const shareBtn = h('button', { class: 'icon-btn icon-btn--glass glass vb-share', type: 'button', 'aria-label': 'Share this view', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'data-tip': 'Share', 'data-kbd': 'S' },
-        icon('share', { size: 19 }));
-    const exposeBtn = h('button', { class: 'icon-btn icon-btn--glass glass vb-expose', type: 'button', 'aria-pressed': 'false', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'aria-label': 'Long exposure', 'data-tip': 'Long exposure' },
-        icon('aperture', { size: 19 }));
-    const fsBtn = h('button', { class: 'icon-btn icon-btn--glass glass vb-fs', type: 'button', 'aria-pressed': 'false', 'aria-label': 'Fullscreen', 'data-tip': 'Fullscreen', 'data-kbd': 'F' },
-        icon('fullscreen', { size: 19 }));
-    const helpBtn = h('button', { class: 'icon-btn icon-btn--glass glass vb-help', type: 'button', 'aria-label': 'Keyboard shortcuts and help', 'data-tip': 'Shortcuts', 'data-kbd': '?' },
-        icon('help', { size: 19 }));
-    const trackBtn = h('button', { class: 'icon-btn icon-btn--glass glass vb-track', type: 'button', 'aria-pressed': 'false', 'aria-label': 'Tracking', 'data-tip': 'Track', 'data-kbd': 'K' },
-        icon('crosshair', { size: 19 }));
-    const vantBtn = h('button', { class: 'icon-btn icon-btn--glass glass vb-vantage', type: 'button', 'aria-haspopup': 'menu', 'aria-expanded': 'false', 'aria-label': 'Vantage points', 'data-tip': 'Vantage points' },
-        icon('vantage', { size: 19 }));
-    const more = mountMoreMenu(ui.root || document.body, ctx);
-    const tools = mountSkyTools(ui.root || document.body, ctx);
-    root.append(seg, lockBtn, vantBtn, trackBtn, tools.rulerBtn, tools.pointBtn, exposeBtn, shareBtn, fsBtn, helpBtn, more.btn);
-    root.setAttribute('role', 'toolbar');
-    root.setAttribute('aria-label', 'View');
-
+    // ---------------------------------------------------------------- [Globe | Sky | Map]
+    const segBtn = (mode, iconName, label, tip, kbd) => h('button', {
+        class: 'seg__btn', type: 'button', role: 'radio', 'aria-checked': 'false', 'data-mode': mode, 'data-tip': tip, 'data-kbd': kbd,
+    }, icon(iconName, { size: 18 }), h('span', { class: 'seg__label' }, label));
+    const segs = [segBtn('orbit', 'globe', 'Globe', 'Globe view', 'V'), segBtn('sky', 'sky', 'Sky', 'Stand here and look up', 'V'),
+        segBtn('map', 'map', 'Map', 'The world map', 'M')];
+    const seg = h('div', { class: 'seg seg--view glass', role: 'radiogroup', 'aria-label': 'View' }, ...segs);
     const setMode = (mode) => {
-        const v = store.get().view;
-        // 'Globe' is also the way back from a vantage point and from the solar system.
-        if (mode === 'orbit' && v?.mode === 'orbit' && v?.system) { ui.act('setSystem', false); return; }
-        if (v?.mode === mode && (v?.vantage ?? 'none') === 'none') return;
-        ui.act('setViewMode', mode);
+        const v = st().view;
+        // Globe is also the way back from a viewpoint and from the solar system.
+        if (mode === 'orbit' && v?.mode === 'orbit' && v?.system) ui.act('setSystem', false);
+        else if (v?.mode !== mode || (v?.vantage ?? 'none') !== 'none') ui.act('setViewMode', mode);
     };
+    offs.push(on(seg, 'click', (e) => {
+        const b = /** @type {HTMLElement} */ (e.target).closest('[data-mode]');
+        if (b) setMode(b.dataset.mode);
+    }));
+    offs.push(rovingKeys(seg, segs, (b) => { setMode(b.dataset.mode); b.focus(); }));
 
-    // ---------------------------------------------------------------- vantage points
-    const vantItems = VANTAGE_ITEMS.map(([kind, name, detail]) => h('button', {
-        class: 'vmenu__item', type: 'button', role: 'menuitemradio', 'aria-checked': 'false', 'data-kind': kind,
-    }, icon(ITEM_ICON[kind] ?? 'globe', { size: 18 }),
-    h('span', { class: 'vmenu__text' }, h('span', { class: 'vmenu__name' }, name), h('span', { class: 'vmenu__detail' }, detail))));
-    const vantMenu = h('div', { class: 'popover vmenu', role: 'menu', 'aria-label': 'Vantage points', hidden: true }, ...vantItems);
-    (ui.root || document.body).appendChild(vantMenu);
-    let vantPop = null;
-    const closeVant = () => { vantPop?.close(); vantPop = null; };
-    offs.push(on(vantBtn, 'click', () => {
-        if (vantPop) { closeVant(); return; }
-        const v = store.get().view;
-        const cur = v?.mode === 'map' ? 'map' : v?.system ? 'system' : v?.vantage ?? 'none';
-        for (const b of vantItems) setAttr(b, 'aria-checked', String(b.dataset.kind === cur));
-        vantPop = openPopover(vantBtn, vantMenu, { placement: 'top', onClose: () => { vantPop = null; } });
-    }));
-    offs.push(on(vantMenu, 'click', (e) => {
-        const b = /** @type {HTMLElement} */ (e.target).closest('[data-kind]');
-        if (!b) return;
-        closeVant();
-        const v = store.get().view;
-        if (b.dataset.kind === 'map') ui.act('setViewMode', 'map');
-        else if (b.dataset.kind === 'system') ui.act('setSystem', true);
-        else if (b.dataset.kind === 'none' && v?.mode === 'map') ui.act('setViewMode', 'orbit');
-        else if (b.dataset.kind === 'none' && v?.system) ui.act('setSystem', false);
-        else ui.act('setVantage', b.dataset.kind);
-    }));
-    offs.push(on(vantMenu, 'keydown', (e) => {
-        if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
-        e.preventDefault();
-        const i = vantItems.indexOf(/** @type {any} */ (document.activeElement));
-        vantItems[(i + (e.key === 'ArrowDown' ? 1 : vantItems.length - 1)) % vantItems.length].focus();
-    }));
-    // The caption while a vantage is shown.
-    const capName = h('span', { class: 'vcap__name' });
-    const capDetail = h('span', { class: 'vcap__detail' });
-    const capBack = h('button', { class: 'btn btn--soft vcap__back', type: 'button', 'aria-label': 'Back to the globe (Esc)', title: 'Back to the globe (Esc)' },
-        icon('globe', { size: 16 }), h('span', null, 'Globe'));
-    const caption = h('div', { class: 'vcap glass', role: 'status', hidden: true },
-        h('span', { class: 'vcap__icon', 'aria-hidden': 'true' }, icon('vantage', { size: 18 })),
-        h('span', { class: 'vcap__text' }, capName, capDetail), capBack);
-    (ui.root || document.body).appendChild(caption);
-    offs.push(on(capBack, 'click', () => {
-        const v = store.get().view;
-        if (v?.mode === 'map') ui.act('setViewMode', 'orbit');
-        else if (v?.system) ui.act('setSystem', false);
-        else ui.act('setVantage', 'none');
-    }));
-    offs.push(on(globeBtn, 'click', () => setMode('orbit')));
-    offs.push(on(skyBtn, 'click', () => setMode('sky')));
-    offs.push(on(seg, 'keydown', (e) => {
-        if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
-        e.preventDefault();
-        e.stopPropagation();
-        const next = store.get().view?.mode === 'sky' ? 'orbit' : 'sky';
-        setMode(next);
-        (next === 'sky' ? skyBtn : globeBtn).focus();
-    }));
-    offs.push(on(lockBtn, 'click', () => ui.act('setEarthLock', !store.get().view?.earthLock)));
-    offs.push(on(trackBtn, 'click', () => ui.act('cycleTracking')));
-    offs.push(on(fsBtn, 'click', () => ui.act('toggleFullscreen')));
-    offs.push(on(helpBtn, 'click', () => ui.toggleHelp(true)));
-    if (!document.fullscreenEnabled && !document.webkitFullscreenEnabled) fsBtn.hidden = true;
+    // ---------------------------------------------------------------- Tools, Share, ⋯
+    const btn = (cls, iconName, label, tip, kbd) => h('button', { class: `vb-btn glass ${cls}`, type: 'button', 'data-tip': tip, 'data-kbd': kbd },
+        icon(iconName, { size: 19 }), h('span', { class: 'vb-btn__label' }, label), cls === 'vb-more' ? null : icon('chevron-down', { size: 14, className: 'vb-btn__chev' }));
+    const toolsBtn = btn('vb-tools', 'tools', 'Tools', 'Camera and sky tools');
+    toolsBtn.append(h('span', { class: 'vb-btn__dot', 'aria-hidden': 'true' }));
+    const shareBtn = btn('vb-share', 'share', 'Share', 'Share', 'S');
+    const moreBtn = btn('vb-more', 'more', 'More', 'More');
+    moreBtn.setAttribute('aria-label', 'More');
+    root.append(seg, toolsBtn, shareBtn, moreBtn);
+    root.setAttribute('role', 'group');
+    root.setAttribute('aria-label', 'View controls');
+    const placement = () => (ui.layout === 'mobile' ? 'bottom' : 'top');
 
-    function syncView() {
-        const v = store.get().view || {};
-        const sky = v.mode === 'sky';
-        const map = v.mode === 'map';
-        const sys = !sky && !map && !!v.system;
-        // The map and the solar system share the vantage caption and menu (other ways of looking at the Earth).
-        const vt = map ? 'map' : sys ? 'system' : v.vantage ?? 'none';
-        const noGl = store.get().status?.webgl === false;
-        // In a vantage point (the map, the solar system) 'Globe' is the way back, so it reads as not selected.
-        const globe = !sky && vt === 'none';
-        setAttr(globeBtn, 'aria-checked', String(globe));
-        setAttr(skyBtn, 'aria-checked', String(sky));
-        globeBtn.tabIndex = sky ? -1 : 0;
-        skyBtn.tabIndex = sky ? 0 : -1;
-        globeBtn.classList.toggle('is-on', globe);
-        skyBtn.classList.toggle('is-on', sky);
-        seg.dataset.mode = sky ? 'sky' : 'orbit';
-        vantBtn.hidden = sky || noGl;
-        vantBtn.classList.toggle('is-on', vt !== 'none');
-        caption.hidden = vt === 'none' || noGl;
-        if (vt !== 'none' && VANTAGE_CAPTION[vt]) {
-            capName.textContent = VANTAGE_CAPTION[vt][0];
-            capDetail.textContent = VANTAGE_CAPTION[vt][1];
+    const pointable = canPointAtSky(typeof window !== 'undefined' ? window : null, !!(ctx.env?.coarse ?? st().status?.coarse));
+    const view = () => st().view || {};
+    const vt = () => (view().system ? 'system' : view().vantage ?? 'none');
+    const look = (kind, iconName, name, detail) => ({
+        kind: 'radio', group: 'Look from', icon: iconName, name, detail, checked: () => vt() === kind,
+        run: () => (kind === 'system' ? ui.act('setSystem', true) : vt() === 'system' ? ui.act('setSystem', false) : ui.act('setVantage', kind)),
+    });
+    const reset = { group: 9, icon: 'home', name: 'Reset the view', detail: 'Back to the starting framing', kbd: 'Home', run: () => ui.act('resetCamera') };
+    const follow = (kind, name, detail) => ({
+        kind: 'radio', group: 'Follow', icon: kind === 'stars' ? 'star' : kind === 'body' ? 'crosshair' : 'sky', name, detail, kbd: 'K',
+        checked: () => (view().track ?? 'none') === kind, run: () => ui.act('setTracking', kind),
+        ...(kind === 'body' ? { disabled: () => !sel(), disabledText: 'Select something first' } : null),
+    });
+    const toolsItems = () => {
+        const mode = view().mode;
+        if (mode === 'sky') {
+            const x = st().ui.expose;
+            return [
+                follow('none', 'Look around freely', 'The view stays where you point it'),
+                follow('body', () => (sel() ? `Follow ${selName()}` : 'Follow the selection'), 'Keep it centred as time runs'),
+                follow('stars', 'Follow the stars', 'Turn with the sky, as a tracking mount does'),
+                { kind: 'check', group: 'Follow', icon: 'eye', name: () => (sel() ? `Telescope on ${selName()}` : 'Telescope'),
+                    detail: 'Its true size and orientation, followed', disabled: () => !sel(), disabledText: 'Select something first',
+                    checked: () => !!st().ui.scope, run: () => (st().ui.scope ? ui.act('leaveTelescope') : ui.act('telescope', sel())) },
+                { kind: 'check', group: 'Measure and point', icon: 'ruler', name: 'Angle ruler', kbd: 'A',
+                    detail: 'Tap two things to measure the angle between them', checked: () => !!st().ui.ruler, run: () => ui.act('setRuler') },
+                { kind: 'check', group: 'Measure and point', icon: 'phone', name: 'Point the phone at the sky', detail: 'The view follows your phone',
+                    hidden: () => !pointable, checked: () => !!st().ui.aim, run: () => ui.act('pointAtSky') },
+                ...(x ? [{ group: 'Long exposure (one image)', icon: 'aperture', name: 'Stop the exposure', detail: `Long exposure: ${EXPOSE_PRESETS.find((p) => p.id === x)?.title ?? x}`, run: () => ui.act('expose', null) }]
+                    : EXPOSE_PRESETS.map((p) => ({ id: p.id, group: 'Long exposure (one image)', icon: 'aperture', name: p.title, detail: p.desc, run: () => ui.act('expose', p.id) }))),
+                ...(st().quality?.active === 'low' ? [{ note: 'Low quality stacks without the glow (bloom).', group: 'Long exposure (one image)' }] : []),
+                reset,
+            ];
         }
-        if (sky) closeVant();
-        lockBtn.hidden = sky || vt !== 'none';
-        setAttr(lockBtn, 'aria-pressed', String(!!v.earthLock));
-        swapIcon(lockBtn, v.earthLock ? 'lock' : 'unlock', 19);
-        lockBtn.dataset.tip = v.earthLock ? 'View locked to Earth' : 'View free — lock to Earth';
-        lockBtn.classList.toggle('is-on', !!v.earthLock);
-        const trk = v.track ?? 'none';
-        trackBtn.hidden = !sky || store.get().status?.webgl === false;
-        setAttr(trackBtn, 'aria-pressed', String(trk !== 'none'));
-        trackBtn.classList.toggle('is-on', trk !== 'none');
-        swapIcon(trackBtn, trk === 'stars' ? 'star' : 'crosshair', 19);
-        const next = trk === 'none' ? (store.get().selection ? 'Track the selected body' : 'Lock to the stars')
-            : trk === 'body' ? 'Tracking the body — next: lock to the stars' : 'Locked to the stars — next: tracking off';
-        trackBtn.dataset.tip = next;
-        setAttr(trackBtn, 'aria-label', next);
-        exposeBtn.hidden = !sky || store.get().status?.webgl === false;
-    }
-    offs.push(store.subscribe((s) => s.view, syncView, { immediate: true }));
-    offs.push(store.subscribe((s) => s.selection, syncView));
-
-    const syncFs = () => {
-        const fs = !!(document.fullscreenElement || document.webkitFullscreenElement);
-        setAttr(fsBtn, 'aria-pressed', String(fs));
-        swapIcon(fsBtn, fs ? 'fullscreen-exit' : 'fullscreen', 19);
-        fsBtn.dataset.tip = fs ? 'Exit fullscreen' : 'Fullscreen';
+        const skyTools = { group: 10, icon: 'sky', name: 'Sky view tools…', detail: 'Follow, telescope, angle ruler and long exposure',
+            run: () => { ui.act('setViewMode', 'sky'); requestAnimationFrame(() => tools.open()); } };
+        if (mode === 'map') return [reset, skyTools];
+        return [
+            look('none', 'globe', 'Near the Earth', 'Orbit the globe from close by'),
+            look('l1', 'sun', 'The L1 point', 'The sunlit Earth from 1.5 million km, as NASA’s DSCOVR sees it'),
+            look('moon', 'moon', 'Earthrise', 'The Earth rising over the Moon’s limb, from lunar orbit'),
+            look('system', 'planet', 'The whole solar system', 'Zoom out until the beams become lines across the solar system'),
+            { kind: 'check', group: 9, icon: 'globe', name: 'Turn with the Earth', detail: 'Your place stays in view as the Earth turns', kbd: 'L',
+                hidden: () => vt() !== 'none', checked: () => !!view().earthLock, run: () => ui.act('setEarthLock', !view().earthLock) },
+            reset, skyTools,
+        ];
     };
-    offs.push(on(document, 'fullscreenchange', syncFs));
-    offs.push(on(document, 'webkitfullscreenchange', syncFs));
-    syncFs();
+    const tools = menu({ button: toolsBtn, label: 'Tools', items: toolsItems, host, placement });
+
+    const shareMenu = menu({
+        button: shareBtn, label: 'Share', host, placement, items: () => [
+            // Inside the click, so the system share sheet keeps its user activation.
+            { icon: 'link', name: 'Share link', detail: 'Opens exactly this view: place, time, camera and layers', kbd: 'S', run: () => share() },
+            { icon: 'postcard', name: 'Postcard…', detail: 'A designed image of this view, ready to post', run: () => postcard.open() },
+            { icon: 'video', name: 'Time-lapse video…', detail: 'A clip of a day here, a night of turning stars or the 2027 eclipse',
+                hidden: () => !gl(), run: () => videoDlg.open() },
+        ],
+    });
+
+    const fsOn = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+    const coarse = () => document.body.classList.contains('is-coarse');
+    const moreMenu = menu({
+        button: moreBtn, label: 'More', host, placement, items: () => [
+            { icon: coarse() ? 'help' : 'keyboard', name: coarse() ? 'Gestures and help' : 'Keyboard shortcuts and mouse', kbd: '?',
+                detail: coarse() ? 'Drag, pinch and tap: what each one does' : 'The keys, and what the mouse does', run: () => ui.toggleHelp(true) },
+            { icon: 'sparkle', name: 'Interface tips', detail: 'The three tips from the first visit, again', hidden: () => !gl(), run: () => ui.showTips() },
+            { kind: 'check', icon: 'eye', name: 'Night vision', kbd: 'Shift+N', checked: () => !!st().display?.red,
+                // In red the accent is no cue, so the words say it is on.
+                detail: () => (st().display?.red ? 'On: choose again for full colour' : RED_DETAIL), run: () => ui.act('setNightVision') },
+            { icon: 'eye-off', name: 'Hide the interface', detail: 'Just the view; move the pointer or tap Show interface to return', kbd: 'H',
+                hidden: () => !gl(), run: () => ui.act('toggleCinema') },
+            { kind: 'check', icon: 'fullscreen', name: 'Fullscreen', detail: 'Use the whole screen', kbd: 'F', checked: fsOn,
+                hidden: () => !gl() || (!document.fullscreenEnabled && !document.webkitFullscreenEnabled), run: () => ui.act('toggleFullscreen') },
+            { icon: 'download', name: 'Install the app', detail: 'Open it like an app, offline too', hidden: () => !offerNow(), run: () => install(ctx) },
+            { icon: 'info', name: 'About, credits and help', detail: 'Version, accuracy, credits, privacy, report a problem',
+                run: () => ui.openPanel('about', { focus: true }) },
+        ],
+    });
+
+    // A menu open across a change of view would offer the other view's items.
+    offs.push(store.subscribe((s) => s.view?.mode, () => tools.close()));
+
+    // ---------------------------------------------------------------- state → toolbar and chips
+    function sync() {
+        const s = st();
+        const v = s.view || {};
+        const mode = v.mode === 'sky' || v.mode === 'map' ? v.mode : 'orbit';
+        for (const b of segs) {
+            const on_ = b.dataset.mode === mode;
+            setAttr(b, 'aria-checked', String(on_));
+            b.tabIndex = on_ ? 0 : -1;
+            b.classList.toggle('is-on', on_);
+        }
+        setAttr(toolsBtn, 'aria-label', TOOLS_NAME[mode]);
+        const k = vt();
+        const trk = v.track ?? 'none';
+        const busy = k !== 'none' || trk !== 'none' || !!(s.ui.scope || s.ui.ruler || s.ui.aim || s.ui.expose);
+        toolsBtn.classList.toggle('is-on', busy);
+        if (!gl()) return;
+        const m = ui.modes;
+        const back = { label: 'Back to the globe', done: 'Back to the globe', run: () => (v.system ? ui.act('setSystem', false) : ui.act('setViewMode', 'orbit')) };
+        if (mode === 'orbit' && VANTAGE_CHIP[k]) m.set('view', { icon: VANTAGE_CHIP[k][2], title: VANTAGE_CHIP[k][0], detail: VANTAGE_CHIP[k][1], exit: back });
+        else m.clear('view');
+        if (mode === 'map') {
+            m.set('map', { icon: 'map', title: 'World map', exit: back,
+                detail: 'Lines: sunset, civil, nautical and astronomical twilight. Dots: overhead now.' });
+        } else m.clear('map');
+        const sc = s.ui.scope;
+        if (sc) {
+            const f = +sc.fovDeg.toPrecision(2);
+            m.set('scope', { icon: 'eye', title: `Telescope on ${ui.bodyName(sc.id)}`, detail: trk === 'body' ? `${f}° field, followed` : `${f}° field`,
+                exit: { label: 'Leave the telescope', done: 'Telescope off', run: () => ui.act('leaveTelescope') } });
+        } else m.clear('scope');
+        if (mode === 'sky' && trk !== 'none' && !sc) {
+            m.set('follow', { icon: trk === 'stars' ? 'star' : 'crosshair', title: trk === 'stars' ? 'Following the stars' : `Following ${selName()}`,
+                detail: trk === 'stars' ? 'The view turns with the sky' : 'Kept centred as time runs',
+                exit: { label: 'Stop following', done: 'Not following', run: () => ui.act('setTracking', 'none') } });
+        } else m.clear('follow');
+    }
+    for (const sel_ of [(s) => s.view, (s) => s.selection, (s) => s.ui.scope, (s) => s.ui.ruler, (s) => s.ui.aim, (s) => s.ui.expose, (s) => s.status?.webgl]) {
+        offs.push(store.subscribe(sel_, sync));
+    }
 
     // ---------------------------------------------------------------- reduced-motion fade
     const fade = h('div', { class: 'fade-overlay', 'aria-hidden': 'true' });
-    (ui.root || document.body).appendChild(fade);
+    host.appendChild(fade);
     let fadeTimer = 0;
     const flashFade = () => {
         if (!ui.reducedMotion()) return;
@@ -293,7 +225,7 @@ export function mountViewSwitch(root, ctx) {
         h('div', { class: 'share__row' }, urlInput, copyBtn),
         copyMsg);
     const layer = h('div', { class: 'modal-layer share-layer', hidden: true }, h('div', { class: 'modal-backdrop' }), dialog);
-    (ui.root || document.body).appendChild(layer);
+    host.appendChild(layer);
     let release = null;
     const closeShare = () => {
         if (layer.hidden) return;
@@ -321,7 +253,7 @@ export function mountViewSwitch(root, ctx) {
         copyMsg.textContent = ok ? 'Link copied.' : `Press ${/Mac/.test(navigator.platform) ? '⌘' : 'Ctrl'}+C to copy the selected link.`;
     }));
 
-    /** Share flow shared by the button and the S shortcut. */
+    /** Share flow shared by the menu and the S shortcut. */
     async function share() {
         let url = String(globalThis.location?.href || '');
         try { url = ctx.actions?.shareUrl?.() || url; } catch { /* keep location.href */ }
@@ -337,50 +269,19 @@ export function mountViewSwitch(root, ctx) {
     }
     ui.share = share;
 
-    // ---------------------------------------------------------------- share menu, postcard, expose
-    const host = ui.root || document.body;
     const postcard = mountPostcard(host, ctx);
     ui.openPostcard = (opts) => postcard.open(opts);
-    const shareOpt = (iconName, title, desc) => h('button', { class: 'share-opt', type: 'button' }, icon(iconName, { size: 20 }),
-        h('span', { class: 'share-opt__text' }, h('span', { class: 'share-opt__title' }, title), h('span', { class: 'share-opt__desc' }, desc)));
-    const linkOpt = shareOpt('link', 'Share link', 'Opens exactly this view: place, time, camera and layers.');
-    const cardOpt = shareOpt('postcard', 'Postcard', 'A designed image of this view, ready to post.');
-    const videoOpt = shareOpt('video', 'Video', 'A time-lapse clip: a day here, a night of star trails or the 2027 eclipse.');
-    const sharePop = h('div', { class: 'popover pop-share', role: 'dialog', 'aria-label': 'Share', hidden: true }, linkOpt, cardOpt, videoOpt);
     const videoDlg = mountVideo(host, ctx);
     ui.openVideo = () => videoDlg.open();
-    host.appendChild(sharePop);
-    let sharePopCtl = null;
-    const closeSharePop = () => { sharePopCtl?.close(); sharePopCtl = null; };
-    offs.push(on(shareBtn, 'click', () => {
-        if (sharePopCtl) { closeSharePop(); return; }
-        // Videos render the 3D view.
-        videoOpt.hidden = store.get().status?.webgl === false;
-        sharePopCtl = openPopover(shareBtn, sharePop, {
-            placement: ui.layout === 'mobile' ? 'bottom' : 'top', onClose: () => { sharePopCtl = null; },
-        });
-    }));
-    // Both run inside the tap, so the system share sheet keeps its user activation.
-    offs.push(on(linkOpt, 'click', () => { closeSharePop(); share(); }));
-    offs.push(on(cardOpt, 'click', () => { closeSharePop(); postcard.open(); }));
-    offs.push(on(videoOpt, 'click', () => { closeSharePop(); videoDlg.open(); }));
-    const expose = mountExpose(exposeBtn, host, ctx, { savePhoto: (caption) => postcard.open({ mode: 'photo', caption }) });
+    const subs = [mountExpose(ctx, { savePhoto: (caption) => postcard.open({ mode: 'photo', caption }) }), mountSkyTools(ctx), tools, shareMenu, moreMenu, postcard, videoDlg];
+    sync();
 
     return {
         destroy() {
             offs.forEach((off) => off());
-            closeSharePop();
-            sharePop.remove();
-            postcard.destroy();
-            videoDlg.destroy();
-            expose.destroy();
-            tools.destroy();
-            more.destroy();
+            subs.forEach((x) => x.destroy());
             clearTimeout(fadeTimer);
             release?.();
-            closeVant();
-            vantMenu.remove();
-            caption.remove();
             layer.remove();
             fade.remove();
             root.textContent = '';

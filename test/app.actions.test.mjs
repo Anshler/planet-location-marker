@@ -359,3 +359,66 @@ test('setNightVision: toggles display.red, announces, and stays out of shared li
     assert.equal(store.get().display.red, false);
     assert.deepEqual(said, ['Night vision on: the screen is dim red and stays awake', 'Night vision off']);
 });
+
+test('telescope: ui.scope keeps the way back; leaveTelescope restores the field and the following; the chip ends with its premise', () => {
+    const s = createSnapshot();
+    computeSnapshot(Date.parse('2026-11-04T03:00:00Z'), { latDeg: 48.85, lonDeg: 2.35, elevM: 0 }, s);
+    const id = ['jupiter', 'saturn', 'mars', 'venus', 'moon'].find((b) => s.bodies.find((x) => x.id === b).altGeomDeg > 5);
+    assert.ok(id, 'a body up to look at');
+    let cam = { mode: 'sky', azDeg: 120, altDeg: 30, fovDeg: 50 };
+    const looks = [], zooms = [], on = {};
+    const rig = {
+        camera: { aspect: 16 / 9 }, getView: () => cam, telescope: (f) => zooms.push(f), setTracking() {},
+        setMode: (_m, o) => { looks.push(o?.look); return Promise.resolve(true); },
+    };
+    const store = createStore({ observer: LUXOR, view: { mode: 'sky', earthLock: true, track: 'none' }, status: { reducedMotion: true } });
+    const actions = createActions({
+        store, clock: { tMs: s.tMs }, bus: { emit() {}, on: (k, fn) => { on[k] = fn; } },
+        prefs: { load: (_k, d) => d, save() {}, remove() {} }, render: { rig }, getSnap: () => s,
+    });
+    const scope = () => store.get().ui.scope;
+    assert.equal(actions.telescope(id), true);
+    assert.deepEqual({ ...scope(), fovDeg: undefined }, { id, fovDeg: undefined, prevFovDeg: 50, prevTrack: 'none' });
+    assert.deepEqual([store.get().selection, store.get().view.track, zooms.length], [id, 'body', 1]);
+    // The zoom-in starts wide: the 4 Hz check waits until the field has arrived.
+    on.readout();
+    assert.ok(scope(), 'still zooming in');
+    cam = { ...cam, fovDeg: scope().fovDeg };
+    on.readout();
+    // Leaving: the field it found (a free look glides back) and the selection stays.
+    assert.equal(actions.leaveTelescope(), true);
+    assert.equal(scope(), null);
+    assert.deepEqual([store.get().selection, store.get().view.track, looks.at(-1).fovDeg], [id, 'none', 50]);
+    assert.equal(actions.leaveTelescope(), false, 'nothing to leave');
+    // The chip ends with another selection, the globe, Follow set free, or a zoom well past the field.
+    actions.telescope(id);
+    actions.select('sun');
+    assert.equal(scope(), null, 'another selection');
+    actions.telescope(id);
+    actions.setViewMode('orbit');
+    assert.equal(scope(), null, 'the globe');
+    store.set({ view: { ...store.get().view, mode: 'sky' } });
+    actions.telescope(id);
+    actions.setTracking('none');
+    assert.equal(scope(), null, 'Follow set free');
+    actions.telescope(id);
+    cam = { ...cam, fovDeg: scope().fovDeg };
+    on.readout();
+    cam = { ...cam, fovDeg: 12 };
+    on.readout();
+    assert.equal(scope(), null, 'zoomed out');
+    // Following the stars before: it comes back, zooming out as it engages; a second telescope keeps the first way back.
+    actions.setTracking('stars');
+    cam = { ...cam, fovDeg: 30 };
+    actions.telescope(id);
+    cam = { ...cam, fovDeg: 1 };
+    actions.telescope(id);
+    assert.deepEqual([scope().prevFovDeg, scope().prevTrack], [30, 'stars']);
+    actions.leaveTelescope();
+    assert.deepEqual([store.get().view.track, zooms.at(-1)], ['stars', 30]);
+    // A shared link's narrow field on the selection (sky view) gets the chip, back to a 60° free look.
+    actions.scopeFromLink({ mode: 'sky', azDeg: 0, altDeg: 20, fovDeg: 12 });
+    assert.equal(scope(), null, 'too wide for a telescope');
+    actions.scopeFromLink({ mode: 'sky', azDeg: 0, altDeg: 20, fovDeg: 0.5 });
+    assert.deepEqual(scope(), { id, fovDeg: 0.5, prevFovDeg: 60, prevTrack: 'none' });
+});

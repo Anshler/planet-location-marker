@@ -1323,6 +1323,7 @@ async function bootRender(ctx) {
     const introWanted = wantIntro(env, hash, store);
     try {
         if (hash.cam) rig.setView?.(hash.cam);
+        R.actions?.scopeFromLink?.(hash.cam);
         rig.update?.(0, snap);
         if (!hash.cam && st0.view.mode === 'sky') settle(rig.setMode?.('sky', { animate: false, look: selectionLook(store.get().selection, snap) }));
         // The flat map from the link (view=map): unrolled at once (its `cam` is m:lat,lon,dist).
@@ -1586,7 +1587,7 @@ function bindRenderState({ store, bus, clock, rc, rig, loop, snap, astro, m, lab
         if ((st.view.track ?? 'none') !== 'none') store.set({ view: { ...st.view, track: 'none' } }, 'rig');
         const what = kind === 'body' && isBodyId(id) ? bodyById(id).name
             : kind === 'body' && isExtraId(id) ? R.extras?.meta(id)?.name ?? 'The tracked object' : 'The tracked field';
-        if (reason === 'set') bus.emit('toast', { message: `Tracking stopped: ${what} set below the horizon.`, kind: 'info' });
+        if (reason === 'set') bus.emit('toast', { message: `Stopped following: ${what} set below the horizon.`, kind: 'info' });
     });
     store.subscribe((s) => s.view.mode, (mode, prev, _state, source) => {
         // A long exposure, the ruler and pointing are sky-view things: the globe ends them.
@@ -2290,6 +2291,7 @@ function applyHash(p) {
     if (p.aurora) actions.setAuroraActivity(p.aurora);
     if (p.cam && R.rig) {
         try { R.rig.setView?.(p.cam); } catch (err) { console.error('[main] camera from link failed', err); }
+        actions.scopeFromLink?.(p.cam);
     }
     // After the view and camera: a vantage keeps `cam` as its way back (absent: back to the globe).
     actions.setVantage?.(p.view === 'sky' || p.view === 'map' ? 'none' : p.vantage ?? 'none');

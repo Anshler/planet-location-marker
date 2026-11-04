@@ -6,7 +6,9 @@
  * meaning. Arrow keys and +/− belong to the camera rig and are not handled here;
  * Backquote calls `actions.toggleDebug()` when the app provides it.
  *
- * Every change also flashes a short visual confirmation ("Beams off").
+ * Every change also flashes a short visual confirmation ("Beams off"). Esc, after the menus,
+ * dialogs and tours that take it first: Search, Help, a text field, the hidden interface, the
+ * newest mode chip (ui/modes.js exitTop), then the selection.
  *
  * @module ui/shortcuts
  */
@@ -57,11 +59,7 @@ export function bindShortcuts(ctx) {
         if (st.ui?.help) { ui?.toggleHelp?.(false); e.preventDefault(); return; }
         if (isTyping(e.target)) { /** @type {HTMLElement} */ (e.target).blur(); return; }
         if (st.ui?.cinema) { act('toggleCinema'); e.preventDefault(); return; }
-        if ((st.view?.vantage ?? 'none') !== 'none') { act('setVantage', 'none'); flash('Back to the globe'); e.preventDefault(); return; }
-        if (st.ui?.ruler) { act('setRuler', false); flash('Ruler off'); e.preventDefault(); return; }
-        if (st.ui?.aim) { act('pointAtSky', false); e.preventDefault(); return; }
-        if (st.view?.mode === 'map') { act('setViewMode', 'orbit'); flash('Back to the globe'); e.preventDefault(); return; }
-        if (st.view?.system && st.view?.mode === 'orbit') { act('setSystem', false); flash('Back to the globe'); e.preventDefault(); return; }
+        if (ui?.modes?.exitTop()) { e.preventDefault(); return; }
         if (st.selection) { act('select', null); e.preventDefault(); }
     }
 
@@ -119,10 +117,10 @@ export function bindShortcuts(ctx) {
         } else if (code === 'KeyL') {
             const on = !st.view?.earthLock;
             act('setEarthLock', on);
-            flash(on ? 'View locked to Earth' : 'View unlocked');
+            flash(on ? 'Turning with the Earth' : 'Holding the view still');
         } else if (code === 'KeyK') {
             const k = act('cycleTracking');
-            flash(k === 'body' ? 'Tracking the body' : k === 'stars' ? 'Locked to the stars' : 'Tracking off');
+            flash(k === 'body' ? `Following ${ui?.bodyName?.(store.get().selection) ?? 'it'}` : k === 'stars' ? 'Following the stars' : 'Not following');
         } else if (code === 'KeyA' && !e.shiftKey && !e.altKey) {
             const on = act('setRuler');
             if (on) flash('Ruler: tap two things in the sky');

@@ -327,8 +327,9 @@ critical CSS read them.
   always download. All offline, text mode included.
 - **The place search's sky preview** (ROADMAP picker-place-preview, `ui/location.js`). Every
   offline city, online result, coordinate entry and recent place gets a pill under its name: the
-  local clock at the simulated time (`ui.fmtClock(t, {tzName})`; a result without a zone uses the
-  longitude's `Etc/GMT±n`, shown as '≈ 05:12' with a tooltip saying so) and the Sun there
+  local clock at the simulated time (`ui.fmtClock(t, {tzName})`; a result without a zone takes the
+  nearest city's within 300 km, as `normalizeObserver` would, else the longitude's `Etc/GMT±n`,
+  shown as '≈ 05:12' with a tooltip saying so) and the Sun there
   ('sunrise in 12 min' within 90 minutes, else day, civil, nautical or astronomical twilight, or
   night) with ', Moon up', on the sky's colour at that Sun altitude (`sky-palette.js`). `placeSky`
   needs no astronomy call: a body's altitude is 90° minus the great-circle distance to its

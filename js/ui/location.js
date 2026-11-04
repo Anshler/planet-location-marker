@@ -17,10 +17,11 @@
  * palette only reads them (Place-like `{name, country, lat, lon, tz}` records).
  *
  * Each place previews its sky at the simulated time (ROADMAP picker-place-preview): a line with
- * its local clock ('≈' and a note when the zone is only estimated from the longitude) and the
- * Sun there ('sunrise in 12 min', 'civil twilight', 'night'), with 'Moon up', on a pill in the
- * sky's colour (ui/sky-palette.js). `placeSky` works from the readout's Sun and Moon sub-points
- * (no astronomy call), and the lines refresh at most once a second while the palette is open.
+ * its local clock (a place without a zone takes the nearest city's within 300 km, else '≈' and a
+ * note: the zone is only estimated from the longitude) and the Sun there ('sunrise in 12 min',
+ * 'civil twilight', 'night'), with 'Moon up', on a pill in the sky's colour (ui/sky-palette.js).
+ * `placeSky` works from the readout's Sun and Moon sub-points (no astronomy call), and the lines
+ * refresh at most once a second while the palette is open.
  *
  * @module ui/location
  */
@@ -313,10 +314,20 @@ export function mountLocation(root, ctx) {
         return el;
     }
 
-    /** An option's 'local time · sky' line, filled (and kept fresh) by refreshSky. */
+    /**
+     * An option's 'local time · sky' line, filled (and kept fresh) by refreshSky. A place without a
+     * zone takes the nearest city's within 300 km, as the observer would (actions.normalizeObserver).
+     */
     function skyLine({ lat, lon, tz }) {
         const el = h('span', { class: 'pal-opt__sky', hidden: true });
-        skyEls.push({ el, lat: +lat, lon: +lon, tz: tz || null });
+        let zone = tz || null;
+        if (!zone) {
+            try {
+                const r = ctx.services?.cities?.nearest?.(+lat, +lon, 300);
+                if (r?.city?.tz && r.km <= 300) zone = r.city.tz;
+            } catch { zone = null; }
+        }
+        skyEls.push({ el, lat: +lat, lon: +lon, tz: zone });
         return el;
     }
 

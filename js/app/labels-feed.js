@@ -17,6 +17,9 @@
 //   - Bright stars, constellations and (sky view) the four cardinal points sit at infinity.
 //   - Orbit view with the horizon layer: N/E/S/W letters ride the rim of the pin's horizon disc
 //     (the pin module's live `cardinals`), hidden when the camera is too far out to fit them.
+//   - 'system' (the solar-system zoom, past half the crossfade into the orrery): bodies sit on the
+//     orrery's sprites or edge arrows (render/orrery.js `labelPoint`/`labelOffset`, live points in
+//     the globe scene), an 'Earth' label replaces the observer's, and there are no cardinals.
 //
 // Per-frame flags (sync): a body's `below` (labelBelow); star and constellation names' `hidden` and
 // `faint`, which follow the drawn star field, so names leave with their stars at dawn and return at
@@ -39,7 +42,7 @@ import { eqAngRadius, RING_OUTER, SCOPE_FROM_PX } from '../astro/disc.js';
  * @typedef {{starExposure?:number, magLimit?:number, viewportH?:number,
  *   horizon?:import('../geo/horizon.js').HorizonProfile|null}} LabelView */
 
-export const PRIORITY = Object.freeze({ selected: 100, sunMoon: 90, planet: 80, observer: 70, cardinal: 60, starBase: 50, constellation: 20 });
+export const PRIORITY = Object.freeze({ selected: 100, earth: 95, sunMoon: 90, planet: 80, observer: 70, cardinal: 60, starBase: 50, constellation: 20 });
 /** Star names shown in sky view (SPEC: mag ≤ 2.5) and, more sparingly, around the globe. */
 export const STAR_NAME_MAG_SKY = 2.5;
 export const STAR_NAME_MAG_ORBIT = 1.0;
@@ -62,6 +65,8 @@ const CARDINALS = Object.freeze([
 const STAR_COLOR = '#cdd6e4';
 const CONSTELLATION_COLOR = '#8fa6cc';
 const OBSERVER_COLOR = '#7cc4ff';
+/** The solar-system zoom's Earth label (its dot is the orrery's Earth, OBSERVER_COLOR). */
+const EARTH_TEXT = 'Earth';
 /** Small screen offset so a star's or planet's own glyph is not covered by the label dot. */
 const GLYPH_OFFSET = Object.freeze([7, -7]);
 // Sky-view body label radius (CSS px): the dot (3 px, +4 px ring when selected) clears the glyph,
@@ -114,7 +119,7 @@ export function labelBelow(st, sky, horizon = null) {
 }
 
 /** Body anchors (one per BODIES entry that is not hidden). */
-function bodyAnchors(out, state, snap, sky, live, opts) {
+function bodyAnchors(out, state, snap, sky, live, opts, system = false) {
     const sel = state.selection ?? null;
     for (let i = 0; i < BODIES.length; i++) {
         const b = BODIES[i];
@@ -133,8 +138,18 @@ function bodyAnchors(out, state, snap, sky, live, opts) {
             interactive: true,
             bodyId: b.id,
             selected,
-            below: labelBelow(st, sky),
+            below: system ? false : labelBelow(st, sky),
         };
+        if (system) {
+            let p = null;
+            try { p = opts.systemPoint ? opts.systemPoint(b.id) : null; } catch { p = null; }
+            if (!p || p.length < 3) continue;
+            a.posS = p;
+            a.offsetPx = opts.systemOffset?.(b.id) || GLYPH_OFFSET;
+            a.title = `${b.name} (enlarged, not to scale)`;
+            out.push(a);
+            continue;
+        }
         // Orbit view: the planet's medallion (render/planets.js) sits on the label's dot.
         let med = null;
         try {
@@ -323,9 +338,12 @@ function trailAnchors(out, trails) {
  * @param {Snapshot} snap  live snapshot (its typed arrays are referenced, not copied)
  * @param {object|null} catalog  decoded sky catalog ({starNames, cons}) or null
  * @param {{anchors?:()=>LabelAnchor[]}|null} trails  trails module (its anchors are appended)
- * @param {{mode?:'orbit'|'sky', live?:LiveVectors, bodyPoint?:(id:string)=>Float64Array|null,
+ * @param {{mode?:'orbit'|'sky'|'system', live?:LiveVectors, bodyPoint?:(id:string)=>Float64Array|null,
  *          bodyOffset?:Float64Array[], hideBody?:(id:string)=>boolean, hideObserver?:boolean,
- *          rimCardinals?:boolean, medallion?:((id:string, selected:boolean)=>number[]|null)|null}} [opts]
+ *          rimCardinals?:boolean, medallion?:((id:string, selected:boolean)=>number[]|null)|null,
+ *          systemPoint?:((id:string)=>Float64Array|null)|null, systemOffset?:((id:string)=>Float64Array|null)|null}} [opts]
+ *   'system' mode: bodies (and the 'earth' label) sit on `systemPoint`, the orrery's live points,
+ *   their dots offset by `systemOffset`; a body without a point is left out.
  *   `medallion` (render/planets.js footprint): orbit-view body labels get `med` (their dot becomes
  *   the medallion's eyepiece ring) and a 'magnified' title.
  *   `mode` defaults to state.view.mode. `bodyPoint` (the beams module's `labelAnchor`) supplies a
@@ -344,6 +362,21 @@ export function buildAnchors(state, snap, catalog, trails, opts = {}) {
     const mode = opts.mode ?? state.view?.mode ?? 'orbit';
     const sky = mode === 'sky';
     const live = opts.live ?? null;
+    if (mode === 'system') {
+        bodyAnchors(out, state, snap, false, live, opts, true);
+        const ep = opts.systemPoint ? opts.systemPoint('earth') : null;
+        if (ep && ep.length >= 3) {
+            out.push({
+                id: 'earth', text: EARTH_TEXT, kind: 'observer', priority: PRIORITY.earth, color: OBSERVER_COLOR,
+                posS: ep, offsetPx: opts.systemOffset?.('earth') || GLYPH_OFFSET,
+                ariaLabel: 'Earth — back to the globe', interactive: true,
+            });
+        }
+        if (catalog && layers.stars !== false && layers.starNames) starAnchors(out, catalog, false);
+        if (catalog && layers.constellationNames) constellationAnchors(out, catalog);
+        if (layers.trails) trailAnchors(out, trails);
+        return out;
+    }
 
     bodyAnchors(out, state, snap, sky, live, opts);
     if (live && !sky && !opts.hideObserver) observerAnchor(out, state, live);
@@ -425,7 +458,7 @@ function syncCardinals(live, snap) {
  *          getPin?:()=>object|null}} deps
  */
 export function createLabelsFeed({ labels, store, snap, getCatalog = () => null, getTrails = () => null, getBeams = () => null,
-    getPin = () => null, getPlanets = () => null }) {
+    getPin = () => null, getPlanets = () => null, getOrrery = () => null }) {
     /** @type {LiveVectors} */
     const live = {
         bodyOrbit: BODIES.map(() => new Float64Array(3)),
@@ -445,7 +478,7 @@ export function createLabelsFeed({ labels, store, snap, getCatalog = () => null,
     /** Ids of names hidden by daylight, so a rebuild keeps their hysteresis state. */
     const hiddenNames = new Set();
     let dirty = true;
-    /** @type {'orbit'|'sky'|null} */
+    /** @type {'orbit'|'sky'|'system'|null} */
     let builtMode = null;
     let usesBeamPoints = false;
 
@@ -470,7 +503,10 @@ export function createLabelsFeed({ labels, store, snap, getCatalog = () => null,
         const bodyPoint = beamPointFn();
         usesBeamPoints = !!bodyPoint;
         const planets = getPlanets();
+        const orrery = mode === 'system' ? getOrrery() : null;
         anchors = buildAnchors(store.get(), snap, getCatalog(), getTrails(), {
+            systemPoint: orrery && typeof orrery.labelPoint === 'function' ? (id) => orrery.labelPoint(id) : null,
+            systemOffset: orrery && typeof orrery.labelOffset === 'function' ? (id) => orrery.labelOffset(id) : null,
             mode,
             live,
             bodyPoint,
@@ -517,11 +553,16 @@ export function createLabelsFeed({ labels, store, snap, getCatalog = () => null,
     /**
      * Per-frame refresh. Call before `labels.update()` on every rendered frame.
      * @param {{position:{x:number,y:number,z:number}, projectionMatrix?:{elements:ArrayLike<number>}}} camera
-     * @param {'orbit'|'sky'} mode effective view mode (sky once the transition is past halfway)
+     * @param {'orbit'|'sky'|'system'} mode effective view mode (sky once the transition is past
+     *   halfway; system once the orrery is)
      * @param {LabelView} [view]
      */
     function sync(camera, mode, view) {
         if (dirty || mode !== builtMode) rebuild(mode);
+        if (mode === 'system') {
+            syncNames(view);
+            return;
+        }
         const sky = mode !== 'orbit';
         if (!sky) {
             if (!usesBeamPoints) syncOrbitPoints(live, snap, camera);

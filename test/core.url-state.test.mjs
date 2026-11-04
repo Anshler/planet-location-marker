@@ -42,7 +42,7 @@ function assertValid(out, label) {
     if (out.cam) {
         const c = out.cam;
         if (c.mode === 'orbit') {
-            assert.ok(Math.abs(c.latDeg) <= 90 && c.lonDeg > -180 && c.lonDeg <= 180 && c.distance >= 1.08 && c.distance <= 150, `${label}: cam`);
+            assert.ok(Math.abs(c.latDeg) <= 90 && c.lonDeg > -180 && c.lonDeg <= 180 && c.distance >= 1.08 && c.distance <= 2e6, `${label}: cam`);
         } else {
             assert.equal(c.mode, 'sky');
             assert.ok(c.azDeg >= 0 && c.azDeg < 360 && c.altDeg >= -10 && c.altDeg <= 89 && c.fovDeg >= 0.2 && c.fovDeg <= 100, `${label}: cam`);
@@ -216,7 +216,10 @@ test('clamping and snapping', () => {
     const el = parseHash('#loc=1,2&el=99999');
     assert.equal(el.observer.elevM, 9000);
     assert.deepEqual(el.invalid, ['el']);
-    assert.deepEqual(parseHash('#cam=o:95,370,500').cam, { mode: 'orbit', latDeg: 90, lonDeg: 10, distance: 150 });
+    assert.deepEqual(parseHash('#cam=o:95,370,5e7').cam, { mode: 'orbit', latDeg: 90, lonDeg: 10, distance: 2e6 });
+    // Past 150 R is the solar-system zoom: kept, and written in whole radii from 1000 R.
+    assert.deepEqual(parseHash('#cam=o:30,10,500').cam, { mode: 'orbit', latDeg: 30, lonDeg: 10, distance: 500 });
+    assert.equal(camToCode({ mode: 'orbit', latDeg: 30, lonDeg: 10, distance: 140733.4 }), 'o:30,10,140733');
     assert.deepEqual(parseHash('#cam=s:-30,120,0.1').cam, { mode: 'sky', azDeg: 330, altDeg: 89, fovDeg: 0.2 });
     assert.deepEqual(parseHash('#cam=s:-30,120,0.5').cam, { mode: 'sky', azDeg: 330, altDeg: 89, fovDeg: 0.5 });
 });

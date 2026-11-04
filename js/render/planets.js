@@ -366,7 +366,9 @@ export function createPlanets(rc, deps = {}) {
             dpr = r.getPixelRatio();
         }
         updateScope(fi, dpr);
-        const fade = 1 - smooth(0.2, 0.5, skyBlend);
+        // The solar-system zoom's orrery takes over from the medallions (FrameInfo.systemBlend).
+        const sysK = fi && Number.isFinite(fi.systemBlend) ? fi.systemBlend : 0;
+        const fade = (1 - smooth(0.2, 0.5, skyBlend)) * (1 - sysK);
         const on = hasSnap && beamsOn && fade > 0.002 && !!beams;
         mesh.visible = on;
         if (!on) return;

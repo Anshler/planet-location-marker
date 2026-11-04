@@ -21,6 +21,11 @@
  * Capture: `rc.capture(w, h, scale, draw, read)` renders one frame at another size in one task
  * (postcards, the exposure's 'Save image'); see capture() below.
  *
+ * Overlay: `rc.setOverlay(scene, camera)` registers a second scene drawn over the main one into the
+ * same target, with its own camera and a cleared depth buffer (the solar-system zoom's orrery,
+ * render/orrery.js: astronomical units with a depth range of its own). It is drawn only while
+ * `scene.visible`; through the composer it sits before the bloom, so its Sun glows like the other.
+ *
  * Throws only from the constructor, when a WebGL2 context cannot be created
  * (three r170 has no WebGL1 path); main.js turns that into text mode.
  *
@@ -123,6 +128,8 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
     let postfxFailed = false;
     /** Long-exposure stacking requested (setAccumulation); re-applied to every new chain. */
     let accumWanted = false;
+    /** The overlay scene (setOverlay): {scene, camera} or null. */
+    let overlay = null;
     const lostCbs = new Set();
     const restoredCbs = new Set();
     const invalidateCbs = new Set();
@@ -172,6 +179,7 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
             try {
                 postfx = createPostFx(renderer, scene, camera, chain, { w: size.w, h: size.h, dpr });
                 if (accumWanted) postfx.setAccumulation(true);
+                postfx.setOverlay?.(overlay);
             } catch (err) {
                 // A broken composer must not blank the screen: render directly instead.
                 console.warn('Planet Location Marker: post-processing unavailable, rendering directly.', err);
@@ -391,13 +399,37 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
         return true;
     }
 
+    /**
+     * Registers (or with null clears) the overlay scene drawn after the main one; see the module notes.
+     * @param {THREE.Scene|null} sceneO
+     * @param {THREE.Camera|null} cameraO
+     */
+    function setOverlay(sceneO, cameraO) {
+        overlay = sceneO && cameraO ? { scene: sceneO, camera: cameraO } : null;
+        postfx?.setOverlay?.(overlay);
+        invalidate();
+    }
+
+    /** The direct path's overlay: over the main scene, its depth cleared. */
+    function renderOverlay() {
+        if (!overlay || !overlay.scene.visible) return;
+        const ac = renderer.autoClear;
+        renderer.autoClear = false;
+        renderer.clearDepth();
+        renderer.render(overlay.scene, overlay.camera);
+        renderer.autoClear = ac;
+    }
+
     /** Renders one frame (composer or direct). Never throws. */
     function render() {
         if (lost || disposed) return;
         renderer.info.reset();
         try {
             if (postfx) postfx.render();
-            else renderer.render(scene, camera);
+            else {
+                renderer.render(scene, camera);
+                renderOverlay();
+            }
         } catch (err) {
             if (postfx) {
                 // Fall back to direct rendering for the rest of the session.
@@ -407,6 +439,7 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
                 postfxFailed = true;
                 cfg = { ...cfg, composer: false };
                 renderer.render(scene, camera);
+                renderOverlay();
             } else {
                 throw err;
             }
@@ -424,14 +457,15 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
     async function compile() {
         if (lost || disposed) return;
         const hidden = [];
-        scene.traverse((o) => { if (o.visible === false) { hidden.push(o); o.visible = true; } });
+        const scenes = overlay ? [[scene, camera], [overlay.scene, overlay.camera]] : [[scene, camera]];
+        for (const [sc] of scenes) sc.traverse((o) => { if (o.visible === false) { hidden.push(o); o.visible = true; } });
         const prevTarget = renderer.getRenderTarget();
         let pending = null;
         try {
             if (postfx?.inputTarget) renderer.setRenderTarget(postfx.inputTarget);
-            pending = typeof renderer.compileAsync === 'function'
-                ? renderer.compileAsync(scene, camera)
-                : (renderer.compile(scene, camera), null);
+            pending = Promise.all(scenes.map(([sc, cam]) => (typeof renderer.compileAsync === 'function'
+                ? renderer.compileAsync(sc, cam)
+                : (renderer.compile(sc, cam), null))));
         } catch {
             pending = null;
         } finally {
@@ -550,6 +584,7 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
         get accum() { return postfx?.accum ?? null; },
         invalidate,
         setAccumulation,
+        setOverlay,
         capture,
         onInvalidate,
         setTier,

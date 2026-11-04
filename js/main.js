@@ -366,6 +366,7 @@ async function importRenderStack() {
         planets: import('./render/planets.js'),
         pin: import('./render/pin.js'),
         flare: import('./render/flare.js'),
+        orrery: import('./render/orrery.js'),
         longExposure: import('./render/long-exposure.js'),
         labels: import('./render/labels.js'),
         rig: import('./camera/rig.js'),
@@ -901,6 +902,11 @@ async function bootRender(ctx) {
     create('planets', m.planets && (() => m.planets.createPlanets(rc, { beams, isLabelShown: (id) => R.labels?.isShown?.(id) ?? null })), furniture);
     const pin = create('pin', m.pin && (() => m.pin.createPin(rc)), furniture);
     create('flare', m.flare && (() => m.flare.createFlare(rc, { horizon })), furniture);
+    // The solar-system zoom's orrery: its own scene and camera, drawn over the main scene.
+    const orrery = create('orrery', m.orrery && (() => m.orrery.createOrrery(rc, {
+        requestOrbits: (centerMs) => (R.astro ? R.astro.call('orbits', { centerMs }) : Promise.reject(new Error('no astro client'))),
+    })));
+    if (orrery) rc.setOverlay?.(orrery.scene, orrery.camera);
 
     // Labels and camera rig.
     let labels = null;
@@ -930,6 +936,7 @@ async function bootRender(ctx) {
         getBeams: () => R.mods.beams ?? null,
         getPin: () => R.mods.pin ?? null,
         getPlanets: () => (R.mods.planets && !R.loop?.isDisabled?.(R.mods.planets) ? R.mods.planets : null),
+        getOrrery: () => (R.mods.orrery && !R.loop?.isDisabled?.(R.mods.orrery) ? R.mods.orrery : null),
     }) : null;
     R.labelsFeed = labelsFeed;
     loader.progress(0.45, 'Loading imagery');
@@ -1145,6 +1152,20 @@ function bindRenderState({ store, bus, clock, rc, rig, loop, snap, astro, m, lab
             if (store.get().view.vantage === 'none' && rig.vantage === 'none') showFurniture(true);
         });
     });
+    // The solar-system zoom: view.system (the UI's caption) and a body class follow the crossfade.
+    const showSystem = (shown) => {
+        document.body.classList.toggle('is-system', shown);
+        const st = store.get();
+        if (!!st.view.system !== shown) store.set({ view: { ...st.view, system: shown } }, 'rig');
+    };
+    rig.onSystemChange?.(({ shown }) => showSystem(shown));
+    // A link straight into the solar system has crossed over before anyone listened; a restored
+    // view (a tour's end) cannot set it either way: the rig says.
+    if (rig.systemShown) showSystem(true);
+    store.subscribe((s) => !!s.view.system, (v) => {
+        const shown = !!rig.systemShown;
+        if (v !== shown) showSystem(shown);
+    });
     rig.onVantageEnd?.(({ reason }) => {
         const st = store.get();
         if (st.view.vantage !== 'none') store.set({ view: { ...st.view, vantage: 'none' } }, 'rig');
@@ -1192,6 +1213,10 @@ function bindRenderState({ store, bus, clock, rc, rig, loop, snap, astro, m, lab
         const s = store.get();
         if (id === 'observer') {
             store.set({ ui: { ...s.ui, palette: true } }, 'labels');
+            return;
+        }
+        if (id === 'earth') {
+            R.actions.setSystem?.(false);
             return;
         }
         if (isBodyId(id)) {
@@ -1305,6 +1330,20 @@ function handleSceneClick({ store, rc, rig, snap, pick, ndc, dbl }) {
     if (store.get().view.vantage !== 'none' || (rig.vantage ?? 'none') !== 'none') return;
     const camera = rig.camera ?? rc.camera;
     let id = null;
+    if ((rig.systemBlend ?? 0) >= 0.5) {
+        // The solar-system zoom: the orrery's sprites and edge arrows; the Earth flies back home.
+        try {
+            id = R.mods.orrery?.pick?.(ndc.x, ndc.y) ?? null;
+        } catch (err) {
+            console.error('[main] orrery picking failed', err);
+        }
+        if (id === 'earth') settle(R.actions.setSystem?.(false));
+        else if (id && isBodyId(id)) {
+            R.actions.select(id);
+            store.set({ ui: { ...store.get().ui, panel: 'details' } }, 'click');
+        }
+        return;
+    }
     try {
         const cands = R.mods.bodies?.pickCandidates?.() ?? snap.bodies.map((b) => ({ id: b.id, dirS: b.dirS }));
         id = pick?.pickDir?.(ndc, camera, cands, rc.size, 18) ?? null;
@@ -1436,6 +1475,10 @@ async function runIntro({ force = false, preRoll = false } = {}) {
     }
     if (store.get().view.mode !== 'orbit') {
         store.set({ view: { ...store.get().view, mode: 'orbit' } }, 'intro');
+    }
+    // Likewise out of the solar-system zoom, at once.
+    if (rig.system) {
+        try { settle(rig.setSystem?.(false, { animate: false })); } catch { /* the intro takes over anyway */ }
     }
     const ac = new AbortController();
     introAbort = ac;

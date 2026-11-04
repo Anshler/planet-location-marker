@@ -27,7 +27,7 @@
  * quiet (unless `paused`); the tour restores the state it found when it ends.
  * @typedef {{id:string, title:string, step:number, steps:number, caption:string, paused:boolean, ambient:boolean}} TourState */
 /** @typedef {{ observer:Observer, selection:BodyId|null,
- *   view:{mode:'orbit'|'sky', earthLock:boolean, track:'none'|'body'|'stars', vantage:'none'|'l1'|'moon'},
+ *   view:{mode:'orbit'|'sky', earthLock:boolean, track:'none'|'body'|'stars', vantage:'none'|'l1'|'moon', system:boolean},
  *   layers:Layers,
  *   display:{tzMode:'observer'|'device'|'utc', hour12:boolean, skyDark:'auto'|'pristine'|'1'|'2'|'3'|'4'|'5'|'6'|'7'|'8'|'9',
  *     aurora:'quiet'|'typical'|'storm'},
@@ -69,7 +69,9 @@
  *   galilean:import('../astro/moons.js').Galilean,  // Jupiter's four moons (every detail level)
  *   libration:{elonDeg:number, elatDeg:number},     // the Moon's libration; refreshed at 'full' only
  *   skyglow:import('../astro/skyglow.js').Skyglow,  // the night sky's brightness; filled by the frame loop
- *   aurora:import('../astro/geomag.js').Aurora      // geomagnetic pole, magnetic noon, oval table; filled by the frame loop
+ *   aurora:import('../astro/geomag.js').Aurora,     // geomagnetic pole, magnetic noon, oval table; filled by the frame loop
+ *   helio:{earthS:Float64Array, posS:Float64Array}  // heliocentric AU, scene axes, Sun at the origin (every detail level):
+ *                              // the Earth's position, and per BODIES index (×3) the Earth + the body's geocentric vector
  *   }} Snapshot */
 /** TierCfg. `dprCap` is Infinity on max (no cap). `msaa` is a request: postfx clamps it to MAX_SAMPLES.
  *  The last three keys are max-only; absent means the 1024 Moon, 8x anisotropy and a one-tap cloud shadow.
@@ -81,8 +83,9 @@
  *   moonTex?:'moon'|'moon4k', anisotropy?:number, cloudShadowTaps?:number }} TierCfg */
 /** @typedef {{ dtMs:number, timeS:number, camera:any, viewMode:'orbit'|'sky', skyBlend:number, snap:Snapshot,
  *   pulsesActive:boolean, simRate:number, exposure:{stars:number, planets:number, milkyWay:number, vision:number},
- *   moonFront:boolean }} FrameInfo `moonFront`: the camera is in lunar orbit (or flying there), so the Moon
- *   draws in front of everything and the near plane ignores it (camera/rig.js, astro/vantage.js). */
+ *   moonFront:boolean, systemBlend:number }} FrameInfo `moonFront`: the camera is in lunar orbit (or flying there), so the Moon
+ *   draws in front of everything and the near plane ignores it (camera/rig.js, astro/vantage.js). `systemBlend`
+ *   (0…1): the globe → orrery crossfade of the solar-system zoom (rig.systemBlend; the camera 80 → 150 R out). */
 /** @typedef {{name:string, admin:string, country:string, cc:string, lat:number, lon:number, tz:string|null, pop:number,
  *   source:'offline'|'open-meteo'|'photon'|'nominatim', score?:number}} Place */
 /** @typedef {{id:string, kind:'moon-phase'|'opposition'|'conjunction'|'max-elongation'|'lunar-eclipse'|'solar-eclipse'|

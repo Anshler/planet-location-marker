@@ -88,10 +88,12 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/astro/disc.js`, `moons.js` | A body's disc as seen from the observer: the sky-plane frame and pole/prime meridian/Sun in it (`discFrame`, `discView`), shapes, Saturn's ring radii, the moons' log spacing; Jupiter's Galilean moons at Jupiter's light time with transit/occultation/eclipse/shadow flags (`computeGalilean`), the libration's limb feature, Saturn's next edge-on run. Shared by the medallions and the eyepiece card (ASTRONOMY.md §4). |
 | | `js/astro/geomag.js` | The IGRF centred dipole (1900–2030, held outside) and the Starkov auroral ovals for an activity setting (quiet / typical / storm = Kp 1 / 3 / 7, never live data); `computeAurora` fills `snap.aurora` (pole, magnetic noon, the 48-float boundary table, the animation phase); `auroraText` for the Sky panel. |
 | | `js/astro/totality.js` | Totality from the ground: Baily's beads (lunar limb profile), corona epoch parameters, contact-time display adaptation, the horizon ring's azimuthal shape. Illustrative in detail (ASTRONOMY.md). |
+| | `js/astro/orrery.js` | The solar-system zoom, pure: the crossfade (`systemBlend`, 80 → 150 R), the camera's pose (`systemPose`: pivot sliding from the Earth to the Sun, ecliptic direction, `liftLat`), the orbit polylines (`orbitPolylines`, the worker's `orbits`), the retrograde figure's sight lines (`sightAt`, `sightLines`, `sightStepMs`) and the edge arrows' place (`edgeExit`). |
 | | `js/astro/vantage.js` | Vantage points (loaded by the rig on first use): the L1 pose (235 R sunward, 4° toward ecliptic north, north up, 0.7°), the Earthrise orbit (`planLunarOrbit`: 150 km up, in the plane through the Earth direction nearest the ecliptic, rising over the sunlit limb; `lunarOrbitPose`: the orbiter's place at any time, looking along its track), `vantageFov`, `vantageNear`, `moonInFront`. |
 | Data | `js/data/catalog.js` | Decodes `data/sky.json` into GPU-ready typed arrays in the scene frame. |
-| Render | `js/render/context.js` | Renderer, scene, camera, tier switching, `invalidate`/`onInvalidate`, context loss, stats; `setAccumulation` (long exposures) and `capture` (a one-task render at another size). |
-| | `js/render/postfx.js` | Composer with bloom and the final pass (FXAA when the scene target has no MSAA; the night-vision grade, `rc.setVision`). While Expose is on, `AccumPass` (`accum.js`: two half-float targets, max-stacking, bright-only for the analemma) sits between the scene and the bloom. |
+| Render | `js/render/context.js` | Renderer, scene, camera, tier switching, `invalidate`/`onInvalidate`, context loss, stats; `setAccumulation` (long exposures), `capture` (a one-task render at another size) and `setOverlay` (a second scene drawn over the first with its own camera and depth: the orrery). |
+| | `js/render/postfx.js` | Composer with bloom and the final pass (FXAA when the scene target has no MSAA; the night-vision grade, `rc.setVision`). While Expose is on, `AccumPass` (`accum.js`: two half-float targets, max-stacking, bright-only for the analemma) sits between the scene and the bloom; an `OverlayPass` right after the scene draws the overlay scene (`setOverlay`). |
+| | `js/render/orrery.js` | The solar-system zoom's orrery: its own scene and camera in AU (the overlay), orbits, the Earth→body sight lines the beams fade into, sprites lit by the Sun, the Sun on the bodies' `DISC_FRAG`, the retrograde figure for a selected planet, edge arrows; live label points (`labelPoint`, `labelOffset`) and `pick`. Shaders in `shaders/orrery.glsl.js`. |
 | | `js/render/long-exposure.js` | The long exposure's controller, a render module for its per-frame hook: turns stacking on in sky view while `ui.expose` is set, resets the stack when the framing changes, gates star trails by daylight, reports `stats()`. |
 | | `js/render/textures.js` | Placeholder-first texture store with byte-weighted progress. |
 | | `js/render/earth.js`, `atmosphere.js` | Earth shader (day, night lights with close-zoom filtering, sun glint and moonglint, moonlight, twilight, sculpted clouds, the face-on aurora, eclipse shadow, footprint) and atmosphere. |
@@ -103,7 +105,7 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/render/beams.js`, `pin.js`, `labels.js` | Signature beams, observer pin and horizon disc, DOM label pool. |
 | | `js/render/trails.js`, `flare.js`, `debug.js` | Retrograde paths, procedural lens flare (six-spike starburst, hexagonal aperture ghosts; no textures), `?debug=1` overlay. |
 | | `js/render/eclipse-path.js` | The path of a central solar eclipse on the globe: ribbon, centre line, 30-min ticks, the live umbra marker; reveal modes for the chase. |
-| Camera | `js/camera/rig.js`, `picking.js` | Orbit and sky-view camera, Earth-lock, fly-to tweens, `follow()` (the shadow chase), sidereal tracking, `setVantage()` (View from L1, Earthrise); analytic globe and glyph picking. |
+| Camera | `js/camera/rig.js`, `picking.js` | Orbit and sky-view camera, Earth-lock, fly-to tweens, `follow()` (the shadow chase), sidereal tracking, `setVantage()` (View from L1, Earthrise), the system zoom past 150 R (`setSystem`, `system`, `systemBlend`, `onSystemChange`); analytic globe and glyph picking. |
 | UI | `js/ui/index.js` and its modules | Shell, top bar, time bar, Sky Now, body card (with `eyepiece.js`: the 2D-canvas eyepiece portrait, also in text mode), events (with the guided tours), Eclipse Companion, the tour's lower third (`tour-bar.js`), layers, settings, about, help, toasts, shortcuts, announcer; the share menu, `postcard.js` (postcard and Save-image dialog, the typographic band) and `expose.js` (Expose presets and the exposure's status pill).; the vantage menu and its caption pill (`view-switch.js`). |
 
 ---
@@ -157,6 +159,7 @@ critical CSS read them.
 | `no-webgl` | Text mode. |
 | `is-intro`, `is-intro-out` | The intro is playing (UI hidden), then the UI fade-in. |
 | `is-touring` | A guided tour plays (`ui.tour`): toasts move above its lower third. |
+| `is-system` | The globe view is zoomed out into the solar system (`view.system`, the orrery past half its crossfade). |
 
 ---
 
@@ -285,6 +288,28 @@ critical CSS read them.
   landed; the store keeps the user's layers. Any other camera move (a fly-to, sky view, the intro,
   the chase, a sky-view event) ends the vantage, and `rig.onVantageEnd` clears the store. A
   globe-view event jump keeps it: from L1 the eclipse shadow crosses the disc.
+- **The solar-system zoom** ('powers of ten', `view.system`, set by `main.js` from
+  `rig.onSystemChange`; the URL's `cam` carries it as an orbit distance past 150 R, up to 80 AU).
+  The wheel, a pinch or '−' at the globe's farthest orbit (150 R), 'Solar system' in the vantage
+  menu (`actions.setSystem(true)`: a 4.2 s log flight out to 6 AU from wherever the globe is), or
+  a link hands the camera from the orbit controls to the rig's system mode: the view direction held
+  in J2000 ecliptic longitude/latitude (fixed in space, so Earth-lock does not apply), a pivot that
+  slides from the Earth to the Sun on the way out, the view lifted above the ecliptic and ecliptic
+  north turned up (`astro/orrery.js systemPose`). Drag turns it, the wheel and pinch zoom in log
+  steps, and zooming back under 150 R returns to the orbit controls. `rig.systemBlend` (80 → 150 R
+  from the Earth; 0 in sky view and vantages) is `FrameInfo.systemBlend`: the beams and medallions
+  fade by it, the bodies' Sun and planet glyphs at infinity and the flare go past one half, and
+  `render/orrery.js` fades in. The orrery is a scene of its own in AU, drawn over the main one
+  (`rc.setOverlay`, the composer's `OverlayPass`) with the globe camera mapped across (`earthS + p /
+  AU_ER`), so the Earth's dot sits on the shrinking globe and every line keeps its true direction
+  (the snapshot's `helio`). The globe camera's near/far follow the Earth's distance out there.
+  Past one half the label feed builds 'system' anchors (the orrery's live points, an 'Earth' label
+  that flies home, no cardinals), clicks pick the orrery's sprites and arrows, and the UI shows the
+  'Solar system · distances to scale · planets enlarged' caption with a Globe button (Esc too). Any
+  other camera move (a fly-to, sky view, a vantage, the chase) first zooms back to 150 R (1.8 s),
+  then runs. Orbits come once from the worker (`orbits`); a selected planet gets the retrograde
+  figure (ASTRONOMY.md §4). Low tier: lines and sprites only (no disc-shader Sun). Text mode: n/a
+  (the vantage menu is hidden).
 - **`bus`** carries transient events. `readout` is the full-detail snapshot at 4 Hz, published
   only when time or the observer changed. The UI requests its own almanac data through
   `services.astro`. `main.js` pushes one almanac and events set at boot as a head start.
@@ -311,7 +336,7 @@ frame(now):  dt = min(now − last, 100)
   held = governor.probe()                        // before a step with no fresh cadence: frames off to measure it
   if !held && (dirty || motion || twinkleDue):
       dirty = false                              // cleared first: invalidate() during update requests the next frame
-      module.update(fi) for every module         // fi: dt, time, camera, viewMode, skyBlend, snap, pulses, simRate, exposure
+      module.update(fi) for every module         // fi: dt, time, camera, viewMode, skyBlend, snap, pulses, simRate, exposure, systemBlend
       rc.render();  labelsFeed.sync(camera, mode, view);  labels.update(camera, viewport, {cap, skyLum})
       governor.sample(dt) if the previous frame also rendered
   else:
@@ -336,6 +361,8 @@ frame(now):  dt = min(now − last, 100)
   `rc.render()`; no DOM labels, stats or governor. `loop.labelOptions` exposes the label pool's
   per-frame options so a capture culls labels as the pool does.
 - **Label cap.** Sky view uses the tier's `labelCap`. Orbit view caps at 18 to keep the globe clear.
+- **Label mode.** `labelsFeed.sync` gets 'sky' past half the sky blend, 'system' past half the
+  orrery's crossfade (`fi.systemBlend`), else 'orbit'.
 - **Sky site.** `main.js` keeps the observer's light pollution (`astro/skyglow.js` `siteFor`: Auto from
   `cities.list`, or the Sky darkness setting) and hands it over with `loop.setSkySite(site)` on every
   observer, setting or city-index change. The loop fills `snap.skyglow` after each snapshot, headless
@@ -413,6 +440,9 @@ The render order is fixed in SPEC §E.1. From back to front:
 - 33: planet medallions (`render/planets.js`, depth-tested, over the beams that end in them)
 - 40: pin
 - 50: flare
+- then, after the whole main scene, the overlay scene (the orrery, `rc.setOverlay`): its depth
+  cleared, nothing depth-tested; orbits 0, the retrograde figure 1, sight lines 2, the Sun 3, sprites
+  4, edge arrows 5. Through the composer it is drawn before the bloom, so its Sun glows.
 
 **Sky view draws apparent positions.** Every at-infinity shader goes through `infinityClip`, which
 lifts the direction by refraction (`REFRACT_CHUNK`, `shaders/sky.glsl.js`) when its material sets
@@ -597,7 +627,8 @@ change.
 - `r` is the signed rate in sim-seconds per second, snapped to the ladder.
 - `ly` is the exact set of enabled layers. `d` is the illustrative landscape: links made before it
   existed carry no `d`, so they open with the flat horizon.
-- `cam` is `o:lat,lon,dist` (the sub-camera point) or `s:az,alt,fov`.
+- `cam` is `o:lat,lon,dist` (the sub-camera point) or `s:az,alt,fov`. An orbit distance past 150 R
+  (up to 80 AU, whole radii) is the solar-system zoom: lat/lon is then its view direction at `t`.
 - `sel` selects a body and opens its card (the Details tab), as a click on it would.
 - `sky` is the Sky darkness setting (`display.skyDark`): `auto` (omitted), `pristine` or a Bortle class `1`–`9`.
 - `au` is the Aurora activity setting (`display.aurora`): `quiet`, `typical` (omitted) or `storm`.

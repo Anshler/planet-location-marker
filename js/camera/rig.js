@@ -12,7 +12,20 @@
  *     follow(targetFn, {altitude, backDeg, tiltDeg, approachMs}) → Promise, stopFollow(), following,
  *     setTracking('none'|'body'|'stars', id), tracking, telescope(fovDeg), onTrackEnd(cb) → off,
  *     setVantage('none'|'l1'|'moon', {animate}) → Promise, vantage, moonFront, onVantageEnd(cb) → off,
+ *     setSystem(on, {animate}) → Promise, system, systemBlend, systemShown, onSystemChange(cb) → off,
  *     setReducedMotion(on), dispose() }
+ *
+ * The system zoom ('powers of ten', astro/orrery.js): zooming out past the globe's 150 R (wheel,
+ * pinch, '−') hands the camera from the orbit controls to a 'system' mode of the globe view that
+ * keeps going out to 80 AU. The view direction is held in J2000 ecliptic longitude/latitude, fixed
+ * in space (Earth-lock does not apply out there); drag turns it, the wheel and pinch zoom in log
+ * steps, and the pivot slides from the Earth to the Sun on the way out (systemPose). Zooming back
+ * under 150 R returns to the orbit controls. `systemBlend` (0…1, from the camera's distance to the
+ * Earth: 80 → 150 R) is the renderers' crossfade into the orrery; `onSystemChange` listeners hear
+ * {shown} when it crosses one half. setSystem(true) flies out to the default view (6 AU from the
+ * Sun) and setSystem(false) back to the globe's home pose; any other camera move first zooms back to
+ * 150 R (a short log flight), then runs. The globe camera's near and far planes follow the Earth's
+ * distance out there (the orrery draws with a camera of its own, render/orrery.js).
  *
  * Vantage points (globe view): 'l1' looks back at the sunlit Earth from 1.5 million km sunward
  * (DSCOVR/EPIC), 'moon' rides a low lunar orbit with the Earth rising over the limb. The pose is
@@ -64,6 +77,10 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { liftByRefraction } from '../astro/photometry.js';
 import { MOON_RADIUS_ER } from '../astro/bodies.js';
+import {
+    systemPose, createSystemPose, systemBlend as systemBlendAt, liftLat, eclipticOf, eclipticDir,
+    SYSTEM_MAX_R, SYSTEM_VIEW_R,
+} from '../astro/orrery.js';
 
 const DEG = Math.PI / 180;
 const ORBIT_FOV = 45;
@@ -80,6 +97,14 @@ const ABOVE_R = 1.15;            // the "above the observer" waypoint of the tra
 const HOME_DIST = 3.4;
 const MIN_DIST = 1.08;
 const MAX_DIST = 150;
+/** The globe camera's far plane (render/context.js) inside the globe range. */
+const FAR_DIST = 4000;
+// The system zoom: its range, the wheel's log step, the flights out and back.
+const SYS_MAX = SYSTEM_MAX_R;
+const SYS_WHEEL = 0.2;
+const SYS_OUT_MS = 4200;
+const SYS_IN_MS = 1800;
+const SYS_LAT_MAX = 89 * Math.PI / 180;
 const MODE_MS = 1800;
 // Globe → sky descent, phase 2 (k = 0 … 1; stepToOrbit mirrors it with 1 − k). The render side
 // replaces the globe with the sky-view ground by skyBlend 0.5 (render/sky.js groundCover) while
@@ -263,7 +288,7 @@ function parseView(cam) {
         const latDeg = Number(cam.latDeg ?? cam.lat), lonDeg = Number(cam.lonDeg ?? cam.lon);
         const distance = Number(cam.distance ?? cam.dist ?? HOME_DIST);
         if (!Number.isFinite(latDeg) || !Number.isFinite(lonDeg)) return null;
-        return { mode, latDeg: clamp(latDeg, -90, 90), lonDeg: wrap180(lonDeg), distance: Number.isFinite(distance) ? clamp(distance, MIN_DIST, MAX_DIST) : HOME_DIST };
+        return { mode, latDeg: clamp(latDeg, -90, 90), lonDeg: wrap180(lonDeg), distance: Number.isFinite(distance) ? clamp(distance, MIN_DIST, SYS_MAX) : HOME_DIST };
     }
     if (mode === 'sky') {
         const azDeg = Number(cam.azDeg ?? cam.az), altDeg = Number(cam.altDeg ?? cam.alt);
@@ -383,6 +408,22 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
     let vantReq = 0;
     let curSnap = null;
 
+    // The system zoom (see module docs): `on` while it drives the camera; dist/distT: camera
+    // distance from the pivot and its target (Earth radii); lon/lat: the ecliptic direction from
+    // the pivot to the camera (radians); tween: a log flight {from, to, dur}; blend/shown: the
+    // orrery crossfade and whether it is past one half.
+    const sys = {
+        on: false, dist: MAX_DIST, distT: MAX_DIST, lon: 0, lat: 0,
+        tween: null, drag: null, pinch: null, blend: 0, shown: false,
+    };
+    const sysPose = createSystemPose();
+    const sysCbs = new Set();
+    const earthH = new Float64Array([1, 0, 0]);
+    const _sysV = new Float64Array(3);
+    const _ecl = { lon: 0, lat: 0 };
+    /** A two-finger gesture in orbit view at the farthest distance: pinching in enters the system zoom. */
+    let orbitPinch = null;
+
     // ---- helpers: frames ----------------------------------------------------------------------
 
     function toLocal(vW, out) { return out.copy(vW).applyQuaternion(qEInv); }
@@ -448,6 +489,8 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
             toLocal(northW, northL);
             toLocal(eastW, eastL);
         }
+        const h = snap.helio && snap.helio.earthS;
+        if (h) { earthH[0] = h[0]; earthH[1] = h[1]; earthH[2] = h[2]; }
         hasSnap = true;
     }
 
@@ -569,6 +612,23 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
     }
 
     function applyViewNow(v) {
+        if (v.mode === 'orbit' && v.distance > MAX_DIST) {
+            // The system zoom: lat/lon is the view direction in Earth-local terms at this instant.
+            const p = v.latDeg * DEG, l = v.lonDeg * DEG, cp = Math.cos(p);
+            toWorld(_v2.set(cp * Math.cos(l), Math.sin(p), -cp * Math.sin(l)), _v2);
+            mode = 'orbit';
+            skyBlend = 0;
+            dropVantage('view');
+            if (!sys.on) enterSystem(v.distance, _v2);
+            else setSystemDir(_v2);
+            sys.dist = sys.distT = v.distance;
+            cancelSysTween();
+            setFov(ORBIT_FOV);
+            placeSystem();
+            initialized = true;
+            return;
+        }
+        if (sys.on) exitSystem();
         if (v.mode === 'orbit') {
             mode = 'orbit';
             skyBlend = 0;
@@ -652,8 +712,10 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
     }
 
     function startTween(t) {
-        // Any other camera move takes over from a vantage (and from a flight to or from one).
+        // Any other camera move takes over from a vantage (and from a flight to or from one), and
+        // from the system zoom (the public calls zoom back first: viaGlobe; this is the fallback cut).
         if (t.kind !== 'vantage' && vantageOwns()) dropVantage('camera');
+        if (sys.on) exitSystem();
         if (tween) finishTween(false);
         anchor.on = false;
         // A tracked view takes over again, blended, once the flight or transition is done.
@@ -1417,6 +1479,157 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         return moved;
     }
 
+    // ---- the system zoom ---------------------------------------------------------------------------------
+
+    /** Holds world direction dirW (unit, pivot → camera) as the system view's ecliptic lon/lat. */
+    function setSystemDir(dirW) {
+        _sysV[0] = dirW.x; _sysV[1] = dirW.y; _sysV[2] = dirW.z;
+        eclipticOf(_sysV, _ecl);
+        sys.lon = _ecl.lon;
+        sys.lat = clamp(_ecl.lat, -SYS_LAT_MAX, SYS_LAT_MAX);
+    }
+
+    /**
+     * Hands the camera to the system zoom at distance distR along dirW (default: where the camera
+     * is, as seen from the Earth; the pivot is still on the Earth there).
+     */
+    function enterSystem(distR, dirW = null) {
+        if (sys.on) return;
+        if (dirW) setSystemDir(dirW);
+        else {
+            const r = camera.position.length() || 1;
+            setSystemDir(_v3.copy(camera.position).multiplyScalar(1 / r));
+        }
+        sys.on = true;
+        sys.dist = sys.distT = clamp(Number.isFinite(distR) ? distR : camera.position.length(), MIN_DIST, SYS_MAX);
+        sys.drag = sys.pinch = null;
+        zoomTarget = null;
+        setControlsEnabled(false);
+    }
+
+    /** Back to the orbit controls: the camera at the same direction, at most 150 R out. */
+    function exitSystem() {
+        if (!sys.on) return;
+        sys.on = false;
+        sys.drag = sys.pinch = null;
+        cancelSysTween();
+        eclipticDir(sys.lon, sys.lat, _sysV);
+        const r = clamp(sys.dist, MIN_DIST, MAX_DIST);
+        camera.position.set(_sysV[0] * r, _sysV[1] * r, _sysV[2] * r);
+        orbitQuat(camera.position, camera.quaternion);
+        camera.up.copy(Y);
+        camera.far = FAR_DIST;
+        camera.near = 0;     // forces setNearFor to refresh the projection
+        setNearFor(r);
+        hasPrev = false;
+        setControlsEnabled(true);
+        syncControls();
+    }
+
+    function cancelSysTween() {
+        const t = sys.tween;
+        if (!t) return false;
+        sys.tween = null;
+        t.resolve(false);
+        return true;
+    }
+
+    /** A log-distance flight of the system zoom to `toR`; resolves true when it lands. */
+    function systemTo(toR, { animate = true, durationMs } = {}) {
+        if (!sys.on) return Promise.resolve(false);
+        cancelSysTween();
+        const from = sys.dist, to = clamp(toR, MIN_DIST, SYS_MAX);
+        const decades = Math.abs(Math.log10(to / from));
+        const dur = !animate || reduced ? 0 : Number.isFinite(durationMs) ? Math.max(0, durationMs) : Math.min(4500, 700 + 450 * decades);
+        const t = { from, to, dur, t0: null, resolve: null, done: false };
+        const promise = new Promise((resolve) => { t.resolve = resolve; });
+        sys.tween = t;
+        rc.invalidate?.();
+        return promise;
+    }
+
+    /** Places the camera on the system pose (globe scene), with near/far for the Earth's distance. */
+    function placeSystem() {
+        systemPose(sys.dist, sys.lon, sys.lat, earthH, sysPose);
+        camera.position.set(sysPose.pos[0], sysPose.pos[1], sysPose.pos[2]);
+        _v1.set(sysPose.fwd[0], sysPose.fwd[1], sysPose.fwd[2]);
+        _v2.set(sysPose.up[0], sysPose.up[1], sysPose.up[2]);
+        basisQuat(_v1, _v2, camera.quaternion);
+        camera.up.copy(_v2);
+        const dE = camera.position.length();
+        // Out past the globe range only the Earth (≤ 1.06 R), the Moon (≤ 61 R from it) and the sky at
+        // infinity are drawn here: a near plane short of the nearest Moon keeps the shells apart.
+        // Refreshed only when unsafe (near past the Moon, far short of the Earth) or 10 % slack.
+        const near = dE <= MAX_DIST ? clamp((dE - 1) * 0.05, 0.003, 0.05) : Math.max(0.05, 0.5 * (dE - 62));
+        const far = dE <= MAX_DIST ? FAR_DIST : dE + 70;
+        if (camera.near > near || camera.near < near * 0.9 || camera.far < far || camera.far > far * 1.1) {
+            camera.near = near;
+            camera.far = dE <= MAX_DIST ? far : far * 1.05;
+            camera.updateProjectionMatrix();
+        }
+    }
+
+    function stepSystem(dt) {
+        const prev = sys.dist;
+        let moved = false;
+        const t = sys.tween;
+        if (t) {
+            const tNow = now();
+            if (t.t0 === null) t.t0 = tNow;
+            const u = t.dur > 0 ? clamp((tNow - t.t0) / t.dur, 0, 1) : 1;
+            sys.dist = sys.distT = Math.exp(Math.log(t.from) + (Math.log(t.to) - Math.log(t.from)) * easeInOutCubic(u));
+            t.done = u >= 1;
+            moved = true;
+        } else if (sys.dist !== sys.distT) {
+            const k = reduced ? 1 : 1 - Math.exp(-dt / 90);
+            sys.dist = Math.exp(Math.log(sys.dist) + (Math.log(sys.distT) - Math.log(sys.dist)) * k);
+            if (Math.abs(Math.log(sys.distT / sys.dist)) < 1e-4) sys.dist = sys.distT;
+            moved = true;
+        }
+        // Zooming out lifts the view above the ecliptic (zooming in keeps the user's angle).
+        if (sys.dist > prev) sys.lat = liftLat(sys.lat, prev, sys.dist);
+        placeSystem();
+        if (t && t.done) sys.tween = null;
+        // Zoomed back into the globe's range (not by a flight still running): the orbit controls.
+        if (!sys.tween && sys.dist <= MAX_DIST && sys.distT <= MAX_DIST) {
+            const target = sys.distT;
+            exitSystem();
+            if (target < MAX_DIST * 0.999) zoomTarget = clamp(target, MIN_DIST, MAX_DIST);
+        }
+        if (t && t.done) t.resolve(true);
+        return moved || !!sys.drag || !!sys.pinch;
+    }
+
+    /** Runs fn now, or once a system zoom has flown back to the globe's range. */
+    function viaGlobe(fn, animate = true) {
+        if (!sys.on) return fn();
+        return systemTo(MAX_DIST, { animate, durationMs: SYS_IN_MS }).then((ok) => (ok ? fn() : false));
+    }
+
+    /** The orrery crossfade and its listeners (after every update). */
+    function updateSystemBlend() {
+        const b = vantageOwns() ? 0 : systemBlendAt(camera.position.length()) * (1 - skyBlend);
+        sys.blend = b;
+        const shown = sys.shown ? b >= 0.45 : b >= 0.5;
+        if (shown === sys.shown) return;
+        sys.shown = shown;
+        for (const cb of sysCbs) {
+            try { cb({ shown }); } catch (err) { setTimeout(() => { throw err; }); }
+        }
+    }
+
+    function sysZoom(factor) {
+        cancelSysTween();
+        sys.distT = clamp(sys.distT * factor, MIN_DIST, SYS_MAX);
+        rc.invalidate?.();
+    }
+
+    /** True when the orbit camera is at its farthest and free: zooming out goes on into the system. */
+    function atGlobeMax() {
+        return mode === 'orbit' && !tween && !vantageOwns() && !sys.on && hasSnap
+            && camera.position.length() >= MAX_DIST * 0.99;
+    }
+
     // ---- orbit -------------------------------------------------------------------------------------------
 
     function stepOrbit(dt, lockApplied) {
@@ -1451,6 +1664,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
     function update(dtMs, snap) {
         let moved = advance(dtMs, snap);
         if (release.on && applyRelease(now())) moved = true;
+        updateSystemBlend();
         // Every module's update() runs before the renderer refreshes the camera's world
         // matrices; doing it here keeps CPU projections (label anchors) on this frame's pose.
         camera.updateMatrixWorld();
@@ -1505,6 +1719,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         }
         if (tween) return stepTween(tNow, snap);
         if (vant.kind !== 'none') return stepVantage(snap);
+        if (sys.on) return stepSystem(dt);
 
         if (mode === 'orbit') {
             if (earthLock && dq.w < 1 - 1e-15) {
@@ -1560,6 +1775,25 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         } else if (downInfo) {
             downInfo.moved = true; // multi-touch is never a click
         }
+        if (sys.on) {
+            cancelSysTween();
+            try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+            if (pointers.size === 1) {
+                sys.drag = { id: e.pointerId, x: e.clientX, y: e.clientY };
+                sys.pinch = null;
+            } else if (pointers.size === 2) {
+                sys.drag = null;
+                const [a, b] = [...pointers.values()];
+                sys.pinch = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1, dist: sys.distT };
+            }
+            rc.invalidate?.();
+            return;
+        }
+        orbitPinch = null;
+        if (mode === 'orbit' && pointers.size === 2) {
+            const [a, b] = [...pointers.values()];
+            orbitPinch = { d: Math.hypot(a.x - b.x, a.y - b.y) || 1 };
+        }
         if (mode === 'sky' && !tween) {
             try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
             sky.vAz = sky.vAlt = 0;
@@ -1592,6 +1826,33 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         p.y = e.clientY;
         if (downInfo && e.pointerId === downInfo.id && !downInfo.moved
             && Math.hypot(e.clientX - downInfo.x, e.clientY - downInfo.y) >= CLICK_PX) downInfo.moved = true;
+        if (!sys.on && orbitPinch && pointers.size >= 2 && atGlobeMax()) {
+            const [a, b] = [...pointers.values()];
+            const d = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+            if (d < orbitPinch.d * 0.95) {
+                // Pinching in at the globe's farthest: on into the solar system.
+                enterSystem(MAX_DIST);
+                sys.pinch = { d, dist: MAX_DIST };
+                orbitPinch = null;
+            }
+        }
+        if (sys.on) {
+            const h = el.clientHeight || rc.size?.h || 800;
+            if (sys.drag && e.pointerId === sys.drag.id) {
+                const k = Math.PI / h;
+                sys.lon -= (e.clientX - sys.drag.x) * k;
+                sys.lat = clamp(sys.lat + (e.clientY - sys.drag.y) * k, -SYS_LAT_MAX, SYS_LAT_MAX);
+                sys.drag.x = e.clientX;
+                sys.drag.y = e.clientY;
+                rc.invalidate?.();
+            } else if (sys.pinch && pointers.size >= 2) {
+                const [a, b] = [...pointers.values()];
+                const d = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+                sys.dist = sys.distT = clamp(sys.pinch.dist * (sys.pinch.d / d), MIN_DIST, SYS_MAX);
+                rc.invalidate?.();
+            }
+            return;
+        }
         if (mode !== 'sky' || tween) return;
         if (skyDrag && e.pointerId === skyDrag.id) {
             const dx = e.clientX - skyDrag.x, dy = e.clientY - skyDrag.y;
@@ -1651,6 +1912,12 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
                 emitClick({ ndcX: n.x, ndcY: n.y, clientX: e.clientX, clientY: e.clientY, double, pointerType: e.pointerType || 'mouse' });
             }
         }
+        if (sys.drag && e.pointerId === sys.drag.id) sys.drag = null;
+        if (pointers.size < 2) { sys.pinch = null; orbitPinch = null; }
+        if (sys.on && pointers.size === 1 && !sys.drag) {
+            const [id, q] = [...pointers.entries()][0];
+            sys.drag = { id, x: q.x, y: q.y };
+        }
         if (skyDrag && e.pointerId === skyDrag.id) {
             // Inertia only when the release follows recent motion.
             if (reduced || now() - skyDrag.t > 80) sky.vAz = sky.vAlt = 0;
@@ -1667,6 +1934,14 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
     const onWheel = (e) => {
         emitInteract('wheel');
         cancelTween();
+        if (sys.on || (e.deltaY > 0 && atGlobeMax())) {
+            e.preventDefault();
+            const scale = e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1;
+            const dy = clamp(e.deltaY * scale / 100, -3, 3);
+            if (!sys.on) enterSystem(MAX_DIST);
+            sysZoom(Math.exp(SYS_WHEEL * dy));
+            return;
+        }
         if (mode === 'sky' && !tween) {
             e.preventDefault();
             const scale = e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1;
@@ -1888,6 +2163,10 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         } else if (mode === 'sky') {
             sky.azT = wrap360(sky.azT + dxDeg * kf);
             sky.altT = clamp(sky.altT + dyDeg * kf, SKY_ALT_MIN, altCeil());
+        } else if (sys.on) {
+            cancelSysTween();
+            sys.lon -= dxDeg * DEG;
+            sys.lat = clamp(sys.lat - dyDeg * DEG, -SYS_LAT_MAX, SYS_LAT_MAX);
         } else if (controls) {
             // Positive dx swings the camera west so the globe turns east-to-west under the view.
             controls._rotateLeft?.(dxDeg * DEG);
@@ -1905,17 +2184,21 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         cancelTween();
         anchor.on = false;
         if (mode === 'sky') sky.fovT = clamp(sky.fovT * factor, SKY_FOV_MIN, SKY_FOV_MAX);
-        else zoomTarget = clamp((zoomTarget ?? camera.position.length()) * factor, MIN_DIST, MAX_DIST);
+        else if (sys.on) sysZoom(factor);
+        else if (factor > 1 && atGlobeMax()) {
+            enterSystem(MAX_DIST);
+            sysZoom(factor);
+        } else zoomTarget = clamp((zoomTarget ?? camera.position.length()) * factor, MIN_DIST, MAX_DIST);
         rc.invalidate?.();
     }
 
-    return {
+    const api = {
         camera,
         get controls() { return controls; },
         /** Logical mode: switches at the start of a transition. */
         get mode() { return mode; },
         get skyBlend() { return skyBlend; },
-        get tweening() { return !!tween; },
+        get tweening() { return !!tween || !!sys.tween; },
         get dragging() { return pointers.size > 0; },
         get earthLock() { return earthLock; },
         get reducedMotion() { return reduced; },
@@ -1932,6 +2215,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         setMode(next, opts = {}) {
             const target = next === 'sky' ? 'sky' : 'orbit';
             if (inTransition() && mode === target && !opts?.look) return tween.promise.then(() => true);
+            if (target === 'sky' && sys.on) return viaGlobe(() => setModeNow(target, opts), opts?.animate !== false);
             return afterTransition(() => setModeNow(target, opts));
         },
 
@@ -1948,7 +2232,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
          * @returns {Promise<boolean>}
          */
         flyToDir(dirS, opts = {}) {
-            return afterTransition(() => flyToDirNow(dirS, opts));
+            return viaGlobe(() => afterTransition(() => flyToDirNow(dirS, opts)), opts?.animate !== false);
         },
 
         /**
@@ -1962,7 +2246,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
          * @returns {Promise<boolean>}
          */
         frameDir(dirS, opts = {}) {
-            return afterTransition(() => frameDirNow(dirS, opts));
+            return viaGlobe(() => afterTransition(() => frameDirNow(dirS, opts)), opts?.animate !== false);
         },
 
         /**
@@ -1989,7 +2273,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
                 lonDeg = latDeg.lonDeg ?? latDeg.lon;
                 latDeg = latDeg.latDeg ?? latDeg.lat;
             }
-            return afterTransition(() => flyToLatLonNow(Number(latDeg), Number(lonDeg), opts || {}));
+            return viaGlobe(() => afterTransition(() => flyToLatLonNow(Number(latDeg), Number(lonDeg), opts || {})), opts?.animate !== false);
         },
 
         /**
@@ -1999,7 +2283,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
          * @returns {Promise<boolean>}
          */
         home(opts = {}) {
-            return afterTransition(() => homeNow(opts));
+            return viaGlobe(() => afterTransition(() => homeNow(opts)), opts?.animate !== false);
         },
 
         /**
@@ -2019,6 +2303,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
          * @returns {Promise<boolean>}
          */
         follow(targetFn, opts = {}) {
+            if (sys.on) return viaGlobe(() => api.follow(targetFn, opts), opts?.animate !== false);
             return afterTransition(() => {
                 if (mode !== 'sky') return followNow(targetFn, opts || {});
                 return startToOrbit({ animate: opts?.animate !== false }).then((ok) => (ok ? followNow(targetFn, opts || {}) : false));
@@ -2107,6 +2392,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
             const k = kind === 'l1' || kind === 'moon' ? kind : 'none';
             // The latest call wins: one still waiting for the module or a transition is dropped.
             const req = ++vantReq;
+            if (k !== 'none' && sys.on) return viaGlobe(() => (req === vantReq ? api.setVantage(k, opts) : false), opts?.animate !== false);
             if (k === 'none' && !vantageOwns()) {
                 vant.pending = null;
                 return Promise.resolve(true);
@@ -2131,6 +2417,53 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         get vantage() { return vant.kind; },
 
         /**
+         * The system zoom ('powers of ten'): true flies out from wherever the globe view is to the
+         * solar system 6 AU from the Sun (the orbit controls hand over at once; from sky view it
+         * first returns to the globe, from a vantage it cuts home first); false zooms back to the
+         * globe and on to its home pose over the observer (with animate: false, both cuts at once).
+         * Resolves true when the flight lands, false when input or another move took over.
+         * @param {boolean} on
+         * @param {{animate?:boolean}} [opts]
+         * @returns {Promise<boolean>}
+         */
+        setSystem(on, opts = {}) {
+            const animate = opts?.animate !== false;
+            if (!on) {
+                if (!sys.on) return Promise.resolve(true);
+                if (!animate || reduced) {
+                    exitSystem();
+                    return homeNow({ animate: false });
+                }
+                return viaGlobe(() => homeNow({ animate }), animate);
+            }
+            const out = () => {
+                if (!hasSnap) return Promise.resolve(false);
+                if (vantageOwns()) cutVantageHome();
+                if (tween) finishTween(false);
+                enterSystem(camera.position.length());
+                setFov(ORBIT_FOV);
+                return systemTo(SYSTEM_VIEW_R, { animate, durationMs: SYS_OUT_MS });
+            };
+            if (sys.on) return systemTo(SYSTEM_VIEW_R, { animate });
+            return afterTransition(() => (mode === 'sky' ? startToOrbit({ animate }).then((ok) => (ok ? out() : false)) : out()));
+        },
+
+        /** True while the system zoom drives the camera (the globe view past 150 R, or flying out). */
+        get system() { return sys.on; },
+
+        /** The globe → orrery crossfade, 0…1 (render modules: FrameInfo.systemBlend). */
+        get systemBlend() { return sys.blend; },
+
+        /** The crossfade is past one half (with a little hysteresis): what onSystemChange reports. */
+        get systemShown() { return sys.shown; },
+
+        /** @param {(info:{shown:boolean})=>void} cb hears the crossfade cross one half @returns {()=>boolean} off */
+        onSystemChange(cb) {
+            sysCbs.add(cb);
+            return () => sysCbs.delete(cb);
+        },
+
+        /**
          * True while the camera is so close to the Moon that it must draw in front of everything
          * (lunar orbit, or a flight there): the near plane then ignores it (FrameInfo.moonFront).
          */
@@ -2152,10 +2485,18 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
             if (mode === 'sky') {
                 return { mode: 'sky', azDeg: wrap360(sky.azT), altDeg: sky.altT, fovDeg: sky.fovT };
             }
-            // A vantage (url `vt`) reports the orbit pose it returns to.
-            if (vantageOwns() && vant.hasRet) toLocal(vantageReturn(_v1), _v1);
-            else toLocal(camera.position, _v1);
-            const r = _v1.length() || 1;
+            // A vantage (url `vt`) reports the orbit pose it returns to; the system zoom its view
+            // direction (in Earth-local terms now) and distance from the pivot.
+            let r;
+            if (sys.on) {
+                eclipticDir(sys.lon, sys.lat, _sysV);
+                toLocal(_v1.set(_sysV[0], _sysV[1], _sysV[2]), _v1);
+                r = sys.distT;
+            } else {
+                if (vantageOwns() && vant.hasRet) toLocal(vantageReturn(_v1), _v1);
+                else toLocal(camera.position, _v1);
+                r = _v1.length() || 1;
+            }
             return {
                 mode: 'orbit',
                 latDeg: Math.atan2(_v1.y, Math.hypot(_v1.x, _v1.z)) / DEG,
@@ -2176,7 +2517,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
                 pendingView = v;
                 return true;
             }
-            if (v.mode === 'orbit' && vantageOwns()) {
+            if (v.mode === 'orbit' && vantageOwns() && v.distance <= MAX_DIST) {
                 // A vantage stays; the view becomes the orbit pose it returns to.
                 const p = v.latDeg * DEG, l = v.lonDeg * DEG, cp = Math.cos(p);
                 _v2.set(cp * Math.cos(l), Math.sin(p), -cp * Math.sin(l)).multiplyScalar(v.distance);
@@ -2260,10 +2601,13 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
             }
             win?.removeEventListener('keydown', onKeyDown);
             controls?.dispose();
+            cancelSysTween();
+            sysCbs.clear();
             interactCbs.clear();
             clickCbs.clear();
             trackEndCbs.clear();
             vantEndCbs.clear();
         },
     };
+    return api;
 }

@@ -58,6 +58,7 @@ export function bindShortcuts(ctx) {
         if (isTyping(e.target)) { /** @type {HTMLElement} */ (e.target).blur(); return; }
         if (st.ui?.cinema) { act('toggleCinema'); e.preventDefault(); return; }
         if ((st.view?.vantage ?? 'none') !== 'none') { act('setVantage', 'none'); flash('Back to the globe'); e.preventDefault(); return; }
+        if (st.view?.system && st.view?.mode === 'orbit') { act('setSystem', false); flash('Back to the globe'); e.preventDefault(); return; }
         if (st.selection) { act('select', null); e.preventDefault(); }
     }
 

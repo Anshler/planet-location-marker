@@ -189,8 +189,10 @@ export function createLoop(deps) {
     /** @type {FrameInfo} */
     const fi = {
         dtMs: 0, timeS: 0, camera: null, viewMode: 'orbit', skyBlend: 0, snap,
-        pulsesActive: false, simRate: 0, exposure, moonFront: false,
+        pulsesActive: false, simRate: 0, exposure, moonFront: false, systemBlend: 0,
     };
+    /** The label feed's mode: 'sky' past halfway into sky view, 'system' past halfway into the orrery. */
+    const labelMode = (skyBlend, systemBlend) => (skyBlend >= 0.5 ? 'sky' : systemBlend >= 0.5 ? 'system' : 'orbit');
     // upS is the snapshot's live zenith: the label pool derives is-below for direction anchors from it,
     // and in sky view (horizon) hides star and constellation names that the ground covers — the
     // illustrative landscape's silhouette when that layer is on (landscape, with the observer's
@@ -404,6 +406,7 @@ export function createLoop(deps) {
                 fi.pulsesActive = (clock.playing && Math.abs(clock.rate) > 1) || introPlaying;
                 fi.simRate = clock.playing && Number.isFinite(clock.rate) ? clock.rate : 0;
                 fi.moonFront = !!(rig && rig.moonFront);
+                fi.systemBlend = rig && Number.isFinite(rig.systemBlend) ? rig.systemBlend : 0;
 
                 for (let i = 0; i < modules.length; i++) callModule(modules[i], 'update', fi);
 
@@ -430,7 +433,7 @@ export function createLoop(deps) {
                             labelView.starExposure = exposure.stars;
                             labelView.magLimit = cfg && Number.isFinite(cfg.starMagLimit) ? cfg.starMagLimit : 6;
                             labelView.viewportH = rc.size && rc.size.h > 0 ? rc.size.h : 0;
-                            labelsFeed.sync(camera, skyBlend >= 0.5 ? 'sky' : 'orbit', labelView);
+                            labelsFeed.sync(camera, labelMode(skyBlend, fi.systemBlend), labelView);
                         }
                         const tierCap = cfg && Number.isFinite(cfg.labelCap) ? cfg.labelCap : 24;
                         labelOpts.cap = skyBlend >= 0.5 ? tierCap : Math.min(tierCap, ORBIT_LABEL_CAP);
@@ -630,7 +633,7 @@ export function createLoop(deps) {
             if (labelsFeed && labels && !disabled.has(labels)) {
                 try {
                     labelView.viewportH = rc.size && rc.size.h > 0 ? rc.size.h : 0;
-                    labelsFeed.sync(camera, fi.skyBlend >= 0.5 ? 'sky' : 'orbit', labelView);
+                    labelsFeed.sync(camera, labelMode(fi.skyBlend, fi.systemBlend), labelView);
                 } catch (err) {
                     reportOnce('labelsFeed.sync(redraw)', err);
                 }

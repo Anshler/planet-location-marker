@@ -46,13 +46,19 @@ export const AURORA_SETTINGS = Object.freeze(['quiet', 'typical', 'storm']);
  */
 export const VANTAGE_SETTINGS = Object.freeze(['none', 'l1', 'moon']);
 
+/*
+ * view.system: the globe view is zoomed out into the solar system (the orrery shown, camera/rig.js
+ * systemBlend past one half). Set by main.js from the rig, never by the URL: `cam` carries the
+ * distance (an orbit distance beyond 150 R), and it is not saved.
+ */
+
 /**
  * The initial application state (SPEC §C.3). Frozen: copy before modifying.
  * @type {Readonly<AppState>}
  */
 export const DEFAULT_STATE = deepFreeze({
     observer: { latDeg: 51.4769, lonDeg: -0.0005, elevM: 0, name: 'Royal Observatory Greenwich', country: 'United Kingdom', tz: 'Europe/London', tzApprox: false, source: 'default' },
-    selection: null, view: { mode: 'orbit', earthLock: true, track: 'none', vantage: 'none' },
+    selection: null, view: { mode: 'orbit', earthLock: true, track: 'none', vantage: 'none', system: false },
     layers: {
         beams: true, ghostBeams: true, sunMoonBeams: true, stars: true, constellations: true, constellationNames: true, starNames: true,
         milkyWay: true, clouds: true, atmosphere: true, ecliptic: false, eqGrid: false, altAzGrid: true, horizon: true, footprint: false,

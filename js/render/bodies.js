@@ -648,7 +648,10 @@ export function createBodies(rc, deps = {}) {
             (SUN_GLOW[0] + (SUN_CORONA[0] - SUN_GLOW[0]) * cw) * tr,
             (SUN_GLOW[1] + (SUN_CORONA[1] - SUN_GLOW[1]) * cw) * tg,
             (SUN_GLOW[2] + (SUN_CORONA[2] - SUN_GLOW[2]) * cw) * tb);
-        sun.visible = haveSnap;
+        // Out in the solar-system zoom the orrery draws the Sun and planets where they are, not at
+        // infinity (render/orrery.js); the Moon stays, a real mesh 60 R out.
+        const atInfinity = !(fi.systemBlend >= 0.5);
+        sun.visible = haveSnap && atInfinity;
 
         // Planets: colour × extinction in sky view.
         const col = iColor.array;
@@ -669,7 +672,7 @@ export function createBodies(rc, deps = {}) {
         glyphUniforms.uViewport.value.set(w, h);
         glyphUniforms.uDpr.value = dpr;
         glyphUniforms.uExposure.value = planetsExp * display;
-        glyphs.visible = haveSnap;
+        glyphs.visible = haveSnap && atInfinity;
 
         // Moon: extinction tint, and its direction/size as seen from the camera (parallax matters
         // at 60 Earth radii: from orbit it can sit degrees away from the observer's direction).
@@ -728,7 +731,7 @@ export function createBodies(rc, deps = {}) {
         aureole.visible = aure > 0.002;
 
         // Reticle.
-        if (selIndex >= 0 && haveSnap) {
+        if (selIndex >= 0 && haveSnap && atInfinity) {
             const d = selIndex === MOON ? moonDirCam : dirs[selIndex];
             reticleUniforms.uDir.value.set(d[0], d[1], d[2]);
             let radiusPx = RETICLE_PX * dpr;

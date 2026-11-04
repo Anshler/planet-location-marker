@@ -997,7 +997,10 @@ export function fmtMeteorRate(r) {
     if (!(r >= 0.5)) return 'fewer than 1';
     return r < 10 ? String(Math.round(r)) : String(Math.round(r / 5) * 5);
 }
-const meteorsAnHour = (r) => (r >= 0.5 && r < 1.5 ? 'about 1 meteor an hour' : `${r >= 0.5 ? 'about ' : ''}${fmtMeteorRate(r)} meteors an hour`);
+const meteorsAnHour = (r) => (r < 0.5 ? 'fewer than 1 meteor an hour' : r < 1.5 ? 'about 1 meteor an hour' : `about ${fmtMeteorRate(r)} meteors an hour`);
+/** The Sun's highest altitude for a shower hour to count: as render/meteors.js draws them (−6°); the
+ * limiting magnitude's twilight term lowers the rate between −6° and −18°. */
+const SHOWER_SUN_MAX_DEG = -6;
 
 /**
  * A meteor shower's maximum as seen from here: the hour around it (± METEOR_HALF_H) with the most
@@ -1023,11 +1026,12 @@ function showerEvent(ctx, s, peakMs) {
         return [alt, az];
     };
     const lp = Number.isFinite(ctx.skyLp) ? Math.max(0, ctx.skyLp) : 0;
-    let best = null;
+    let best = null, everDark = false;
     for (let h = -METEOR_HALF_H; h <= METEOR_HALF_H; h += METEOR_STEP_H) {
         const lst = gast + h * 1.00273790935 + obs.longitude / 15;
         const [sunAlt] = altAz(sun.ra, sun.dec, lst);
-        if (sunAlt > -12) continue;
+        if (sunAlt > SHOWER_SUN_MAX_DEG) continue;
+        everDark = true;
         const [radAlt, radAz] = altAz(rad.ra, rad.dec, lst);
         if (radAlt < 5) continue;
         const t = tp.AddDays(h / 24);
@@ -1038,7 +1042,7 @@ function showerEvent(ctx, s, peakMs) {
         const dark = hourlyRate(zhr, radAlt, meteorLimitMag(sunAlt, (1 + moonZen) * NATURAL_NL), s.r);
         const here = hourlyRate(zhr, radAlt, meteorLimitMag(sunAlt, (1 + moonZen + lp) * NATURAL_NL), s.r);
         if (!best || here > best.here || (here === best.here && dark > best.dark)) {
-            best = { ms: msOf(t), radAlt, radAz, moonAlt: moon.altitude, dark, here };
+            best = { ms: msOf(t), radAlt, radAz, moonAlt: moon.altitude, sunAlt, dark, here };
         }
     }
     const pct = Math.round(ill.phase_fraction * 100);
@@ -1049,9 +1053,12 @@ function showerEvent(ctx, s, peakMs) {
     };
     const radCon = AE.Constellation(rj.raDeg / 15, rj.decDeg).name;
     if (!best) {
+        // Polar and subpolar summer: the radiant may be high, but the sky never gets dark.
+        const why = everDark ? 'From here it stays below the horizon while the sky is dark'
+            : `The sky does not get dark here around the maximum (the Sun never sinks ${-SHOWER_SUN_MAX_DEG}° below the horizon)`;
         return {
             ...base, view: null, visibleHere: false, visibleMs: null,
-            detail: `Radiant in ${radCon}. From here it stays below the horizon while the sky is dark, so few if any meteors are seen. Parent: ${s.parent}`,
+            detail: `Radiant in ${radCon}. ${why}, so few if any meteors are seen. Parent: ${s.parent}`,
         };
     }
     const moonTxt = best.moonAlt > 0 ? `${pct}% lit, ${Math.round(best.moonAlt)}° up` : `${pct}% lit, below the horizon`;
@@ -1062,7 +1069,8 @@ function showerEvent(ctx, s, peakMs) {
         radiantAltDeg: best.radAlt, rateDark: best.dark, rateHere: best.here,
         look: { azDeg: best.radAz, altDeg: Math.min(best.radAlt, 55) },
         detail: `Best around ${ctx.clock(best.ms)}, radiant ${Math.round(best.radAlt)}° up in the ${compass16(best.radAz)} (in ${radCon}). ` +
-            `Moon ${moonTxt}. ${cap(rate)} from a dark site${here} (illustrative). Parent: ${s.parent}`,
+            `Moon ${moonTxt}. ${cap(rate)} from a dark site${here} (illustrative)` +
+            `${best.sunAlt > -12 ? `. The Sun is only ${Math.round(-best.sunAlt)}° below the horizon then: twilight hides the fainter meteors` : ''}. Parent: ${s.parent}`,
     };
 }
 

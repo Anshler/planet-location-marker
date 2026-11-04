@@ -143,6 +143,19 @@ test('meteor showers respect history: no Geminids over Hastings in 1066, Leonids
     assert.ok(d.getUTCDate() >= 3 && d.getUTCDate() <= 6, d.toISOString());
 });
 
+test('meteor showers in a bright summer night: twilight is the reason, not the radiant', () => {
+    // Tromsø (69.65° N): the Perseid radiant is circumpolar, but the Sun stays above −6° all night.
+    const per = upcomingEvents({ latDeg: 69.65, lonDeg: 18.96 }, Date.UTC(2026, 7, 1), 30).find((e) => e.showerId === 'PER');
+    assert.equal(per.visibleHere, false);
+    assert.match(per.detail, /does not get dark here/);
+    assert.doesNotMatch(per.detail, /below the horizon while/);
+    // Helsinki: the Sun reaches only −11.5° at the Southern δ Aquariids' maximum; the hour counts, at a twilight rate.
+    const sda = upcomingEvents({ latDeg: 60.17, lonDeg: 24.94 }, Date.UTC(2026, 6, 20), 20).find((e) => e.showerId === 'SDA');
+    assert.equal(sda.visibleHere, true);
+    assert.ok(sda.radiantAltDeg > 5 && sda.rateDark < 5, `${sda.radiantAltDeg} ${sda.rateDark}`);
+    assert.match(sda.detail, /twilight hides the fainter meteors/);
+});
+
 test('rate wording', () => {
     assert.equal(fmtMeteorRate(0.2), 'fewer than 1');
     assert.equal(fmtMeteorRate(4.4), '4');

@@ -1082,7 +1082,9 @@ Geminids' B+ 0.39 / B− 0.81). The expected rate is the IMO's ZHR definition tu
 HR = ZHR·sin h·r^(lm − 6.5), with lm from the zenith sky's brightness (`skyglow.js`: airglow,
 moonlight by KS91, the site's light pollution) plus twilight, capped at 6.5. The Events entry
 samples the night around the peak hourly (geometric altitudes from RA/Dec of date and the sidereal
-clock) and quotes the best hour: "about N meteors an hour from a dark site, M under this sky". These
+clock; hours with the Sun above −6° skipped, twilight below that left to lm) and quotes the best
+hour: "about N meteors an hour from a dark site, M under this sky". When no hour qualifies it says
+why: the radiant stays low while it is dark, or (polar summer) the sky never gets dark. These
 are expectations for one observer under a clear sky; rounded, and labelled illustrative.
 
 **The meteors drawn in sky view** are illustrative (`render/meteors.js`). Simulated time is cut into

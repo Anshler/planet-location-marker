@@ -2044,7 +2044,8 @@ body.is-map .vb-track, body.is-map .vb-expose { display: none; }
 .palette__mode[hidden] { display: none; }
 .lbl--observer[data-id="observer2"] .lbl__dot { background: #fff; box-shadow: 0 0 0 3px rgba(255, 179, 92, .35), 0 0 10px rgba(255, 179, 92, .9); }
 
-.fade-overlay { position: fixed; inset: 0; z-index: 60; background: #000; opacity: 0; pointer-events: none; }
+/* !important: text mode's `.ui *` rule turns pointer events back on, and the veil covers the page. */
+.fade-overlay { position: fixed; inset: 0; z-index: 60; background: #000; opacity: 0; pointer-events: none !important; }
 .fade-overlay.is-on { animation: veil 220ms ease-out both; }
 @keyframes veil { from { opacity: .85; } to { opacity: 0; } }
 

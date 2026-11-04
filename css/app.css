@@ -5,7 +5,7 @@
      6 desktop layout · 7 top bar · 8 panel & tabs · 9 time bar · 10 view switch
      11 sky now · 12 body card · 13 events · 14 layers/settings/about
      15 dialogs & palette · 16 popovers · 17 toasts/flash/hint · 18 mobile sheet
-     19 text mode · 20 body classes · 21 motion
+     19 text mode · 20 body classes · 21 motion · 22 accessibility preferences
    ============================================================================= */
 
 /* 1 ─ Tokens ------------------------------------------------------------------ */
@@ -108,7 +108,10 @@ html, body {
 /* Zero-specificity resets (:where) so every component class below wins over them. */
 :where(.ui) :where(button, input, select, textarea) { font: inherit; color: inherit; }
 :where(.ui svg.icon) { display: block; flex: none; }
-.ui :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* The accent ring has a dark halo, so it also shows on controls floating over a pale daytime sky
+   (accent on sky blue is about 1.1:1; the halo makes it ≥ 3:1 against either). Components that set
+   their own box-shadow keep it; the ring stays. */
+.ui :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 5px rgba(3, 6, 13, .82); }
 .ui :focus:not(:focus-visible) { outline: none; }
 .ui-overlay { display: contents; }
 .ui [hidden] { display: none !important; }
@@ -249,7 +252,7 @@ button.lbl:hover .lbl__dot { transform: scale(1.35); }
 }
 .lbl.is-new .lbl__text { animation: lbl-in 600ms var(--ease-out) both; }
 .lbl.is-new .lbl__dot { animation: lbl-dot-in 600ms var(--ease-out) both; }
-.lbl:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.lbl:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 5px rgba(3, 6, 13, .82); }
 @keyframes lbl-in { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: none; } }
 @keyframes lbl-dot-in { 0% { transform: scale(0); } 60% { transform: scale(1.6); } 100% { transform: scale(1); } }
 .lbl--cardinal.is-new .lbl__text { animation: none; }
@@ -2362,7 +2365,11 @@ body.is-coarse .ui.is-cinema .cinema-exit { opacity: .85; }
    matrices. */
 html.is-red { filter: brightness(.042) sepia(1) saturate(100); }
 
-/* Sky view: a little more contrast for panels over a bright daytime sky. */
+/* Sky view: a little more contrast for panels over a bright daytime sky. The see-through glass of
+   the blur tiers let --muted fall to 4.3:1 and --faint to 3.1:1 at noon (measured on high), and to
+   3.5 and 2.5 over white cloud: in sky view it is .9 opaque and --faint a step lighter, which keeps
+   both above 4.5:1 even over white (5.4 and 4.7). Night skies look the same either way. */
+body.is-sky { --panel: rgba(12, 16, 26, .9); --faint: #8e9ab0; }
 body.is-sky .ui .glass { border-color: rgba(255, 255, 255, .1); }
 
 /* Coarse pointers: comfortable targets. */
@@ -2451,3 +2458,52 @@ body.is-mars .ui[data-layout="mobile"] .tb-sol { min-width: 0; overflow: hidden;
 body.is-mars .ui[data-layout="mobile"] .tb-date { min-width: 0; flex: 0 1 auto; }
 body.is-mars .ui[data-layout="mobile"] .tb-date__icon { display: none; }
 body.is-mars .ui[data-layout="mobile"] .tb-date { padding: 0 4px; }
+
+/* 22 ─ Accessibility preferences (system settings; smoke --media emulates them) ------------------ */
+/* Reduce transparency: opaque panels and no backdrop blur, on every tier and view. The selectors
+   include body.is-sky so the sky view's own --panel gives way; !important beats the tier rules. */
+@media (prefers-reduced-transparency: reduce) {
+    :root, body.is-sky { --panel: rgb(10, 14, 23); --panel-solid: rgb(10, 14, 23); --surface: rgb(11, 15, 24); }
+    .glass, .intro-cap { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+    .intro-cap { background: rgb(6, 9, 16); }
+}
+
+/* More contrast: brighter secondary text, opaque panels and 1-px --line-2 edges on panels and chips. */
+@media (prefers-contrast: more) {
+    :root, body.is-sky {
+        --text-2: #dfe5ee; --muted: #c3ccd9; --faint: #aab4c4;
+        --line: rgba(255, 255, 255, .22); --line-2: rgba(255, 255, 255, .4);
+        --panel: rgb(9, 12, 20); --panel-solid: rgb(9, 12, 20);
+    }
+    .glass, .chip, .bchip, .seg, .popover, .dialog, .toast, .btn--soft { border: 1px solid var(--line-2); }
+    .glass { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+    .seg__btn.is-on, .seg__btn[aria-checked="true"], .seg__opt input:checked + span { box-shadow: inset 0 0 0 1px var(--line-2); }
+    .switch { box-shadow: inset 0 0 0 1px var(--line-2); }
+}
+
+/* Forced colours (Windows High Contrast and the like): the system palette replaces ours, which
+   drops backgrounds and shadows. Panels and controls get system-colour edges, and the states that
+   were only a fill (switches, segmented choices, pressed chips, the active tab, the time bar's
+   thumb) are drawn in Highlight. The scene's labels sit on the (unforced) 3D view, so they keep
+   their own colours. */
+@media (forced-colors: active) {
+    .glass, .popover, .dialog, .toast, .sheet, .ecl { border: 1px solid CanvasText; background: Canvas; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+    .chip, .bchip, .echip, .btn, .seg, .icon-btn, .input, .select { border: 1px solid ButtonText; }
+    .switch, .switch__knob, .tabs__ink, .tb-scrub__thumb, .tb-scrub__knob, .seg__btn, .seg__opt span,
+    .chip--filter[aria-pressed="true"], .btn[aria-pressed="true"], .btn--ghost.is-on { forced-color-adjust: none; }
+    .switch { background: Canvas; box-shadow: inset 0 0 0 1px ButtonText; }
+    .switch__knob { background: ButtonText; box-shadow: none; }
+    .switch-row[aria-checked="true"] .switch { background: Highlight; box-shadow: none; }
+    .switch-row[aria-checked="true"] .switch__knob { background: HighlightText; }
+    .seg__btn, .seg__opt span { background: transparent; color: ButtonText; }
+    .seg .seg__btn.is-on, .seg .seg__btn[aria-checked="true"], .seg__opt input:checked + span,
+    .chip--filter[aria-pressed="true"], .btn[aria-pressed="true"], .btn--ghost.is-on { background: Highlight; color: HighlightText; box-shadow: none; }
+    .tabs__ink { background: Highlight; }
+    .tb-scrub__thumb::before { background: CanvasText; box-shadow: 0 0 0 1px Canvas; }
+    .tb-scrub__knob { background: Highlight; box-shadow: 0 0 0 2px CanvasText; }
+    .ui :focus-visible, .lbl:focus-visible, .tb-scrub:focus-visible { outline: 2px solid Highlight; box-shadow: none; }
+    #labels-root { forced-color-adjust: none; }
+    /* Canvases (the time bar, Tonight, the Sky dome, sparklines) draw in the app's colours on a
+       transparent ground: they keep a dark one, whatever the system palette. */
+    .ui canvas { forced-color-adjust: none; background: rgb(10, 14, 23); }
+}

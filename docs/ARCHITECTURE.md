@@ -66,6 +66,7 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/app/intro.js` | `playIntro(opts)`: the first-visit camera flight, pin drop and beam launch (after a pre-roll that holds the opening pose while the loader fades). The launch is emitted as bus `'intro'` `'launch'` (the UI's title card); a skip never emits it. |
 | | `js/app/tours.js` | Guided tours, loaded on demand: the pure step builders (`tonightSteps`, `yearSteps`, `eclipseSteps`, `ambientSteps`) and `createTourRunner` (captions, pause/resume/next, state capture and restore). No three.js. |
 | | `js/app/fallback.js` | Text-mode banner, context-lost overlay, fatal-error hand-off. |
+| | `js/app/wake-lock.js` | `createWakeLock({nav, doc, win})`: the one screen wake lock, held while any named reason holds it (`'red'` night vision, `'sky'` the sky view on a touch-first device, `'aim'` 'Point at the sky') and the page is visible; asked again when the page shows, quiet on a refusal, let go after 20 min without a tap or key. `R.wake` in `main.js`. |
 | | `js/app/extras-setup.js` | `registerExtras(extras, {fetchJson, onDso})`: registers the guest-star and comet providers at boot, the spacecraft once `data/craft.json` arrives and the deep-sky objects once `data/dso.json` does; `registerStars(extras, {getCatalog, fetchJson})`: the catalogue-star provider once `sky.json` is decoded, following the selection and fetching `data/starinfo.json` on the first star (§4, Extra objects). |
 | Core | `js/core/store.js` | Immutable slices, selector subscriptions, `DEFAULT_STATE`. |
 | | `js/core/bus.js` | Fixed event types: `readout`, `toast`, `announce`, `almanac`, `events`, `intro` (`'start'`, `'launch'`, `'done'`). |
@@ -141,7 +142,7 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/render/satellites.js` | Satellites: globe dots, beams from the pin, the featured ground track; star-material points and a ring in sky view; `moving()` (the loop's liveMotion), `pickCandidates()`. |
 | | `js/render/craft.js` | The spacecraft's radio beams: a small instanced set on the beams' shaders under `#define RADIO` (fine dashes, faint), from the pin, with the `spacecraft` layer. |
 | Camera | `js/camera/rig.js`, `picking.js` | Orbit and sky-view camera, Earth-lock, fly-to tweens, `follow()` (the shadow chase), sidereal tracking, `setVantage()` (View from L1, Earthrise), the flat map (`setMode('map')`, `mapK`, `mapFrame`), the system zoom past 150 R (`setSystem`, `system`, `systemBlend`, `onSystemChange`), `frameSpan()` (the Earth–Moon framing), `setAiming()`/`setSkyAim()` (the phone steers the look); analytic globe, map (`pickMap`), glyph and map-point (`pickPoint`) picking. |
-| | `js/camera/aim.js` | 'Point at the sky' (loaded on first use, no three.js): device orientation → the rear camera's direction and the screen's up in ENU (`deviceVectors`), a level look (`lookOf`), an adaptive vector low-pass (`aimFilterStep`), and `createAim` (sensor events, iOS compass learning, deadband, Align offset, idle and hidden stops, wake lock). |
+| | `js/camera/aim.js` | 'Point at the sky' (loaded on first use, no three.js): device orientation → the rear camera's direction and the screen's up in ENU (`deviceVectors`), a level look (`lookOf`), an adaptive vector low-pass (`aimFilterStep`), and `createAim` (sensor events, iOS compass learning, deadband, Align offset, idle and hidden stops; holds the shared wake lock's `'aim'` reason, `deps.wake`). |
 | Data | `data/tle.json` | Two-line element sets of the six satellites (`scripts/fetch-tle.mjs`, CelesTrak); rewritten in the staged site by every deploy (daily), network-first in `sw.js`. |
 | Data | `data/craft.json` | Spacecraft knots (TDB JD, 1e-6 AU, 1e-8 AU/day), built by `scripts/build-craft.mjs` from JPL Horizons; fetched after boot, precached by `sw.js`. |
 | | `data/dso.json` | 140 deep-sky objects (`scripts/build-dso.mjs`; Messier from d3-celestial, the rest hand-entered); fetched after boot, precached. |
@@ -151,8 +152,8 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/render/meteors.js` | Layer `meteors` (`r`, sky view): radiant rings with label anchors (`anchors()`, appended by the labels feed's `getSkyExtras`) for showers within 25 % of maximum, and illustrative meteors on a `METEOR` line layer: live (medium+, clock running, no reduced motion; launched as sim time passes each hash-seeded meteor, played for 0.3–0.8 s of wall time, launches capped at 2.5/s, frames requested only while a streak flies) or a static one-hour composite (paused or reduced motion, any tier). `stats()`. |
 | | `js/render/sunpath.js` | Layer `sunPath` (`y`): today's path with hour ticks, the solstice and equinox paths and the noon analemma as line layers in the observer's ENU frame (sky view), and the subsolar figure-8 as a line on the globe (Earth-fixed); figures from the worker via `request(snap)` (main.js `requestSunFigures`), only while the layer is on. `stats()`. |
 | Camera | `js/camera/rig.js`, `picking.js` | Orbit and sky-view camera, Earth-lock, fly-to tweens, `follow()` (the shadow chase), sidereal tracking, `setVantage()` (View from L1, Earthrise), the flat map (`setMode('map')`, `mapK`, `mapFrame`), the system zoom past 150 R (`setSystem`, `system`, `systemBlend`, `onSystemChange`), `frameSpan()` (the Earth–Moon framing), `setAiming()`/`setSkyAim()` (the phone steers the look); analytic globe, map (`pickMap`), glyph and map-point (`pickPoint`) picking. |
-| | `js/camera/aim.js` | 'Point at the sky' (loaded on first use, no three.js): device orientation → the rear camera's direction and the screen's up in ENU (`deviceVectors`), a level look (`lookOf`), an adaptive vector low-pass (`aimFilterStep`), and `createAim` (sensor events, iOS compass learning, deadband, Align offset, idle and hidden stops, wake lock). |
-| UI | `js/ui/index.js` and its modules | Shell, top bar, time bar (its strip coloured by `sky-palette.js`, the sky's colours by the Sun's altitude), Sky Now (with `tonight.js`: the Tonight card's dusk-to-dawn chart and the rows' 24-h sparklines, and `sky-dome.js`: the all-sky chart, the hero of text mode, both also in text mode), body card (with `eyepiece.js`: the 2D-canvas eyepiece portrait, also in text mode; `year-planner.js`: the planets' 12-month chart on a 2D canvas and the Sun's solstice paths in words, from the worker, also in text mode), events (with the guided tours and the Moon/Planets/Eclipses/Meteors/Seasons filters; `event-glyphs.js`: each event's inline SVG glyph; `ics.js`: 'Add to calendar', the pure RFC 5545 builder and the file hand-off), Eclipse Companion, the tour's lower third (`tour-bar.js`), layers, settings, about, help, toasts, shortcuts, announcer; the share menu, `postcard.js` (postcard and Save-image dialog, the typographic band), `video.js` (the time-lapse video dialog: presets, frame size, progress and preview, the burned-in date stamp) and `expose.js` (Expose presets and the exposure's status pill); the vantage menu and its caption pill (`view-switch.js`: vantage points, the world map, the solar system).; the ruler and 'Point at the sky' buttons with their status pills (`sky-tools.js`); the body card's 'Find it' line.; the world map entry and the second place (`Compare with…` in the place search); the place search's sky preview per result (`location.js placeSky`); first-run onboarding: `intro-caption.js` (the intro's title card), `coach.js` (the three coach marks, `ui.showTips()`), `install.js` (About's Install group and the one-time iOS hint), the help dialog's gestures (`help.js GESTURES`, `helpButton`) and the phone's ⋯ menu (`view-switch.js`) |
+| | `js/camera/aim.js` | 'Point at the sky' (loaded on first use, no three.js): device orientation → the rear camera's direction and the screen's up in ENU (`deviceVectors`), a level look (`lookOf`), an adaptive vector low-pass (`aimFilterStep`), and `createAim` (sensor events, iOS compass learning, deadband, Align offset, idle and hidden stops; holds the shared wake lock's `'aim'` reason, `deps.wake`). |
+| UI | `js/ui/index.js` and its modules | Shell, top bar, time bar (its strip coloured by `sky-palette.js`, the sky's colours by the Sun's altitude), Sky Now (with `tonight.js`: the Tonight card's dusk-to-dawn chart and the rows' 24-h sparklines, and `sky-dome.js`: the all-sky chart, the hero of text mode, both also in text mode), body card (with `eyepiece.js`: the 2D-canvas eyepiece portrait, also in text mode; `year-planner.js`: the planets' 12-month chart on a 2D canvas and the Sun's solstice paths in words, from the worker, also in text mode), events (with the guided tours and the Moon/Planets/Eclipses/Meteors/Seasons filters; `event-glyphs.js`: each event's inline SVG glyph; `ics.js`: 'Add to calendar', the pure RFC 5545 builder and the file hand-off), Eclipse Companion, the tour's lower third (`tour-bar.js`), layers, settings (with the Night vision switch, `actions.setNightVision`; Shift+N in `shortcuts.js`, before plain N), about, help, toasts, shortcuts, announcer; the share menu, `postcard.js` (postcard and Save-image dialog, the typographic band), `video.js` (the time-lapse video dialog: presets, frame size, progress and preview, the burned-in date stamp) and `expose.js` (Expose presets and the exposure's status pill); the vantage menu and its caption pill (`view-switch.js`: vantage points, the world map, the solar system).; the ruler and 'Point at the sky' buttons with their status pills (`sky-tools.js`); the body card's 'Find it' line.; the world map entry and the second place (`Compare with…` in the place search); the place search's sky preview per result (`location.js placeSky`); first-run onboarding: `intro-caption.js` (the intro's title card), `coach.js` (the three coach marks, `ui.showTips()`), `install.js` (About's Install group and the one-time iOS hint), the help dialog's gestures (`help.js GESTURES`, `helpButton`) and the phone's ⋯ menu (`view-switch.js`) |
 
 ---
 
@@ -197,6 +198,11 @@ Feature detection happens in `index.html` before any module loads. With no WebGL
 maps, the body gets `no-webgl`, the canvas is hidden, `fallback.js` shows the banner, and the panels
 carry the app.
 
+Night vision is applied before the first paint too: a classic script at the top of `<head>` reads
+the saved `pc2.display` and, when `red` is on, puts `is-red` on `<html>` and turns
+`meta[name=theme-color]` to `#000` (keeping the original in `data-base`). `main.js
+bindNightVision` takes over once the store exists.
+
 ### Body classes
 
 `main.js` keeps these classes on `<body>` in sync with the store. `css/app.css` and the inline
@@ -215,6 +221,7 @@ critical CSS read them.
 | `is-touring` | A guided tour plays (`ui.tour`): toasts move above its lower third. |
 | `is-coaching` | The coach marks are on screen (`ui/coach.js`). |
 | `is-system` | The globe view is zoomed out into the solar system (`view.system`, the orrery past half its crossfade). |
+| `is-red` (on `<html>`) | Night vision (`display.red`): the whole page dim pure red (§12). |
 
 ---
 
@@ -231,7 +238,8 @@ critical CSS read them.
 - **`store`** holds the durable app state: `observer`, `selection`, `view`, `layers`, `display`,
   `quality`, `ui` and `status`. `set` merges per top-level slice and never mutates, so selectors
   compare with `Object.is`. Persisted keys: the observer (user-chosen sources only, written by
-  `actions`), layers, display and the quality setting (written by `main.js` subscriptions). The UI
+  `actions`), layers, display (with `red`, night vision) and the quality setting (written by
+  `main.js` subscriptions). The UI
   keeps a few conveniences of its own in `core/prefs` (recent places, `tonightOpen`, `skyDome`,
   `coachSeen`, `installHint`).
 - **`clock`** owns simulated time. The UI calls it directly for play/pause, rate, steps, Now and
@@ -1118,6 +1126,9 @@ change.
 - `tab` opens a panel tab (`core/store.js PANELS`: `sky`, `details`, `events`, `layers`,
   `settings`, `about`) and raises the phone's sheet to half. Like `tour`, it is read, never written.
   The installed app's Events shortcut is `./#tab=events`; its Sky view shortcut is `./#view=sky`.
+- Night vision (`display.red`) is never written to or read from the hash: it is a preference of
+  the device you observe with (saved with the display prefs), not part of the sky being shared, so
+  a link from a red screen opens in full colour (`test/app.actions.test.mjs`).
 
 `bindUrl` writes the hash at most every 500 ms and leaves a fresh visit's URL clean. Hand edits
 are applied live through `onExternalChange`. It writes nothing while a tour plays.
@@ -1146,7 +1157,9 @@ About's 'Install app' (`ui/install.js`); the browser's own install UI is left al
   `frames > 10`, `beamsVisible ≥ 7`, and stable geometry and texture counts while time runs at
   1 day/s. A `--url` with `sel=` must open the Details tab, and with `--mobile` the time-bar date
   and time must fit unclipped on 14 consecutive days (every weekday, one- and two-digit days).
-  Useful flags: `--mobile`, `--tz=UTC`, `--reduced-motion`, `--subpath=/repo/`,
+  Useful flags: `--mobile`, `--tz=UTC`, `--reduced-motion`,
+  `--media=prefers-contrast:more,forced-colors:active,prefers-reduced-transparency:reduce` (any
+  feature CDP `Emulation.setEmulatedMedia` knows), `--subpath=/repo/`,
   `--url=/#…`, `--out=shot.png`, `--eval="js"` (awaited before the screenshot). For the failure
   matrix and the intro: `--no-webgl` (text mode), `--init="js"` (runs before the page, e.g.
   `HTMLScriptElement.supports=()=>false` for no import maps), `--fail=data/sky.json,earth_day`
@@ -1180,3 +1193,29 @@ About's 'Install app' (`ui/install.js`); the browser's own install UI is left al
 - Copy that names keys has a touch twin: `.for-fine` and `.for-coarse` elements switch on
   `body.is-coarse` (css/app.css section 20), which also hides key caps and key hints on touch
   (the help dialog's key table keeps them).
+- **Night vision** (`html.is-red`, css/app.css section 20) is one CSS filter on the whole page,
+  `brightness(.042) sepia(1) saturate(100)`: three colour-matrix functions, never an SVG
+  `url()` filter (those leave the GPU path in Safari and Firefox). sepia(1) projects every colour
+  onto one hue at a weighted luminance (.29 R + .57 G + .14 B); saturate(100) pushes that hue's
+  green and blue below zero, where they clamp, and its red to 62 % of the luminance; the first
+  brightness keeps every step below 1. Measured in headless Chrome: G = B = 0 and 159 red levels.
+  `test/ui.night-vision.test.mjs` evaluates the chain with the Filter Effects matrices, so a tweak
+  that leaks green or clips is caught. Cost: in-app frame rates on SwiftShader did not move
+  (≈ 2.5–2.8 fps at 560×360, WebGL-bound either way); in software compositing each function costs
+  a pass (a DOM-only page fell from ≈ 58 to 13 fps with this chain, 7 with a six-function one), so
+  the chain is kept short. Real GPUs run it as one colour-matrix pass over the page. Copy that
+  relies on colour alone reads poorly in red (the accent becomes just a brightness), so a state in
+  a menu says it in words ('On: tap for full colour again').
+- **Contrast.** Secondary text (`--muted`, `--faint`) keeps 4.5:1 on the panels, also in sky view
+  over a pale daytime sky, where the blur tiers' glass is .9 opaque and `--faint` a step lighter
+  (`body.is-sky`); `test/ui.a11y-css.test.mjs` computes it from the tokens. Focus rings are the
+  accent outline plus a dark 5-px halo (`.ui :focus-visible`), visible over the sky and in panels.
+- **System preferences** (css/app.css section 22): `prefers-reduced-transparency: reduce` makes
+  the panel tokens opaque and drops every backdrop blur; `prefers-contrast: more` brightens
+  `--text-2`, `--muted` and `--faint` (≥ 7:1), makes panels opaque and edges panels, chips,
+  segments and soft buttons with `--line-2`; `forced-colors: active` gives panels and controls
+  system-colour edges and draws fill-only states (switches, segmented choices, pressed chips, the
+  active tab's ink, the time bar's thumb) in `Highlight`, keeps canvases on a dark ground and
+  leaves the scene's labels (`#labels-root`, over the unforced 3D view) in their own colours. New
+  controls whose state is only a background need a line there. Override selectors include
+  `body.is-sky` where the sky view sets the same token.

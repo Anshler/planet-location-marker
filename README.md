@@ -83,8 +83,14 @@ browser, and nothing needs the network.
     manual Max (Settings → Quality) with 8K Earth maps and every effect at full detail, for fast GPUs.
   - The scene renders only when something changes.
   - A text mode with full sky tables and the Sky dome on devices without WebGL 2.
-- **Accessible.** Full keyboard control, screen-reader announcements, and support for
-  `prefers-reduced-motion`.
+- **Accessible.** Full keyboard control, screen-reader announcements, focus rings that show
+  over a bright sky, and the system's display settings: `prefers-reduced-motion`,
+  `prefers-reduced-transparency` (solid panels), `prefers-contrast: more` (brighter text, edged
+  panels and chips) and `forced-colors` (Windows High Contrast).
+- **Night vision for real observing.** Settings → Night vision, <kbd>Shift</kbd>+<kbd>N</kbd> or
+  the phone's ⋯ menu turns the whole screen dim red, so your eyes stay dark-adapted, and keeps the
+  screen awake (also in Sky view on a phone). It is a setting of the device, never part of a
+  shared link.
 - **Made for the device in your hand.** On a touch screen the tips talk in taps and drags, Help
   opens on the gestures (the ⋯ button on a phone), and a first visit ends with three short
   interface tips (Settings → Show interface tips replays them). It installs as an app: About →
@@ -110,6 +116,7 @@ browser, and nothing needs the network.
 | <kbd>S</kbd> | Share a link to this view |
 | <kbd>F</kbd> | Fullscreen |
 | <kbd>H</kbd> | Hide the interface |
+| <kbd>Shift</kbd>+<kbd>N</kbd> | Night vision (dim red screen, kept awake) |
 | <kbd>?</kbd> | Help |
 | Arrows · <kbd>+</kbd> / <kbd>−</kbd> · <kbd>Home</kbd> | Rotate or look around · zoom · reset the camera |
 

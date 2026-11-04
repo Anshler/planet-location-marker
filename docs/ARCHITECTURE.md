@@ -55,6 +55,7 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | Entry | `index.html` | Import map (`three`, `three/addons/`). `modulepreload` for three, astronomy-engine and `main.js`. Preload for `data/cities.json`. Inline loader. Classic scripts for error capture (`window.__pcLoader`) and feature detection (`window.__pcEnv`). |
 | | `js/main.js` | Boot sequence, service wiring, store-to-module subscriptions, click picking, tier switching, the intro runner, the guided-tour loader (`startTour`), `window.__app`. |
 | App glue | `js/app/actions.js` | `createActions(deps)`: the only API the UI calls besides `store` and `clock`. Also `normalizeObserver`, `eventFraming` (how a jump frames its event), `eclipseFocusExpired`, `eclipsePlayRange` and `lookSpanning`. |
+| | `js/app/mars-host.js` | `createMarsHost(deps)`: standing on Mars (loaded by `main.js bindHost` the first time `store.host` is Mars). `enter()` hands the loop a Mars snapshot source (`loop.setHost`), broadcasts `setHost('mars')`, hides the Earth-only groups (`R.earthGroups`), registers the `sat:` provider and adds `render/mars-sky.js` once a renderer exists; `leave()` undoes it. No three.js. |
 | | `js/app/eclipse-chase.js` | `ribbonPlan` (which eclipse the globe's path ribbon shows), `chaseLegs`/`chaseTarget` and `createEclipseChase` (the shadow chase behind `actions.chaseEclipse`). No three.js. |
 | | `js/app/loop.js` | `createLoop(deps)`: the frame loop with render-on-demand, guarded module calls and strikes, governor sampling, the 4 Hz readout and idle supersampling (extra jittered frames once nothing moves, `core/sampling.js`). `redraw()` draws one frame on demand (captures); `step(now, dt, io)` runs one whole frame on a caller's time base (video sessions). |
 | | `js/app/capture.js` | `createCapture(deps).frame(opts)`: the scene rendered once at a requested size into a 2D canvas, with the label feed's labels reprojected for that camera (`projectAnchor`, `projectLabels`, `paintLabels`). Postcards and the long exposure's Save image. `session(opts)`: the same, frame after frame at one size (the time-lapse video). No three.js. |
@@ -102,6 +103,8 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/astro/orrery.js` | The solar-system zoom, pure: the crossfade (`systemBlend`, 80 → 150 R), the camera's pose (`systemPose`: pivot sliding from the Earth to the Sun, ecliptic direction, `liftLat`), the orbit polylines (`orbitPolylines`, the worker's `orbits`), the retrograde figure's sight lines (`sightAt`, `sightLines`, `sightStepMs`) and the edge arrows' place (`edgeExit`). |
 | | `js/astro/vantage.js` | Vantage points (loaded by the rig on first use): the L1 pose (235 R sunward, 4° toward ecliptic north, north up, 0.7°), the Earthrise orbit (`planLunarOrbit`: 150 km up, in the plane through the Earth direction nearest the ecliptic, rising over the sunlit limb; `lunarOrbitPose`: the orbiter's place at any time, looking along its track), `vantageFov`, `vantageNear`, `moonInFront`. |
 | | `js/astro/extras.js` | The extra-object registry (`createExtras`): providers per kind, `fill(snap)` → `snap.extras`, `state`, `meta`, `card`, `onChange`; `topocentricScene`, `extraAltAz`, `extraSky` (§4, Extra objects). |
+| | `js/astro/host-mars.js` | Standing on Mars: `computeMarsSnapshot(t, site, out, opts)` fills a Snapshot for an areographic site (slot 4 = the Earth, `snap.mars`), `marsMoonPosition` (Phobos and Deimos from mean elements), `createMarsMoonsProvider` (`sat:` extras). Loaded on demand (app/mars-host.js). |
+| | `js/astro/mars-clock.js` | Mars time (Allison & McEwen 2000 / Mars24: MSD, MTC, LMST, LTST, Ls, EOT, the solar declination), the landing sites, mission sols, `marsClockText` ('Sol N · hh:mm LMST'), `marsSunAltDeg`. |
 | | `js/astro/guest-stars.js` | The five naked-eye supernovae of 1006–1604 (`GUEST_STARS`, remnant positions, records), `guestMagnitude` (light-curve templates), `guestRiseSet` (AE `DefineStar` on `Star8`), the 'guest' provider. |
 | | `js/astro/comets.js` | Halley's Comet at its 1066, 1456, 1910, 1986 and 2061 apparitions: Kepler solvers (elliptic, hyperbolic, Barker), `elementsB1950ToJ2000`, light-time geocentric positions, the magnitude law, tail geometry (`fillTails`), the 'comet' provider. |
 | | `js/astro/sgp4.js` | Near-Earth SGP4 (Vallado 2006, WGS-72): `parseTle`, `sgp4init`, `sgp4`, `gstime`, `temeToEf`. |
@@ -131,6 +134,7 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/render/trails.js`, `flare.js`, `debug.js` | Retrograde paths, procedural lens flare (six-spike starburst, hexagonal aperture ghosts; no textures), `?debug=1` overlay. |
 | | `js/render/eclipse-path.js` | The path of a central solar eclipse on the globe: ribbon, centre line, 30-min ticks, the live umbra marker; reveal modes for the chase. |
 | | `js/render/extras.js` | Extra objects at infinity: guest stars as points of the star field's own material (`sky.starMaterial`), hollow-diamond markers (spacecraft), the selected extra's ring; `pickCandidates()`. |
+| | `js/render/mars-sky.js` | Standing on Mars (added by app/mars-host.js, loaded on demand): the Mars dome (`shaders/mars.glsl.js`: butterscotch day, blue aureole and twilight), Phobos and Deimos as true-size depth-writing discs, and the light-from-home beam to the Earth. |
 | | `js/render/dso.js` | Deep-sky objects as faint, true-size procedural sprites (one instanced quad each, per-type profiles, structure only at zoom; `deepSky` layer) and `pick(tapDir, radPerPx)` inside an object's outline. |
 | | `js/render/precession.js` | The `precession` layer: the pole's circle (illustrative), its 1000–3000 track with century ticks, live crosses on the pole and equinoxes of date; `anchors()` for the label feed (`getSkyMarks`). |
 | | `js/render/comets.js` | A comet's coma (true angular size, 5 px floor) and its ion and dust tails, billboards at infinity through the tail samples. |
@@ -611,6 +615,40 @@ an **extra object** with a namespaced id (`core/selection.js`): `<kind>:<key>`, 
   six (`ui/sat-passes.js`) with a countdown to sim time and **Watch this pass**
   (`actions.watchPass`: the clock cut — not swept, so tracking never loses it below the horizon —
   to 30 s before it appears, playing at 1×, the satellite selected and, in sky view, tracked).
+### Standing on Mars (phase 1: the sky view)
+
+- **State.** `store.host` `{id:'earth'|'mars', latDeg, lonDeg, name}`: the world the observer stands
+  on and the Martian site (planetocentric °N/°E, Jezero Crater by default; kept on Earth, so 'Stand on
+  Mars' returns to it). URL `host=mars` (+ `hloc=lat,lon` off Jezero; §10). `actions.standOnMars(site?)`
+  sets it with `view.mode 'sky'`; `actions.leaveMars()` clears it. `main.js bindHost` returns to the
+  Earth whenever the view leaves the sky (the globe and the map stay the Earth's in phase 1) or an
+  Earth place is chosen (any observer change not from boot).
+- **Snapshots.** The loop's `setHost({compute})` replaces `computeSnapshot` for both the frame and the
+  full snapshot with `astro/host-mars.js computeMarsSnapshot(t, store.host, out, opt)`: the same
+  Snapshot, with `snap.host = 'mars'` and `snap.mars` (clock, site, moons, light time). The second
+  place, the light-pollution site and the aurora are skipped on Mars. Everything else (tools that
+  compute their own snapshots: tours, recorder, expose, aim) stays the Earth's.
+- **The BODIES contract.** It is kept: slot 4 (`id 'mars'`, key 5) holds the Earth in a Mars
+  snapshot (`astro/bodies.js EARTH_TARGET`, `hostBodies(host)`), so beam and glyph instances, the 1–9
+  keys and `sel=mars` stay valid. Names and colours come from `hostBodies(snap.host)` (labels feed,
+  edge chips, Sky now, the body strip, the card, the UI hub's `bodyName`); CSS turns `--body-mars`
+  blue under `body.is-mars`.
+- **The scene.** The camera stays on the unit sphere where the Martian zenith points
+  (`observer.posS = upS`): the hidden globe lies under the ground. Earth-only modules are created
+  inside `earthOnly` groups (globe, atmosphere, aurora, meteors, trails, Sun paths, eclipse ribbon,
+  beams, pins, comets, spacecraft) that `app/mars-host.js` hides. Render modules with a
+  `setHost(id)`: `ground` (Mars palette `#define MARS`, no Preetham dome, a barren landscape),
+  `bodies` (the Earth's blue glyph in slot 4, the Moon as an extra glyph instance, dust extinction, a
+  bluish solar glow), `edge-chips` (names). `render/mars-sky.js` adds the dome, Phobos and Deimos
+  (opaque-depth discs, so a transit bites the Sun) and the home beam.
+- **Extras.** Providers may name a `host` ('earth' for comets and spacecraft, whose parallax is the
+  Earth's; 'mars' for `moon:phobos` and `moon:deimos`); the registry marks them not present in a
+  snapshot of the other world. Glyph `'disc'`: drawn by its own module, picked like a glyph.
+- **Degrading the Earth's features.** The UI hub's `riseSetFor` and `tonightFor` return nothing on
+  Mars (the almanac worker is the Earth observer's), the card hides the sub-point, footprint, compare,
+  Earthrise, paths, the year planner and the Earth's eyepiece portrait, the Events tab says its times
+  are for the place on Earth, and the time bar's zone chip gives way to the Mars stamp
+  'Sol N · hh:mm LMST' while the scrubber strip shows the Martian site's day and night.
 
 ### History: the Julian calendar, Moments and 'born under'
 
@@ -975,6 +1013,8 @@ change.
 - `vt` is a vantage point: `l1` or `moon` (globe view only; `cam` is then the orbit pose it returns
   to). A link opens straight there; the Earthrise orbit is planned at the link's time, so the Earth
   stands just over the limb.
+- `host=mars` stands on Mars (sky view; §4 'Standing on Mars'); `hloc=lat,lon` is the areographic
+  site, planetocentric °N/°E, written only off Jezero Crater. `sel=moon:phobos` selects a moon of Mars.
 
 `bindUrl` writes the hash at most every 500 ms and leaves a fresh visit's URL clean. Hand edits
 are applied live through `onExternalChange`. It writes nothing while a tour plays.

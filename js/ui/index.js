@@ -21,7 +21,7 @@
  * @module ui/index
  */
 
-import { BODIES, BODY_INDEX } from '../astro/bodies.js';
+import { BODIES, BODY_INDEX, hostBodies } from '../astro/bodies.js';
 import { APP_NAME } from '../version.js';
 import { createEmitter, prefersReducedMotion } from './dom.js';
 import { mountShell } from './shell.js';
@@ -320,7 +320,10 @@ function createUiHub(ctx, rootEl) {
     // -- bodies -------------------------------------------------------------
     // Extra objects (astro/extras.js; ctx.extras, the registry) answer the same three questions.
     const extras = ctx.extras ?? null;
-    const bodyName = (id) => BODIES[BODY_INDEX[id]]?.name ?? (isExtraId(id) ? extras?.meta?.(id)?.name : null) ?? String(id);
+    // Standing on Mars (store.host, ROADMAP stand-on-mars) slot 4 is the Earth (astro/bodies.js hostBodies).
+    const onMars = () => ctx.store?.get?.().host?.id === 'mars';
+    const bodyName = (id) => hostBodies(onMars() ? 'mars' : 'earth')[BODY_INDEX[id]]?.name
+        ?? (isExtraId(id) ? extras?.meta?.(id)?.name : null) ?? String(id);
     /** "The Sun" / "the Moon" / "Mars". */
     const bodySubject = (id, capital = true) => (id === 'sun' || id === 'moon'
         ? `${capital ? 'The' : 'the'} ${bodyName(id)}` : bodyName(id));
@@ -556,6 +559,8 @@ function createUiHub(ctx, rootEl) {
      * `{riseMs, transitMs, setMs}` from the "day" window.
      */
     function riseSetFor(id, t) {
+        // The almanac (astro worker) is the Earth observer's: from Mars there is none (phase 1).
+        if (onMars()) return { status: null, nextRiseMs: null, nextSetMs: null, riseMs: null, transitMs: null, setMs: null, transitAltDeg: null, known: false };
         const nx = alm.next?.data?.[id] || null;
         const dy = alm.day?.data?.[id] || null;
         const valid = (v) => Number.isFinite(v) && v >= t - 60e3;
@@ -573,6 +578,7 @@ function createUiHub(ctx, rootEl) {
 
     /** Tonight report for a body, if available. */
     function tonightFor(id) {
+        if (onMars()) return null;   // the Earth observer's night (astro worker)
         const reps = alm.night?.tonight?.reports;
         if (!Array.isArray(reps)) return null;
         return reps.find((r) => r && r.id === id) || null;
@@ -592,7 +598,7 @@ function createUiHub(ctx, rootEl) {
         fmt, act,
         displayTz, observerTz, zoned, toUtc, fmtClock, fmtDay, fmtStamp, fmtSpoken, fmtWhen, offsetText,
         latLonText, placeLabel, placeShort, nearestCityText,
-        bodyName, bodySubject, bodyOf, compass, compassWords, altAz, extras,
+        bodyName, bodySubject, bodyOf, compass, compassWords, altAz, extras, onMars,
         checkAlmanac, ingestAlmanac, ingestEvents, invalidateAlmanac, riseSetFor, tonightFor, observerKey, astroObserver,
         MONTHS, MONTHS_LONG, WEEKDAYS,
         /** True when transitions should be cuts. */

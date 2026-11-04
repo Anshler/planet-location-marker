@@ -171,6 +171,10 @@ export function createSnapshot() {
         // The second place's snapshot at the same instant (ROADMAP two-observers), or null. Set by
         // the frame loop, never by computeSnapshot.
         second: null,
+        // The world the observer stands on: 'earth' here, 'mars' from astro/host-mars.js, which also
+        // fills `mars` (its clock, site and moons; created there on first use).
+        host: 'earth',
+        mars: null,
     };
 }
 
@@ -291,6 +295,7 @@ export function computeSnapshot(tMs, observer, out, opts) {
     out.tMs = tMs;
     out.jdUT = tMs / 86400000 + 2440587.5;
     out.detail = full ? 'full' : 'frame';
+    out.host = 'earth';
 
     // Earth orientation: E = PN·Rz(GAST); earthMatrix = embed(S·E·Sᵀ).
     out.gastDeg = earthRotationM3(time, E3);

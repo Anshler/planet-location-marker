@@ -62,6 +62,36 @@ export const BODIES = Object.freeze([
 ]);
 
 /**
+ * The Earth as a target, for an observer standing on Mars (astro/host-mars.js). It takes Mars's
+ * slot (index 4, key 5, id 'mars'), so every consumer that indexes BODIES — beams, glyphs, the 1–9
+ * keys, URL ids — stays valid; only what is shown (name, colour, astronomy-engine body) changes.
+ * `target` names the body it really is.
+ * @type {Readonly<BodyInfo & {target:string}>}
+ */
+export const EARTH_TARGET = Object.freeze({
+    id: 'mars', target: 'earth', ae: 'Earth', name: 'Earth', kind: 'planet', color: '#6fb6ff', radiusKm: 6371.0, key: '5',
+});
+
+/**
+ * The nine slots as seen from each host world: the Earth's sky (BODIES), and Mars's, where slot 4
+ * is the Earth (the verifier's host table; ROADMAP stand-on-mars).
+ * @type {Readonly<{earth:ReadonlyArray<BodyInfo>, mars:ReadonlyArray<BodyInfo>}>}
+ */
+export const HOST_BODIES = Object.freeze({
+    earth: BODIES,
+    mars: Object.freeze(BODIES.map((b) => (b.id === 'mars' ? EARTH_TARGET : b))),
+});
+
+/**
+ * The slot table for a host world ('earth' when unknown).
+ * @param {string|null|undefined} host a snapshot's `host` or the store's `host.id`
+ * @returns {ReadonlyArray<BodyInfo>}
+ */
+export function hostBodies(host) {
+    return host === 'mars' ? HOST_BODIES.mars : BODIES;
+}
+
+/**
  * Index of each body in BODIES, e.g. `BODY_INDEX.mars === 4`.
  * @type {Readonly<Record<BodyId, number>>}
  */

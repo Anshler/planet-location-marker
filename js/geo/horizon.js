@@ -254,7 +254,7 @@ export function horizonKey(latDeg, lonDeg, ctx = {}) {
  * @param {HorizonProfile} out
  * @param {number} latDeg
  * @param {number} lonDeg
- * @param {{water?:((latDeg:number, lonDeg:number) => number)|null, urban?:number}} [ctx]
+ * @param {{water?:((latDeg:number, lonDeg:number) => number)|null, urban?:number, barren?:boolean}} [ctx]
  * @returns {HorizonProfile} out
  */
 export function buildHorizon(out, latDeg, lonDeg, ctx = {}) {
@@ -271,7 +271,8 @@ export function buildHorizon(out, latDeg, lonDeg, ctx = {}) {
     // Near band: tree clumps across fields, or rooftops with narrow gaps in town. Trees thin out
     // past the Arctic tree line (66–72° N) and stop south of 60° S (Antarctica, ice and rock).
     out.near.fill(0);
-    const treeK = (1 - smooth(66, 72, latDeg)) * smooth(-60, -56, latDeg);
+    // `barren` (standing on Mars, render/ground.js): no trees, no roofs, only the far ridge.
+    const treeK = ctx.barren ? 0 : (1 - smooth(66, 72, latDeg)) * smooth(-60, -56, latDeg);
     const start = rand() * 360;
     let az = start;
     while (az < start + 360) {

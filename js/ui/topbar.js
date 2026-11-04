@@ -9,6 +9,7 @@
 import { APP_NAME } from '../version.js';
 import { h, s, on, setText } from './dom.js';
 import { icon } from './icons.js';
+import { marsSiteNear } from '../astro/mars-clock.js';
 
 /**
  * The brand mark: a small Earth with a beam toward a planet.
@@ -50,12 +51,30 @@ export function mountTopbar(root, ctx) {
         'data-tip': 'Search places', 'data-kbd': '/', 'data-tip-side': 'bottom',
     }, icon('search', { size: 19 }));
 
-    root.append(brand, h('div', { class: 'topbar__loc' }, chip, search));
+    // Standing on Mars: the chip names the Martian site, and a button goes home.
+    const home = h('button', {
+        class: 'btn btn--soft glass topbar__home', type: 'button', hidden: true, 'data-tip': 'Back to the Earth', 'data-tip-side': 'bottom',
+    }, icon('globe', { size: 16 }), h('span', null, 'Back to Earth'));
+    root.append(brand, h('div', { class: 'topbar__loc' }, chip, search, home));
+    offs.push(on(home, 'click', () => ui.act('leaveMars')));
 
     offs.push(on(chip, 'click', () => ui.openPalette()));
     offs.push(on(search, 'click', () => ui.openPalette()));
 
     const render = () => {
+        const host = store.get().host;
+        const mars = host?.id === 'mars';
+        home.hidden = !mars;
+        if (mars) {
+            const site = marsSiteNear(host.latDeg, host.lonDeg, 0.5);
+            const label = `${host.name || site?.name || 'Mars'}, Mars`;
+            const coords = ui.latLonText(host.latDeg, host.lonDeg, 2);
+            setText(chipName, label);
+            setText(chipCoords, coords);
+            chip.setAttribute('aria-label', `Standing on Mars: ${label}, ${coords}. Choose a place`);
+            chip.title = `${label} · ${coords} (planetocentric, east longitude)`;
+            return;
+        }
         const o = store.get().observer;
         if (!o) return;
         let label = ui.placeLabel(o);
@@ -67,6 +86,7 @@ export function mountTopbar(root, ctx) {
         chip.title = `${label} · ${coords}`;
     };
     offs.push(store.subscribe((st) => st.observer, render, { immediate: true }));
+    offs.push(store.subscribe((st) => st.host, render));
     // Offline cities load after mount; a nameless observer can then say "near …".
     const retry = setInterval(() => {
         const c = ctx.services?.cities;

@@ -268,6 +268,23 @@ ${LANDSCAPE_CHUNK}
 #ifdef LANDSCAPE_DETAIL
 ${SEA_CHUNK}
 #endif
+#ifdef MARS
+// Standing on Mars (render/mars-sky.js): rust-brown land under a butterscotch haze, a blue glow
+// toward a low Sun, a browner twilight (illustrative, tuned to rover imagery).
+const vec3 G_DAY = vec3(0.50, 0.29, 0.16);
+const vec3 G_TWI = vec3(0.050, 0.038, 0.032);
+const vec3 H_NIGHT = vec3(0.05, 0.04, 0.035);
+const vec3 H_DAY = vec3(0.86, 0.62, 0.40);
+const vec3 H_SUNSET = vec3(0.50, 0.66, 1.0);
+const vec3 H_TWI = vec3(0.050, 0.060, 0.090);
+#else
+const vec3 G_DAY = vec3(0.36, 0.35, 0.29);
+const vec3 G_TWI = vec3(0.038, 0.045, 0.061);
+const vec3 H_NIGHT = vec3(0.05, 0.07, 0.12);
+const vec3 H_DAY = vec3(0.6, 0.7, 0.85);
+const vec3 H_SUNSET = vec3(1.0, 0.55, 0.28);
+const vec3 H_TWI = vec3(0.066, 0.088, 0.143);
+#endif
 void main() {
     vec3 d = normalize(vDir);
     float h = clamp(dot(d, uUp), -1.0, 1.0);
@@ -283,11 +300,11 @@ void main() {
     // band above the horizon (below) stays about twice as bright, so the horizon still reads.
     float tw = smoothFall(4.0, -1.0, uSunAltDeg) * exp(-max(-uSunAltDeg, 0.0) / 5.5)
         * smoothstep(-17.0, -10.0, uSunAltDeg) * (1.0 - smoothstep(2.0, 12.0, uSunAltDeg)) * uDayGain;
-    vec3 groundCol = vec3(0.0022, 0.0026, 0.0036) * (1.0 - dayK) + vec3(0.36, 0.35, 0.29) * light
-        + vec3(0.038, 0.045, 0.061) * tw + vec3(0.010, 0.0125, 0.017) * uMoonLight
+    vec3 groundCol = vec3(0.0022, 0.0026, 0.0036) * (1.0 - dayK) + G_DAY * light
+        + G_TWI * tw + vec3(0.010, 0.0125, 0.017) * uMoonLight
         + vec3(0.006, 0.009, 0.014) * uEclFloor;
     groundCol += skyglowGround();   // moonlight and city light on the land (skyglow.glsl.js)
-    vec3 hazeCol = vec3(0.05, 0.07, 0.12) * (1.0 - dayK) + vec3(0.6, 0.7, 0.85) * dayK * uDayGain
+    vec3 hazeCol = H_NIGHT * (1.0 - dayK) + H_DAY * dayK * uDayGain
         + vec3(0.03, 0.04, 0.07) * uEclFloor;
     // Warm haze toward the Sun's azimuth around sunrise/sunset.
     vec3 sunH = uSunDir - uUp * dot(uSunDir, uUp);
@@ -297,10 +314,10 @@ void main() {
     float low = 1.0 - smoothstep(0.0, 7.0, abs(uSunAltDeg + 1.0));
     float sw = clamp(0.5 + 0.5 * cAz, 0.0, 1.0);
     sw *= sw;
-    hazeCol = mix(hazeCol, vec3(1.0, 0.55, 0.28) * (0.35 + 0.65 * dayK) * uDayGain, low * sw * sw);
+    hazeCol = mix(hazeCol, H_SUNSET * (0.35 + 0.65 * dayK) * uDayGain, low * sw * sw);
     hazeCol *= mix(0.25, 1.0, smoothstep(-14.0, -2.0, uSunAltDeg));
     // Twilight and moonlit haze: the horizon band stays brighter than the land it lights.
-    hazeCol += (vec3(0.066, 0.088, 0.143) * tw + vec3(0.025, 0.032, 0.050) * uMoonLight) * (1.0 - dayK);
+    hazeCol += (H_TWI * tw + vec3(0.025, 0.032, 0.050) * uMoonLight) * (1.0 - dayK);
     // Totality: the horizon ring lights the haze below it and, dimly, the land.
     float tot = smoothstep(0.985, 1.0, uObscuration);
     if (tot > 0.0) {

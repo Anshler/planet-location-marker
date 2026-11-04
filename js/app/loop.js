@@ -139,7 +139,7 @@ const FEATURE_NAMES = Object.freeze({
  *            attach(renderDeps:object):void, broadcast(method:string, a?:any, b?:any):void,
  *            callModule(m:RenderModule, method:string, a?:any, b?:any, c?:any):boolean, isDisabled(m:RenderModule):boolean,
  *            replaceModule(prev:RenderModule|null, next:RenderModule, name?:string):void,
- *            setDebug(overlay:any):void, setRenderPaused(paused:boolean):void, setSkySite(site:object|null):void, setAuroraActivity(activity:string):void, refreshReadout():void,
+ *            setDebug(overlay:any):void, setRenderPaused(paused:boolean):void, setSkySite(site:object|null):void, setHost(h:object|null):void, setAuroraActivity(activity:string):void, refreshReadout():void,
  *            stats():object, dispose():void, readonly running:boolean, readonly rendering:boolean}}
  */
 export function createLoop(deps) {
@@ -161,6 +161,9 @@ export function createLoop(deps) {
     let auroraActivity = deps.auroraActivity ?? 'typical';
     // Extra objects beyond the nine bodies (astro/extras.js): snap.extras, filled per snapshot.
     const extras = deps.extras ?? null;
+    // The world the observer stands on (setHost): null = the Earth (computeSnapshot), else an object
+    // whose compute(t, out, opt) fills the snapshots instead (astro/host-mars.js, via app/mars-host.js).
+    let host = null;
 
     // Render stack (attached later in the normal boot).
     let rc = null;
@@ -354,9 +357,15 @@ export function createLoop(deps) {
         }
     }
 
-    /** The second place's snapshot (into `out`), or null when there is no second place. */
+    /** A snapshot for the observer's host world: the Earth's place, or the host's own (setHost). */
+    function snapAt(t, obs, out, opt) {
+        if (host) host.compute(t, out, opt);
+        else computeSnapshot(t, obs, out, opt);
+    }
+
+    /** The second place's snapshot (into `out`), or null when there is no second place (or on Mars). */
     function computeSecond(t, obs2, out, opt) {
-        if (!obs2 || !Number.isFinite(obs2.latDeg) || !Number.isFinite(obs2.lonDeg)) return null;
+        if (host || !obs2 || !Number.isFinite(obs2.latDeg) || !Number.isFinite(obs2.lonDeg)) return null;
         try {
             computeSnapshot(t, obs2, out, opt);
             return out;
@@ -371,8 +380,9 @@ export function createLoop(deps) {
      * the first two are left alone; the extras registry adds its states).
      */
     function fillSkyglow(s) {
-        if (s.skyglow) computeSkyglow(s, skySite, s.skyglow);
-        if (s.aurora) computeAurora(s, auroraActivity, s.aurora);
+        // Away from the Earth there are no city lights and no auroral ovals of the Earth's.
+        if (s.skyglow) computeSkyglow(s, host ? null : skySite, s.skyglow);
+        if (s.aurora && !host) computeAurora(s, auroraActivity, s.aurora);
         if (extras) {
             try {
                 extras.fill(s);
@@ -440,7 +450,7 @@ export function createLoop(deps) {
         if (rendering && (observerDirty || jumped || !snapValid
             || (fine ? t !== snap.tMs : Math.abs(t - snap.tMs) >= SNAP_STALE_MS))) {
             try {
-                computeSnapshot(t, obs, snap, OPT_FRAME);
+                snapAt(t, obs, snap, OPT_FRAME);
                 fillSkyglow(snap);
                 snap.second = computeSecond(t, obs2, snap2, OPT_FRAME);
                 snapValid = true;
@@ -458,7 +468,7 @@ export function createLoop(deps) {
         if (observerDirty) fullStale = true;
         if (now - lastFull >= FULL_INTERVAL_MS && (!fullValid || t !== fullT || fullStale)) {
             try {
-                computeSnapshot(t, obs, snapFull, OPT_FULL);
+                snapAt(t, obs, snapFull, OPT_FULL);
                 fillSkyglow(snapFull);
                 snapFull.second = computeSecond(t, obs2, snapFull2, OPT_FULL);
                 fullValid = true;
@@ -473,7 +483,7 @@ export function createLoop(deps) {
             if (!rendering && !snapValid) {
                 // Headless: keep the frame snapshot meaningful for snapshot() consumers.
                 try {
-                    computeSnapshot(t, obs, snap, OPT_FRAME);
+                    snapAt(t, obs, snap, OPT_FRAME);
                     fillSkyglow(snap);
                     snap.second = computeSecond(t, obs2, snap2, OPT_FRAME);
                     snapValid = true;
@@ -695,7 +705,7 @@ export function createLoop(deps) {
         const obs2 = store.get().observer2 ?? null;
         if (observerDirty || jumped || !snapValid || t !== snap.tMs) {
             try {
-                computeSnapshot(t, obs, snap, OPT_FRAME);
+                snapAt(t, obs, snap, OPT_FRAME);
                 fillSkyglow(snap);
                 // The second place's beams and pin follow the session's time as well.
                 snap.second = computeSecond(t, obs2, snap2, OPT_FRAME);
@@ -708,7 +718,7 @@ export function createLoop(deps) {
         }
         if (now - lastFull >= FULL_INTERVAL_MS || observerDirty) {
             try {
-                computeSnapshot(t, obs, snapFull, OPT_FULL);
+                snapAt(t, obs, snapFull, OPT_FULL);
                 fillSkyglow(snapFull);
                 snapFull.second = computeSecond(t, obs2, snapFull2, OPT_FULL);
                 fullValid = true;
@@ -993,6 +1003,18 @@ export function createLoop(deps) {
             snapValid = false;
             dirty = true;
         },
+        /**
+         * The world the observer stands on: null for the Earth, or `{compute(t, out, opt)}` (the Mars
+         * sky, astro/host-mars.js). Both snapshots are recomputed on the next frame.
+         * @param {{compute:(t:number, out:Snapshot, opt:object)=>void}|null} h
+         */
+        setHost(h) {
+            host = h && typeof h.compute === 'function' ? h : null;
+            observerDirty = true;
+            fullStale = true;
+            dirty = true;
+        },
+        get host() { return host; },
         /** Installs or removes the debug overlay (`{update(dtMs)}`). */
         setDebug(overlay) {
             debug = overlay ?? null;

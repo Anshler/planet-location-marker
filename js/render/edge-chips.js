@@ -21,7 +21,7 @@
  * @module render/edge-chips
  */
 import * as THREE from 'three';
-import { BODIES } from '../astro/bodies.js';
+import { BODIES, hostBodies } from '../astro/bodies.js';
 import { liftByRefraction } from '../astro/photometry.js';
 import { edgeHit } from '../astro/sky-guide.js';
 import { uiOccluders } from './labels.js';
@@ -341,6 +341,18 @@ export function createEdgeChips(rc, deps = {}) {
         },
         setSelection(id) { selection = id ?? null; },
         setViewMode(mode) { if (mode !== 'sky') hideAll(); },
+        /** The world the observer stands on: on Mars slot 4 is the Earth (astro/bodies.js hostBodies). */
+        setHost(id) {
+            const table = hostBodies(id);
+            for (const s of slots) {
+                const name = table[s.i].name;
+                if (s.name === name) continue;
+                s.name = name;
+                s.text = '';
+                const el = s.el && s.el.querySelector('.echip__name');
+                if (el) el.textContent = name;
+            }
+        },
         /** Chips on screen after the last frame (tests, stats). */
         stats() { return { shown }; },
         dispose() { layer?.remove(); },

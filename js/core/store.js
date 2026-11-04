@@ -59,6 +59,14 @@ export const VANTAGE_SETTINGS = Object.freeze(['none', 'l1', 'moon']);
 export const VIEW_MODES = Object.freeze(['orbit', 'sky', 'map']);
 
 /**
+ * host: the world the observer stands on (ROADMAP stand-on-mars, `host=mars` + `hloc=` in the URL).
+ * 'earth' is the observer's place; 'mars' is the sky view from an areographic site (planetocentric
+ * °N/°E; astro/host-mars.js), Jezero Crater by default. The site is kept while on Earth, so 'Stand on
+ * Mars' returns to the last one. Leaving the sky view or choosing an Earth place returns to Earth.
+ */
+export const HOST_DEFAULT = Object.freeze({ id: 'earth', latDeg: 18.4447, lonDeg: 77.4508, name: 'Jezero Crater' });
+
+/**
  * The initial application state (SPEC §C.3). Frozen: copy before modifying.
  * @type {Readonly<AppState>}
  */
@@ -66,6 +74,7 @@ export const DEFAULT_STATE = deepFreeze({
     observer: { latDeg: 51.4769, lonDeg: -0.0005, elevM: 0, name: 'Royal Observatory Greenwich', country: 'United Kingdom', tz: 'Europe/London', tzApprox: false, source: 'default' },
     // A second place to compare with (ROADMAP two-observers; `loc2` in the URL), or null.
     observer2: null,
+    host: HOST_DEFAULT,
     selection: null, view: { mode: 'orbit', earthLock: true, track: 'none', vantage: 'none', system: false },
     layers: {
         beams: true, ghostBeams: true, sunMoonBeams: true, stars: true, constellations: true, constellationNames: true, starNames: true,

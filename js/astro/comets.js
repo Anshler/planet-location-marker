@@ -380,6 +380,8 @@ export function createCometProvider() {
     return {
         kind: 'comet',
         kindLabel: 'Comet',
+        // Geocentric orbits with the Earth's parallax: not drawn from Mars (astro/extras.js host).
+        host: 'earth',
         ids: () => ids,
         meta(id) {
             return id === 'comet:halley' ? { name: 'Halley’s Comet', short: 'Halley', color: '#bfe9ff', glyph: 'coma', label: 'always' } : null;

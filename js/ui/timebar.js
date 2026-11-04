@@ -27,6 +27,7 @@ import { BODIES, BODY_INDEX } from '../astro/bodies.js';
 import { h, on, setText, setAttr, clamp, openPopover, uid } from './dom.js';
 import { icon, swapIcon } from './icons.js';
 import { parseCalendarInput, toCalendar, fromCalendar } from '../core/tz.js';
+import { createMarsTime, marsTimeTT, marsClockText, marsSunAltDeg, marsSiteNear } from '../astro/mars-clock.js';
 
 const MIN_MS = Date.UTC(1000, 0, 1);
 const MAX_MS = Date.UTC(3000, 0, 1);
@@ -104,6 +105,23 @@ function sunAltApprox(tMs, latDeg, lonDeg) {
     const ha = (280.46061837 + 360.98564736629 * d + lonDeg) * RAD - ra;
     const la = latDeg * RAD;
     return Math.asin(Math.sin(la) * Math.sin(dec) + Math.cos(la) * Math.cos(dec) * Math.cos(ha)) / RAD;
+}
+
+// Standing on Mars (store.host): the scrubber's day/night strip and the stamp follow the Martian
+// site's Sun and clock (astro/mars-clock.js). TT ≈ UT + 69.2 s is plenty for a colour strip.
+const MT = createMarsTime();
+const ttDaysApprox = (tMs) => (tMs - 946728000000) / 86400000 + 69.2 / 86400;
+function marsSunAlt(tMs, latDeg, lonDeg) {
+    return marsSunAltDeg(marsTimeTT(ttDaysApprox(tMs), lonDeg, MT), latDeg);
+}
+/** Fraction of the sol the Sun is up at a Martian latitude. */
+function marsDayFraction(tMs, latDeg) {
+    const dec = marsTimeTT(ttDaysApprox(tMs), 0, MT).solarDecDeg * RAD;
+    const la = clamp(latDeg, -89.9, 89.9) * RAD;
+    const cosH = (Math.sin(-0.3 * RAD) - Math.sin(la) * Math.sin(dec)) / (Math.cos(la) * Math.cos(dec));
+    if (cosH >= 1) return 0;
+    if (cosH <= -1) return 1;
+    return Math.acos(cosH) / Math.PI;
 }
 
 /** Fraction of the day the Sun is up (0 = polar night, 1 = midnight sun). */
@@ -202,6 +220,9 @@ export function mountTimebar(root, ctx) {
     const dateBtn = h('button', {
         class: 'tb-date', type: 'button', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'data-tip': 'Go to a date and time',
     }, h('span', { class: 'tb-date__icon' }, icon('calendar', { size: 18 })), h('span', { class: 'stamp' }, stampDay, stampCal, stampSep, stampTime));
+    // Standing on Mars: the site's mission sol (or Mars Sol Date) and local mean solar time.
+    const stampMars = h('span', { class: 'tb-sol', hidden: true, title: 'Local mean solar time at the Martian site (Allison & McEwen 2000, as Mars24)' });
+    dateBtn.append(stampMars);
     const badge = h('span', { class: 'badge badge--warn tb-accuracy', hidden: true, title: 'Planet positions are most accurate between 1800 and 2200' },
         icon('warning', { size: 14 }), h('span', { class: 'tb-accuracy__text' }, 'Reduced accuracy'));
     const tzChip = h('button', { class: 'chip tb-tz', type: 'button', 'data-tip': 'Change time zone' });
@@ -477,6 +498,14 @@ export function mountTimebar(root, ctx) {
             if (stampCal.title !== tipText) stampCal.title = tipText;
         }
         setAttr(dateBtn, 'aria-label', `Date and time: ${ui.fmtSpoken(t)}${jul ? ' (Julian calendar)' : ''}. Change`);
+        const host = store.get().host;
+        const mars = host?.id === 'mars';
+        if (stampMars.hidden === mars) stampMars.hidden = !mars;
+        if (mars) {
+            const site = marsSiteNear(host.latDeg, host.lonDeg, 0.5);
+            const txt = marsClockText(marsTimeTT(ttDaysApprox(t), host.lonDeg, MT), site ? { ...site, lonDeg: host.lonDeg } : { lonDeg: host.lonDeg }).text;
+            setText(stampMars, txt);
+        }
         const y = new Date(t).getUTCFullYear();
         if (y !== lastYear) {
             lastYear = y;
@@ -499,6 +528,8 @@ export function mountTimebar(root, ctx) {
             label = `Times in ${p}, ${off}. Switch to this device's time`;
             tipText = `Times in ${p}. Change time zone`;
         }
+        // Standing on Mars the clock is still the Earth's: say so.
+        if (st.host?.id === 'mars') { label = `Earth time: ${label}`; tipText = 'The clock is the Earth’s; Mars time is beside the date'; }
         // The place part is its own span so the phone layout can drop it.
         if (tzChip.textContent !== text + place) tzChip.replaceChildren(text, place ? h('span', { class: 'tb-tz__place' }, place) : '');
         setAttr(tzChip, 'aria-label', label);
@@ -644,12 +675,13 @@ export function mountTimebar(root, ctx) {
         const cw = canvas.width;
         const data = lineImg.data;
         const lat = obs.latDeg, lon = obs.lonDeg;
+        const mars = obs.mars === true;
         const sv = series.values, sn = series.n, sf = series.fromMs, sspan = series.toMs - series.fromMs;
         for (let x = from; x < to; x += 1) {
             const t = grad.start + ((x + 0.5) / cw) * grad.span;
             let r, g, b;
             if (wide) {
-                const k = smooth(0.22, 0.78, dayFraction(t, lat));
+                const k = smooth(0.22, 0.78, mars ? marsDayFraction(t, lat) : dayFraction(t, lat));
                 r = C_NIGHT[0] + (C_DAY[0] - C_NIGHT[0]) * k;
                 g = C_NIGHT[1] + (C_DAY[1] - C_NIGHT[1]) * k;
                 b = C_NIGHT[2] + (C_DAY[2] - C_NIGHT[2]) * k;
@@ -661,7 +693,7 @@ export function mountTimebar(root, ctx) {
                     const u = f - i;
                     alt = sv[i] * (1 - u) + sv[i + 1] * u;
                 } else {
-                    alt = sunAltApprox(t, lat, lon);
+                    alt = mars ? marsSunAlt(t, lat, lon) : sunAltApprox(t, lat, lon);
                 }
                 const li = Math.round((clamp(alt, LUT_MIN, LUT_MIN + (LUT_N - 1) * LUT_STEP) - LUT_MIN) / LUT_STEP) * 3;
                 r = LUT[li]; g = LUT[li + 1]; b = LUT[li + 2];
@@ -669,6 +701,15 @@ export function mountTimebar(root, ctx) {
             const o = x * 4;
             data[o] = r; data[o + 1] = g; data[o + 2] = b; data[o + 3] = 255;
         }
+    }
+
+    let marsObsCache = null;
+    /** The Martian site as a gradient 'observer' (never matches an Earth series key). */
+    function marsObs(host) {
+        if (!marsObsCache || marsObsCache.latDeg !== host.latDeg || marsObsCache.lonDeg !== host.lonDeg) {
+            marsObsCache = { latDeg: host.latDeg, lonDeg: host.lonDeg, elevM: -999999, mars: true };
+        }
+        return marsObsCache;
     }
 
     function drawGradient(obs) {
@@ -847,7 +888,9 @@ export function mountTimebar(root, ctx) {
         }
         computeWindow();
         ensureSeries();
-        const obs = store.get().observer;
+        const host = store.get().host;
+        // On Mars the strip shows the Martian site's day and night (elevM marks its key apart).
+        const obs = host?.id === 'mars' ? marsObs(host) : store.get().observer;
         g2d.clearRect(0, 0, canvas.width, canvas.height);
         if (obs && lineImg) drawGradient(obs);
         drawGrid();
@@ -1006,6 +1049,7 @@ export function mountTimebar(root, ctx) {
     if (clock.onChange) offs.push(clock.onChange(() => { syncControls(true); kick(); }));
     offs.push(store.subscribe((s) => s.display, () => { labelCache.clear(); syncControls(true); kick(); }));
     offs.push(store.subscribe((s) => s.observer, () => { labelCache.clear(); syncControls(true); kick(); }));
+    offs.push(store.subscribe((s) => s.host, () => { syncControls(true); kick(); }));
     offs.push(ui.on('events', kick));
     offs.push(ui.on('almanac', kick));
     offs.push(on(window, 'resize', () => { geomDirty = true; kick(); }));

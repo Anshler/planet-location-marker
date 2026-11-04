@@ -45,7 +45,7 @@
 // Priorities follow SPEC §C.6: selected 100, Sun/Moon 90, planets 80, extras 78, observer 70,
 // cardinal 60, stars 50 − mag, constellations 20.
 
-import { BODIES, BODY_INDEX, AU_ER } from '../astro/bodies.js';
+import { BODIES, BODY_INDEX, AU_ER, hostBodies } from '../astro/bodies.js';
 import { starVisibility } from '../astro/photometry.js';
 import { horizonAltDeg } from '../geo/horizon.js';
 import { eqAngRadius, RING_OUTER, SCOPE_FROM_PX } from '../astro/disc.js';
@@ -148,18 +148,65 @@ export function labelBelow(st, sky, horizon = null) {
 }
 
 /**
+ * Whole minutes of light time from the Earth to a Mars observer (snap.host 'mars'), else null.
+ * @param {Snapshot} snap
+ * @returns {number|null}
+ */
+export function homeLightMinutes(snap) {
+    if (!snap || snap.host !== 'mars') return null;
+    const s = snap.bodies?.[BODY_INDEX.mars]?.lightTimeS;
+    return Number.isFinite(s) ? Math.max(1, Math.round(s / 60)) : null;
+}
+
+/**
+ * Standing on Mars, the note on the light from home (render/mars-sky.js): it rides the beam, which
+ * climbs the Earth's vertical circle from the observer's feet, halfway up to the Earth
+ * (live.homeLight, syncHomeLight). Only while the Earth is up and the beams layer is on.
+ */
+function homeLightAnchor(out, state, snap, live) {
+    const min = homeLightMinutes(snap);
+    const e = snap.bodies[BODY_INDEX.mars];
+    if (min === null || !live.homeLight || !(e.altGeomDeg > 2) || state.layers?.beams === false) return;
+    const text = `the light from home left ${min} min ago`;
+    out.push({
+        id: 'home-light', text, kind: 'trail', priority: PRIORITY.planet + 2, color: hostBodies('mars')[BODY_INDEX.mars].color,
+        dirS: live.homeLight, offsetPx: GLYPH_OFFSET, ariaLabel: `The light from the Earth left ${min} minutes ago`, interactive: false,
+    });
+}
+
+/** live.homeLight: on the Earth's vertical circle, at half its altitude (no allocation). */
+function syncHomeLight(live, snap) {
+    const h = live.homeLight;
+    if (!h || snap.host !== 'mars') return;
+    const o = snap.observer, d = snap.bodies[BODY_INDEX.mars].dirS;
+    const k = d[0] * o.upS[0] + d[1] * o.upS[1] + d[2] * o.upS[2];
+    let hx = d[0] - k * o.upS[0], hy = d[1] - k * o.upS[1], hz = d[2] - k * o.upS[2];
+    const hl = Math.hypot(hx, hy, hz) || 1;
+    hx /= hl; hy /= hl; hz /= hl;
+    const a = 0.5 * Math.asin(Math.max(-1, Math.min(1, k)));
+    const c = Math.cos(a), s = Math.sin(a);
+    h[0] = hx * c + o.upS[0] * s;
+    h[1] = hy * c + o.upS[1] * s;
+    h[2] = hz * c + o.upS[2] * s;
+}
+
+/**
  * Body anchors (one per BODIES entry that is not hidden). `where` 'map': each sits on its sub-point;
  * 'system' (the solar-system zoom): on the orrery's live point (opts.systemPoint), or is left out.
  */
 function bodyAnchors(out, state, snap, sky, live, opts, where = null) {
     const map = where === 'map', system = where === 'system';
     const sel = state.selection ?? null;
+    // Standing on Mars, slot 4 is the Earth (astro/bodies.js hostBodies) and carries the light time.
+    const table = hostBodies(snap.host);
     for (let i = 0; i < BODIES.length; i++) {
-        const b = BODIES[i];
+        const b = table[i];
         if (opts.hideBody?.(b.id)) continue;
         const st = snap.bodies[i];
         const selected = sel === b.id;
-        const base = b.kind === 'planet' ? PRIORITY.planet : PRIORITY.sunMoon;
+        // From Mars the Earth outranks everything but the selection, and the Moon beside it is a planet-like point.
+        const home = b !== BODIES[i];
+        const base = home ? PRIORITY.earth : b.kind === 'planet' || (table !== BODIES && b.id === 'moon') ? PRIORITY.planet : PRIORITY.sunMoon;
         /** @type {LabelAnchor & Record<string, any>} */
         const a = {
             id: b.id,
@@ -526,6 +573,7 @@ export function buildAnchors(state, snap, catalog, trails, opts = {}) {
         });
     }
     if (live && sky) cardinalAnchors(out, live, false);
+    if (live && sky) homeLightAnchor(out, state, snap, live);
     if (live && !sky && opts.rimCardinals && layers.horizon !== false && !opts.hideObserver) cardinalAnchors(out, live, true);
     if (catalog && layers.stars !== false && layers.starNames) starAnchors(out, catalog, sky, state.selection ?? null);
     if (catalog && layers.constellationNames) constellationAnchors(out, catalog);
@@ -670,6 +718,7 @@ export function createLabelsFeed({ labels, store, snap, getCatalog = () => null,
         bodyMap: BODIES.map(() => new Float64Array(3)),
         pin2Head: new Float64Array([NaN, NaN, NaN]),
         parallaxAt: new Float64Array(3),
+        homeLight: new Float64Array([0, 1, 0]),
     };
     // The parallax note's text (rebuilt only when it changes, at most every PARALLAX_EVERY_MS).
     let parallax = '';
@@ -693,6 +742,7 @@ export function createLabelsFeed({ labels, store, snap, getCatalog = () => null,
     /** @type {'orbit'|'sky'|'map'|'system'|null} */
     let builtMode = null;
     let usesBeamPoints = false;
+    let hostKey = -1;   // −1 on the Earth, else the light-time minutes shown (Mars)
 
     // Intro choreography. With the beams' own anchors, labels already wait for their beam to land;
     // the per-body gating below is the fallback when that API is missing.
@@ -789,6 +839,9 @@ export function createLabelsFeed({ labels, store, snap, getCatalog = () => null,
      * @param {LabelView} [view]
      */
     function sync(camera, mode, view) {
+        // A new host world, or a new minute of light time from home (Mars): new names.
+        const hk = snap.host === 'mars' ? homeLightMinutes(snap) ?? 0 : -1;
+        if (hk !== hostKey) { hostKey = hk; dirty = true; }
         if (mode === 'orbit' && store.get().observer2) {
             // The parallax note follows the time, but only a changed figure rebuilds the list.
             const t = Date.now();
@@ -818,6 +871,7 @@ export function createLabelsFeed({ labels, store, snap, getCatalog = () => null,
             syncRim(live, getPin(), camera);
         } else {
             syncCardinals(live, snap);
+            syncHomeLight(live, snap);
             const pm = camera?.projectionMatrix?.elements;
             const h = view && view.viewportH > 0 ? view.viewportH : 0;
             bodyLabelOffsets(snap, pm && h ? 0.5 * h * pm[5] : 0, selIndex, bodyOffset);

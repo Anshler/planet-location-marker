@@ -68,7 +68,7 @@ function eventColor(ev) {
  * @returns {{update(snap:any): void, destroy(): void, shown(): void}}
  */
 export function mountEventsPanel(root, ctx) {
-    const { ui, clock } = ctx;
+    const { ui, clock, store } = ctx;
     const offs = [];
     let filter = 'all';
 
@@ -102,11 +102,15 @@ export function mountEventsPanel(root, ctx) {
             h('label', { class: 'field' }, h('span', { class: 'field__label' }, 'Time'), bornTime),
             h('button', { class: 'btn btn--primary btn--sm', type: 'submit' }, icon('sky', { size: 16 }), 'Show my sky')),
         bornCaption);
+    // Standing on Mars (ROADMAP stand-on-mars, phase 1): the events are the Earth observer's.
+    const marsNote = h('p', { class: 'note note--mars', hidden: true },
+        'You are standing on Mars: these events, times and jumps are for your place on the Earth.');
+    offs.push(store.subscribe((st) => st.host?.id, (id) => { marsNote.hidden = id !== 'mars'; }, { immediate: true }));
     root.append(
         h('div', { class: 'section-head' }, h('h2', { class: 'panel-title' }, 'Guided tours'), h('span', { class: 'pill' }, 'Narrated')),
         h('div', { class: 'tours', role: 'group', 'aria-label': 'Guided tours' }, tourBtns),
         h('div', { class: 'section-head' }, h('h2', { class: 'panel-title' }, 'Upcoming events'), h('span', { class: 'pill' }, 'Next 12 months')),
-        filterBar, next, list, empty,
+        marsNote, filterBar, next, list, empty,
         h('p', { class: 'note' }, 'Times are shown in the time-bar zone. Jump moves the clock (and the view, where useful) to the event.'),
         h('div', { class: 'section-head' }, h('h2', { class: 'panel-title' }, 'The sky you were born under')),
         h('p', { class: 'pop__hint' }, 'Your birthday, from where you are now (change the place first for another one).'),

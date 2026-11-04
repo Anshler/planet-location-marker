@@ -346,6 +346,8 @@ export function createSatProvider(sats, { json = null } = {}) {
     return {
         kind: 'sat',
         kindLabel: 'Satellite',
+        // Earth satellites: their geometry is from Earth, so they are not present from Mars.
+        host: 'earth',
         ids: () => ids,
         meta(id) {
             const s = byId.get(id);

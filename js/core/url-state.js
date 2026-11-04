@@ -15,6 +15,8 @@
 // `view=map` is the flat world map (the globe unrolled); its `cam` is `m:lat,lon,dist` (the map's
 // centre and the camera's distance from the plane). `loc2` (with `n2`, `tz2`) is a second place to
 // compare with (two-observers): its own pin and dashed beams on the globe, side by side in Sky now.
+// `host=mars` stands on Mars (stand-on-mars: the sky view from an areographic site); `hloc` is that
+// site, planetocentric °N,°E, written only when it is not Jezero Crater (the default).
 //
 // parseHash never throws: values are validated, clamped (time, elevation, camera) or dropped, and
 // every key that was present but not usable as written is listed in `invalid` (for the
@@ -23,7 +25,7 @@
 // short; `t` is omitted while Live.
 
 import { MIN_MS, MAX_MS, snapRate } from './clock.js';
-import { DEFAULT_STATE, SKY_DARK_SETTINGS, AURORA_SETTINGS, VANTAGE_SETTINGS, VIEW_MODES } from './store.js';
+import { DEFAULT_STATE, SKY_DARK_SETTINGS, AURORA_SETTINGS, VANTAGE_SETTINGS, VIEW_MODES, HOST_DEFAULT } from './store.js';
 import { canonTz, daysInMonth } from './tz.js';
 import { isTourId } from './tour-catalog.js';
 import { normalizeSelectionId, isSelectionId } from './selection.js';
@@ -39,7 +41,7 @@ export const LAYER_CODES = Object.freeze([
 ].map((pair) => Object.freeze(pair)));
 const LAYER_BY_CODE = new Map(LAYER_CODES);
 const KNOWN_KEYS = new Set(['loc', 'n', 'cc', 'tz', 'el', 't', 'r', 'p', 'view', 'lock', 'sel', 'ly', 'q', 'sky', 'au', 'cam', 'trk', 'vt', 'intro', 'debug', 'tour',
-    'loc2', 'n2', 'tz2']);
+    'loc2', 'n2', 'tz2', 'host', 'hloc']);
 const MAX_HASH_LEN = 4096;
 const NAME_MAX = 80;
 const ELEV_MIN = -500, ELEV_MAX = 9000;
@@ -422,6 +424,18 @@ function parseViewKeys(params, out, invalid) {
         if (v !== 'none' && VANTAGE_SETTINGS.includes(v)) out.vantage = v;
         else if (v !== '' && v !== '0' && v !== 'none') invalid.push('vt');
     }
+    if (params.has('host')) {
+        const v = params.get('host').trim().toLowerCase();
+        if (v === 'mars') {
+            out.host = { id: 'mars', latDeg: HOST_DEFAULT.latDeg, lonDeg: HOST_DEFAULT.lonDeg };
+            if (params.has('hloc')) {
+                const [la, lo] = params.get('hloc').split(',').map(strictNum);
+                if (Number.isFinite(la) && Number.isFinite(lo) && Math.abs(la) <= 90) {
+                    out.host = { id: 'mars', latDeg: la, lonDeg: wrapLon(lo) };
+                } else invalid.push('hloc');
+            }
+        } else if (v !== 'earth' && v !== '') invalid.push('host');
+    }
     if (params.has('intro')) {
         const f = parseFlag(params.get('intro'), undefined);
         if (f === undefined) invalid.push('intro');
@@ -509,6 +523,14 @@ export function serializeHash({ state, clock, cam, extra } = {}) {
         if (trk === 'body' || trk === 'stars') parts.push(`trk=${trk[0]}`);
         const vt = s.view?.vantage;
         if (s.view?.mode === 'orbit' && vt !== 'none' && VANTAGE_SETTINGS.includes(vt)) parts.push(`vt=${vt}`);
+        const h = s.host;
+        if (h?.id === 'mars') {
+            parts.push('host=mars');
+            if (Number.isFinite(h.latDeg) && Number.isFinite(h.lonDeg) && Math.abs(h.latDeg) <= 90
+                && (Math.abs(h.latDeg - HOST_DEFAULT.latDeg) > 5e-5 || Math.abs(wrapLon(h.lonDeg) - HOST_DEFAULT.lonDeg) > 5e-5)) {
+                parts.push(`hloc=${fmtNum(h.latDeg, 4)},${fmtNum(wrapLon(h.lonDeg), 4)}`);
+            }
+        }
         if (isSelectionId(s.selection)) parts.push(`sel=${s.selection}`);
         const ly = layersToCode(s.layers);
         if (ly !== null && ly !== DEFAULT_LAYER_CODE) parts.push(`ly=${ly}`);
@@ -624,7 +646,7 @@ export function bindUrl({ win, store, clock, getCam, onExternalChange, minInterv
 
     const offs = [];
     if (store?.subscribe) {
-        for (const sel of [(s) => s.observer, (s) => s.observer2, (s) => s.selection, (s) => s.view, (s) => s.layers, (s) => s.quality?.setting,
+        for (const sel of [(s) => s.observer, (s) => s.observer2, (s) => s.host, (s) => s.selection, (s) => s.view, (s) => s.layers, (s) => s.quality?.setting,
             (s) => s.display?.skyDark, (s) => s.display?.aurora]) {
             offs.push(store.subscribe(sel, schedule));
         }

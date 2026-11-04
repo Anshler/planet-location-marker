@@ -106,7 +106,9 @@ test('twilight-lit ground: tied to the dome\'s twilight factor and kept under th
     const smoothFall = (e0, e1, x) => { const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); };
     const smoothstep = (e0, e1, x) => smoothFall(e0, e1, x);
     const tw = (a) => smoothFall(4, -1, a) * Math.exp(-Math.max(-a, 0) / 5.5) * smoothstep(-17, -10, a) * (1 - smoothstep(2, 12, a));
-    const m = g.match(/\+ vec3\(([\d.]+), ([\d.]+), ([\d.]+)\) \* tw \+/);
+    // The Earth palette (GROUND_FRAG's #else branch; #define MARS swaps in the Martian one).
+    assert.match(g, /\+ G_TWI \* tw \+/);
+    const m = g.match(/#else[\s\S]*?const vec3 G_TWI = vec3\(([\d.]+), ([\d.]+), ([\d.]+)\);/);
     assert.ok(m, 'twilight ground colour');
     const lum = 0.2126 * Number(m[1]) + 0.7152 * Number(m[2]) + 0.0722 * Number(m[3]);
     const at = (a) => lum * tw(a);
@@ -114,7 +116,8 @@ test('twilight-lit ground: tied to the dome\'s twilight factor and kept under th
     assert.ok(at(-6) > 0.01 && at(-6) < 0.025, `−6°: ${at(-6)}`);
     assert.ok(at(-12) < 0.006 && at(-17) === 0, `−12°: ${at(-12)}`);
     // The haze band gets more twilight light than the land (×0.25 at the horizon line, on top of the sky).
-    const h = g.match(/hazeCol \+= \(vec3\(([\d.]+), ([\d.]+), ([\d.]+)\) \* tw/);
+    assert.match(g, /hazeCol \+= \(H_TWI \* tw/);
+    const h = g.match(/#else[\s\S]*?const vec3 H_TWI = vec3\(([\d.]+), ([\d.]+), ([\d.]+)\);/);
     assert.ok(h);
     const hl = 0.2126 * Number(h[1]) + 0.7152 * Number(h[2]) + 0.0722 * Number(h[3]);
     assert.ok(hl > 1.5 * lum, `haze ${hl} vs land ${lum}`);

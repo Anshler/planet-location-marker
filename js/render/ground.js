@@ -128,6 +128,9 @@ export function createGround(rc, deps = {}) {
     const group = new THREE.Group();
     group.name = 'ground';
     let cfg = rc && rc.tier && typeof rc.tier === 'object' ? rc.tier : null;
+    // Standing on Mars (setHost): the Mars dome (render/mars-sky.js) replaces Preetham's, and the
+    // ground takes Mars colours (GROUND_FRAG #define MARS) and a dry landscape.
+    let marsHost = false;
 
     // --- Preetham dome --------------------------------------------------------------------------
     const sky = new Sky();
@@ -237,7 +240,9 @@ export function createGround(rc, deps = {}) {
 
     /** Low tier: one flat silhouette and a plain sea; medium up: ridge + near band, Fresnel sea, glitter. */
     function landscapeDefines(c) {
-        return c && c.name !== 'low' ? { LANDSCAPE_DETAIL: '', LANDSCAPE_GLINT: '' } : {};
+        const d = c && c.name !== 'low' ? { LANDSCAPE_DETAIL: '', LANDSCAPE_GLINT: '' } : {};
+        if (marsHost) d.MARS = '';
+        return d;
     }
 
     const maskReadyNow = () => {
@@ -257,13 +262,14 @@ export function createGround(rc, deps = {}) {
         const citiesReady = citiesWere = citiesReadyNow();
         // Same place (to 0.01°), mask and city list: keep the profile (no string built per apply).
         const la = Math.round(latDeg * 100), lo = Math.round(lonDeg * 100);
-        const src = maskReady ? maskKey : '';
+        // On Mars: no sea and no town, whatever the Earth's mask says at those coordinates.
+        const src = marsHost ? 'mars' : maskReady ? maskKey : '';
         if (la === built.la && lo === built.lo && src === built.mask && citiesReady === built.cities) return;
         built.la = la; built.lo = lo; built.mask = src; built.cities = citiesReady;
         let water = null;
-        try { water = maskReady ? waterSampler(textures.get(maskKey), latDeg, lonDeg, maskScratch) : null; } catch { water = null; }
-        const urban = citiesReady ? urbanIndex(cities.list, latDeg, lonDeg) : 0;
-        buildHorizon(horizon, latDeg, lonDeg, { water, urban });
+        try { water = maskReady && !marsHost ? waterSampler(textures.get(maskKey), latDeg, lonDeg, maskScratch) : null; } catch { water = null; }
+        const urban = citiesReady && !marsHost ? urbanIndex(cities.list, latDeg, lonDeg) : 0;
+        buildHorizon(horizon, latDeg, lonDeg, { water, urban, barren: marsHost });
     }
 
     function uploadProfile() {
@@ -389,7 +395,7 @@ export function createGround(rc, deps = {}) {
         const blend = Number.isFinite(fi.skyBlend) ? clamp(fi.skyBlend, 0, 1) : 0;
         const cam = fi.camera || (rc && rc.camera);
         const on = blend > 0.0005;
-        sky.visible = on && patched;
+        sky.visible = on && patched && !marsHost;
         ground.visible = on;
         if (on && cam) sky.position.copy(cam.position);
         su.uFade.value = blend;
@@ -431,6 +437,16 @@ export function createGround(rc, deps = {}) {
         }
     }
 
+    /** The world the observer stands on ('earth' | 'mars'): Mars colours and no Preetham dome. */
+    function setHost(id) {
+        const mars = id === 'mars';
+        if (mars === marsHost) return;
+        marsHost = mars;
+        groundMaterial.defines = landscapeDefines(cfg);
+        groundMaterial.needsUpdate = true;
+        built.la = NaN;   // rebuild the landscape (dry, no towns) at the next apply
+    }
+
     function dispose() {
         sky.geometry.dispose();
         m.dispose();
@@ -439,5 +455,5 @@ export function createGround(rc, deps = {}) {
         hTex.dispose();
     }
 
-    return { object3d: group, apply, update, setViewMode, setLayers, setQuality, dispose, horizon };
+    return { object3d: group, apply, update, setViewMode, setLayers, setQuality, setHost, dispose, horizon };
 }

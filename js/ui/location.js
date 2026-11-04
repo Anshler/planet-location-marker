@@ -8,6 +8,10 @@
  * unavailable". The input is an ARIA combobox driving a listbox with
  * `aria-activedescendant`; ↑/↓ move, Enter chooses, Esc closes.
  *
+ * 'Stand on Mars…' (`ui.palette === 'mars'`, and whenever the palette opens while the observer
+ * stands on Mars) swaps the search for the Martian landing sites and an areographic lat/lon form
+ * (actions.standOnMars), with 'Search places on Earth' and 'Back to Earth' beside them.
+ *
  * Recent places are read from `core/prefs` (`recentPlaces`); the app's
  * `actions.setObserver` records every deliberate placement there, so the
  * palette only reads them (Place-like `{name, country, lat, lon, tz}` records).
@@ -19,6 +23,7 @@ import { parseLatLon } from '../geo/coords.js';
 import { load as loadPref } from '../core/prefs.js';
 import { h, on, setText, trapFocus, uid } from './dom.js';
 import { icon } from './icons.js';
+import { MARS_SITES } from '../astro/mars-clock.js';
 
 const MAX_RECENT = 6;
 const DEBOUNCE_MS = 400;
@@ -77,6 +82,28 @@ export function mountLocation(root, ctx) {
         icon('compare', { size: 16 }), 'Compare with…');
     const uncompareBtn = h('button', { class: 'btn btn--soft', type: 'button', hidden: true }, icon('close', { size: 16 }), 'Remove second place');
     const compareHead = h('p', { class: 'palette__mode', hidden: true });
+    // Stand on Mars (ROADMAP stand-on-mars): the landing sites and an areographic lat/lon.
+    const marsBtn = h('button', { class: 'btn btn--soft', type: 'button', title: 'See the sky from a landing site on Mars' },
+        icon('planet', { size: 16 }), 'Stand on Mars…');
+    const marsLat = h('input', { class: 'input input--num', type: 'number', min: '-90', max: '90', step: 'any', inputmode: 'decimal', 'aria-label': 'Latitude on Mars, degrees north' });
+    const marsLon = h('input', { class: 'input input--num', type: 'number', min: '-180', max: '360', step: 'any', inputmode: 'decimal', 'aria-label': 'Longitude on Mars, degrees east' });
+    const marsErr = h('p', { class: 'pop__error', role: 'alert', hidden: true });
+    const marsForm = h('form', { class: 'mars-coords', novalidate: true },
+        h('label', { class: 'field' }, h('span', { class: 'field__label' }, 'Latitude °N'), marsLat),
+        h('label', { class: 'field' }, h('span', { class: 'field__label' }, 'Longitude °E'), marsLon),
+        h('button', { class: 'btn btn--primary', type: 'submit' }, 'Stand here'));
+    const marsSites = h('div', { class: 'mars-sites', role: 'group', 'aria-label': 'Landing sites' },
+        MARS_SITES.map((st) => h('button', { class: 'mars-site', type: 'button', 'data-site': st.id },
+            h('span', { class: 'mars-site__name' }, st.name),
+            h('span', { class: 'mars-site__sub' }, `${st.mission} · ${ui.latLonText(st.latDeg, st.lonDeg, 1)}`))));
+    const earthSearchBtn = h('button', { class: 'btn btn--soft', type: 'button' }, icon('search', { size: 16 }), 'Search places on Earth');
+    const homeBtn = h('button', { class: 'btn btn--soft', type: 'button', hidden: true }, icon('globe', { size: 16 }), 'Back to Earth');
+    const marsBox = h('div', { class: 'palette__mars', hidden: true },
+        h('p', { class: 'palette__mode' }, 'Stand on Mars: the sky from a landing site, with the Earth and the Moon as a bright evening or morning pair. The globe stays the Earth’s.'),
+        marsSites,
+        h('p', { class: 'pop__hint' }, 'Or any place, in planetocentric degrees (east longitude):'),
+        marsForm, marsErr,
+        h('div', { class: 'btn-row' }, earthSearchBtn, homeBtn));
     const statusDot = h('span', { class: 'status-dot', 'aria-hidden': 'true' });
     const statusText = h('span');
     const status = h('span', { class: 'palette__status' }, statusDot, statusText);
@@ -86,7 +113,8 @@ export function mountLocation(root, ctx) {
             h('span', { class: 'palette__icon', 'aria-hidden': 'true' }, icon('search', { size: 20 })),
             input, clearBtn, escHint, closeBtn),
         list,
-        h('div', { class: 'palette__foot' }, h('div', { class: 'btn-row' }, locateBtn, pickBtn, compareBtn, uncompareBtn), status));
+        marsBox,
+        h('div', { class: 'palette__foot' }, h('div', { class: 'btn-row' }, locateBtn, pickBtn, compareBtn, uncompareBtn, marsBtn), status));
     const layer = h('div', { class: 'modal-layer palette-layer', hidden: true }, h('div', { class: 'modal-backdrop' }), dialog);
     root.appendChild(layer);
 
@@ -386,6 +414,31 @@ export function mountLocation(root, ctx) {
         ui.act('setObserver2', null);
         ui.closePalette();
     }));
+    offs.push(on(marsBtn, 'click', () => {
+        store.set({ ui: { ...store.get().ui, palette: 'mars' } });
+    }));
+    offs.push(on(marsSites, 'click', (e) => {
+        const b = /** @type {HTMLElement} */ (e.target).closest('.mars-site');
+        const st = b && MARS_SITES.find((x) => x.id === b.dataset.site);
+        if (!st) return;
+        if (ui.act('standOnMars', { latDeg: st.latDeg, lonDeg: st.lonDeg, name: st.name }) !== false) ui.closePalette();
+    }));
+    offs.push(on(marsForm, 'submit', (e) => {
+        e.preventDefault();
+        const la = Number(marsLat.value), lo = Number(marsLon.value);
+        const bad = marsLat.value.trim() === '' || marsLon.value.trim() === '' || !Number.isFinite(la) || !Number.isFinite(lo) || Math.abs(la) > 90;
+        marsErr.hidden = !bad;
+        if (bad) { setText(marsErr, 'Enter a latitude from −90 to 90 and a longitude in degrees east.'); return; }
+        if (ui.act('standOnMars', { latDeg: la, lonDeg: lo }) !== false) ui.closePalette();
+    }));
+    offs.push(on(earthSearchBtn, 'click', () => {
+        store.set({ ui: { ...store.get().ui, palette: 'earth' } });
+        input.focus();
+    }));
+    offs.push(on(homeBtn, 'click', () => {
+        ui.act('leaveMars');
+        ui.closePalette();
+    }));
     offs.push(on(pickBtn, 'click', () => {
         ui.closePalette();
         if (store.get().view?.mode === 'sky') ui.act('setViewMode', 'orbit');
@@ -444,11 +497,31 @@ export function mountLocation(root, ctx) {
             release?.(); release = null;
         }
     }
+    /** The Mars sites instead of the search ('mars', or any opening while standing on Mars). */
+    function setMars(on) {
+        marsBox.hidden = !on;
+        dialog.classList.toggle('is-mars', on);
+        // The search row and the list go; the foot's buttons follow the compare mode as setCompare left them.
+        compareHead.nextElementSibling.hidden = on;
+        list.hidden = on;
+        for (const el of [locateBtn, pickBtn, compareBtn, marsBtn]) el.hidden = on || comparing;
+        if (on) {
+            const host = store.get().host;
+            homeBtn.hidden = host?.id !== 'mars';
+            marsLat.value = String(Math.round(host.latDeg * 1e4) / 1e4);
+            marsLon.value = String(Math.round(host.lonDeg * 1e4) / 1e4);
+            marsErr.hidden = true;
+        }
+        dialog.setAttribute('aria-label', on ? 'Stand on Mars' : comparing ? 'Compare with a second place' : 'Change location');
+    }
     offs.push(store.subscribe((s) => s.ui?.palette, (v) => {
         const was = comparing;
         setCompare(v === 'compare');
+        const mars = v === 'mars' || (v === true && store.get().host?.id === 'mars');
         show(!!v);
-        if (v && was !== comparing) { input.value = ''; runSearch(); input.focus(); }
+        setMars(mars);
+        if (mars) marsSites.querySelector('button')?.focus();
+        else if (v && was !== comparing) { input.value = ''; runSearch(); input.focus(); }
     }, { immediate: true }));
 
     return {

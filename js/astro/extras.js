@@ -4,7 +4,8 @@
  * The nine bodies keep their contract (BODIES order, Snapshot.bodies, the 1–9 keys, the beam
  * instances). Everything else that can be selected, labelled, picked and shown in the body card
  * registers here as a *provider* for one kind of namespaced id (core/selection.js):
- * `star:<hip>`, `dso:<id>`, `comet:<id>`, `craft:<id>`, `guest:<id>`, `sat:<id>`.
+ * `star:<hip>`, `dso:<id>`, `comet:<id>`, `craft:<id>`, `guest:<id>`, `sat:<id>` (an Earth satellite), `moon:<id>`
+ * (a moon of Mars, seen from Mars).
  *
  * Data flow, the same for every kind:
  *
@@ -39,7 +40,7 @@ import { isExtraId, parseSelectionId } from '../core/selection.js';
 const RAD2DEG = 180 / Math.PI;
 
 /**
- * @typedef {'star'|'dso'|'comet'|'craft'|'guest'|'sat'} ExtraKind
+ * @typedef {'star'|'dso'|'comet'|'craft'|'guest'|'sat'|'moon'} ExtraKind
  *
  * One extra object's state in one snapshot. Vectors are in the SCENE frame.
  * @typedef {{ id:string, kind:ExtraKind,
@@ -56,7 +57,8 @@ const RAD2DEG = 180 / Math.PI;
  *
  * How an object is drawn and labelled (render/extras.js, app/labels-feed.js):
  * `glyph` 'star' (a point like a star, sized by `mag`), 'marker' (a small hollow diamond: things
- * too faint to see, e.g. spacecraft), 'coma' (drawn by its own module, render/comets.js), 'none'
+ * too faint to see, e.g. spacecraft), 'coma' (drawn by its own module, render/comets.js), 'disc'
+ * (drawn by its own module, render/mars-sky.js: the moons of Mars; picked like a glyph), 'none'
  * (already drawn by another layer, e.g. a catalogue star: only the reticle), 'sat' (a satellite:
  * drawn, picked and ringed by render/satellites.js, which follows it every frame). `label` 'always',
  * 'selected' (only while selected) or 'never'. `layer`: a Layers key that must be on for it to be
@@ -64,7 +66,7 @@ const RAD2DEG = 180 / Math.PI;
  * `skyOnly` labels it only in sky view (unless selected), `nightMag` gates the label like a star name
  * of that magnitude (gone by day and under a bright sky; deep-sky objects), `priority` replaces the
  * extras' 78 in the declutter.
- * @typedef {{ name:string, color:string, glyph:'star'|'marker'|'coma'|'none'|'sat', label:'always'|'selected'|'never',
+ * @typedef {{ name:string, color:string, glyph:'star'|'marker'|'coma'|'disc'|'none'|'sat', label:'always'|'selected'|'never',
  *   layer?:string, short?:string, skyOnly?:boolean, nightMag?:number, priority?:number }} ExtraMeta
  *
  * The body card's content for an extra (ui/body-card.js). `lines`: sentences under the title
@@ -78,8 +80,12 @@ const RAD2DEG = 180 / Math.PI;
  *
  * A provider owns one kind. `ids()` lists every id it knows (stable order; it may change only
  * through `registry.refresh()`); `meta(id)` how it is drawn; `fill` and `card` as above.
+ * `host`: the world its geometry is computed from ('earth': comets and spacecraft, whose parallax
+ * is the Earth's; 'mars': the moons of Mars). Its objects are not present in a snapshot of another
+ * host (snap.host, astro/host-mars.js); absent = any (stars, deep-sky objects, guest stars).
  * @typedef {{ kind:ExtraKind, kindLabel:string, ids:()=>ReadonlyArray<string>, meta:(id:string)=>ExtraMeta|null,
- *   fill:(snap:any, id:string, out:ExtraState)=>void, card?:(id:string, st:ExtraState, snap:any)=>ExtraCard|null }} ExtraProvider
+ *   fill:(snap:any, id:string, out:ExtraState)=>void, card?:(id:string, st:ExtraState, snap:any)=>ExtraCard|null,
+ *   host?:'earth'|'mars' }} ExtraProvider
  */
 
 /**
@@ -189,7 +195,7 @@ export function createExtras() {
 
     function rebuild() {
         const next = [];
-        for (const kind of ['guest', 'comet', 'craft', 'sat', 'dso', 'star']) {
+        for (const kind of ['moon', 'guest', 'comet', 'craft', 'sat', 'dso', 'star']) {
             const p = providers.get(kind);
             if (!p) continue;
             let ids = [];
@@ -248,9 +254,14 @@ export function createExtras() {
             if (!snap) return;
             ensure(snap);
             const list = snap.extras;
+            const host = snap.host === 'mars' ? 'mars' : 'earth';
             for (let i = 0; i < slots.length; i++) {
                 const s = slots[i];
                 const st = list[i];
+                if (s.provider.host && s.provider.host !== host) {
+                    st.present = false;
+                    continue;
+                }
                 try {
                     s.provider.fill(snap, s.id, st);
                 } catch (err) {

@@ -45,7 +45,10 @@
  * @typedef {{source:string, offsetDeg:number, aligned:string|null}} AimState */
 /** `observer2`: a second place to compare with (ROADMAP two-observers), or null. view.mode 'map' is
  * the flat world map (the globe unrolled; camera/rig.js, geo/mapview.js).
- * @typedef {{ observer:Observer, observer2:Observer|null, selection:SelectionId|null,
+ * `host`: the world the observer stands on (ROADMAP stand-on-mars; core/store.js HOST_DEFAULT): the Earth, or
+ * the sky view from an areographic site on Mars (planetocentric °N/°E).
+ * @typedef {{ observer:Observer, observer2:Observer|null, host:{id:'earth'|'mars', latDeg:number, lonDeg:number, name?:string},
+ *   selection:SelectionId|null,
  *   view:{mode:'orbit'|'sky'|'map', earthLock:boolean, track:'none'|'body'|'stars', vantage:'none'|'l1'|'moon', system:boolean},
  *   layers:Layers,
  *   display:{tzMode:'observer'|'device'|'utc', hour12:boolean, skyDark:'auto'|'pristine'|'1'|'2'|'3'|'4'|'5'|'6'|'7'|'8'|'9',
@@ -92,7 +95,9 @@
  *   aurora:import('../astro/geomag.js').Aurora,     // geomagnetic pole, magnetic noon, oval table; filled by the frame loop
  *   helio:{earthS:Float64Array, posS:Float64Array}, // heliocentric AU, scene axes, Sun at the origin (every detail level):
  *                              // the Earth's position, and per BODIES index (×3) the Earth + the body's geocentric vector
- *   second:object|null         // the second place's Snapshot at the same instant (two-observers); set by the frame loop
+ *   second:object|null,        // the second place's Snapshot at the same instant (two-observers); set by the frame loop
+ *   host:'earth'|'mars',         // the world the observer stands on (astro/host-mars.js fills a Mars sky: slot 4 is the Earth)
+ *   mars:import('../astro/host-mars.js').MarsInfo|null   // Mars only: clock, site, Phobos and Deimos, light time from home
  *   }} Snapshot */
 /** TierCfg. `dprCap` is Infinity on max (no cap). `msaa` is a request: postfx clamps it to MAX_SAMPLES.
  *  The last three keys are max-only; absent means the 1024 Moon, 8x anisotropy and a one-tap cloud shadow.
@@ -161,7 +166,7 @@
 /** Result of `parseHash`. Every key is optional; `invalid` lists keys that were present but rejected or clamped.
  * @typedef {{ observer?:Observer&{cc:string}, observer2?:Observer&{cc:string}, tMs?:number, live?:boolean, rate?:number, playing?:boolean,
  *   view?:'orbit'|'sky'|'map', earthLock?:boolean, selection?:SelectionId|null, layers?:Layers,
- *   quality?:'auto'|'low'|'medium'|'high'|'max', skyDark?:string, aurora?:'quiet'|'typical'|'storm', cam?:CamView, track?:'body'|'stars', vantage?:'l1'|'moon', intro?:boolean, debug?:boolean, tour?:string, invalid?:string[] }} HashState */
+ *   quality?:'auto'|'low'|'medium'|'high'|'max', skyDark?:string, aurora?:'quiet'|'typical'|'storm', cam?:CamView, track?:'body'|'stars', vantage?:'l1'|'moon', host?:{id:'mars', latDeg:number, lonDeg:number}, intro?:boolean, debug?:boolean, tour?:string, invalid?:string[] }} HashState */
 
 /** Device probe for `detectTier` (js/core/quality.js).
  * @typedef {{webgl2:boolean, rendererString?:string, maxTextureSize?:number, dpr?:number, deviceMemory?:number, cores?:number,

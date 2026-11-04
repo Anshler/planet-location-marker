@@ -297,6 +297,8 @@ export function createPlanets(rc, deps = {}) {
         let any = false, jupOn = false;
         for (let i = 0; i < NS; i++) t[i * 4 + 3] = 0;
         for (let i = 0; i < N; i++) {
+            // From Mars, Mars's slot holds the Earth (astro/bodies.js EARTH_TARGET): no Mars disc there.
+            if (snap.host === 'mars' && ids[i] === 'mars') continue;
             const st = snap.bodies[FIRST_PLANET + i];
             const rpx = eqAngRadius(ids[i], st.distAU) * pxPerRad;
             const w = scopeBlend(rpx) * k;

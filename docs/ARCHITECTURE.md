@@ -63,12 +63,12 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/app/mp4.js` | A tiny faststart MP4 muxer for one H.264 (`avcC`) or VP9 (`vpcC`) track, pure; `mp4Boxes` walks boxes (tests). |
 | | `js/app/expose.js` | Long-exposure presets, pure: `photoLayers` (no line art in a stack), `trailsLook`, `nextDarkMs`, `meanNoonMs`, `analemmaPlan`. |
 | | `js/app/labels-feed.js` | `buildAnchors(state, snap, catalog, trails)` and `createLabelsFeed(deps)`: label anchors with live vectors. |
-| | `js/app/intro.js` | `playIntro(opts)`: the first-visit camera flight, pin drop and beam launch (after a pre-roll that holds the opening pose while the loader fades). |
+| | `js/app/intro.js` | `playIntro(opts)`: the first-visit camera flight, pin drop and beam launch (after a pre-roll that holds the opening pose while the loader fades). The launch is emitted as bus `'intro'` `'launch'` (the UI's title card); a skip never emits it. |
 | | `js/app/tours.js` | Guided tours, loaded on demand: the pure step builders (`tonightSteps`, `yearSteps`, `eclipseSteps`, `ambientSteps`) and `createTourRunner` (captions, pause/resume/next, state capture and restore). No three.js. |
 | | `js/app/fallback.js` | Text-mode banner, context-lost overlay, fatal-error hand-off. |
 | | `js/app/extras-setup.js` | `registerExtras(extras, {fetchJson, onDso})`: registers the guest-star and comet providers at boot, the spacecraft once `data/craft.json` arrives and the deep-sky objects once `data/dso.json` does; `registerStars(extras, {getCatalog, fetchJson})`: the catalogue-star provider once `sky.json` is decoded, following the selection and fetching `data/starinfo.json` on the first star (§4, Extra objects). |
 | Core | `js/core/store.js` | Immutable slices, selector subscriptions, `DEFAULT_STATE`. |
-| | `js/core/bus.js` | Fixed event types: `readout`, `toast`, `announce`, `almanac`, `events`, `intro`. |
+| | `js/core/bus.js` | Fixed event types: `readout`, `toast`, `announce`, `almanac`, `events`, `intro` (`'start'`, `'launch'`, `'done'`). |
 | | `js/core/clock.js` | Simulated time: Live mode, the signed rate ladder, steps, log-time tweens, range loops, clamping to 1000–3000. |
 | | `js/core/url-state.js` | `parseHash`, `serializeHash` and `bindUrl`, which keeps the URL hash in sync (throttled `replaceState`; held while `suspended()`, i.e. during a tour). |
 | | `js/core/tour-catalog.js` | `TOURS` (id, title, blurb, running time), `TOUR_IDS`, `isTourId`: what the Events tab lists and `#tour=` accepts. |
@@ -152,7 +152,7 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/render/sunpath.js` | Layer `sunPath` (`y`): today's path with hour ticks, the solstice and equinox paths and the noon analemma as line layers in the observer's ENU frame (sky view), and the subsolar figure-8 as a line on the globe (Earth-fixed); figures from the worker via `request(snap)` (main.js `requestSunFigures`), only while the layer is on. `stats()`. |
 | Camera | `js/camera/rig.js`, `picking.js` | Orbit and sky-view camera, Earth-lock, fly-to tweens, `follow()` (the shadow chase), sidereal tracking, `setVantage()` (View from L1, Earthrise), the flat map (`setMode('map')`, `mapK`, `mapFrame`), the system zoom past 150 R (`setSystem`, `system`, `systemBlend`, `onSystemChange`), `frameSpan()` (the Earth–Moon framing), `setAiming()`/`setSkyAim()` (the phone steers the look); analytic globe, map (`pickMap`), glyph and map-point (`pickPoint`) picking. |
 | | `js/camera/aim.js` | 'Point at the sky' (loaded on first use, no three.js): device orientation → the rear camera's direction and the screen's up in ENU (`deviceVectors`), a level look (`lookOf`), an adaptive vector low-pass (`aimFilterStep`), and `createAim` (sensor events, iOS compass learning, deadband, Align offset, idle and hidden stops, wake lock). |
-| UI | `js/ui/index.js` and its modules | Shell, top bar, time bar (its strip coloured by `sky-palette.js`, the sky's colours by the Sun's altitude), Sky Now (with `tonight.js`: the Tonight card's dusk-to-dawn chart and the rows' 24-h sparklines, and `sky-dome.js`: the all-sky chart, the hero of text mode, both also in text mode), body card (with `eyepiece.js`: the 2D-canvas eyepiece portrait, also in text mode; `year-planner.js`: the planets' 12-month chart on a 2D canvas and the Sun's solstice paths in words, from the worker, also in text mode), events (with the guided tours and the Moon/Planets/Eclipses/Meteors/Seasons filters; `event-glyphs.js`: each event's inline SVG glyph; `ics.js`: 'Add to calendar', the pure RFC 5545 builder and the file hand-off), Eclipse Companion, the tour's lower third (`tour-bar.js`), layers, settings, about, help, toasts, shortcuts, announcer; the share menu, `postcard.js` (postcard and Save-image dialog, the typographic band), `video.js` (the time-lapse video dialog: presets, frame size, progress and preview, the burned-in date stamp) and `expose.js` (Expose presets and the exposure's status pill); the vantage menu and its caption pill (`view-switch.js`: vantage points, the world map, the solar system).; the ruler and 'Point at the sky' buttons with their status pills (`sky-tools.js`); the body card's 'Find it' line.; the world map entry and the second place (`Compare with…` in the place search); the place search's sky preview per result (`location.js placeSky`) |
+| UI | `js/ui/index.js` and its modules | Shell, top bar, time bar (its strip coloured by `sky-palette.js`, the sky's colours by the Sun's altitude), Sky Now (with `tonight.js`: the Tonight card's dusk-to-dawn chart and the rows' 24-h sparklines, and `sky-dome.js`: the all-sky chart, the hero of text mode, both also in text mode), body card (with `eyepiece.js`: the 2D-canvas eyepiece portrait, also in text mode; `year-planner.js`: the planets' 12-month chart on a 2D canvas and the Sun's solstice paths in words, from the worker, also in text mode), events (with the guided tours and the Moon/Planets/Eclipses/Meteors/Seasons filters; `event-glyphs.js`: each event's inline SVG glyph; `ics.js`: 'Add to calendar', the pure RFC 5545 builder and the file hand-off), Eclipse Companion, the tour's lower third (`tour-bar.js`), layers, settings, about, help, toasts, shortcuts, announcer; the share menu, `postcard.js` (postcard and Save-image dialog, the typographic band), `video.js` (the time-lapse video dialog: presets, frame size, progress and preview, the burned-in date stamp) and `expose.js` (Expose presets and the exposure's status pill); the vantage menu and its caption pill (`view-switch.js`: vantage points, the world map, the solar system).; the ruler and 'Point at the sky' buttons with their status pills (`sky-tools.js`); the body card's 'Find it' line.; the world map entry and the second place (`Compare with…` in the place search); the place search's sky preview per result (`location.js placeSky`); first-run onboarding: `intro-caption.js` (the intro's title card), `coach.js` (the three coach marks, `ui.showTips()`), `install.js` (About's Install group and the one-time iOS hint), the help dialog's gestures (`help.js GESTURES`, `helpButton`) and the phone's ⋯ menu (`view-switch.js`) |
 
 ---
 
@@ -183,7 +183,12 @@ the UI and the render stack with literal `import('./…')` calls, so:
 9. **Intro.** It plays on the first visit unless the hash has `intro=0`, a `cam`, `view=sky` or
    `tour`, or the user prefers reduced motion. Otherwise the beams launch with a short stagger. It
    holds its opening pose for the loader's 0.7 s fade (pre-roll), and the horizon disc grows out
-   with the pin's ripple. A `tour=` link starts its tour here (also in text mode).
+   with the pin's ripple. A `tour=` link starts its tour here (also in text mode). As the beams
+   launch, the UI fades in a title card ("Ho Chi Minh City" over "21:00 · 6 worlds above you",
+   `ui/intro-caption.js`, on `<body>` because `#ui-root` is hidden; announced, never under
+   reduced motion). On a first visit from a plain link (`env.firstRun`: no `cam`, `tour`, view or
+   `intro=0`, on the Earth's globe) the coach marks follow 1.5 s after the intro (`ui/coach.js`;
+   under reduced motion, which skips the intro, 1.2 s after ready), once (pref `coachSeen`).
 10. **Idle work.** Deferred textures (cloud and ocean masks, Moon, Milky Way), one almanac
     and events push from the worker, and service-worker registration (https only). The new
     worker is handed the URLs this visit already loaded, so the next visit works offline.
@@ -208,6 +213,7 @@ critical CSS read them.
 | `no-webgl` | Text mode. |
 | `is-intro`, `is-intro-out` | The intro is playing (UI hidden), then the UI fade-in. |
 | `is-touring` | A guided tour plays (`ui.tour`): toasts move above its lower third. |
+| `is-coaching` | The coach marks are on screen (`ui/coach.js`). |
 | `is-system` | The globe view is zoomed out into the solar system (`view.system`, the orrery past half its crossfade). |
 
 ---
@@ -226,7 +232,8 @@ critical CSS read them.
   `quality`, `ui` and `status`. `set` merges per top-level slice and never mutates, so selectors
   compare with `Object.is`. Persisted keys: the observer (user-chosen sources only, written by
   `actions`), layers, display and the quality setting (written by `main.js` subscriptions). The UI
-  keeps a few conveniences of its own in `core/prefs` (recent places, `tonightOpen`, `skyDome`).
+  keeps a few conveniences of its own in `core/prefs` (recent places, `tonightOpen`, `skyDome`,
+  `coachSeen`, `installHint`).
 - **`clock`** owns simulated time. The UI calls it directly for play/pause, rate, steps, Now and
   scrubbing. The loop calls `clock.tick(now)` once per animation frame.
 - **`actions`** covers everything with side effects beyond plain state: moving the observer
@@ -1108,9 +1115,19 @@ change.
   stands just over the limb.
 - `host=mars` stands on Mars (sky view; §4 'Standing on Mars'); `hloc=lat,lon` is the areographic
   site, planetocentric °N/°E, written only off Jezero Crater. `sel=moon:phobos` selects a moon of Mars.
+- `tab` opens a panel tab (`core/store.js PANELS`: `sky`, `details`, `events`, `layers`,
+  `settings`, `about`) and raises the phone's sheet to half. Like `tour`, it is read, never written.
+  The installed app's Events shortcut is `./#tab=events`; its Sky view shortcut is `./#view=sky`.
 
 `bindUrl` writes the hash at most every 500 ms and leaves a fresh visit's URL clean. Hand edits
 are applied live through `onExternalChange`. It writes nothing while a tour plays.
+
+The installed app (`manifest.webmanifest`: wide and narrow install screenshots under
+`assets/screenshots/`, the two shortcuts, `launch_handler` `focus-existing`) reuses its open
+window for a shortcut or link: `main.js bindLaunchQueue` receives the target URL through
+`window.launchQueue` and applies its hash like a hand edit (the page's own first launch is
+skipped). `index.html` keeps the browser's `beforeinstallprompt` in `window.__pcInstall` for
+About's 'Install app' (`ui/install.js`); the browser's own install UI is left alone.
 
 ---
 
@@ -1160,3 +1177,6 @@ are applied live through `onExternalChange`. It writes nothing while a tour play
 - A healthy boot logs one `console.info` line and nothing else. The smoke test fails on console
   errors.
 - Product copy in JavaScript uses `APP_NAME` from `js/version.js`.
+- Copy that names keys has a touch twin: `.for-fine` and `.for-coarse` elements switch on
+  `body.is-coarse` (css/app.css section 20), which also hides key caps and key hints on touch
+  (the help dialog's key table keeps them).

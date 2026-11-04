@@ -85,6 +85,10 @@ browser, and nothing needs the network.
   - A text mode with full sky tables and the Sky dome on devices without WebGL 2.
 - **Accessible.** Full keyboard control, screen-reader announcements, and support for
   `prefers-reduced-motion`.
+- **Made for the device in your hand.** On a touch screen the tips talk in taps and drags, Help
+  opens on the gestures (the ⋯ button on a phone), and a first visit ends with three short
+  interface tips (Settings → Show interface tips replays them). It installs as an app: About →
+  Install app, or Share → Add to Home Screen on an iPhone, with shortcuts to Sky view and Events.
 
 ## Keyboard shortcuts
 
@@ -108,6 +112,9 @@ browser, and nothing needs the network.
 | <kbd>H</kbd> | Hide the interface |
 | <kbd>?</kbd> | Help |
 | Arrows · <kbd>+</kbd> / <kbd>−</kbd> · <kbd>Home</kbd> | Rotate or look around · zoom · reset the camera |
+
+On a touch screen: drag to turn the globe or look around, pinch to zoom, tap a world to meet it,
+tap the Earth to stand there, double-tap to fly closer, and drag the time bar to travel in time.
 
 ## Running locally
 
@@ -134,6 +141,7 @@ Useful URL options (in the hash):
 - `#debug=1` shows the performance overlay.
 - `#q=low` forces a quality tier (`low`, `medium`, `high` or `max`).
 - `#t=2027-02-06T16:00:00Z&p=0` freezes time at a moment.
+- `#tab=events` opens a panel tab (`sky`, `details`, `events`, `layers`, `settings` or `about`).
 
 ## Accuracy
 

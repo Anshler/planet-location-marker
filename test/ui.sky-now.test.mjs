@@ -93,3 +93,15 @@ test('shownMag hides the magnitude of an invisible new Moon only', () => {
     assert.equal(shownMag({ id: 'venus', mag: -4.5, phaseFrac: 0.001 }), -4.5);
     assert.equal(shownMag({ id: 'sun', mag: NaN }), null);
 });
+
+// The Charts card's preference (§10.2): `chart` joins `skyDome`, and the older `tonightOpen` migrates once.
+test('chartsPref: a chart and an open state the user chose; Tonight wins only where it was the open card', async () => {
+    const { chartsPref } = await import('../js/ui/sky-now.js');
+    assert.deepEqual(chartsPref(null, null), { mode: 'up', chart: 'dome' }, 'first visit: no open state, the layout decides');
+    assert.deepEqual(chartsPref(null, true), { mode: 'up', open: true, chart: 'tonight' });
+    assert.deepEqual(chartsPref({ open: false, mode: 'map' }, true), { open: true, mode: 'map', chart: 'tonight' }, 'a closed dome under an open Tonight');
+    assert.deepEqual(chartsPref({ open: true, mode: 'up' }, true), { open: true, mode: 'up', chart: 'dome' }, 'an open dome stays the dome');
+    assert.deepEqual(chartsPref({ open: false }, false), { open: false, mode: 'up', chart: 'dome' });
+    assert.deepEqual(chartsPref({ open: true, chart: 'tonight', mode: 'map' }, false), { open: true, chart: 'tonight', mode: 'map' }, 'once migrated, tonightOpen is ignored');
+    assert.deepEqual(chartsPref({ open: 'yes', chart: 'pie' }, null), { mode: 'up', chart: 'dome' }, 'junk is dropped');
+});

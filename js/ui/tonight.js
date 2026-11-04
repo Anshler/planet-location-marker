@@ -1,29 +1,22 @@
 /**
- * Tonight (ROADMAP tonight-planner): a dusk-to-dawn chart, a collapsible card near the top of Sky
- * now. The columns are the sky's colour by the Sun's altitude (ui/sky-palette.js, the time bar's
- * palette). Each body, the Moon and the planets, has a lane whose ribbon shows when it is up in
- * its colour token, more opaque the higher it stands and faint by day; a dot marks its best moment
- * (the verdict's `bestMs`); a line follows the clock, and a drag across the chart scrubs time the
- * way the time bar does (a click jumps there). The window runs from an hour before sunset to an
- * hour after sunrise; under the midnight sun (and in polar night) it is the whole 24 h, with a note.
+ * Tonight: a dusk-to-dawn chart, one of Up now's Charts (ui/sky-now.js). The columns are the sky's
+ * colour by the Sun's altitude (ui/sky-palette.js); each body has a lane whose ribbon shows when it
+ * is up, more opaque the higher it stands; a dot marks its best moment; a line follows the clock,
+ * and a drag scrubs time (a click jumps). The window runs from an hour before sunset to an hour
+ * after sunrise, or the whole 24 h under the midnight sun and in polar night, with a note.
  *
- * Everything comes from the almanac's tonight() report (`ui.almanac.night.tonight.series`, the
- * 10-min altitudes its verdicts were drawn from), so the chart costs no extra computation. The sky
- * and the ribbons are rendered at one pixel per CSS column into one reused ImageData, rebuilt only
- * when the data, the width or the window changes; a redraw composites it and draws the marks.
- * `drawSparkline` draws Sky now's 24-h altitude sparklines from the same series.
+ * Everything comes from the almanac's tonight() report (`ui.almanac.night.tonight.series`), so the
+ * chart costs no extra computation. The sky and ribbons go at one pixel per CSS column into one
+ * reused ImageData, rebuilt when the data, width or window changes. `drawSparkline` draws Up now's
+ * 24-h sparklines from the same series. Nothing is drawn while hidden (`setShown`).
  *
- * Its open state is a preference (`tonightOpen`). DOM and a 2D canvas only: text mode and every tier.
- *
- *   mountTonight(ctx) → {el, update(snap), destroy()}
+ *   mountTonight(ctx) → {el, update(snap), setShown(on), destroy()}
  *
  * @module ui/tonight
  */
 
 import { BODIES, BODY_INDEX } from '../astro/bodies.js';
-import { load as loadPref, save as savePref } from '../core/prefs.js';
-import { h, on, setText, setAttr, clamp, uid } from './dom.js';
-import { icon } from './icons.js';
+import { h, on, setText, setAttr, clamp } from './dom.js';
 import { SKY_LUT, skyLutIndex, hexRgb } from './sky-palette.js';
 
 const HOUR = 3600e3;
@@ -150,20 +143,11 @@ export function drawSparkline(c, w, hgt, dpr, s, row, nowMs, color) {
 export function mountTonight(ctx) {
     const { store, clock, ui } = ctx;
     const offs = [];
-    let open = loadPref('tonightOpen', true) !== false;
-
-    const bodyId = uid('tonight');
-    const meta = h('span', { class: 'tonight__meta' }, 'Computing…');
-    const head = h('button', { class: 'tonight__head', type: 'button', 'aria-expanded': String(open), 'aria-controls': bodyId },
-        h('span', { class: 'tonight__title' }, 'Tonight'), meta,
-        h('span', { class: 'tonight__chev', 'aria-hidden': 'true' }, icon('chevron-down', { size: 16 })));
+    let open = false;
     const cv = h('canvas', { class: 'tonight__cv', role: 'img', 'aria-label': 'Tonight’s visibility chart' });
-    const note = h('p', { class: 'tonight__note', hidden: true });
-    const legend = h('p', { class: 'tonight__legend' },
-        'Bars show when each is up, brighter the higher it stands; dots mark its best moment. Drag across to move through the night.');
-    const body = h('div', { class: 'tonight__body', id: bodyId, hidden: !open }, cv, note, legend);
-    const el = h('section', { class: 'tonight', 'aria-label': 'Tonight' }, head, body);
-    el.classList.toggle('is-open', open);
+    const note = h('p', { class: 'note', hidden: true });
+    const el = h('div', { class: 'tonight' }, cv, note, h('div', { class: 'charts__foot' }, h('details', { class: 'fold' }, h('summary', null, 'How to read this'),
+        h('p', { class: 'note' }, 'Bars show when each is up, brighter the higher it stands; dots mark its best moment. Drag across to move through the night.'))));
 
     const c = cv.getContext('2d');
     const layer = document.createElement('canvas');
@@ -176,16 +160,14 @@ export function mountTonight(ctx) {
     let drag = null;
     const rgb = BODIES.map((b) => hexRgb(b.color));
 
-    offs.push(on(head, 'click', () => {
-        open = !open;
-        body.hidden = !open;
-        el.classList.toggle('is-open', open);
-        setAttr(head, 'aria-expanded', String(open));
-        savePref('tonightOpen', open);
+    /** Shown in the open Charts card, or not: hidden, nothing is drawn. */
+    function setShown(on_) {
+        if (on_ === open) return;
+        open = on_;
         sizeDirty = true;
         drawnKey = '';
         if (open && ui.snap) update(ui.snap);
-    }));
+    }
     const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(() => { sizeDirty = true; drawnKey = ''; if (ui.snap) update(ui.snap); }) : null;
     ro?.observe(cv);
 
@@ -305,20 +287,17 @@ export function mountTonight(ctx) {
 
     function describe() {
         const tw = res.twilight;
-        let m = 'No darkness tonight', n = '';
-        if (win.kind === 'night') m = `${ui.fmtClock(tw?.sunsetMs ?? res.nightStartMs)} – ${ui.fmtClock(tw?.sunriseMs ?? res.nightEndMs)}`;
-        else if (win.kind === 'polar-night') { m = 'Polar night'; n = 'The Sun stays below the horizon all day: the chart shows the whole 24 hours.'; }
-        else n = 'No darkness tonight: the Sun stays up, so the chart shows the whole 24 hours.';
-        setText(meta, m);
+        const n = win.kind === 'night' ? '' : win.kind === 'polar-night' ? 'The Sun stays below the horizon all day: the chart shows the whole 24 hours.'
+            : 'No darkness tonight: the Sun stays up, so the chart shows the whole 24 hours.';
         setText(note, n);
         note.hidden = !n;
         const bits = res.reports.map((r) => `${ui.bodyName(r.id)} ${VERDICT[r.verdict] || r.verdict}${Number.isFinite(r.bestMs) ? `, best at ${ui.fmtClock(r.bestMs)}` : ''}`);
-        setAttr(cv, 'aria-label', `Tonight, ${win.kind === 'night' ? `sunset to sunrise ${m}` : m}. ${bits.join('. ')}.`);
+        setAttr(cv, 'aria-label', `${win.kind === 'night' ? `Tonight, sunset to sunrise ${ui.fmtClock(tw?.sunsetMs ?? res.nightStartMs)} – ${ui.fmtClock(tw?.sunriseMs ?? res.nightEndMs)}`
+            : win.kind === 'polar-night' ? 'Tonight, polar night' : 'Tonight, no darkness'}. ${bits.join('. ')}.`);
     }
 
     function update(snap) {
         const r = ui.onMars() ? null : ui.almanac.night?.tonight ?? null;
-        el.hidden = ui.onMars();
         if (r !== src) {
             src = r;
             res = r?.series && Array.isArray(r.reports) ? r : null;
@@ -326,9 +305,9 @@ export function mountTonight(ctx) {
             if (res) rows = res.series.ids.length;
             layerKey = ''; drawnKey = ''; sizeDirty = true;
             if (res && win) describe();
-            else { setText(meta, ui.onMars() ? '' : 'Computing…'); note.hidden = true; }
+            else note.hidden = true;
         }
-        if (!open || el.hidden) return;
+        if (!open) return;
         const t = drag ? drag.t : (snap?.tMs ?? clock.tMs);
         const key = `${store.get().display?.hour12}|${ui.displayTz()}|${cssW}`;
         const x = res && win && t >= win.fromMs && t <= win.toMs ? xOf(t) : NaN;
@@ -380,6 +359,7 @@ export function mountTonight(ctx) {
     return {
         el,
         update,
+        setShown,
         destroy() {
             offs.forEach((off) => off());
             ro?.disconnect();

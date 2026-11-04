@@ -234,8 +234,10 @@ test('the GLSL model mirrors the JS one (constants), and the panels state the sk
     assert.equal(S.darkSkyGate(1.6), 0);
     // The Sky panel line (text mode included).
     const { skyDarknessText } = await import('../js/ui/sky-now.js');
-    assert.equal(skyDarknessText({ skyglow: { bortle: 8, limitMag: 4.06 }, observer: { sunAltDeg: -30 } }), 'Bortle 8 · limiting mag 4.1');
-    assert.equal(skyDarknessText({ skyglow: { bortle: 8, limitMag: 4.06 }, observer: { sunAltDeg: 20 } }), 'Bortle 8 sky');
+    assert.equal(skyDarknessText({ skyglow: { bortle: 8, limitMag: 4.06 }, observer: { sunAltDeg: -30 } }), 'City sky: stars to magnitude 4.1 (Bortle 8)');
+    assert.equal(skyDarknessText({ skyglow: { bortle: 9, limitMag: 3.58 }, observer: { sunAltDeg: -30 } }), 'Inner-city sky: stars to magnitude 3.6 (Bortle 9)');
+    assert.equal(skyDarknessText({ skyglow: { bortle: 8, limitMag: 4.06 }, observer: { sunAltDeg: 20 } }), 'City sky (Bortle 8)');
+    assert.equal(skyDarknessText({ skyglow: { bortle: 1, limitMag: 7.4 }, observer: { sunAltDeg: -10 } }), 'Excellent dark site (Bortle 1)', 'no magnitude until the Sun is 15° down');
     assert.equal(skyDarknessText({}), '');
 });
 

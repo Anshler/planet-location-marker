@@ -1,34 +1,27 @@
 /**
- * Sky dome (ROADMAP sky-dome-chart): an all-sky chart, a collapsible card at the top of Sky now
- * and the hero of text mode. Azimuthal-equidistant about the zenith (r = (90° − alt) / 90° · R) on
- * one DPR-sized 2D canvas: the dome tinted by the Sun's altitude (ui/sky-palette.js, brighter
- * toward the Sun in twilight), altitude rings at 30° and 60°, the horizon ring with 16 ticks and
- * N/E/S/W, the stars to mag 3.5 and faint constellation figures, the ecliptic, the bodies as
- * colour-token dots sized by magnitude, the Moon at its phase with its lit limb toward the Sun,
- * the Sun with a glow, and labels placed greedily so that none overlap. 'Looking up' has east on
- * the left (the sky overhead, north at the top, as star charts have it); 'Map' has it on the right
- * (the ground plan, like the rows' compasses). A tap selects the body or named star under it. In
- * Sky view the camera's field of view (the read-only actions.getView()) is drawn as a wedge.
+ * Sky dome: an all-sky chart, one of Up now's Charts (ui/sky-now.js) and the hero of text mode.
+ * Azimuthal-equidistant about the zenith on one DPR-sized 2D canvas: the dome tinted by the Sun's
+ * altitude (ui/sky-palette.js), altitude rings, the horizon with N/E/S/W, the stars to mag 3.5 and
+ * faint figures, the ecliptic, the bodies sized by magnitude (the Moon at its phase), and labels
+ * placed so that none overlap. 'Looking up' has east on the left, as star charts do; 'Mirrored'
+ * (pref value 'map') has it on the right, like a ground map. A tap selects the body or named star
+ * under it; in Sky view the camera's field (actions.getView()) is a wedge.
  *
- * The stars come from `services.catalog()`, late-bound: the UI mounts before the 3D boot has
- * decoded data/sky.json, and text mode fetches it only when this card first opens (the 3D tiers
- * have it anyway, so no embedded star list costs every tier its bytes).
+ * The stars come late-bound from `services.catalog()` (text mode fetches data/sky.json only when
+ * the chart first shows). Redrawn on change, never per frame: the chart is reprojected into
+ * preallocated arrays and an offscreen canvas at most once a second from the 4 Hz readout (at once
+ * for a new selection, size, orientation or catalogue); the wedge is composited over it, polled at
+ * 4 Hz in Sky view. Nothing is drawn or polled while hidden (`setShown`). The orientation is the
+ * `skyDome` preference's `mode`.
  *
- * Redrawn on change, never per frame: the chart (stars and lines reprojected into preallocated
- * Float32Arrays, only when the time, the observer or the orientation changed) goes into an offscreen
- * canvas from the 4 Hz readout at most once a second, and at once for a new selection, size,
- * orientation or catalogue; the wedge is composited over it when the view moves (polled at 4 Hz,
- * in Sky view only). Its open state and orientation are a preference (`skyDome`).
- *
- *   mountSkyDome(ctx) → {el, update(snap), destroy()}
+ *   mountSkyDome(ctx) → {el, update(snap), setShown(on), destroy()}
  *
  * @module ui/sky-dome
  */
 
 import { BODY_INDEX, hostBodies } from '../astro/bodies.js';
 import { load as loadPref, save as savePref } from '../core/prefs.js';
-import { h, on, setText, setAttr, segmented, uid } from './dom.js';
-import { icon } from './icons.js';
+import { h, on, setText, setAttr, segmented } from './dom.js';
 import { SKY_LUT, skyLutIndex, C_NIGHT } from './sky-palette.js';
 
 const DEG = Math.PI / 180;
@@ -46,8 +39,8 @@ const DASH = [3, 3];
 const NO_DASH = [];
 const CARDINAL = ['N', 'E', 'S', 'W'];
 const HINT = {
-    up: 'North at the top, east on the left: the sky overhead, as if you held it above you.',
-    map: 'North at the top, east on the right, like a map of the ground.',
+    up: 'Looking up: north at the top and east on the left, the sky overhead as if you held the chart above you.',
+    map: 'Mirrored: east on the right, as on a map of the ground.',
 };
 const P = new Float64Array(2);      // projection scratch
 
@@ -283,27 +276,20 @@ const ECLIPTIC = eclipticSegments(72);
 export function mountSkyDome(ctx) {
     const { store, ui } = ctx;
     const offs = [];
-    const pref = loadPref('skyDome', { open: true, mode: 'up' });
-    let open = pref.open !== false;
-    let mode = pref.mode === 'map' ? 'map' : 'up';
-    const save = () => savePref('skyDome', { open, mode });
+    let open = false;
+    let mode = loadPref('skyDome', null)?.mode === 'map' ? 'map' : 'up';
+    const save = () => savePref('skyDome', { ...loadPref('skyDome', {}), mode });
 
-    const bodyId = uid('dome');
-    const meta = h('span', { class: 'dome__meta' });
-    const head = h('button', { class: 'dome__head', type: 'button', 'aria-expanded': String(open), 'aria-controls': bodyId },
-        h('span', { class: 'dome__title' }, 'Sky dome'), meta,
-        h('span', { class: 'dome__chev', 'aria-hidden': 'true' }, icon('chevron-down', { size: 16 })));
     const cv = h('canvas', { class: 'dome__cv', role: 'img', 'aria-label': 'All-sky chart' });
     const wrap = h('div', { class: 'dome__wrap' }, cv);
-    const hint = h('p', { class: 'dome__hint' });
+    const hint = h('p', null);
     const seg = segmented({
         label: 'Chart orientation', className: 'dome__seg', value: mode,
-        options: [{ value: 'up', label: 'Looking up' }, { value: 'map', label: 'Map' }],
+        options: [{ value: 'up', label: 'Looking up' }, { value: 'map', label: 'Mirrored' }],
         onChange: (v) => { mode = v === 'map' ? 'map' : 'up'; save(); setHint(); rebuildNow(); },
     });
-    const body = h('div', { class: 'dome__body', id: bodyId, hidden: !open }, wrap, h('div', { class: 'dome__foot' }, seg.el, hint));
-    const el = h('section', { class: 'dome', 'aria-label': 'Sky dome' }, head, body);
-    el.classList.toggle('is-open', open);
+    const el = h('div', { class: 'dome' }, wrap,
+        h('div', { class: 'charts__foot' }, seg.el, h('details', { class: 'fold' }, h('summary', null, 'How to read this'), h('div', { class: 'note' }, hint))));
     const setHint = () => setText(hint, `${HINT[mode]} Tap a dot to select it.`);
     setHint();
 
@@ -563,8 +549,6 @@ export function mountSkyDome(ctx) {
 
     function describe(up) {
         up.sort((a, b) => b.alt - a.alt);
-        const ids = up.map((u) => u.name);
-        setText(meta, ids.length ? `${ids.slice(0, 4).join(', ')}${ids.length > 4 ? ` +${ids.length - 4}` : ''} up` : 'Sun, Moon and planets below the horizon');
         const text = `All-sky chart, ${mode === 'map' ? 'as a map, east on the right' : 'looking up, east on the left'}, north at the top. `
             + (up.length ? `Above the horizon: ${up.map((u) => `${u.name} ${Math.round(u.alt)}° ${ui.compass(u.az)}`).join(', ')}.` : 'Nothing above the horizon but stars.')
             + (view ? ` The camera looks ${ui.compassWords(view.azDeg)}, ${Math.round(view.altDeg)}° up.` : '');
@@ -637,15 +621,13 @@ export function mountSkyDome(ctx) {
     const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(resize) : null;
     ro?.observe(wrap);
 
-    offs.push(on(head, 'click', () => {
-        open = !open;
-        body.hidden = !open;
-        el.classList.toggle('is-open', open);
-        setAttr(head, 'aria-expanded', String(open));
-        save();
+    /** Shown in the open Charts card, or not: hidden, nothing is drawn or polled. */
+    function setShown(on_) {
+        if (on_ === open) return;
+        open = on_;
         if (open) { askCatalog(); resize(); rebuildNow(); }
         syncPoll();
-    }));
+    }
     const tapAt = (e, slop) => {
         const r = cv.getBoundingClientRect();
         return nearestHit(items, nItems, e.clientX - r.left, e.clientY - r.top, slop);
@@ -665,11 +647,11 @@ export function mountSkyDome(ctx) {
     offs.push(store.subscribe((st) => st.observer, rebuildNow));
     offs.push(store.subscribe((st) => st.view?.mode, syncPoll));
     offs.push(store.subscribe((st) => st.status?.webgl, syncPoll));
-    if (open) askCatalog();
 
     return {
         el,
         update,
+        setShown,
         destroy() {
             offs.forEach((off) => off());
             ro?.disconnect();

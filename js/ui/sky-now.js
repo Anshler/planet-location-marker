@@ -1,20 +1,15 @@
 /**
- * Up now: one row per body — colour dot, name, a mini sky compass (needle at the
- * azimuth, dot at the polar-projected altitude), "34° · SE" or, below the horizon, a countdown
- * ("rises in 3 h 36 min"), "Rises 21:14" / "Sets 05:02", magnitude, an Up / Down badge and a
- * 24-h altitude sparkline (tonight's noon-to-noon series, ui/tonight.js). Bodies above
- * the horizon come first by altitude, then the rest by next rise. Clicking a row
- * selects the body (fly in orbit view, aim in sky view) and opens Details. The Sky dome
- * (ui/sky-dome.js: the all-sky chart) and the Tonight card (ui/tonight.js: the dusk-to-dawn chart)
- * sit at the top.
+ * Up now: a three-line summary (its ⓘ spells the terms out; Change → Display › Sky conditions),
+ * then one row per body: colour dot, name, a mini sky compass, "34° · SE" or a countdown to its
+ * rise, rise or set time, magnitude and a 24-h altitude sparkline (ui/tonight.js). Bodies above
+ * the horizon come first by altitude, the rest by next rise; a row selects the body. Then one
+ * Charts card: the Sky dome (ui/sky-dome.js) or Tonight (ui/tonight.js), only the one shown
+ * drawn; its state is the `skyDome` preference (`chartsPref`). The list is the text alternative
+ * to the 3D view, so every row has a full spoken label.
  *
- * This list is also the text alternative to the 3D view (and the main content
- * of text mode), so every row carries a full spoken label.
- *
- * Two places (store.observer2, ROADMAP two-observers): a card above the list sets the selected body
- * (else the Moon) as seen from both side by side, altitude and azimuth, and how far apart its two
- * directions are: for the Moon, its parallax and the distance it implies (astro/parallax.js). It
- * reads `snap.second` of the readout, so it works in text mode too.
+ * Two places (store.observer2): a card above the list shows the selected body (else the Moon)
+ * from both and the angle between the two directions; for the Moon, its parallax and the distance
+ * it implies (astro/parallax.js, `snap.second`).
  *
  * @module ui/sky-now
  */
@@ -23,14 +18,34 @@ import { BODIES, BODY_INDEX, hostBodies } from '../astro/bodies.js';
 import { marsClockText, marsSeason, marsSiteNear } from '../astro/mars-clock.js';
 import { auroraText } from '../astro/geomag.js';
 import { compareSight } from '../astro/parallax.js';
-import { h, s, on, setText, setAttr } from './dom.js';
+import { load as loadPref, save as savePref } from '../core/prefs.js';
+import { h, s, on, setText, setAttr, segmented, tpl, uid } from './dom.js';
 import { icon } from './icons.js';
 import { mountTonight, drawSparkline } from './tonight.js';
 import { mountSkyDome } from './sky-dome.js';
+import { BORTLE_NAMES } from './layers.js';
 
-const TWILIGHT_LABEL = {
-    day: 'Daytime', civil: 'Civil twilight', nautical: 'Nautical twilight', astronomical: 'Astronomical twilight', night: 'Night',
-};
+/** The summary's badge, and the twilight's name in its ⓘ. */
+const TW_BADGE = { day: 'Day', civil: 'Twilight', nautical: 'Twilight', astronomical: 'Twilight', night: 'Night' };
+const TW_NAME = { civil: 'civil twilight', nautical: 'nautical twilight', astronomical: 'astronomical twilight', night: 'night' };
+
+/**
+ * The Charts card's preference from the stored `skyDome` and the older `tonightOpen`. `open` is
+ * undefined until the user toggles the card (the layout decides till then); an open Tonight under
+ * a closed dome becomes Tonight, open.
+ * @param {any} dome stored skyDome ({open?, mode?, chart?}) or null
+ * @param {any} tonightOpen
+ * @returns {{open?: boolean, mode: string, chart: 'dome'|'tonight'}}
+ */
+export function chartsPref(dome, tonightOpen) {
+    const p = dome && typeof dome === 'object' ? { ...dome } : {};
+    p.mode = p.mode === 'map' ? 'map' : 'up';
+    if (typeof p.open !== 'boolean') delete p.open;
+    if (p.chart !== 'dome' && p.chart !== 'tonight') {
+        if (tonightOpen === true && p.open !== true) { p.open = true; p.chart = 'tonight'; } else p.chart = 'dome';
+    }
+    return p;
+}
 
 /**
  * Builds the 32-px mini sky compass used in rows.
@@ -101,8 +116,27 @@ export function mountSkyNow(root, ctx) {
     const { store, ui } = ctx;
     const offs = [];
 
-    const status = h('span', { class: 'pill skynow__status' });
-    const summary = h('p', { class: 'skynow__summary' });
+    // ---------------------------------------------------------------- summary
+    const badge = h('span', { class: 'badge' });
+    const dark = h('span');
+    const sun = h('p', { class: 'sum__line' });
+    const skyEl = h('span');
+    const change = h('button', { class: 'link', type: 'button', 'aria-label': 'Change the light pollution' }, 'Change');
+    const moreId = uid('sum');
+    const more = h('div', { class: 'sum__more note', id: moreId, tabindex: '-1', hidden: true });
+    const info = h('button', {
+        class: 'icon-btn icon-btn--sm sum__info', type: 'button', 'aria-expanded': 'false', 'aria-controls': moreId,
+        'aria-label': 'What these mean', 'data-tip': 'What these mean',
+    }, icon('info', { size: 16 }));
+    const summary = h('section', { class: 'sum', 'aria-label': 'Tonight’s sky' },
+        h('p', { class: 'sum__line sum__line--head' }, badge, dark, info), sun,
+        h('p', { class: 'sum__line' }, skyEl, ' ', change), more);
+    offs.push(on(info, 'click', () => {
+        more.hidden = !more.hidden;
+        setAttr(info, 'aria-expanded', String(!more.hidden));
+        if (!more.hidden) more.focus();
+    }));
+    offs.push(on(change, 'click', () => ui.openPanel('display', { reveal: 'conditions' })));
     const list = h('ul', { class: 'body-list', 'aria-label': 'Bodies, above the horizon first' });
     const upHead = h('li', { class: 'body-list__group', 'aria-hidden': 'true' }, h('span', null, 'Above the horizon'), h('span', { class: 'body-list__count' }));
     const downHead = h('li', { class: 'body-list__group', 'aria-hidden': 'true' }, h('span', null, 'Below the horizon'), h('span', { class: 'body-list__count' }));
@@ -132,24 +166,61 @@ export function mountSkyNow(root, ctx) {
     offs.push(on(cmpRemove, 'click', () => ui.act('setObserver2', null)));
     const sight = { sepDeg: 0, baselineKm: 0, perpKm: 0, distKm: NaN };
 
+    // ---------------------------------------------------------------- charts
+    const pref = chartsPref(loadPref('skyDome', null), loadPref('tonightOpen', null));
+    let chosen = typeof pref.open === 'boolean';
+    let open = chosen ? pref.open : false;
+    let chart = pref.chart;
     const dome = mountSkyDome(ctx);
     const tonightCard = mountTonight(ctx);
+    const chartsId = uid('charts');
+    const chartsToggle = h('button', { class: 'charts__toggle', type: 'button', 'aria-expanded': 'false', 'aria-controls': chartsId },
+        h('span', { class: 'charts__title' }, 'Charts'), icon('chevron-down', { size: 16 }));
+    const chartSeg = segmented({
+        label: 'Chart', className: 'charts__seg', value: chart,
+        options: [{ value: 'dome', label: 'Sky dome' }, { value: 'tonight', label: 'Tonight' }],
+        onChange: (v) => { chart = v === 'tonight' ? 'tonight' : 'dome'; setCharts(true, true); },
+    });
+    const chartsBody = h('div', { class: 'charts__body', id: chartsId, hidden: true }, dome.el, tonightCard.el);
+    const charts = h('section', { class: 'charts card', 'aria-label': 'Charts' }, h('div', { class: 'charts__head' }, chartsToggle, chartSeg.el), chartsBody);
+    /** `save`: a user's choice, kept in `skyDome`. */
+    function setCharts(o, save) {
+        if (save) { chosen = true; savePref('skyDome', { ...chartsPref(loadPref('skyDome', null), null), open: o, chart }); }
+        open = o;
+        const mars = !!ui.onMars?.();
+        const which = mars ? 'dome' : chart;
+        chartSeg.el.hidden = mars;
+        chartsBody.hidden = !open;
+        charts.classList.toggle('is-open', open);
+        setAttr(chartsToggle, 'aria-expanded', String(open));
+        dome.el.hidden = which !== 'dome';
+        tonightCard.el.hidden = which !== 'tonight';
+        dome.setShown(open && which === 'dome');
+        tonightCard.setShown(open && which === 'tonight');
+        if (ui.snap) { dome.update(ui.snap); tonightCard.update(ui.snap); }
+    }
+    offs.push(on(chartsToggle, 'click', () => setCharts(!open, true)));
+    // Until the user chooses: open on a tall desktop and in text mode.
+    const byLayout = () => { if (!chosen) setCharts(ui.layout === 'text' || (ui.layout === 'desktop' && window.innerHeight >= 800), false); };
+    offs.push(ui.on('layout', byLayout));
+    offs.push(store.subscribe((st) => st.host?.id, () => setCharts(open, false)));
+
+    const coarseTip = 'Tip: tap a row, or a world at the end of its beam, to meet it. Sky view stands you on the ground to look up.';
+    const keys = () => h('span', null, h('kbd', { class: 'kbd' }, '1'), '–', h('kbd', { class: 'kbd' }, '9'));
     root.append(
-        status,
-        summary, dome.el, tonightCard.el, compare, empty, list,
+        summary, compare, empty, list, charts,
         // Keys on a mouse and keyboard, gestures on a touch-first device (body.is-coarse, css/app.css).
-        h('p', { class: 'note for-fine' }, 'Tip: press ', h('kbd', { class: 'kbd' }, '1'), '–', h('kbd', { class: 'kbd' }, '9'),
-            ' to select a body, ', h('kbd', { class: 'kbd' }, 'V'), ' to stand on the ground and look up.'),
-        h('p', { class: 'note for-coarse' }, 'Tip: tap a row, or a world at the end of its beam, to meet it. '
-            + 'Sky view stands you on the ground to look up.'));
+        h('p', { class: 'note for-fine skynow__tip' }, tpl('Tip: press {keys} to select a body and {v} for Sky view.', { keys: keys(), v: h('kbd', { class: 'kbd' }, 'V') })),
+        h('p', { class: 'note for-coarse skynow__tip' }, coarseTip),
+        h('p', { class: 'note skynow__tip skynow__tip--text' }, tpl('Tip: press {keys} to select a body.', { keys: keys() })));
+    byLayout();
 
     /** @type {Record<string, any>} */
     const rows = {};
     for (const b of BODIES) {
         const comp = makeCompass();
-        const badge = h('span', { class: 'badge body-row__badge' });
         const nameText = document.createTextNode(b.name);
-        const name = h('span', { class: 'body-row__name' }, h('span', { class: 'dot', 'aria-hidden': 'true' }), nameText, badge);
+        const name = h('span', { class: 'body-row__name' }, h('span', { class: 'dot', 'aria-hidden': 'true' }), nameText);
         const sub = h('span', { class: 'body-row__sub' });
         const alt = h('span', { class: 'body-row__alt' });
         const dir = h('span', { class: 'body-row__dir' });
@@ -161,7 +232,7 @@ export function mountSkyNow(root, ctx) {
         h('span', { class: 'body-row__pos' },
             h('span', { class: 'body-row__now' }, alt, h('span', { class: 'body-row__sep', 'aria-hidden': 'true' }, '·'), dir), spark));
         const li = h('li', { class: 'body-list__item' }, button);
-        rows[b.id] = { li, button, comp, sub, alt, dir, badge, nameText, spark, sparkKey: '', up: null, order: -1 };
+        rows[b.id] = { li, button, comp, sub, alt, dir, nameText, spark, sparkKey: '', up: null, order: -1 };
     }
     offs.push(on(list, 'click', (e) => {
         const btn = /** @type {HTMLElement} */ (e.target).closest('.body-row');
@@ -205,9 +276,6 @@ export function mountSkyNow(root, ctx) {
             const rsTxt = riseSetText(ui, b.id, up, t);
             const magTxt = shownMag(b) !== null ? `mag ${ui.fmt('fmtMag', b.mag)}` : '';
             setText(r.sub, [rsTxt, magTxt].filter(Boolean).join(' · '));
-            setText(r.badge, up ? 'Up' : 'Down');
-            r.badge.classList.toggle('badge--up', up);
-            r.badge.classList.toggle('badge--down', !up);
             const spoken = up
                 ? `${ui.bodyName(b.id)}: ${Math.round(alt)} degrees up in the ${ui.compassWords(az)}.`
                 : `${ui.bodyName(b.id)}: below the horizon${altTxt.startsWith('rises') ? `, ${altTxt}` : ''}.`;
@@ -230,14 +298,7 @@ export function mountSkyNow(root, ctx) {
             setText(upHead.lastChild, String(nUp));
             setText(downHead.lastChild, String(items.length - nUp));
         }
-        // Header: twilight state (or a solar eclipse in progress) and tonight's darkness.
-        const tw = snap.observer?.twilight;
-        const sunAlt = snap.observer?.sunAltDeg;
-        const sol = solarEclipseState(snap);
-        const state = sol ? (sol.kind === 'total' ? 'Total solar eclipse' : 'Solar eclipse') : TWILIGHT_LABEL[tw] || 'Sky';
-        setText(status, `${snap.host === 'mars' ? 'Mars · ' : ''}${state}${Number.isFinite(sunAlt) ? ` · Sun ${ui.fmt('fmtAlt', sunAlt)}` : ''}`);
-        status.dataset.tw = tw || '';
-        setText(summary, summaryText(snap));
+        updateSummary(snap);
         updateCompare(snap);
         dome.update(snap);
         tonightCard.update(snap);
@@ -297,48 +358,66 @@ export function mountSkyNow(root, ctx) {
     }
     offs.push(store.subscribe((st) => st.observer2, () => { if (ui.snap) update(ui.snap); }));
 
-    function summaryText(snap) {
-        if (snap.host === 'mars' && snap.mars) return marsSummary(snap);
-        const t = snap.tMs;
-        const parts = [];
+    /** The three lines and the sentences behind ⓘ, whole phrases (R6, R7). */
+    let moreKey = '';
+    function updateSummary(snap) {
+        const tw = snap.observer?.twilight;
+        const sunAlt = snap.observer?.sunAltDeg;
         const sol = solarEclipseState(snap);
-        if (sol) parts.push(sol.text);
-        const tw = ui.almanac.night?.twilight;
-        if (tw) {
-            if (Number.isFinite(tw.sunsetMs) && Number.isFinite(tw.sunriseMs)) {
-                parts.push(`Sunset ${ui.fmtWhen(tw.sunsetMs, t)} · Sunrise ${ui.fmtWhen(tw.sunriseMs, t)}`);
-            }
-            if (Number.isFinite(tw.astroDuskMs) && Number.isFinite(tw.astroDawnMs)) {
-                parts.push(`Dark ${ui.fmtClock(tw.astroDuskMs)}–${ui.fmtClock(tw.astroDawnMs)}`);
-            } else if (Number.isFinite(tw.sunsetMs)) {
-                parts.push('No full darkness tonight');
-            }
+        setText(badge, sol ? (sol.kind === 'total' ? 'Total solar eclipse' : 'Solar eclipse') : TW_BADGE[tw] || 'Sky');
+        badge.className = `badge${sol || tw === 'day' ? ' badge--warn' : TW_BADGE[tw] === 'Twilight' ? ' badge--accent' : ''}`;
+        const why = [];
+        if (Number.isFinite(sunAlt)) {
+            const a = ui.fmt('fmtAlt', Math.abs(sunAlt));
+            why.push(sunAlt >= 0 ? `The Sun is ${a} above the horizon.`
+                : TW_NAME[tw] ? `The Sun is ${a} below the horizon: ${TW_NAME[tw]}.` : `The Sun is ${a} below the horizon.`);
         }
-        const moon = ui.bodyOf(snap, 'moon');
-        if (moon && Number.isFinite(moon.phaseFrac) && Number.isFinite(snap.moonPhaseDeg)) {
-            const ecl = lunarEclipseState(snap);
-            parts.push(ecl
-                ? `${moonPhaseName(snap.moonPhaseDeg)} ${ecl.text}`
-                : sol ? `${moonPhaseName(snap.moonPhaseDeg)} in front of the Sun`
-                    : `Moon ${Math.round(moon.phaseFrac * 100)}% lit, ${moonPhaseName(snap.moonPhaseDeg).toLowerCase()}`);
+        let l1 = '', l2 = '', l3 = '';
+        const mars = snap.host === 'mars' && snap.mars;
+        if (mars) {
+            // Standing on Mars: the site and its clock, its season, and the light from home.
+            const m = snap.mars;
+            const site = marsSiteNear(m.site.latDeg, m.site.lonDeg, 0.5);
+            l1 = `${m.site.name || 'Mars'} · ${marsClockText(m.time, site ? { ...site, lonDeg: m.site.lonDeg } : { lonDeg: m.site.lonDeg }).text}`;
+            l2 = `Ls ${Math.round(m.time.lsDeg)}°, ${marsSeason(m.time.lsDeg, m.site.latDeg)}`;
+            const e = snap.bodies[BODY_INDEX.mars];
+            if (e && Number.isFinite(e.lightTimeS)) l3 = `The light from home left ${Math.max(1, Math.round(e.lightTimeS / 60))} min ago`;
+            why.push('Rise and set times are not computed on Mars yet.');
+        } else {
+            const n = ui.almanac.night?.twilight;
+            if (n && Number.isFinite(n.astroDuskMs) && Number.isFinite(n.astroDawnMs)) {
+                l1 = `Fully dark ${ui.fmtClock(n.astroDuskMs)}–${ui.fmtClock(n.astroDawnMs)}`;
+                why.push('Fully dark is astronomical night: the Sun more than 18° below the horizon, when the faintest stars show.');
+            } else if (n && Number.isFinite(n.sunsetMs)) {
+                l1 = 'No full darkness tonight';
+                why.push('Tonight the Sun never gets 18° below the horizon, so the sky never gets fully dark.');
+            }
+            if (n && Number.isFinite(n.sunsetMs) && Number.isFinite(n.sunriseMs)) l2 = `Sunset ${ui.fmtClock(n.sunsetMs)} · Sunrise ${ui.fmtClock(n.sunriseMs)}`;
+            const moon = ui.bodyOf(snap, 'moon');
+            let m = '';
+            if (moon && Number.isFinite(moon.phaseFrac) && Number.isFinite(snap.moonPhaseDeg)) {
+                const ecl = lunarEclipseState(snap);
+                const phase = moonPhaseName(snap.moonPhaseDeg);
+                m = sol ? (sol.kind === 'total' ? 'The Moon covers the whole Sun' : `The Moon covers ${sol.pct}% of the Sun`)
+                    : ecl ? `${phase} ${ecl.text}` : `${phase}, ${Math.round(moon.phaseFrac * 100)}% lit`;
+            }
+            if (m) l2 = l2 ? `${l2} · ${m}` : m;
+            const sky = skyDarknessText(snap);
+            l3 = sky;
+            if (sky) {
+                why.push('The Bortle scale rates a night sky from 1, a pristine dark site, to 9, an inner city.');
+                if (/magnitude/.test(sky)) why.push('The magnitude is that of the faintest stars a dark-adapted eye can see overhead, with the Moon and light pollution counted. Larger numbers are fainter.');
+            }
+            const aur = auroraText(snap);
+            if (aur) why.push(`${aur}.`);
         }
-        const sky = skyDarknessText(snap);
-        if (sky) parts.push(sky);
-        const aur = auroraText(snap);
-        if (aur) parts.push(aur);
-        return parts.join(' · ');
-    }
-
-    /** Standing on Mars: the site, its clock and season, and the light from home. */
-    function marsSummary(snap) {
-        const m = snap.mars;
-        const site = marsSiteNear(m.site.latDeg, m.site.lonDeg, 0.5);
-        const clockTxt = marsClockText(m.time, site ? { ...site, lonDeg: m.site.lonDeg } : { lonDeg: m.site.lonDeg }).text;
-        const parts = [`${m.site.name || 'Mars'} · ${clockTxt}`, `Ls ${Math.round(m.time.lsDeg)}°, ${marsSeason(m.time.lsDeg, m.site.latDeg)}`];
-        const e = snap.bodies[BODY_INDEX.mars];
-        if (e && Number.isFinite(e.lightTimeS)) parts.push(`The light from home left ${Math.max(1, Math.round(e.lightTimeS / 60))} min ago`);
-        parts.push('Rise and set times are not computed on Mars yet');
-        return parts.join(' · ');
+        setText(dark, l1);
+        setText(sun, l2);
+        sun.hidden = !l2;
+        setText(skyEl, l3);
+        change.hidden = !!mars || !snap.skyglow;
+        const key = why.join(' ');
+        if (key !== moreKey) { moreKey = key; more.replaceChildren(...why.map((w) => h('p', null, w))); }
     }
 
     offs.push(store.subscribe((st) => st.selection, () => { if (ui.snap) update(ui.snap); }));
@@ -353,20 +432,22 @@ export function mountSkyNow(root, ctx) {
 }
 
 /**
- * The site's sky class and, once the Sun is 15° down, the naked-eye limiting magnitude at the
- * zenith (Moon and light pollution included; snap.skyglow, js/astro/skyglow.js):
- * 'Bortle 8 · limiting mag 4.1', by day 'Bortle 8 sky'. Empty without a skyglow.
+ * The light pollution in plain words (snap.skyglow, astro/skyglow.js): 'Inner-city sky: stars to
+ * magnitude 3.6 (Bortle 9)', the zenith's naked-eye limit once the Sun is 15° down; by day
+ * 'Inner-city sky (Bortle 9)'. Empty without a skyglow.
  * @param {any} snap
  * @returns {string}
  */
 export function skyDarknessText(snap) {
     const sg = snap?.skyglow;
     if (!sg || !Number.isFinite(sg.bortle)) return '';
+    const n = Math.min(9, Math.max(1, Math.round(sg.bortle)));
+    const name = BORTLE_NAMES[n - 1];
     const sunAlt = snap.observer?.sunAltDeg;
     if (Number.isFinite(sunAlt) && sunAlt <= -15 && Number.isFinite(sg.limitMag)) {
-        return `Bortle ${sg.bortle} · limiting mag ${sg.limitMag.toFixed(1)}`;
+        return `${name}: stars to magnitude ${sg.limitMag.toFixed(1)} (Bortle ${n})`;
     }
-    return `Bortle ${sg.bortle} sky`;
+    return `${name} (Bortle ${n})`;
 }
 
 /**

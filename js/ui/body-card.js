@@ -265,7 +265,7 @@ export function mountBodyCard(root, ctx) {
         setAttr(actTrack, 'aria-pressed', String(m === 'sky' && st.view?.track === 'body'));
         const kind = id in BODY_INDEX ? BODIES[BODY_INDEX[id]].kind : '';
         swPath.el.hidden = text || mars || (kind !== 'planet' && id !== 'moon');
-        swFoot.el.hidden = text || mars || extra || m === 'sky';
+        swFoot.el.hidden = mars || extra || m !== 'globe';
         swSun.el.hidden = text || id !== 'sun';
         showGroup.hidden = swPath.el.hidden && swFoot.el.hidden && swSun.el.hidden;
         swPath.set(!!ly.trails);

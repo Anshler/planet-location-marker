@@ -11,7 +11,8 @@
  *
  * Sky positions are apparent (refracted, AE.Horizon 'normal') in the observer's local frame,
  * x = east, y = up, z = south (render/sky.js altAzLocal), so they sit on the Sun's disc in sky view.
- * Sunrise and sunset azimuths come from where each path crosses −0.833° (upper limb, refraction).
+ * Sunrise and sunset azimuths come from where each path's geometric (unrefracted) altitude crosses
+ * −0.833° (34′ of refraction plus the 16′ semi-diameter: the upper limb on the horizon).
  * About 7 ms in the worker.
  *
  * Pure: no DOM, no three.js; astronomy-engine only through ./ae.js.
@@ -51,10 +52,14 @@ function horizonOf(time, obs) {
 /** A day's path from `startMs` over 24 h, with its rise and set azimuths and its highest altitude. */
 function dayArc(key, startMs, obs) {
     const points = new Float32Array(PATH_SAMPLES * 3), alt = new Float32Array(PATH_SAMPLES), az = new Float64Array(PATH_SAMPLES);
+    const geo = new Float64Array(PATH_SAMPLES);
     const t0 = AE.MakeTime(new Date(startMs));
     let noon = -90;
     for (let k = 0; k < PATH_SAMPLES; k++) {
-        const hor = horizonOf(t0.AddDays((k * PATH_STEP_MIN) / 1440), obs);
+        const time = t0.AddDays((k * PATH_STEP_MIN) / 1440);
+        const eq = AE.Equator('Sun', time, obs, true, true);
+        const hor = AE.Horizon(time, obs, eq.ra, eq.dec, 'normal');
+        geo[k] = AE.Horizon(time, obs, eq.ra, eq.dec, null).altitude;
         alt[k] = hor.altitude;
         az[k] = hor.azimuth;
         noon = Math.max(noon, hor.altitude);
@@ -62,7 +67,7 @@ function dayArc(key, startMs, obs) {
     }
     let riseAzDeg = NaN, setAzDeg = NaN;
     for (let k = 1; k < PATH_SAMPLES; k++) {
-        const a = alt[k - 1] - RISE_ALT_DEG, b = alt[k] - RISE_ALT_DEG;
+        const a = geo[k - 1] - RISE_ALT_DEG, b = geo[k] - RISE_ALT_DEG;
         if ((a < 0) === (b < 0)) continue;
         const f = a / (a - b);
         let d = az[k] - az[k - 1];

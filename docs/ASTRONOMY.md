@@ -1107,7 +1107,8 @@ the Sun. Magnitudes from `AE.Illumination` every third night.
 midnight), the noon analemma at local mean noon (UT 12h − λ/15) each day, and the subsolar point
 (δ☉, RA☉ − GAST) at the current UT time of day each day. Sampling at a fixed UT is the same as at a
 fixed standard-time reading anywhere, so no zone or DST logic enters. Checked against Paris: noon
-altitudes 64.6° and 17.7° at the solstices, sunrise azimuths 51° and 125°; the subsolar 8 spans
+altitudes 64.6° and 17.7° at the solstices, sunrise azimuths 52° and 126° (where the geometric
+altitude crosses −0.833°, as AE.SearchRiseSet does; the apparent one would count refraction twice); the subsolar 8 spans
 ±23.44° and −4.1° … +3.6° of longitude at 12:00 UT (the equation of time).
 
 ## 7c. Standing on Mars (`js/astro/host-mars.js`, `js/astro/mars-clock.js`; phase 1, the sky view)

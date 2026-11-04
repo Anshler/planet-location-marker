@@ -84,11 +84,12 @@ test('Sun paths at Paris: solstice noon altitudes, rise and set azimuths, the eq
     near(arc('june').noonAltDeg, 90 - 48.8566 + 23.44, 0.25, 'June noon');
     near(arc('december').noonAltDeg, 90 - 48.8566 - 23.44, 0.25, 'December noon');
     near(arc('march').noonAltDeg, 90 - 48.8566, 0.4, 'equinox noon');
-    // Published Paris solstice azimuths: sunrise ≈ 51°/125°, sunset ≈ 309°/235°.
-    near(arc('june').riseAzDeg, 51, 1, 'June sunrise');
-    near(arc('june').setAzDeg, 309, 1, 'June sunset');
-    near(arc('december').riseAzDeg, 125, 1, 'December sunrise');
-    near(arc('december').setAzDeg, 235, 1, 'December sunset');
+    // Paris solstice azimuths at the upper limb's rise and set (AE.SearchRiseSet): 51.6°/308.4°
+    // in June, 126.0°/234.0° in December. The −0.833° standard is a geometric altitude.
+    near(arc('june').riseAzDeg, 51.6, 0.2, 'June sunrise');
+    near(arc('june').setAzDeg, 308.4, 0.2, 'June sunset');
+    near(arc('december').riseAzDeg, 126.0, 0.2, 'December sunrise');
+    near(arc('december').setAzDeg, 234.0, 0.2, 'December sunset');
     near(arc('march').riseAzDeg, 89, 1.5, 'equinox sunrise');
     // Local frame: x east, y up, z south — the noon Sun stands due south.
     const t = arc('today');
@@ -96,6 +97,24 @@ test('Sun paths at Paris: solstice noon altitudes, rise and set azimuths, the eq
     for (let k = 0; k < t.alt.length; k++) if (t.alt[k] > t.alt[best]) best = k;
     assert.ok(t.points[3 * best + 2] > 0.5 && Math.abs(t.points[3 * best]) < 0.1, 'south at noon');
     near(Math.hypot(t.points[0], t.points[1], t.points[2]), 1, 1e-6, 'unit vectors');
+});
+
+test('Sun paths: rise and set azimuths match AE.SearchRiseSet at high latitude', () => {
+    // At 65° N in June the Sun skims the horizon, so a wrong rise altitude moves the azimuth by degrees.
+    for (const [observer, key] of [[{ latDeg: 65, lonDeg: 25, elevM: 0 }, 'june'], [{ latDeg: 66, lonDeg: 25, elevM: 0 }, 'december'], [PARIS, 'june']]) {
+        const f = sunFigures(observer, Date.UTC(2026, 10, 4, 12));
+        const arc = f.arcs.find((a) => a.key === key);
+        const obs = new AE.Observer(observer.latDeg, observer.lonDeg, observer.elevM);
+        const azAt = (dir) => {
+            const ev = AE.SearchRiseSet('Sun', obs, dir, AE.MakeTime(new Date(arc.startMs)), 1);
+            const eq = AE.Equator('Sun', ev, obs, true, true);
+            return AE.Horizon(ev, obs, eq.ra, eq.dec, 'normal').azimuth;
+        };
+        near(arc.riseAzDeg, azAt(+1), 0.2, `${observer.latDeg}° ${key} sunrise`);
+        near(arc.setAzDeg, azAt(-1), 0.2, `${observer.latDeg}° ${key} sunset`);
+    }
+    const f65 = sunFigures({ latDeg: 65, lonDeg: 25, elevM: 0 }, Date.UTC(2026, 10, 4, 12));
+    near(f65.arcs.find((a) => a.key === 'june').riseAzDeg, 13.5, 0.3, '65° N June sunrise');
 });
 
 test('the noon analemma and the subsolar figure-8', () => {

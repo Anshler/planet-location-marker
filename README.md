@@ -70,6 +70,11 @@ browser, and nothing needs the network.
     manual Max (Settings → Quality) with 8K Earth maps and every effect at full detail, for fast GPUs.
   - The scene renders only when something changes.
   - A text mode with full sky tables on devices without WebGL 2.
+  - If the graphics keep resetting (a phone short of GPU memory), it steps down a quality tier for
+    the session, and after a third reset within a minute it falls back to text mode, with Retry.
+- **Report a problem.** About → Copy diagnostics copies one JSON report (version, graphics, quality
+  decisions, recent errors; never your location) to paste into a new issue, which the button next
+  to it opens prefilled.
 - **Accessible.** Full keyboard control, screen-reader announcements, and support for
   `prefers-reduced-motion`.
 

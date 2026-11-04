@@ -18,7 +18,7 @@ formulas and accuracy, is in [ASTRONOMY.md](ASTRONOMY.md).
 index.html        import map · inline loader · feature detection · global error capture
 └─ js/main.js     composition root: builds everything, wires it together, owns boot order
    ├─ js/core/    app state: store, bus, clock, url-state, prefs, tz, format, quality,    PURE
-   │              texture-plan
+   │              texture-plan, context-loss, diagnostics
    ├─ js/geo/     offline cities, online geocoder, lat/lon parsing, landscape profile     PURE
    ├─ js/astro/   astronomy: frames, snapshot, almanac, events, paths, worker + client    PURE
    ├─ js/data/    star-catalog decoder                                                    PURE
@@ -67,7 +67,8 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/app/labels-feed.js` | `buildAnchors(state, snap, catalog, trails)` and `createLabelsFeed(deps)`: label anchors with live vectors. |
 | | `js/app/intro.js` | `playIntro(opts)`: the first-visit camera flight, pin drop and beam launch (after a pre-roll that holds the opening pose while the loader fades). |
 | | `js/app/tours.js` | Guided tours, loaded on demand: the pure step builders (`tonightSteps`, `yearSteps`, `eclipseSteps`, `ambientSteps`) and `createTourRunner` (captions, pause/resume/next, state capture and restore). No three.js. |
-| | `js/app/fallback.js` | Text-mode banner, context-lost overlay, fatal-error hand-off. |
+| | `js/app/fallback.js` | Text-mode banner (with Retry after repeated context losses), context-lost overlay, fatal-error hand-off. |
+| | `js/app/session.js` | `sessionStorage`, guarded (`sessionLoad`, `sessionSave`): this tab's context-loss record outlives a reload, not the tab. Saved preferences stay in `core/prefs.js`. |
 | | `js/app/extras-setup.js` | `registerExtras(extras, {fetchJson, onDso})`: registers the guest-star and comet providers at boot, the spacecraft once `data/craft.json` arrives and the deep-sky objects once `data/dso.json` does; `registerStars(extras, {getCatalog, fetchJson})`: the catalogue-star provider once `sky.json` is decoded, following the selection and fetching `data/starinfo.json` on the first star (§4, Extra objects). |
 | Core | `js/core/store.js` | Immutable slices, selector subscriptions, `DEFAULT_STATE`. |
 | | `js/core/bus.js` | Fixed event types: `readout`, `toast`, `announce`, `almanac`, `events`, `intro`. |
@@ -76,7 +77,9 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/core/tour-catalog.js` | `TOURS` (id, title, blurb, running time), `TOUR_IDS`, `isTourId`: what the Events tab lists and `#tour=` accepts. |
 | | `js/core/selection.js` | What `store.selection` may hold: a BodyId or a namespaced extra id (`EXTRA_KINDS`, `isExtraId`, `isSelectionId`, `parseSelectionId`, `normalizeSelectionId`). |
 | | `js/core/moments.js` | `MOMENTS` (famous skies as deep links: caption, sources, hash) and `FAMOUS_COMETS` (Halley's five apparitions), listed by the Events tab. |
-| | `js/core/quality.js` | `TIERS`, `detectTier`, `tierConfig`, `autoStartTier`, and `createGovernor` (downgrade only, display-cadence budget). |
+| | `js/core/quality.js` | `TIERS`, `detectTier`, `tierConfig`, `autoStartTier`, and `createGovernor` (downgrade only, display-cadence budget; `lastStep` keeps each step's EMA and budget for the diagnostics). |
+| | `js/core/context-loss.js` | The context-loss backoff (§9): `recordLoss` (a 60 s sliding window: restore, then one tier lower for the session, then text mode), `retryRecord`, `capTier`, `tierBelow`. |
+| | `js/core/diagnostics.js` | `buildDiagnostics`: the 'Copy diagnostics' report (§11), with no location: `diagHash` keeps an allowlist of hash keys, `scrubError` cuts URL fragments, queries and `loc=` pairs from error lines. |
 | | `js/core/sampling.js` | Renderer policies, pure: `halton`, `createSupersampler` (idle supersampling: which frames accumulate, their weight and jitter, when to park), `viewMotionPx`, `streakShutter` and `strobeDim` (fast-time streaks). |
 | | `js/core/prefs.js` | `localStorage` under `pc2.`, falling back to memory. |
 | | `js/core/texture-plan.js` | Which images each tier loads: `ASSETS` (URLs, bytes, colour space), `INTERIM` and `PREVIEW` stand-ins, the per-slot key choices and `keysForTier` (critical previews, primary day and night maps, deferred rest); `download`/`prefetchTextures`, the early streamed fetches `main.js` starts before the render stack exists. No three.js; `render/textures.js` re-exports it. |
@@ -120,12 +123,12 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/astro/sky-guide.js` | Finding it in the real sky: hands at arm's length (`handSpan`: a fist ≈ 10°, a finger ≈ 1°), `findIt` ('Face south-east, 4 fists up from the horizon, 1 fist left of the Moon.'), `guideRefs` (the Moon, bright planets and, by night, 24 bright J2000 stars as signposts), the ruler's numbers (`separationDeg`, `fmtAngle`, `rulerText`) and `edgeHit` (where an off-screen pointer meets the free area's edge). |
 | Data | `js/data/catalog.js` | Decodes `data/sky.json` into GPU-ready typed arrays in the scene frame (with B−V and sky.json's own order, `srcHip`); `applyProperMotion(catalog, years)` moves the fast stars, their constellation endpoints and name labels in place; `mergeDeepStars` appends the max tier's `data/stars8.json`. |
 | | `js/data/starinfo.js` | Decodes `data/starinfo.json` (parallax per star, proper names, Bayer and Flamsteed designations; `GENITIVE`, `designations`). |
-| Render | `js/render/context.js` | Renderer, scene, camera, tier switching (`setTier`, or staged: `prepareTier` builds the post chain, `compile({paced})` warms every variant, `commitTier` applies the DPR), `invalidate`/`onInvalidate`, context loss, stats; `setAccumulation` (long exposures), `capture` (a one-task render at another size), video sessions (`beginCapture`, `captureCamera`/`releaseCamera`, `endCapture`), `render(ss)` (a jittered supersampling sample; a shown overlay takes the same jitter) and `setOverlay` (a second scene drawn over the first with its own camera and depth: the orrery). |
+| Render | `js/render/context.js` | Renderer, scene, camera, tier switching (`setTier`, or staged: `prepareTier` builds the post chain, `compile({paced})` warms every variant, `commitTier` applies the DPR), `invalidate`/`onInvalidate`, context loss (three's bookkeeping released while lost; drawing waits for the restore listeners' promises), stats; `setAccumulation` (long exposures), `capture` (a one-task render at another size), video sessions (`beginCapture`, `captureCamera`/`releaseCamera`, `endCapture`), `render(ss)` (a jittered supersampling sample; a shown overlay takes the same jitter) and `setOverlay` (a second scene drawn over the first with its own camera and depth: the orrery). |
 | | `js/render/postfx.js` | Composer with bloom and the final pass (FXAA when the scene target has no MSAA; the night-vision grade, `rc.setVision`). An `OverlayPass` right after the scene draws the overlay scene (`setOverlay`). While Expose is on, `AccumPass` (`accum.js`: two half-float targets, max-stacking, bright-only for the analemma) sits between the scene and the bloom; otherwise, on tiers that supersample, `SupersamplePass` (`supersample.js`: one half-float history, a hardware-blended running mean) sits there. |
 | | `js/render/streaks.js` | Fast-time star streaks, a render module for its per-frame hook: measures the camera's turn since the last frame and publishes `STREAK_UNIFORMS` (the shutter's opening as a world → view mat3, the cap), shared by the stars and the planet glyphs (`STREAK_VERT_CHUNK`), and `streakState.dim` for line art and the Milky Way. |
 | | `js/render/orrery.js` | The solar-system zoom's orrery: its own scene and camera in AU (the overlay), orbits, the Earth→body sight lines the beams fade into, sprites lit by the Sun, the Sun on the bodies' `DISC_FRAG`, the retrograde figure for a selected planet, edge arrows; live label points (`labelPoint`, `labelOffset`) and `pick`. Shaders in `shaders/orrery.glsl.js`. |
 | | `js/render/long-exposure.js` | The long exposure's controller, a render module for its per-frame hook: turns stacking on in sky view while `ui.expose` is set, resets the stack when the framing changes, gates star trails by daylight, reports `stats()`. |
-| | `js/render/textures.js` | Placeholder-first texture store with byte-weighted progress. Takes over `main.js`'s prefetched downloads, shows a day or night map's 512 px preview while it loads (`state(key) === 'preview'`), and holds eager uploads while the shaders compile (`holdUploads`; a tier switch's `{bind: false}` hold binds a map only once it is on the GPU). `setAnisotropy(n, keys)` re-uploads through the hold. |
+| | `js/render/textures.js` | Placeholder-first texture store with byte-weighted progress. Takes over `main.js`'s prefetched downloads, shows a day or night map's 512 px preview while it loads (`state(key) === 'preview'`), and holds eager uploads while the shaders compile (`holdUploads`; a tier switch's `{bind: false}` hold binds a map only once it is on the GPU). `setAnisotropy(n, keys)` re-uploads through the hold. A decoded bitmap is closed once uploaded (not the CPU-read ocean masks); `restore()` and a new anisotropy fetch a closed map again (§8, Decoded images). |
 | | `js/render/earth.js`, `atmosphere.js` | Earth shader (day, night lights with close-zoom filtering, the sharpen-in from the 512 px previews, sun glint and moonglint, moonlight, twilight, sculpted clouds, the face-on aurora, eclipse shadow, footprint) and atmosphere. |
 | | `js/render/aurora.js` | The aurora's limb-curtain shell (High and Max) and the driver of `AURORA_CHUNK` (`shaders/aurora.glsl.js`), whose uniforms the Earth and cloud materials also carry for the face-on oval on every tier. |
 | | `js/render/skyglow.js` | Uniforms of `SKYGLOW_CHUNK` (`shaders/skyglow.glsl.js`), filled from `snap.skyglow`: the moonlit sky and the city light dome per direction, for the dome, ground, stars and Milky Way. |
@@ -156,6 +159,7 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | Camera | `js/camera/rig.js`, `picking.js` | Orbit and sky-view camera, Earth-lock, fly-to tweens, `follow()` (the shadow chase), sidereal tracking, `setVantage()` (View from L1, Earthrise), the flat map (`setMode('map')`, `mapK`, `mapFrame`), the system zoom past 150 R (`setSystem`, `system`, `systemBlend`, `onSystemChange`), `frameSpan()` (the Earth–Moon framing), `setAiming()`/`setSkyAim()` (the phone steers the look); analytic globe, map (`pickMap`), glyph and map-point (`pickPoint`) picking. |
 | | `js/camera/aim.js` | 'Point at the sky' (loaded on first use, no three.js): device orientation → the rear camera's direction and the screen's up in ENU (`deviceVectors`), a level look (`lookOf`), an adaptive vector low-pass (`aimFilterStep`), and `createAim` (sensor events, iOS compass learning, deadband, Align offset, idle and hidden stops, wake lock). |
 | UI | `js/ui/index.js` and its modules | Shell, top bar, time bar, Sky Now, body card (with `eyepiece.js`: the 2D-canvas eyepiece portrait, also in text mode; `year-planner.js`: the planets' 12-month chart on a 2D canvas and the Sun's solstice paths in words, from the worker, also in text mode), events (with the guided tours and the Moon/Planets/Eclipses/Meteors/Seasons filters), Eclipse Companion, the tour's lower third (`tour-bar.js`), layers, settings, about, help, toasts, shortcuts, announcer; the share menu, `postcard.js` (postcard and Save-image dialog, the typographic band), `video.js` (the time-lapse video dialog: presets, frame size, progress and preview, the burned-in date stamp) and `expose.js` (Expose presets and the exposure's status pill); the vantage menu and its caption pill (`view-switch.js`: vantage points, the world map, the solar system).; the ruler and 'Point at the sky' buttons with their status pills (`sky-tools.js`); the body card's 'Find it' line.; the world map entry and the second place (`Compare with…` in the place search) |
+| | `js/ui/report.js` | About's 'Report a problem' (`mountReport`): Copy diagnostics (`actions.copyDiagnostics`; a selectable textarea when the clipboard is blocked) and `issueUrl()`, a new issue on `REPO_URL` with a short template. |
 
 ---
 
@@ -1051,6 +1055,24 @@ change.
   `core/texture-plan.js`) while those load or if they fail, and the Earth sharpens from them into
   the tier's maps. The earth shader samples a preview only while `uSharpen` < 1, and the close-zoom
   grain of the city lights is off on a 512 px map.
+- **Decoded images.** The texture store closes each decoded `ImageBitmap` in the task after its
+  upload, once its `onReady` listeners have read it: the GPU's copy is the only one. That is
+  33.5 MB of RAM per 4096 × 2048 map and 134 MB per 8192 × 4096 one. Measured with SwiftShader,
+  as the renderer process's resident memory once a tier's maps are in (two runs each): High
+  640–647 → 561–572 MB, Max 1085 → 584 MB. The GPU process holds the same as before. Two kinds
+  of map keep their image. One is a map whose pixels the CPU reads (ASSETS `cpu`: the ocean masks
+  `roughness2k` and `brc4k`, sampled by `render/ground.js`). The other is a map uploaded while the
+  context was lost, which reached no GPU. An `<img>` decode (Safari) cannot be closed. A context
+  restore (`restore()`, §9) and a new anisotropy (Max ↔ the rest) fetch a closed map again, from
+  the HTTP or service-worker cache, and decode it into the same Texture before uploading it.
+- **Coarse medium keeps the 4k day and night maps (evaluated, not changed).** The 2k pair would
+  save 521 KB of download on phones (740 → 219 KB) and 67 MB of VRAM with mips (89.5 → 22.4 MB).
+  Now that the decoded copies are closed, the RAM side is already gone. On a 390 px phone at
+  medium's 1.5 DPR the default globe view barely changes: 38 dB PSNR against the 4k maps, 6 % less
+  edge contrast. At a regional zoom (`cam=o:45,8,1.45`) the loss is plain: the day map has 32 %
+  less edge contrast (30 dB), and the city lights have 35 % less (22 dB) and turn paler. A phone
+  that really runs short of memory loses its context. The context-loss backoff (§9) then moves it
+  to low and its 2k maps for the session.
 - **One planet on every tier.** The 2k maps are the 4k maps at half size, made by
   `scripts/build-textures.mjs`: `day2k` and `night2k` from the day and night maps (filtered in
   linear light, like the GPU's own mip 1), and `clouds2k` and `roughness2k` from the blue (cloud)
@@ -1082,7 +1104,10 @@ change.
 | A render module throws at creation | That feature is skipped and the rest renders. |
 | A render module throws per frame | Three strikes, then it is hidden, with one toast. |
 | The renderer throws | Text mode (`context-failed`). |
-| `webglcontextlost` | Rendering pauses (the panels keep updating) and a non-blocking "Graphics were reset — restoring…" overlay appears. On restore, `textures.restore()` runs, the context drops the old composer unreleased (its GL objects died with the lost context) and builds a new one, and rendering resumes. |
+| `webglcontextlost` | Rendering pauses (the panels keep updating) and a non-blocking "Graphics were reset — restoring…" overlay appears. While the context is lost, `rc` disposes everything in the scenes, its stand-in quad and the whole post chain: every GL call is then a silent no-op, so only three's per-context bookkeeping goes, and a later `dispose()` never deletes the lost context's objects on the new one (no 'object does not belong to this context' warnings). On restore, `rc` builds a new chain for the current tier, `textures.restore()` fetches the maps whose decoded copy was closed again (one at a time, HTTP or service-worker cache) and uploads them, and nothing draws until that promise settles; then rendering resumes. |
+| A second context loss within 60 s | As above, and the session is held one tier lower (`governor.pin` and the staged tier switch) with the toast "Reduced graphics detail to keep things stable" (`core/context-loss.js`). The record is in `sessionStorage` (`app/session.js`), so a tab that reloads instead of restoring (iOS) boots at that tier. Saved preferences are untouched; choosing a tier in Settings overrides it. At low there is nothing lower: it restores. |
+| A third context loss within 60 s | Text mode with the "graphics kept resetting" banner; its Retry reloads with the window cleared, held at low. Until then a reload of the tab boots in text mode too, and the feature detection skips the 3D preloads. |
+| A closed map cannot be fetched again on restore (or not within 15 s) | A 1 × 1 stand-in takes its place (no frame uploads a closed image), the key counts as failed, and the "Some imagery couldn't load." toast shows. |
 | Context lost during a tier switch | The compile ends at once, the switch commits, and drawing stays paused (the `'context'` reason) until the restore, which builds the chain for the committed tier. |
 | A tier switch's compile hangs | After 10 s the switch commits anyway and resumes drawing; the first frame compiles what is left. |
 | A texture fails | The placeholder stays (a day or night map keeps its 512 px preview), with one "Some imagery couldn't load." toast. If the previews fail, the loader waits for the full maps instead (or 5 s). |
@@ -1145,6 +1170,16 @@ are applied live through `onExternalChange`. It writes nothing while a tour play
   objects for console spelunking. It is not a stable API.
 - **`?debug=1`** in the hash, or the Backquote key, shows the debug overlay: fps, ms, draw calls,
   memory, tier.
+- **The diagnostics report.** About → Copy diagnostics (`actions.copyDiagnostics()`, or
+  `actions.diagnostics()` for the object; `core/diagnostics.js`) is what users paste into an
+  issue: the version, `detectTier`'s decision (tier, ceiling, reason), the setting and active tier,
+  the governor (start, pin, DPR cap, budget, cadence) and a log of the last 20 tier changes
+  (governor steps with the EMA and budget that triggered them, `governor.lastStep`; context-loss
+  step-downs), the renderer string, max texture size and DPRs, disabled modules and strike counts
+  (`loop.stats().strikes`), the tab's context losses, the last 20 `window.__pcErrors`,
+  `__app.stats()` and the URL hash. Never the place: only the hash keys in `DIAG_HASH_KEYS` stay
+  (no `loc`, `n`, `cc`, `tz`, `el`, `loc2`, `cam`, `hloc`), and fragments, queries and `loc=` pairs
+  are cut from the error lines. It is built on demand; nothing is sent anywhere.
 - **`npm test`** runs the `node:test` suites: astronomy against fixtures, core and geo, data, and
   repo rules (import-map closure, purity, no external URLs, assets exist).
 - **`npm run smoke`** opens the app in headless Chrome (SwiftShader) with every non-local host

@@ -1061,10 +1061,11 @@ body.tier-medium:not(.is-coarse) .glass {
 .vb-lock.is-on, .vb-track.is-on, .vb-ruler.is-on, .vb-point.is-on { color: var(--accent); }
 .vb-lock[hidden], .vb-track[hidden], .vb-fs[hidden], .vb-ruler[hidden], .vb-point[hidden] { display: none; }
 
-/* Sky tools (ui/sky-tools.js): the ruler's reading and the pointing status, under the top bar. */
+/* Sky tools (ui/sky-tools.js): the ruler's reading and the pointing status, under the top bar (and
+   under the Eclipse Companion while it shows: --ecl-h, set by ui/eclipse-hud.js). */
 .stools {
     position: fixed;
-    top: calc(var(--gutter) + 54px + var(--safe-t));
+    top: calc(var(--gutter) + 54px + var(--safe-t) + var(--ecl-h, 0px));
     left: calc((100vw - var(--panel-w) - var(--gutter)) / 2);
     z-index: 9;
     display: flex; flex-direction: column; align-items: center; gap: 8px;
@@ -1088,7 +1089,7 @@ body.tier-medium:not(.is-coarse) .glass {
 .stool__detail { overflow: hidden; color: var(--muted); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
 .stool__x { flex: none; width: 32px; height: 32px; }
 .stool__btn { flex: none; height: 32px; padding: 0 12px; border-radius: var(--r-pill); }
-.ui[data-layout="mobile"] .stools { top: calc(66px + var(--safe-t)); left: calc(12px + var(--safe-l)); align-items: flex-start; max-width: calc(100vw - 84px); translate: none; }
+.ui[data-layout="mobile"] .stools { top: calc(66px + var(--safe-t) + var(--ecl-h, 0px)); left: calc(12px + var(--safe-l)); align-items: flex-start; max-width: calc(100vw - 84px); translate: none; }
 .ui[data-layout="mobile"] .stool { flex-wrap: wrap; row-gap: 6px; border-radius: 18px; }
 .ui[data-layout="mobile"] .stool__text { flex: 1 1 150px; }
 .ui[data-layout="mobile"] .stool__detail { white-space: normal; }
@@ -1875,7 +1876,7 @@ body.is-touring .toasts { bottom: calc(var(--gutter) + var(--tb-h) + 180px + var
 .vmenu__detail { color: var(--muted); font-size: 12px; line-height: 1.35; }
 .vcap {
     position: fixed;
-    top: calc(var(--gutter) + 54px + var(--safe-t));
+    top: calc(var(--gutter) + 54px + var(--safe-t) + var(--ecl-h, 0px));
     left: calc((100vw - var(--panel-w) - var(--gutter)) / 2);
     z-index: 9;
     display: flex; align-items: center; gap: 10px;
@@ -1892,7 +1893,7 @@ body.is-touring .toasts { bottom: calc(var(--gutter) + var(--tb-h) + 180px + var
 .vcap__name { font-size: 13px; font-weight: 750; }
 .vcap__detail { overflow: hidden; color: var(--muted); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
 .vcap__back { flex: none; height: 32px; padding: 0 12px; border-radius: var(--r-pill); }
-.ui[data-layout="mobile"] .vcap { top: calc(66px + var(--safe-t)); left: calc(12px + var(--safe-l)); max-width: calc(100vw - 84px); translate: none; }
+.ui[data-layout="mobile"] .vcap { top: calc(66px + var(--safe-t) + var(--ecl-h, 0px)); left: calc(12px + var(--safe-l)); max-width: calc(100vw - 84px); translate: none; }
 .ui[data-layout="text"] .vcap { display: none; }
 body.is-vantage #labels-root { visibility: hidden; }
 body.no-webgl .vb-vantage, body.no-webgl .vcap { display: none; }

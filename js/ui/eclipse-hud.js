@@ -243,8 +243,27 @@ export function mountEclipseHud(root, ctx) {
     offs.push(store.subscribe((s) => s.ui?.eclipse, refresh), store.subscribe((s) => s.observer, refresh),
         ui.on('events', refresh), ui.on('display', refresh));
 
+    // The other HUDs under the top bar (the view caption, the sky tools' pills) stack below the
+    // panel (css: --ecl-h, its height and a gap, 0 while it is hidden), never under it.
+    const host = ui?.root ?? root.ownerDocument?.documentElement ?? null;
+    let lastH = -1;
+    const publish = () => {
+        const hgt = root.hidden ? 0 : Math.ceil(root.getBoundingClientRect?.().height || 0);
+        if (hgt === lastH || !host?.style) return;
+        lastH = hgt;
+        host.style.setProperty('--ecl-h', hgt > 0 ? `${hgt + 8}px` : '0px');
+    };
+    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(publish) : null;
+    ro?.observe(root);
+
     return {
         update,
-        destroy() { offs.forEach((off) => off()); clearTimeout(sayTimer); root.textContent = ''; },
+        destroy() {
+            offs.forEach((off) => off());
+            clearTimeout(sayTimer);
+            ro?.disconnect();
+            host?.style?.removeProperty?.('--ecl-h');
+            root.textContent = '';
+        },
     };
 }

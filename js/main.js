@@ -46,6 +46,7 @@ import { createCapture } from './app/capture.js';
 import { photoLayers } from './app/expose.js';
 import { playIntro, INTRO_TIMING } from './app/intro.js';
 import { showFallback, showContextLost, hideContextLost, showFatal } from './app/fallback.js';
+import { createWakeLock } from './app/wake-lock.js';
 
 // ---------------------------------------------------------------------------------------------
 // Constants
@@ -113,6 +114,8 @@ const R = {
     /** @type {any} */ tours: null,
     /** 'Point at the sky' (js/camera/aim.js), created on first use. */
     /** @type {any} */ aim: null,
+    /** The screen wake lock (app/wake-lock.js): 'Point at the sky' holds it. */
+    /** @type {any} */ wake: null,
     /** A video session's virtual time base (ms, app/recorder.js), or null: the rig reads real time. */
     /** @type {number|null} */ virtualNow: null,
     uiMounted: false,
@@ -542,6 +545,7 @@ async function boot() {
     bindBodyClasses(store);
     bindPreferences(store);
     bindMedia(store);
+    bindWakeLock();
 
     // ---- 2. Clock and the first snapshot ----------------------------------------------------
     const clockOpts = {};
@@ -818,6 +822,11 @@ function bindPreferences(store) {
     });
     store.subscribe((s) => s.display, (d) => prefs.save('display', d));
     store.subscribe((s) => s.quality.setting, (q) => prefs.save('quality', q));
+}
+
+/** The screen wake lock (app/wake-lock.js), shared by everything that keeps the screen on. */
+function bindWakeLock() {
+    R.wake = createWakeLock();
 }
 
 function bindMedia(store) {
@@ -2162,7 +2171,7 @@ async function startAim() {
         R.bus?.emit('toast', { message: "Pointing at the sky couldn't load.", kind: 'warn' });
         return false;
     }
-    R.aim ??= mod.createAim({ rig, offsetDeg: Number(prefs.load('aimOffset', 0)) || 0, onStop: (reason) => onAimStop(reason) });
+    R.aim ??= mod.createAim({ rig, wake: R.wake, offsetDeg: Number(prefs.load('aimOffset', 0)) || 0, onStop: (reason) => onAimStop(reason) });
     if (R.aim.active) return true;
     const st = store.get();
     if (st.view.mode !== 'sky') return false;

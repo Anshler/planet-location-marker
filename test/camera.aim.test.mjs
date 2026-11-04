@@ -108,20 +108,20 @@ function fakeEnv({ absolute = true } = {}) {
         setAiming(on) { this.aiming = on; },
         setSkyAim(az, alt) { calls.push([az, alt]); return true; },
     };
-    let released = 0;
-    const nav = { wakeLock: { request: () => Promise.resolve({ release: () => { released++; return Promise.resolve(); } }) } };
+    // The shared wake lock (app/wake-lock.js): only its reasons matter here.
+    const holds = [];
+    const wake = { hold: (reason, on) => holds.push(`${reason}:${on ? 'on' : 'off'}`) };
     return {
-        win, rig, calls, nav, listeners, docListeners,
+        win, rig, calls, wake, holds, listeners, docListeners,
         now: () => t, advance: (ms) => { t += ms; },
         fire: (name, e) => listeners.get(name)?.(e),
-        get released() { return released; },
     };
 }
 
 test('createAim: first reading, deadband, Align, stops', async () => {
     const env = fakeEnv();
     const stops = [];
-    const aim = createAim({ win: env.win, nav: env.nav, rig: env.rig, now: env.now, onStop: (r) => stops.push(r) });
+    const aim = createAim({ win: env.win, wake: env.wake, rig: env.rig, now: env.now, onStop: (r) => stops.push(r) });
     const started = aim.start();
     assert.ok(env.rig.aiming, 'drags suspended');
     assert.ok(env.listeners.has('deviceorientationabsolute'));
@@ -150,7 +150,7 @@ test('createAim: first reading, deadband, Align, stops', async () => {
     assert.deepEqual(stops, ['hidden']);
     assert.equal(env.rig.aiming, false);
     assert.ok(!env.listeners.has('deviceorientationabsolute'));
-    assert.equal(env.released, 1);
+    assert.deepEqual(env.holds, ['aim:on', 'aim:off']);
     aim.stop('user');
     assert.deepEqual(stops, ['hidden'], 'idempotent');
 });
@@ -159,7 +159,7 @@ test('createAim: no sensor data, and the idle stop', async (t) => {
     t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] });
     const env = fakeEnv({ absolute: false });
     const stops = [];
-    const aim = createAim({ win: env.win, nav: null, rig: env.rig, now: env.now, onStop: (r) => stops.push(r) });
+    const aim = createAim({ win: env.win, rig: env.rig, now: env.now, onStop: (r) => stops.push(r) });
     const p = aim.start();
     // Desktop Chrome: one event with nulls, then nothing.
     env.fire('deviceorientation', { alpha: null, beta: null, gamma: null });
@@ -206,7 +206,7 @@ test('createAim: a look the rig refused (tracking holds the view) is sent again'
     let take = true;
     const tried = [];
     env.rig.setSkyAim = (az, alt) => { tried.push([az, alt]); return take; };
-    const aim = createAim({ win: env.win, nav: env.nav, rig: env.rig, now: env.now });
+    const aim = createAim({ win: env.win, wake: env.wake, rig: env.rig, now: env.now });
     const started = aim.start();
     env.advance(16);
     env.fire('deviceorientationabsolute', { alpha: 0, beta: 110, gamma: 0, absolute: true });

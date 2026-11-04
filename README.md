@@ -39,7 +39,9 @@ browser, and nothing needs the network.
 - **The Moon at true scale and distance.** Its phase and libration are right by construction,
   and the Earth's shadow falls on it during a lunar eclipse.
 - **Eclipses happen on their own.** The Moon's shadow crosses the Earth at the right place and
-  time. Jump to an eclipse from the Events panel and fly over the shadow.
+  time. Jump to an eclipse from the Events panel and fly over the shadow. While one is visible
+  from where you are, the Eclipse companion counts down to each contact (Begins, Totality, Peak,
+  Totality ends, Ends) and jumps to just before totality.
 - **Sky view.** Press <kbd>V</kbd> to drop down to the ground. You stand under a daylight sky
   driven by the real Sun, the stars fade in with twilight, and there are cardinal points and an
   alt-az grid.
@@ -57,19 +59,27 @@ browser, and nothing needs the network.
 - **Five panels: Up now, Details, Events, Explore and Display.** On a phone they sit in a tab bar
   at the bottom that is always there, under a sheet you drag up; tapping a world in the view
   raises the sheet to its details.
-- **Up now and body details.**
-  - For every body: altitude and azimuth with a compass arrow, rise, transit and set, magnitude,
-    phase, distance, elongation and constellation.
-  - RA and Dec, both J2000 and of date.
-  - "Tonight" verdicts, and a light-time sentence such as "The light you see from Saturn left
-    1 h 21 min ago".
-  - A Tonight chart from dusk to dawn: when each world is up and how high, its best moment, and
-    a drag to move through the night. Rows count down to the next rise and carry a 24-hour
-    altitude sparkline.
-  - A Sky dome: the whole sky in one round chart (horizon, compass points, bright stars and
+- **Up now.** A short summary first: day, twilight or night, when it is fully dark, sunset and
+  sunrise, the Moon, and the light pollution in plain words ("City sky: stars to magnitude 4.1
+  (Bortle 8)"), with an ⓘ that explains each term and a Change link to the sky conditions. Then
+  every body, above the horizon first: where it stands with a compass arrow, its rise or set,
+  magnitude, a countdown to the next rise and a 24-hour altitude sparkline. Then one **Charts**
+  card with two charts:
+  - **Sky dome:** the whole sky in one round chart (horizon, compass points, bright stars and
     constellation figures, the ecliptic, the Moon at its phase and every planet where it stands),
-    held overhead or read as a map, with a tap to select. In Sky view it also shows the camera's
-    field of view.
+    looking up or mirrored like a map, with a tap to select. In Sky view it also shows the
+    camera's field of view.
+  - **Tonight:** dusk to dawn, when each world is up and how high, its best moment, and a drag to
+    move through the night.
+- **Details for the selected body.** Its name and tonight's verdict ("Excellent tonight, best
+  around 00:34, 54° high in the south"), then at most four buttons: **Look at it**, **Telescope**,
+  **Follow** (Sky view) and **⋯** (turn the globe toward it, view the Earth from it, Earthrise,
+  compare from a second place). Then where it is and how to find it with your hands at arm's
+  length, a light-time sentence such as "The light you see from Saturn left 1 h 21 min ago", the
+  facts (altitude and azimuth, rise, transit and set, distance, magnitude, phase, angular size),
+  More positions (the angle from the Sun, sky coordinates J2000 and of date, the overhead point),
+  What these numbers mean, the Path and "Where it's up on Earth" switches, the eyepiece view and
+  the year ahead.
 - **Events for the next 12 months:**
   - Moon phases;
   - oppositions and conjunctions;
@@ -86,9 +96,13 @@ browser, and nothing needs the network.
 - **Display.** Every layer, grouped for the view you are in (the other view's layers wait in one
   closed group), Reset layers, the sky's light pollution and aurora, quality, night vision and
   About this app.
-- **Put yourself anywhere, offline.**
-  - Search about 1,600 cities, with no network needed. Each result shows its local time and its
-    sky at that moment ('06:14 · sunrise in 12 min', 'night, Moon up').
+- **Put yourself anywhere, offline, and find anything in the sky.**
+  - The place at the top is the search (<kbd>/</kbd>): about 1,600 cities, with no network needed.
+    Each result shows its local time and its sky at that moment ('06:14 · sunrise in 12 min',
+    'night, Moon up').
+  - The same search finds the sky: planets, named stars, deep-sky objects such as M31, comets,
+    guest stars, spacecraft and satellites ("Jupiter", "Sirius", "ISS", "Halley"), each with where
+    it is up now. Choosing one selects it and opens Details.
   - Click the globe (with Undo), type coordinates in decimal or DMS, or use your location.
   - Online place search is an optional extra.
 - **One toolbar, the same in every view.** `Globe | Sky | Map`, then **Tools** (on the globe:

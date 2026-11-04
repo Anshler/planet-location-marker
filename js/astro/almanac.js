@@ -1,6 +1,6 @@
 /**
- * Almanac: rise/transit/set, twilight, the Sun-altitude series for the time
- * scrubber, and plain-language "tonight" verdicts. Runs in the astro worker
+ * Almanac: rise/transit/set, twilight, the altitude series for the time
+ * scrubber, and plain-language "tonight" verdicts (with the altitudes behind them). Runs in the astro worker
  * (or on the main thread as a fallback); nothing here is per-frame.
  *
  * Rise and set follow astronomy-engine's definition: the upper limb of the Sun
@@ -204,6 +204,35 @@ export function twilight(observer, nearMs) {
 }
 
 /**
+ * A body's altitude (degrees) at `n` evenly spaced instants from fromMs to toMs inclusive: the
+ * time scrubber's day/night gradient (the Sun) and its Moon and selected-body bands.
+ * `refraction` as AE.Horizon takes it ('normal' for the apparent altitude; omitted, the
+ * unrefracted centre, as twilight definitions use).
+ * @param {string} bodyId
+ * @param {ObserverLike} observer
+ * @param {number} fromMs
+ * @param {number} toMs
+ * @param {number} n Sample count, 1..100000.
+ * @param {string} [refraction]
+ * @returns {Float32Array}
+ */
+export function altitudeSeries(bodyId, observer, fromMs, toMs, n, refraction) {
+    const b = requireBody(bodyId);
+    const obs = aeObserverOf(observer);
+    requireMs(fromMs, 'fromMs');
+    requireMs(toMs, 'toMs');
+    const count = Math.floor(Number(n));
+    if (!(count >= 1 && count <= 100000)) throw new RangeError('n must be between 1 and 100000');
+    const out = new Float32Array(count);
+    const step = count > 1 ? (toMs - fromMs) / (count - 1) : 0;
+    for (let i = 0; i < count; i++) {
+        const time = AE.MakeTime(new Date(fromMs + i * step));
+        out[i] = horizontal(b.ae, time, obs, refraction).altitude;
+    }
+    return out;
+}
+
+/**
  * Sun-centre altitude (degrees, unrefracted) at `n` evenly spaced instants
  * from fromMs to toMs inclusive — the day/night gradient of the time scrubber.
  * Classify samples with photometry.twilightClass().
@@ -214,18 +243,7 @@ export function twilight(observer, nearMs) {
  * @returns {Float32Array}
  */
 export function sunAltitudeSeries(observer, fromMs, toMs, n) {
-    const obs = aeObserverOf(observer);
-    requireMs(fromMs, 'fromMs');
-    requireMs(toMs, 'toMs');
-    const count = Math.floor(Number(n));
-    if (!(count >= 1 && count <= 100000)) throw new RangeError('n must be between 1 and 100000');
-    const out = new Float32Array(count);
-    const step = count > 1 ? (toMs - fromMs) / (count - 1) : 0;
-    for (let i = 0; i < count; i++) {
-        const time = AE.MakeTime(new Date(fromMs + i * step));
-        out[i] = horizontal('Sun', time, obs, undefined).altitude;
-    }
-    return out;
+    return altitudeSeries('sun', observer, fromMs, toMs, n);
 }
 
 // Cached Intl formatters keyed by zone and clock style. An unknown zone falls
@@ -305,6 +323,7 @@ const DAYTIME_CAPABLE = new Set(['moon', 'venus']);
  *   windowStartMs:number|null, windowEndMs:number|null, mag:number, phaseFrac:number,
  *   constellation:{symbol:string, name:string}, elongDeg:number,
  *   equipment:'naked-eye'|'binoculars'|'telescope', sentence:string}} TonightReport
+ * @typedef {{t0Ms:number, stepMs:number, n:number, ids:string[], alt:Float32Array, sunAlt:Float32Array}} TonightSeries
  */
 
 // 10-minute grid from solar noon to solar noon, plus the Sun's altitude on it.
@@ -435,10 +454,14 @@ function reportFor(b, obs, mid, grid, w, fmt) {
  * The Sun is not reported (reports follow BODIES order without it). best*
  * fields describe the highest point inside the viewing interval (null when
  * not visible); times in `sentence` use `opts.tz`, else `observer.tz`, else UTC.
+ * `series` holds the sampled altitudes themselves: `alt` packs one row of `n` refracted
+ * altitudes per report (row i is `reports[i]`, `ids[i]`), `sunAlt` the Sun's unrefracted
+ * centre, at `t0Ms + k·stepMs` (10 min, solar noon to solar noon).
  * @param {ObserverLike} observer
  * @param {number} nearMs
  * @param {{tz?:string, hour12?:boolean}} [opts]
- * @returns {{nightStartMs:number|null, nightEndMs:number|null, reports:TonightReport[], twilight:Twilight}}
+ * @returns {{nightStartMs:number|null, nightEndMs:number|null, reports:TonightReport[], twilight:Twilight,
+ *            series:TonightSeries}}
  */
 export function tonight(observer, nearMs, opts = {}) {
     const obs = aeObserverOf(observer);
@@ -457,10 +480,19 @@ export function tonight(observer, nearMs, opts = {}) {
         daylit: new Uint8Array(SAMPLES),
     };
     const reports = [];
+    // The altitudes the verdicts were drawn from, kept for the Tonight chart and the Sky-now
+    // sparklines: one packed row of SAMPLES per report (no extra Astronomy Engine calls).
+    const alt = new Float32Array((BODIES.length - 1) * SAMPLES);
     for (const b of BODIES) {
-        if (b.id !== 'sun') reports.push(reportFor(b, obs, mid, grid, w, fmt));
+        if (b.id === 'sun') continue;
+        reports.push(reportFor(b, obs, mid, grid, w, fmt));
+        alt.set(w.alt, (reports.length - 1) * SAMPLES);
     }
-    return { ...nightBounds(tw, grid), reports, twilight: tw };
+    const series = {
+        t0Ms: msOf(grid.times[0]), stepMs: SAMPLE_MIN * 60000, n: SAMPLES,
+        ids: reports.map((r) => r.id), alt, sunAlt: Float32Array.from(grid.sunAlt),
+    };
+    return { ...nightBounds(tw, grid), reports, twilight: tw, series };
 }
 
 function litText(frac) {

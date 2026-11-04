@@ -16,6 +16,13 @@
  * `actions.setObserver` records every deliberate placement there, so the
  * palette only reads them (Place-like `{name, country, lat, lon, tz}` records).
  *
+ * Each place previews its sky at the simulated time (ROADMAP picker-place-preview): a line with
+ * its local clock (a place without a zone takes the nearest city's within 300 km, else '≈' and a
+ * note: the zone is only estimated from the longitude) and the Sun there ('sunrise in 12 min',
+ * 'civil twilight', 'night'), with 'Moon up', on a pill in the sky's colour (ui/sky-palette.js).
+ * `placeSky` works from the readout's Sun and Moon sub-points (no astronomy call), and the lines
+ * refresh at most once a second while the palette is open.
+ *
  * @module ui/location
  */
 
@@ -24,6 +31,7 @@ import { load as loadPref } from '../core/prefs.js';
 import { h, on, setText, trapFocus, uid } from './dom.js';
 import { icon } from './icons.js';
 import { MARS_SITES } from '../astro/mars-clock.js';
+import { SKY_LUT, skyLutIndex } from './sky-palette.js';
 
 const MAX_RECENT = 6;
 const DEBOUNCE_MS = 400;
@@ -49,6 +57,67 @@ function highlight(text, q) {
 }
 
 const placeKey = (lat, lon) => `${(+lat).toFixed(2)},${(+lon).toFixed(2)}`;
+
+const D2R = Math.PI / 180;
+const HOUR = 3600e3;
+/** Sunrise and sunset: the upper limb on the refracted horizon. */
+const SUN_H0 = -0.833;
+/** The Moon's standard altitude in geocentric terms (Meeus 15: 0.7275·π − 34′ with π ≈ 0.95°). */
+const MOON_H0 = 0.125;
+/** Sunrise or sunset is named when it is this close. */
+const SOON_MS = 90 * 60e3;
+export const PHASE_LABEL = Object.freeze({ day: 'day', civil: 'civil twilight', nautical: 'nautical twilight', astro: 'astronomical twilight', night: 'night' });
+
+/**
+ * A place's sky at one instant from the Sun's and the Moon's sub-points (snapshot BodyState
+ * `subLatDeg`/`subLonDeg`): a body's altitude is 90° minus the place's great-circle distance from
+ * its sub-point (geocentric; within 0.01° for the Sun), and the sub-solar point moves west at
+ * 15°/h, which times the next sunrise or sunset to a minute within the 90 minutes `skyWords`
+ * names it (hours ahead, the held declination drifts: up to a few minutes in the Arctic).
+ * @param {number} latDeg
+ * @param {number} lonDeg
+ * @param {{subLatDeg:number, subLonDeg:number}|null|undefined} sun
+ * @param {{subLatDeg:number, subLonDeg:number}|null|undefined} moon
+ * @param {number} tMs the sub-points' instant
+ * @returns {{sunAlt:number, phase:'day'|'civil'|'nautical'|'astro'|'night', riseMs:number|null, setMs:number|null,
+ *   moonAlt:number, moonUp:boolean}|null} null without a usable Sun (standing on Mars, no readout)
+ */
+export function placeSky(latDeg, lonDeg, sun, moon, tMs) {
+    if (!Number.isFinite(latDeg) || !Number.isFinite(lonDeg) || !Number.isFinite(sun?.subLatDeg) || !Number.isFinite(sun?.subLonDeg)) return null;
+    const sp = Math.sin(latDeg * D2R), cp = Math.cos(latDeg * D2R);
+    const altOf = (b) => {
+        const d = b.subLatDeg * D2R;
+        const x = sp * Math.sin(d) + cp * Math.cos(d) * Math.cos((lonDeg - b.subLonDeg) * D2R);
+        return Math.asin(Math.max(-1, Math.min(1, x))) / D2R;
+    };
+    const sunAlt = altOf(sun);
+    const phase = sunAlt > SUN_H0 ? 'day' : sunAlt > -6 ? 'civil' : sunAlt > -12 ? 'nautical' : sunAlt > -18 ? 'astro' : 'night';
+    let riseMs = null, setMs = null;
+    const sd = Math.sin(sun.subLatDeg * D2R), cd = Math.cos(sun.subLatDeg * D2R);
+    const cosH0 = (Math.sin(SUN_H0 * D2R) - sp * sd) / (cp * cd);
+    if (Number.isFinite(tMs) && cosH0 > -1 && cosH0 < 1) {
+        const h0 = Math.acos(cosH0) / D2R;
+        const ha = ((((lonDeg - sun.subLonDeg) % 360) + 540) % 360) - 180;
+        if (Math.abs(ha) < h0) setMs = tMs + ((h0 - ha) / 15) * HOUR;
+        else riseMs = tMs + (((((-h0 - ha) % 360) + 360) % 360) / 15) * HOUR;
+    }
+    const moonAlt = Number.isFinite(moon?.subLatDeg) && Number.isFinite(moon?.subLonDeg) ? altOf(moon) : NaN;
+    return { sunAlt, phase, riseMs, setMs, moonAlt, moonUp: moonAlt > MOON_H0 };
+}
+
+/**
+ * The words of a place's sky: 'sunrise in 12 min' within 90 minutes of it, else the phase
+ * ('night', 'civil twilight'…), and ', Moon up'.
+ * @param {NonNullable<ReturnType<typeof placeSky>>} sky
+ * @param {number} tMs
+ * @param {(ms:number) => string} rel relative time from tMs ('in 12 min', 'now')
+ */
+export function skyWords(sky, tMs, rel) {
+    let s = PHASE_LABEL[sky.phase];
+    if (sky.riseMs !== null && sky.riseMs - tMs <= SOON_MS) s = `sunrise ${rel(sky.riseMs)}`;
+    else if (sky.setMs !== null && sky.setMs - tMs <= SOON_MS) s = `sunset ${rel(sky.setMs)}`;
+    return sky.moonUp ? `${s}, Moon up` : s;
+}
 
 /**
  * Mounts the location palette.
@@ -133,6 +202,9 @@ export function mountLocation(root, ctx) {
     let searchCtl = null;
     /** @type {any[]} flat option models in display order */
     let options = [];
+    /** @type {{el: HTMLElement, lat: number, lon: number, tz: string|null}[]} the options' sky lines */
+    let skyEls = [];
+    let skyAt = 0;
     let active = -1;
     let release = null;
     let locating = false;
@@ -236,9 +308,43 @@ export function mountLocation(root, ctx) {
         }, h('span', { class: 'pal-opt__icon', 'aria-hidden': 'true' }, icon(model.icon, { size: 18 })),
         h('span', { class: 'pal-opt__main' },
             h('span', { class: 'pal-opt__title' }, model.titleNodes || model.title),
-            model.sub ? h('span', { class: 'pal-opt__sub' }, model.sub) : null),
+            model.sub ? h('span', { class: 'pal-opt__sub' }, model.sub) : null,
+            model.sky ? skyLine(model.sky) : null),
         model.meta ? h('span', { class: 'pal-opt__meta' }, model.meta) : null);
         return el;
+    }
+
+    /**
+     * An option's 'local time · sky' line, filled (and kept fresh) by refreshSky. A place without a
+     * zone takes the nearest city's within 300 km, as the observer would (actions.normalizeObserver).
+     */
+    function skyLine({ lat, lon, tz }) {
+        const el = h('span', { class: 'pal-opt__sky', hidden: true });
+        let zone = tz || null;
+        if (!zone) {
+            try {
+                const r = ctx.services?.cities?.nearest?.(+lat, +lon, 300);
+                if (r?.city?.tz && r.km <= 300) zone = r.city.tz;
+            } catch { zone = null; }
+        }
+        skyEls.push({ el, lat: +lat, lon: +lon, tz: zone });
+        return el;
+    }
+
+    function refreshSky() {
+        skyAt = performance.now();
+        const snap = ui.snap, t = snap?.tMs;
+        for (const s of skyEls) {
+            const sky = placeSky(s.lat, s.lon, snap?.bodies?.[0], snap?.bodies?.[1], t);
+            s.el.hidden = !sky;
+            if (!sky) continue;
+            const clock = ui.fmtClock(t, { tzName: s.tz || ui.observerTz({ lonDeg: s.lon }) });
+            setText(s.el, `${s.tz ? '' : '≈ '}${clock} · ${skyWords(sky, t, (ms) => ui.fmt('fmtRelative', ms, t))}`);
+            const tip = s.tz ? `Local time there (${s.tz}) and its sky` : 'Approximate local time there (the zone is estimated from the longitude) and its sky';
+            if (s.el.title !== tip) s.el.title = tip;
+            const i = skyLutIndex(sky.sunAlt);
+            s.el.style.setProperty('--sky', `rgb(${SKY_LUT[i]}, ${SKY_LUT[i + 1]}, ${SKY_LUT[i + 2]})`);
+        }
     }
 
     function cityModel(p, type) {
@@ -248,7 +354,7 @@ export function mountLocation(root, ctx) {
         meta.push(h('span', { class: 'pal-opt__coords' }, ui.latLonText(p.lat, p.lon, 1)));
         return {
             type, icon: type === 'online' ? 'globe' : 'city', place: p, title: p.name,
-            titleNodes: highlight(p.name, query), sub, meta,
+            titleNodes: highlight(p.name, query), sub, meta, sky: { lat: p.lat, lon: p.lon, tz: p.tz },
             label: `${p.name}${sub ? ', ' + sub : ''}`,
         };
     }
@@ -257,12 +363,14 @@ export function mountLocation(root, ctx) {
         const prevActiveKey = keepActive && options[active] ? options[active].key : null;
         const nodes = [];
         options = [];
+        skyEls = [];
         const add = (m) => { m.key = `${m.type}:${m.title}:${m.place ? placeKey(m.place.lat ?? m.place.latDeg, m.place.lon ?? m.place.lonDeg) : ''}`; options.push(m); nodes.push(optionEl(m, options.length - 1)); };
 
         if (coords) {
             nodes.push(section('Coordinates'));
             add({ type: 'coords', icon: 'crosshair', title: `Go to ${ui.latLonText(coords.lat, coords.lon, 4, ', ')}`, place: { lat: coords.lat, lon: coords.lon },
-                sub: ui.nearestCityText(coords.lat, coords.lon) ? `near ${ui.nearestCityText(coords.lat, coords.lon)}` : '' });
+                sub: ui.nearestCityText(coords.lat, coords.lon) ? `near ${ui.nearestCityText(coords.lat, coords.lon)}` : '',
+                sky: { lat: coords.lat, lon: coords.lon, tz: null } });
         }
         if (query) {
             const cityTitle = section('Cities (offline)');
@@ -300,7 +408,8 @@ export function mountLocation(root, ctx) {
             rec.forEach((r) => {
                 const label = ui.placeLabel({ name: r.name, country: r.country, latDeg: r.latDeg, lonDeg: r.lonDeg });
                 add({ type: 'recent', icon: 'history', title: label.charAt(0).toUpperCase() + label.slice(1), titleNodes: highlight(label.charAt(0).toUpperCase() + label.slice(1), query),
-                    place: r, sub: '', meta: [h('span', { class: 'pal-opt__coords' }, ui.latLonText(r.latDeg, r.lonDeg, 1))] });
+                    place: r, sub: '', sky: { lat: r.latDeg, lon: r.lonDeg, tz: r.tz },
+                    meta: [h('span', { class: 'pal-opt__coords' }, ui.latLonText(r.latDeg, r.lonDeg, 1))] });
             });
         }
         if (!query && !rec.length) {
@@ -313,6 +422,7 @@ export function mountLocation(root, ctx) {
             nodes.push(h('p', { class: 'pal-empty' }, `No places match “${query}”. Try another spelling, or enter coordinates like 48.86, 2.35.`));
         }
         list.replaceChildren(...nodes);
+        refreshSky();
         // Keep or set the active option (the first one by default, so Enter picks it).
         let idx = prevActiveKey ? options.findIndex((o) => o.key === prevActiveKey) : -1;
         if (idx < 0) idx = options.length ? 0 : -1;
@@ -459,6 +569,9 @@ export function mountLocation(root, ctx) {
             : 'Online place search is unreachable. Offline cities and coordinates still work.');
     }
     offs.push(store.subscribe((s) => s.status?.onlineSearch, () => { syncStatus(); if (!layer.hidden) render(true); }));
+    // The sky lines follow the readout while the palette is open (at most once a second).
+    offs.push(ui.on('snap', () => { if (!layer.hidden && skyEls.length && performance.now() - skyAt >= 1000) refreshSky(); }));
+    offs.push(ui.on('display', () => { if (!layer.hidden && skyEls.length) refreshSky(); }));
     offs.push(on(window, 'online', syncStatus));
     offs.push(on(window, 'offline', syncStatus));
 

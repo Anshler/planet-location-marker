@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { AE } from '../js/astro/ae.js';
 import { BODIES, BODY_IDS } from '../js/astro/bodies.js';
-import { riseTransitSet, twilight, sunAltitudeSeries, tonight, compass16, aeObserverOf } from '../js/astro/almanac.js';
+import { riseTransitSet, twilight, sunAltitudeSeries, altitudeSeries, tonight, compass16, aeObserverOf } from '../js/astro/almanac.js';
 import { twilightClass } from '../js/astro/photometry.js';
 
 const HOUR = 3600e3;
@@ -143,6 +143,40 @@ test('sunAltitudeSeries: n samples, inclusive endpoints, matching AE and classif
     assert.equal(twilightClass(s[0]), 'astronomical'); // lat + dec − 90 ≈ −15° at midnight in June
     assert.equal(sunAltitudeSeries(GREENWICH, from, from + DAY, 1).length, 1);
     assert.throws(() => sunAltitudeSeries(GREENWICH, from, from + DAY, 0), RangeError);
+});
+
+test('altitudeSeries: any body, apparent with refraction; the Sun series is its unrefracted special case', () => {
+    const from = Date.parse('2026-10-11T00:00:00Z');
+    const sun = altitudeSeries('sun', HANOI, from, from + DAY, 25);
+    assert.deepEqual([...sun], [...sunAltitudeSeries(HANOI, from, from + DAY, 25)]);
+    const moon = altitudeSeries('moon', HANOI, from, from + DAY, 25, 'normal');
+    assert.equal(moon.length, 25);
+    const obs = new AE.Observer(HANOI.latDeg, HANOI.lonDeg, HANOI.elevM);
+    for (const i of [0, 12, 24]) {
+        const t = AE.MakeTime(new Date(from + (i * DAY) / 24));
+        const eq = AE.Equator('Moon', t, obs, true, true);
+        close(moon[i], AE.Horizon(t, obs, eq.ra, eq.dec, 'normal').altitude, 1e-4, `Moon sample ${i}`);
+    }
+    assert.throws(() => altitudeSeries('pluto', HANOI, from, from + DAY, 4), RangeError);
+    assert.throws(() => altitudeSeries('mars', HANOI, from, from + DAY, 0), RangeError);
+});
+
+test('tonight: series carries the altitudes behind the verdicts, noon to noon every 10 min', () => {
+    const t = tonight(HANOI, Date.parse('2026-10-11T08:00:00Z'));
+    const s = t.series;
+    assert.equal(s.n, 145);
+    assert.equal(s.stepMs, 600000);
+    assert.deepEqual(s.ids, t.reports.map((r) => r.id));
+    assert.ok(s.alt instanceof Float32Array && s.alt.length === 8 * 145);
+    assert.ok(s.sunAlt instanceof Float32Array && s.sunAlt.length === 145);
+    assert.ok(s.t0Ms < t.nightStartMs && t.nightEndMs < s.t0Ms + 144 * s.stepMs, 'the grid spans the night');
+    // Each report's best sample is in its row; the Sun is down at the night's middle and up at its ends.
+    for (const [i, r] of t.reports.entries()) {
+        if (r.bestMs === null) continue;
+        const k = Math.round((r.bestMs - s.t0Ms) / s.stepMs);
+        close(s.alt[i * 145 + k], r.bestAltDeg, 1e-3, `${r.id} best altitude in its row`);
+    }
+    assert.ok(s.sunAlt[72] < -18 && s.sunAlt[0] > 0 && s.sunAlt[144] > 0);
 });
 
 test('tonight: Hanoi 2026-10-11 — Saturn near opposition is excellent; the 1-day-old Moon is lost in the glare', () => {

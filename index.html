@@ -9,6 +9,18 @@
 <meta name="apple-mobile-web-app-title" content="Planet Marker">
 <meta name="theme-color" content="#03060d">
 <meta name="color-scheme" content="dark">
+<script>
+/* Night vision (display.red, saved by js/core/prefs.js as 'pc2.display'): red and a black bar from
+   the first paint, so opening the app outdoors never flashes. main.js bindNightVision takes over. */
+(function () {
+  try {
+    if (JSON.parse(localStorage.getItem('pc2.display') || '{}').red !== true) return;
+    document.documentElement.classList.add('is-red');
+    var m = document.querySelector('meta[name="theme-color"]');
+    if (m) { m.setAttribute('data-base', m.content); m.content = '#000'; }
+  } catch (e) { /* storage blocked: the app applies it once it loads */ }
+})();
+</script>
 <link rel="canonical" href="https://anshler.github.io/planet-location-marker/">
 <link rel="icon" href="assets/icons/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="assets/icons/icon-192.png">
@@ -80,11 +92,15 @@
 <link rel="modulepreload" href="js/core/context-loss.js">
 <link rel="modulepreload" href="js/core/diagnostics.js">
 <link rel="modulepreload" href="js/app/session.js">
+<link rel="modulepreload" href="js/app/wake-lock.js">
 <link rel="modulepreload" href="js/ui/dom.js">
 <link rel="modulepreload" href="js/ui/shell.js">
 <link rel="modulepreload" href="js/ui/toast.js">
 <link rel="modulepreload" href="js/ui/announcer.js">
 <link rel="modulepreload" href="js/ui/shortcuts.js">
+<link rel="modulepreload" href="js/ui/install.js">
+<link rel="modulepreload" href="js/ui/intro-caption.js">
+<link rel="modulepreload" href="js/ui/coach.js">
 <link rel="modulepreload" href="js/geo/coords.js">
 <link rel="modulepreload" href="js/astro/ae.js">
 <link rel="modulepreload" href="js/astro/frames.js">
@@ -122,15 +138,20 @@
 <link rel="modulepreload" href="js/astro/almanac.js">
 <link rel="modulepreload" href="js/astro/meteors.js">
 <link rel="modulepreload" href="js/astro/mars-clock.js">
+<link rel="modulepreload" href="js/ui/sky-palette.js">
 <link rel="modulepreload" href="js/ui/postcard.js">
 <link rel="modulepreload" href="js/ui/video.js">
 <link rel="modulepreload" href="js/ui/expose.js">
 <link rel="modulepreload" href="js/ui/sky-tools.js">
+<link rel="modulepreload" href="js/ui/tonight.js">
+<link rel="modulepreload" href="js/ui/sky-dome.js">
 <link rel="modulepreload" href="js/ui/eyepiece.js">
 <link rel="modulepreload" href="js/ui/year-planner.js">
 <link rel="modulepreload" href="js/ui/sat-passes.js">
 <link rel="modulepreload" href="js/core/moments.js">
 <link rel="modulepreload" href="js/astro/sky-caption.js">
+<link rel="modulepreload" href="js/ui/event-glyphs.js">
+<link rel="modulepreload" href="js/ui/ics.js">
 <link rel="modulepreload" href="js/ui/report.js">
 <link rel="modulepreload" href="js/astro/planner.js">
 <!-- /boot modules -->
@@ -385,6 +406,9 @@ body.is-intro-out #ui-root{animation:pc-ui-in .9s cubic-bezier(.2,.7,.2,1) both}
     }
   } catch (e) { /* no WebGL2: text mode */ }
   w.__pcEnv = env;
+  // The browser's install offer can come before the UI loads: keep it for About's 'Install app' (ui/install.js).
+  w.addEventListener('beforeinstallprompt', function (e) { w.__pcInstall = e; });
+  w.addEventListener('appinstalled', function () { w.__pcInstall = null; });
 
   // The 3D view: its 512 px Earth previews (main.js fetches them with the same mode and credentials,
   // which reuses these requests) and its modules, three.js and the render stack, start now, in
@@ -428,8 +452,9 @@ body.is-intro-out #ui-root{animation:pc-ui-in .9s cubic-bezier(.2,.7,.2,1) both}
   }
 
   var reduced = mq('(prefers-reduced-motion: reduce)');
+  var coarse = mq('(pointer: coarse)');
   if (!env.webgl2 || !env.importmap) b.classList.add('no-webgl');
-  if (mq('(pointer: coarse)')) b.classList.add('is-coarse');
+  if (coarse) b.classList.add('is-coarse');
   if (reduced) b.classList.add('is-reduced-motion');
 
   var nameMeta = d.querySelector('meta[name="application-name"]');
@@ -452,16 +477,23 @@ body.is-intro-out #ui-root{animation:pc-ui-in .9s cubic-bezier(.2,.7,.2,1) both}
     }, go);
   });
 
-  // Rotating tips.
-  var tips = [
+  // Rotating tips: gestures on a touch-first device, keys elsewhere.
+  var tips = (coarse ? [
+    'Drag to turn the globe · pinch to zoom',
+    'Tap a world at the end of its beam to meet it',
+    'Tap anywhere on Earth to stand there instead',
+    'Drag the time bar to travel through time',
+    'Switch to Sky view to stand on the ground and look up'
+  ] : [
     'Drag to orbit the globe · scroll or pinch to zoom',
     'Press <kbd>V</kbd> to stand on the ground and look up',
     'Press <kbd>1</kbd>–<kbd>9</kbd> for the Sun, the Moon and each planet',
     'Click anywhere on Earth to stand there instead',
-    '<kbd>Space</kbd> pauses time · <kbd>[</kbd> and <kbd>]</kbd> change its speed',
+    '<kbd>Space</kbd> pauses time · <kbd>[</kbd> and <kbd>]</kbd> change its speed'
+  ]).concat([
     'Every position is computed in your browser — no network needed',
     'A beam that dives into the Earth points at a world below your horizon'
-  ];
+  ]);
   var tipEl = $('pc-ld-tip');
   var tipIndex = Math.floor(Math.random() * tips.length);
   function showTip() {

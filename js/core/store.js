@@ -59,6 +59,12 @@ export const VANTAGE_SETTINGS = Object.freeze(['none', 'l1', 'moon']);
 export const VIEW_MODES = Object.freeze(['orbit', 'sky', 'map']);
 
 /**
+ * ui.panel choices: the panel's tabs (ui/shell.js TABS, in display order). `tab=` in the URL opens
+ * one (the install shortcut to Events); it is read, never written.
+ */
+export const PANELS = Object.freeze(['sky', 'details', 'events', 'layers', 'settings', 'about']);
+
+/**
  * host: the world the observer stands on (ROADMAP stand-on-mars, `host=mars` + `hloc=` in the URL).
  * 'earth' is the observer's place; 'mars' is the sky view from an areographic site (planetocentric
  * °N/°E; astro/host-mars.js), Jezero Crater by default. The site is kept while on Earth, so 'Stand on
@@ -81,7 +87,7 @@ export const DEFAULT_STATE = deepFreeze({
         milkyWay: true, clouds: true, atmosphere: true, ecliptic: false, eqGrid: false, altAzGrid: true, horizon: true, footprint: false,
         subpoints: false, trails: false, labels: true, landscape: true, spacecraft: false, deepSky: true, precession: false, sunPath: false, meteors: true, satellites: true,
     },
-    display: { tzMode: 'observer', hour12: false, skyDark: 'auto', aurora: 'typical' }, quality: { setting: 'auto', active: 'medium', ceiling: 'medium' },
+    display: { tzMode: 'observer', hour12: false, skyDark: 'auto', aurora: 'typical', red: false }, quality: { setting: 'auto', active: 'medium', ceiling: 'medium' },
     ui: { panel: 'sky', sheet: 'peek', cinema: false, help: false, palette: false, eclipse: null, tour: null },
     status: { phase: 'boot', progress: 0, webgl: true, onlineSearch: 'unknown', reducedMotion: false, coarse: false, introPlaying: false },
 });

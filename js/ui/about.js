@@ -1,16 +1,19 @@
 /**
- * About tab: what the app is, the accuracy statement, credits, licence links,
- * a privacy note and 'Report a problem' (ui/report.js: Copy diagnostics and a
- * new issue on REPO_URL). (This file and js/geo/geocode.js are the only places
+ * About tab: what the app is, 'Install app' when the browser offers it (ui/install.js), the
+ * accuracy statement, credits, licence links, a privacy note and 'Report a problem'
+ * (ui/report.js: Copy diagnostics and a new issue on REPO_URL). (This file and
+ * js/geo/geocode.js are the only places
  * allowed to hold external https URLs — credit links.)
  *
  * @module ui/about
  */
 
 import { APP_NAME, VERSION, REPO_URL } from '../version.js';
-import { h, on } from './dom.js';
+import { h } from './dom.js';
 import { icon } from './icons.js';
 import { brandMark } from './topbar.js';
+import { helpButton } from './help.js';
+import { mountInstall } from './install.js';
 import { mountReport } from './report.js';
 
 /** Third-party credits: [name, version/role, licence, url]. */
@@ -43,8 +46,10 @@ export function mountAbout(root, ctx) {
     const link = (href, text, cls = 'link') => h('a', { class: cls, href, target: '_blank', rel: 'noopener noreferrer' },
         text, icon('external', { size: 13 }));
 
-    const keysBtn = h('button', { class: 'btn btn--soft', type: 'button' }, icon('keyboard', { size: 16 }), 'Keyboard shortcuts');
-    offs.push(on(keysBtn, 'click', () => ui.toggleHelp(true)));
+    const keys = helpButton(ui);
+    offs.push(keys.off);
+    // 'Install app' (beforeinstallprompt) or how to add it to an iPhone's Home Screen (ui/install.js).
+    const install = mountInstall(ctx);
     // Copy diagnostics and the prefilled issue link (ui/report.js).
     const report = mountReport(ctx);
     offs.push(report.destroy);
@@ -55,6 +60,7 @@ export function mountAbout(root, ctx) {
             h('div', null,
                 h('h2', { class: 'about-hero__name' }, APP_NAME, h('span', { class: 'pill pill--version' }, `v${VERSION}`)),
                 h('p', { class: 'about-hero__tag' }, 'Stand anywhere on Earth. See where every world is right now.'))),
+        install.el,
         h('div', { class: 'group' },
             h('h3', { class: 'group-title' }, 'Accuracy'),
             h('p', { class: 'prose' }, 'Positions computed in your browser with astronomy-engine (VSOP87/ELP; accurate to about 1 arcminute, 1800–2200).'),
@@ -82,8 +88,8 @@ export function mountAbout(root, ctx) {
         h('div', { class: 'btn-row btn-row--wrap' },
             link(REPO_URL, 'Source code', 'btn btn--soft'),
             h('a', { class: 'btn btn--soft', href: 'THIRD_PARTY_NOTICES.md', target: '_blank', rel: 'noopener' }, 'Third-party notices'),
-            keysBtn),
+            keys.el),
         h('p', { class: 'note' }, `${APP_NAME} ${VERSION}. Made for curious people everywhere.`));
 
-    return { destroy() { offs.forEach((off) => off()); root.textContent = ''; } };
+    return { destroy() { offs.forEach((off) => off()); install.destroy(); root.textContent = ''; } };
 }

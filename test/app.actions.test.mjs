@@ -313,3 +313,49 @@ test('copyDiagnostics: the report as JSON on the clipboard, and the text either 
     assert.equal(none.actions.diagnostics(), null);
     assert.equal((await none.actions.copyDiagnostics()).text, '{}');
 });
+
+test('shareUrl({event}): a link to the event\'s sky, paused where a jump lands, its selection and view, no camera or intro', async () => {
+    const { parseHash } = await import('../js/core/url-state.js');
+    const { store, actions } = makeActions({ win: { location: { origin: 'https://example.test', pathname: '/planet-location-marker/', search: '' } } });
+    store.set({ selection: 'mars', host: { id: 'mars', latDeg: 0, lonDeg: 0 } });
+    const ev = localSolarEclipseAt(LUXOR, Date.parse('2027-08-02T10:05:00Z'));
+    const url = actions.shareUrl({ event: ev });
+    assert.ok(url.startsWith('https://example.test/planet-location-marker/#'), url);
+    const h = parseHash(url.slice(url.indexOf('#')));
+    assert.equal(h.tMs, Math.round((ev.c2Ms - 20e3) / 1000) * 1000, 'the jump\'s landing: 20 s before second contact');
+    assert.equal(h.playing, false);
+    assert.equal(h.selection, 'sun');
+    assert.equal(h.view, 'sky');
+    assert.equal(h.intro, false);
+    assert.ok(!url.includes('cam='), 'no camera: the app turns to the selection');
+    assert.ok(!url.includes('host='), 'the events are the Earth\'s');
+    assert.ok(url.includes('loc=25.7,32.6'));
+    // An event without a body clears the selection; the store itself is untouched.
+    const season = { id: 'equinox:sun:1', kind: 'equinox', bodyId: 'sun', tMs: Date.parse('2027-03-20T14:25:00Z'), title: 'March equinox', detail: '', select: null, view: 'orbit' };
+    const h2 = parseHash(actions.shareUrl({ event: season }).split('#')[1]);
+    assert.equal(h2.selection ?? null, null);
+    assert.equal(h2.tMs, season.tMs);
+    assert.equal(store.get().selection, 'mars');
+});
+
+test('setNightVision: toggles display.red, announces, and stays out of shared links', async () => {
+    const { serializeHash } = await import('../js/core/url-state.js');
+    const said = [];
+    const store = createStore({ observer: LUXOR });
+    const actions = createActions({
+        store, clock: { tMs: Date.parse('2027-07-01T00:00:00Z'), playing: true, rate: 1 },
+        bus: { emit: (k, v) => { if (k === 'announce') said.push(v); } },
+        prefs: { load: (_k, d) => d, save() {}, remove() {} }, render: {},
+        win: { location: { origin: 'https://example.test', pathname: '/', search: '' } },
+    });
+    assert.equal(store.get().display.red, false);
+    assert.equal(actions.setNightVision(), true, 'omitted: toggle');
+    assert.equal(store.get().display.red, true);
+    assert.equal(actions.setNightVision(true), true);
+    assert.equal(said.length, 1, 'no announcement without a change');
+    assert.ok(!/red/.test(actions.shareUrl()), 'a device preference, not part of the sky');
+    assert.ok(!/red/.test(serializeHash({ state: store.get(), clock: { tMs: 0, playing: true, rate: 1 } })));
+    assert.equal(actions.setNightVision(false), false);
+    assert.equal(store.get().display.red, false);
+    assert.deepEqual(said, ['Night vision on: the screen is dim red and stays awake', 'Night vision off']);
+});

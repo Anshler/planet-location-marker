@@ -575,3 +575,24 @@ test('a single cam= without view= names the view; view= wins when both are given
     // A pair without view= is the app's own orbit link: no view is implied.
     assert.equal(parseHash('#cam=o:20,-130,7|s:180,20,60').view, undefined);
 });
+
+test('tab= opens a panel tab: read, validated, never written', async () => {
+    const { PANELS } = await import('../js/core/store.js');
+    assert.deepEqual([...PANELS], ['sky', 'details', 'events', 'layers', 'settings', 'about']);
+    assert.equal(parseHash('#tab=events').panel, 'events');
+    assert.equal(parseHash('#view=sky&tab=Settings').panel, 'settings');
+    const bad = parseHash('#tab=console');
+    assert.equal(bad.panel, undefined);
+    assert.deepEqual(bad.invalid, ['tab']);
+    assert.equal(parseHash('#tab=').invalid, undefined, 'empty: ignored');
+    const state = { ...DEFAULT_STATE, ui: { ...DEFAULT_STATE.ui, panel: 'events' } };
+    assert.ok(!serializeHash({ state }).includes('tab'), 'the open tab is not part of a link');
+});
+
+test('the shell mounts exactly the PANELS tabs, in order', async () => {
+    const fs = await import('node:fs');
+    const { PANELS } = await import('../js/core/store.js');
+    const src = fs.readFileSync(new URL('../js/ui/shell.js', import.meta.url), 'utf8');
+    const block = src.slice(src.indexOf('export const TABS'), src.indexOf('];', src.indexOf('export const TABS')));
+    assert.deepEqual([...block.matchAll(/\{ id: '([a-z]+)'/g)].map((m) => m[1]), [...PANELS]);
+});

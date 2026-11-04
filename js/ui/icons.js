@@ -83,15 +83,10 @@ const ICONS = {
     arrow: [['path', { d: 'M12 19V5M6.5 10.5L12 5l5.5 5.5' }]],
     'arrow-right': [['path', { d: 'M5 12h14M13.5 6.5L19 12l-5.5 5.5' }]],
     home: [['path', { d: 'M4.2 11.2L12 4.4l7.8 6.8' }], ['path', { d: 'M6.4 9.6v9.2a1.2 1.2 0 0 0 1.2 1.2h8.8a1.2 1.2 0 0 0 1.2-1.2V9.6' }]],
-    eclipse: [['circle', { cx: 12, cy: 12, r: 8.4 }], ['path', { d: 'M15.2 4.2a8.4 8.4 0 0 1 0 15.6 8.4 8.4 0 0 0 0-15.6z', ...F }]],
-    season: [['circle', { cx: 12, cy: 12, r: 8.4 }], ['path', { d: 'M12 3.6v16.8' }], ['path', { d: 'M12 3.6a8.4 8.4 0 0 1 0 16.8z', fill: 'currentColor', stroke: 'none', opacity: 0.35 }]],
-    'moon-phase': [['circle', { cx: 12, cy: 12, r: 8.4 }], ['path', { d: 'M12 3.6a8.4 8.4 0 0 1 0 16.8 4.4 8.4 0 0 0 0-16.8z', ...F }]],
-    opposition: [['circle', { cx: 4.8, cy: 12, r: 2.2, ...F }], ['circle', { cx: 12, cy: 12, r: 1.6 }], ['circle', { cx: 19.2, cy: 12, r: 2.2 }], ['path', { d: 'M7.6 12h2.4M14 12h2.4', 'stroke-dasharray': '1.2 1.6' }]],
-    conjunction: [['circle', { cx: 9.4, cy: 12, r: 4.2 }], ['circle', { cx: 15.6, cy: 12, r: 2.4, ...F }]],
-    elongation: [['circle', { cx: 6, cy: 15.8, r: 2.6, ...F }], ['path', { d: 'M6 15.8L18.4 6.6' }], ['circle', { cx: 18.4, cy: 6.6, r: 1.8 }], ['path', { d: 'M11 15.8a5 5 0 0 0-1-3', 'stroke-dasharray': '1 1.4' }]],
     rise: [['path', { d: 'M3 17.6h18' }], ['path', { d: 'M6.6 17.6a5.4 5.4 0 0 1 10.8 0' }], ['path', { d: 'M12 3.4v6.2M9.4 6.2L12 3.6l2.6 2.6' }]],
     set: [['path', { d: 'M3 17.6h18' }], ['path', { d: 'M6.6 17.6a5.4 5.4 0 0 1 10.8 0' }], ['path', { d: 'M12 3.4v6.2M9.4 6.8L12 9.4l2.6-2.6' }]],
     menu: [['path', { d: 'M4.5 7h15M4.5 12h15M4.5 17h15' }]],
+    more: [['circle', { cx: 5.5, cy: 12, r: 1.7, ...F }], ['circle', { cx: 12, cy: 12, r: 1.7, ...F }], ['circle', { cx: 18.5, cy: 12, r: 1.7, ...F }]],
     // Vantage points: the Earth, half lit, framed in a camera's viewfinder.
     vantage: [['path', { d: 'M3.6 8V5.4a1.8 1.8 0 0 1 1.8-1.8H8M16 3.6h2.6a1.8 1.8 0 0 1 1.8 1.8V8M20.4 16v2.6a1.8 1.8 0 0 1-1.8 1.8H16M8 20.4H5.4a1.8 1.8 0 0 1-1.8-1.8V16' }],
         ['circle', { cx: 12, cy: 12, r: 4.4 }], ['path', { d: 'M12 7.6a4.4 4.4 0 0 1 0 8.8z', ...F }]],
@@ -112,17 +107,10 @@ const ICONS = {
         ['circle', { cx: 15.8, cy: 6.2, r: 1.4, ...F }], ['circle', { cx: 20, cy: 19.5, r: 1.4, ...F }]],
     phone: [['rect', { x: 7.4, y: 3, width: 9.2, height: 18, rx: 2.2 }], ['path', { d: 'M11 17.8h2' }],
         ['path', { d: 'M19.6 8.6a5 5 0 0 1 0 6.8M4.4 8.6a5 5 0 0 0 0 6.8' }]],
-    // Phase 6 event kinds: a meteor and its train; a star at the Moon's limb; a planet's dot on the
-    // Sun; the Moon near and far; Saturn's rings edge-on; a brilliant crescent with rays.
-    meteor: [['path', { d: 'M4 20L14.6 9.4' }], ['path', { d: 'M8 20l4.4-4.4M4 16l4.4-4.4', opacity: 0.55 }], ['circle', { cx: 16.6, cy: 7.4, r: 2.6, ...F }]],
-    // A satellite: the body between two solar panels, crossing a dashed arc of sky.
+    // A satellite: the body between two solar panels, crossing a dashed arc of sky. (Event kinds
+    // have their own glyphs: ui/event-glyphs.js.)
     satellite: [['rect', { x: 10, y: 10, width: 4, height: 4, rx: 0.8, ...F }], ['path', { d: 'M3.5 9.5l5 2.5-5 2.5zM20.5 9.5l-5 2.5 5 2.5z' }],
         ['path', { d: 'M4 20c3.5-2.2 12.5-2.2 16 0', 'stroke-dasharray': '1.4 2' }]],
-    occultation: [['circle', { cx: 10.4, cy: 12, r: 7 }], ['path', { d: 'M18.8 9.4l.8 1.8 1.8.8-1.8.8-.8 1.8-.8-1.8-1.8-.8 1.8-.8z', ...F }]],
-    transit: [['circle', { cx: 12, cy: 12, r: 8.4 }], ['circle', { cx: 9.2, cy: 10.4, r: 1.6, ...F }], ['path', { d: 'M5 13.6l14-3.8', 'stroke-dasharray': '1.2 1.8' }]],
-    apsis: [['circle', { cx: 6.4, cy: 12, r: 3.6, ...F }], ['circle', { cx: 18.4, cy: 12, r: 1.8 }], ['path', { d: 'M10.6 12h5.4', 'stroke-dasharray': '1.2 1.6' }]],
-    rings: [['circle', { cx: 12, cy: 12, r: 4.6, ...F }], ['path', { d: 'M2.6 12h18.8' }]],
-    brilliancy: [['path', { d: 'M13.4 5.4a6.6 6.6 0 1 0 0 13.2 5 6.6 0 0 1 0-13.2z', ...F }], ['path', { d: 'M18 4.6v2.4M18 17v2.4M20.6 12H23', opacity: 0.7 }]],
 };
 
 /** All available icon names (spec set plus UI extras). */

@@ -52,6 +52,7 @@ import { showFallback, showContextLost, hideContextLost, showFatal } from './app
 import { recordLoss, retryRecord, lossRecord, capTier } from './core/context-loss.js';
 import { buildDiagnostics } from './core/diagnostics.js';
 import { sessionLoad, sessionSave } from './app/session.js';
+import { createWakeLock } from './app/wake-lock.js';
 
 // ---------------------------------------------------------------------------------------------
 // Constants
@@ -121,6 +122,9 @@ const R = {
     /** Tier changes made for the app (governor steps, context-loss step-downs), newest last; at most 20. */
     /** @type {any[]} */ tierLog: [],
     /** @type {any} */ catalog: null,
+    /** data/sky.json as fetched by the 3D boot, and its decoded base catalogue (baseCatalog()). */
+    /** @type {Promise<any>|null} */ skyJsonP: null,
+    /** @type {Promise<any>|null} */ catalogP: null,
     /** @type {any} */ snapFull: null,
     /** @type {any} */ bus: null,
     /** @type {any} */ texMod: null,
@@ -131,6 +135,8 @@ const R = {
     /** @type {any} */ tours: null,
     /** 'Point at the sky' (js/camera/aim.js), created on first use. */
     /** @type {any} */ aim: null,
+    /** The screen wake lock (app/wake-lock.js): night vision, the sky view on touch, the aim. */
+    /** @type {any} */ wake: null,
     /** A video session's virtual time base (ms, app/recorder.js), or null: the rig reads real time. */
     /** @type {number|null} */ virtualNow: null,
     /** The service-worker client (app/sw-client.js), once registration has run. */
@@ -363,6 +369,7 @@ function loadSavedDisplay() {
         if (typeof d.hour12 === 'boolean') out.hour12 = d.hour12;
         if (SKY_DARK_SETTINGS.includes(d.skyDark)) out.skyDark = d.skyDark;
         if (AURORA_SETTINGS.includes(d.aurora)) out.aurora = d.aurora;
+        if (typeof d.red === 'boolean') out.red = d.red;
     }
     return out;
 }
@@ -467,6 +474,8 @@ async function importRenderStack() {
 async function boot() {
     const env = readEnv();
     R.env = env;
+    // The launch URL, before bindUrl rewrites the hash (bindLaunchQueue skips this page's own launch).
+    const bootHref = location.href;
     loader.progress(0.1, 'Computing the sky');
     // Earlier context losses in this tab (iOS reloads instead of restoring): the 3D view may have
     // given up, or the session is held at a lower tier.
@@ -479,7 +488,7 @@ async function boot() {
     const uiModP = import('./ui/index.js');
     const renderModsP = env.can3d ? importRenderStack() : null;
     const citiesJsonP = fetchJson('data/cities.json');
-    const skyJsonP = env.can3d ? fetchJson('data/sky.json') : null;
+    R.skyJsonP = env.can3d ? fetchJson('data/sky.json') : null;
 
     const cities = createCitiesProxy();
     const cityIndexP = citiesJsonP.then((json) => {
@@ -579,6 +588,8 @@ async function boot() {
             ...loadSavedDisplay(), ...(hash.skyDark ? { skyDark: hash.skyDark } : {}), ...(hash.aurora ? { aurora: hash.aurora } : {}),
         },
         quality: { setting: qualitySetting, active, ceiling: decision.ceiling },
+        // tab= (the install shortcut to Events): that tab, the phone's sheet raised to show it.
+        ...(hash.panel ? { ui: { panel: hash.panel, sheet: 'half' } } : {}),
         status: {
             phase: 'loading', progress: 0.1, webgl: env.can3d, onlineSearch: 'unknown',
             reducedMotion: env.reducedMotion, coarse: env.coarse, introPlaying: false,
@@ -589,6 +600,7 @@ async function boot() {
     bindBodyClasses(store);
     bindPreferences(store);
     bindMedia(store);
+    bindNightVision(store);
 
     // ---- 2. Clock and the first snapshot ----------------------------------------------------
     const clockOpts = {};
@@ -636,7 +648,8 @@ async function boot() {
         console.error('[main] astro client unavailable', err);
     }
     R.astro = astro;
-    const services = { cities, geocoder, astro, tz, format };
+    // `catalog()`: the decoded star catalogue, late-bound (it arrives with the 3D boot, or on first ask in text mode).
+    const services = { cities, geocoder, astro, tz, format, catalog: baseCatalog };
     // Extra objects beyond the nine bodies: the registry, and the providers that need no download.
     const extras = createExtras();
     R.extras = extras;
@@ -686,10 +699,15 @@ async function boot() {
     loop.setAuroraActivity(store.get().display?.aurora ?? 'typical');
     store.subscribe((s) => s.display?.aurora, (a) => loop.setAuroraActivity(a ?? 'typical'));
 
+    // A first visit on a plain link (no camera, tour or view in it): the interface tips follow the
+    // intro (ui/coach.js), or the ready app when reduced motion skips the intro.
+    const st1 = store.get();
+    const firstRun = env.can3d && !prefs.load('introSeen', false) && !hash.cam && !hash.tour && hash.intro !== false
+        && st1.view.mode === 'orbit' && st1.view.vantage === 'none' && st1.host.id === 'earth';
     try {
         const { mountUI } = await uiModP;
         mountUI(document.getElementById('ui-root'), {
-            store, bus, clock, actions, services, extras, env: { coarse: env.coarse, reducedMotion: env.reducedMotion },
+            store, bus, clock, actions, services, extras, env: { coarse: env.coarse, reducedMotion: env.reducedMotion, firstRun },
         });
         R.uiMounted = true;
     } catch (err) {
@@ -706,6 +724,7 @@ async function boot() {
         suspended: () => !!store.get().ui.tour,
     });
     reportHashProblems(hash, bus);
+    bindLaunchQueue(bootHref);
     // A Mars link without the 3D view opens on the Earth: say why (as actions.standOnMars does).
     if (hash.host?.id === 'mars' && !env.can3d) bus.emit('toast', { message: 'Standing on Mars needs the 3D view.', kind: 'info' });
 
@@ -734,7 +753,7 @@ async function boot() {
         enterTextMode(unstable ? 'context-unstable' : env.webgl2 ? 'no-importmap' : 'no-webgl2');
     } else {
         try {
-            await bootRender({ env, hash, store, bus, clock, actions, render, loop, snap, governor, renderModsP, skyJsonP, astro, cities, texPrefetch });
+            await bootRender({ env, hash, store, bus, clock, actions, render, loop, snap, governor, renderModsP, astro, cities, texPrefetch });
         } catch (err) {
             enterTextMode('context-failed', err);
         }
@@ -861,6 +880,25 @@ function bindPreferences(store) {
     store.subscribe((s) => s.quality.setting, (q) => prefs.save('quality', q));
 }
 
+/**
+ * Night vision (ROADMAP night-vision-mode, display.red): html.is-red turns the whole page dim red
+ * (css/app.css), the browser's bar goes black, and the screen stays awake. The wake lock is also held
+ * in the sky view on a touch-first device (someone holding a phone up to the sky). index.html sets
+ * the class and the bar colour before the first paint when the saved setting is on.
+ */
+function bindNightVision(store) {
+    const root = document.documentElement;
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta && !meta.dataset.base) meta.dataset.base = meta.content;
+    const wake = (R.wake = createWakeLock());
+    store.subscribe((s) => !!s.display.red, (on) => {
+        root.classList.toggle('is-red', on);
+        if (meta) meta.content = on ? '#000' : meta.dataset.base;
+        wake.hold('red', on);
+    }, { immediate: true });
+    store.subscribe((s) => s.view.mode === 'sky' && !!s.status.coarse, (on) => wake.hold('sky', on), { immediate: true });
+}
+
 function bindMedia(store) {
     const watch = (query, key) => {
         try {
@@ -928,6 +966,31 @@ function enterTextMode(reason, err) {
 }
 
 /**
+ * The decoded base star catalogue (data/sky.json, data/catalog.js decodeSky), once per visit:
+ * from the 3D boot's own fetch, else fetched on the first ask (text mode: the sky dome, a star
+ * selection). Late-bound for the UI as `services.catalog()`, since the UI mounts before it exists.
+ * Resolves null when it cannot load; the next ask tries again.
+ * @returns {Promise<any>}
+ */
+function baseCatalog() {
+    if (R.catalogP) return R.catalogP;
+    const p = (R.skyJsonP ?? fetchJson('data/sky.json')).then((json) => {
+        if (!json) return null;
+        try {
+            return decodeSky(json);
+        } catch (err) {
+            console.error('[main] sky.json could not be decoded', err);
+            return null;
+        }
+    }).then((cat) => {
+        if (!cat && R.catalogP === p) { R.catalogP = null; R.skyJsonP = null; }
+        return cat;
+    });
+    R.catalogP = p;
+    return p;
+}
+
+/**
  * Text mode: catalogue stars are registered by the render stack's catalogue install, which never
  * runs here, so a shared `sel=star:<hip>` link would wait for its data forever. The first star
  * selection fetches and decodes data/sky.json (pure data/catalog.js) and registers them.
@@ -938,10 +1001,9 @@ function textModeStars(store) {
     const need = (sel) => {
         if (asked || R.starExtras || typeof sel !== 'string' || !sel.startsWith('star:')) return;
         asked = true;
-        fetchJson('data/sky.json').then((json) => {
-            if (!json || R.starExtras) { asked = false; return; }
+        baseCatalog().then((cat) => {
+            if (!cat || R.starExtras) { asked = false; return; }
             try {
-                const cat = decodeSky(json);
                 if (!R.catalog) { R.catalog = cat; R.baseCatalog = cat; }
                 R.starExtras = registerStars(R.extras, {
                     getCatalog: () => R.catalog, fetchJson, onInfo: () => R.loop?.refreshReadout?.(),
@@ -1009,7 +1071,7 @@ let currentCfg = null;
 let readyFlag = false;
 
 async function bootRender(ctx) {
-    const { env, hash, store, bus, clock, render, loop, snap, governor, renderModsP, skyJsonP, astro, cities, texPrefetch } = ctx;
+    const { env, hash, store, bus, clock, render, loop, snap, governor, renderModsP, astro, cities, texPrefetch } = ctx;
     const m = await renderModsP;
     if (!m?.context?.createRenderContext) throw new Error('The 3D engine could not be loaded.');
     loader.progress(0.35, 'Building the globe');
@@ -1053,15 +1115,7 @@ async function bootRender(ctx) {
 
     // Star catalog (already decoded if sky.json beat the 3D engine here).
     let catalog = null;
-    const catalogP = (skyJsonP ?? Promise.resolve(null)).then((json) => {
-        if (!json) return null;
-        try {
-            return decodeSky(json);
-        } catch (err) {
-            console.error('[main] sky.json could not be decoded', err);
-            return null;
-        }
-    });
+    const catalogP = baseCatalog();
     catalog = await withTimeout(catalogP, 0);
 
     // Modules, each isolated: a failure skips that feature only.
@@ -2149,7 +2203,7 @@ async function runIntro({ force = false, preRoll = false } = {}) {
         result = await Promise.race([
             playIntro({
                 rig, beams: R.mods.beams, pin: R.mods.pin, snap: R.loop.snap,
-                reducedMotion: false, signal: ac.signal, labelsFeed: R.labelsFeed, preRollMs,
+                reducedMotion: false, signal: ac.signal, labelsFeed: R.labelsFeed, preRollMs, bus,
             }),
             delay(9000 + preRollMs).then(() => 'timeout'),
         ]);
@@ -2240,8 +2294,35 @@ function applyHash(p) {
     // After the view and camera: a vantage keeps `cam` as its way back (absent: back to the globe).
     actions.setVantage?.(p.view === 'sky' || p.view === 'map' ? 'none' : p.vantage ?? 'none');
     if (typeof p.debug === 'boolean') settle(setDebug(p.debug));
+    if (p.panel) {
+        const ui = store.get().ui;
+        store.set({ ui: { ...ui, panel: p.panel, sheet: ui.sheet === 'peek' ? 'half' : ui.sheet } }, 'url');
+    }
     if (R.bus) reportHashProblems(p, R.bus);
     if (p.tour) settle(startTour(p.tour));
+}
+
+/**
+ * The installed app's launches (manifest.webmanifest launch_handler 'focus-existing'): a shortcut
+ * (Sky view, Events) or link opened while the app runs focuses this window instead of a new one,
+ * and its URL arrives here; its hash is applied like a hand-edited one. The first launch is this
+ * page's own (already applied at boot) and is skipped.
+ * @param {string} bootHref
+ */
+function bindLaunchQueue(bootHref) {
+    const q = /** @type {any} */ (window).launchQueue;
+    if (!q || typeof q.setConsumer !== 'function') return;
+    let first = true;
+    try {
+        q.setConsumer((params) => {
+            const url = String(params?.targetURL || '');
+            const own = first && url === bootHref;
+            first = false;
+            let hash = '';
+            try { hash = url && !own ? new URL(url).hash : ''; } catch { hash = ''; }
+            if (hash.length > 1) applyHash(parseHash(hash));
+        });
+    } catch { /* launch handling is a courtesy */ }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -2307,7 +2388,7 @@ async function startAim() {
         R.bus?.emit('toast', { message: "Pointing at the sky couldn't load.", kind: 'warn' });
         return false;
     }
-    R.aim ??= mod.createAim({ rig, offsetDeg: Number(prefs.load('aimOffset', 0)) || 0, onStop: (reason) => onAimStop(reason) });
+    R.aim ??= mod.createAim({ rig, wake: R.wake, offsetDeg: Number(prefs.load('aimOffset', 0)) || 0, onStop: (reason) => onAimStop(reason) });
     if (R.aim.active) return true;
     const st = store.get();
     if (st.view.mode !== 'sky') return false;

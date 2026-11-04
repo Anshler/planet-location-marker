@@ -19,9 +19,10 @@
  * Phone compasses are good to 5–15°: the UI says 'approximate'. The look goes to rig.setSkyAim only
  * when it moved by more than a fraction of a pixel, so a phone on a table stops drawing frames.
  * Aiming stops after 2 minutes without movement, when the page is hidden, or when asked (leaving
- * sky view is the caller's); a screen wake lock is held while it runs.
+ * sky view is the caller's); it holds the 'aim' reason of the shared screen wake lock
+ * (app/wake-lock.js, passed in as `wake`) while it runs.
  *
- *   createAim({win, nav, rig, offsetDeg, onStop, now}) → { start() → Promise<'ok'|'nodata'|'unsupported'>,
+ *   createAim({win, wake, rig, offsetDeg, onStop, now}) → { start() → Promise<'ok'|'nodata'|'unsupported'>,
  *     stop(reason), align(azDeg) → number, look, source, active, offsetDeg }
  *
  * @module camera/aim
@@ -150,13 +151,13 @@ export function aimFilterStep(st, rawF, rawU, dtMs) {
 
 /**
  * Creates the controller.
- * @param {{win?:any, nav?:any, rig:any, offsetDeg?:number, onStop?:(reason:string)=>void, now?:()=>number}} deps
- *   rig: setAiming(on), setSkyAim(azDeg, altDeg), camera.fov
+ * @param {{win?:any, wake?:{hold(reason:string, on:boolean):void}, rig:any, offsetDeg?:number, onStop?:(reason:string)=>void, now?:()=>number}} deps
+ *   rig: setAiming(on), setSkyAim(azDeg, altDeg), camera.fov; wake: the shared wake lock
  * @returns {object}
  */
 export function createAim(deps) {
     const win = deps.win ?? (typeof window !== 'undefined' ? window : null);
-    const nav = deps.nav ?? (typeof navigator !== 'undefined' ? navigator : null);
+    const wake = deps.wake ?? null;
     const rig = deps.rig;
     const now = deps.now ?? (() => performance.now());
     let offsetDeg = Number.isFinite(deps.offsetDeg) ? wrap180(deps.offsetDeg) : 0;
@@ -173,7 +174,6 @@ export function createAim(deps) {
     let idleT = 0;
     let idleTimer = 0;
     let firstTimer = 0;
-    let lock = null;
     let resolveFirst = null;
     // iOS: correction from the relative alpha to the compass, as a smoothed unit vector (cos, sin).
     let corrC = 0, corrS = 0, corrN = 0;
@@ -239,16 +239,8 @@ export function createAim(deps) {
 
     const onVisibility = () => { if (win?.document?.visibilityState === 'hidden') stop('hidden'); };
 
-    function requestLock() {
-        try {
-            const p = nav?.wakeLock?.request?.('screen');
-            if (p && typeof p.then === 'function') {
-                p.then((l) => {
-                    if (!active) { l.release?.().catch?.(() => {}); return; }
-                    lock = l;
-                }, () => { lock = null; });
-            }
-        } catch { lock = null; }
+    function holdLock(on) {
+        try { wake?.hold?.('aim', on); } catch { /* the screen may sleep; aiming goes on */ }
     }
 
     /**
@@ -272,7 +264,7 @@ export function createAim(deps) {
         win.addEventListener(eventName, onOrientation);
         win.document?.addEventListener?.('visibilitychange', onVisibility);
         try { rig.setAiming?.(true); } catch (err) { console.error('[aim] setAiming failed', err); }
-        requestLock();
+        holdLock(true);
         idleTimer = setInterval(() => { if (active && now() - idleT > AIM_IDLE_MS) stop('idle'); }, 5000);
         idleTimer?.unref?.();   // Node (tests): never keeps the process alive
         return new Promise((resolve) => {
@@ -299,8 +291,7 @@ export function createAim(deps) {
         clearInterval(idleTimer);
         clearTimeout(firstTimer);
         if (resolveFirst) { const r = resolveFirst; resolveFirst = null; r('nodata'); }
-        try { lock?.release?.()?.catch?.(() => {}); } catch { /* already released */ }
-        lock = null;
+        holdLock(false);
         try { rig.setAiming?.(false); } catch { /* the rig keeps its look */ }
         try { deps.onStop?.(reason); } catch (err) { console.error('[aim] onStop failed', err); }
     }

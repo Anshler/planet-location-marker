@@ -46,22 +46,35 @@ browser, and nothing needs the network.
 - **A time machine.**
   - Live mode, or any speed from −1 year/s to +1 year/s.
   - Steps of a minute, an hour, a day, a sidereal day, a lunar month or a year.
-  - A scrubber shaded by day and night, a time-lapse loop between two dates, and any year from
-    1000 to 3000.
+  - A scrubber in the sky's own colours (golden hour, violet twilight, indigo and night), with a
+    thin band for when the Moon is up, one for the selected planet and gold bars over eclipses;
+    a time-lapse loop between two dates, and any year from 1000 to 3000.
 - **Sky Now and body details.**
   - For every body: altitude and azimuth with a compass arrow, rise, transit and set, magnitude,
     phase, distance, elongation and constellation.
   - RA and Dec, both J2000 and of date.
   - "Tonight" verdicts, and a light-time sentence such as "The light you see from Saturn left
     1 h 21 min ago".
+  - A Tonight chart from dusk to dawn: when each world is up and how high, its best moment, and
+    a drag to move through the night. Rows count down to the next rise and carry a 24-hour
+    altitude sparkline.
+  - A Sky dome: the whole sky in one round chart (horizon, compass points, bright stars and
+    constellation figures, the ecliptic, the Moon at its phase and every planet where it stands),
+    held overhead or read as a map, with a tap to select. In Sky view it also shows the camera's
+    field of view.
 - **Events for the next 12 months:**
   - Moon phases;
   - oppositions and conjunctions;
   - greatest elongations;
   - lunar and solar eclipses, including whether one is visible from where you are;
   - equinoxes and solstices.
+  - Each event's icon shows the event itself: the Moon's real phase, both planets of a pairing,
+    the actual overlap of an eclipse.
+  - Add to calendar: any event, or every eclipse of the next 12 months, as an .ics file made
+    offline, with a reminder 30 minutes before and a link back to that sky.
 - **Put yourself anywhere, offline.**
-  - Search about 1,600 cities, with no network needed.
+  - Search about 1,600 cities, with no network needed. Each result shows its local time and its
+    sky at that moment ('06:14 · sunrise in 12 min', 'night, Moon up').
   - Click the globe (with Undo), type coordinates in decimal or DMS, or use your location.
   - Online place search is an optional extra.
 - **Deep links.** Every view is a shareable URL: place, time, speed, selection, layers and camera.
@@ -73,14 +86,24 @@ browser, and nothing needs the network.
   - Three automatic quality tiers, with a governor that steps down when frames get slow, plus a
     manual Max (Settings → Quality) with 8K Earth maps and every effect at full detail, for fast GPUs.
   - The scene renders only when something changes.
-  - A text mode with full sky tables on devices without WebGL 2.
+  - A text mode with full sky tables and the Sky dome on devices without WebGL 2.
   - If the graphics keep resetting (a phone short of GPU memory), it steps down a quality tier for
     the session, and after a third reset within a minute it falls back to text mode, with Retry.
 - **Report a problem.** About → Copy diagnostics copies one JSON report (version, graphics, quality
   decisions, recent errors; never your location) to paste into a new issue, which the button next
   to it opens prefilled.
-- **Accessible.** Full keyboard control, screen-reader announcements, and support for
-  `prefers-reduced-motion`.
+- **Accessible.** Full keyboard control, screen-reader announcements, focus rings that show
+  over a bright sky, and the system's display settings: `prefers-reduced-motion`,
+  `prefers-reduced-transparency` (solid panels), `prefers-contrast: more` (brighter text, edged
+  panels and chips) and `forced-colors` (Windows High Contrast).
+- **Night vision for real observing.** Settings → Night vision, <kbd>Shift</kbd>+<kbd>N</kbd> or
+  the phone's ⋯ menu turns the whole screen dim red, so your eyes stay dark-adapted, and keeps the
+  screen awake (also in Sky view on a phone). It is a setting of the device, never part of a
+  shared link.
+- **Made for the device in your hand.** On a touch screen the tips talk in taps and drags, Help
+  opens on the gestures (the ⋯ button on a phone), and a first visit ends with three short
+  interface tips (Settings → Show interface tips replays them). It installs as an app: About →
+  Install app, or Share → Add to Home Screen on an iPhone, with shortcuts to Sky view and Events.
 
 ## Keyboard shortcuts
 
@@ -102,8 +125,12 @@ browser, and nothing needs the network.
 | <kbd>S</kbd> | Share a link to this view |
 | <kbd>F</kbd> | Fullscreen |
 | <kbd>H</kbd> | Hide the interface |
+| <kbd>Shift</kbd>+<kbd>N</kbd> | Night vision (dim red screen, kept awake) |
 | <kbd>?</kbd> | Help |
 | Arrows · <kbd>+</kbd> / <kbd>−</kbd> · <kbd>Home</kbd> | Rotate or look around · zoom · reset the camera |
+
+On a touch screen: drag to turn the globe or look around, pinch to zoom, tap a world to meet it,
+tap the Earth to stand there, double-tap to fly closer, and drag the time bar to travel in time.
 
 ## Running locally
 
@@ -144,6 +171,7 @@ Useful URL options (in the hash):
 - `#debug=1` shows the performance overlay.
 - `#q=low` forces a quality tier (`low`, `medium`, `high` or `max`).
 - `#t=2027-02-06T16:00:00Z&p=0` freezes time at a moment.
+- `#tab=events` opens a panel tab (`sky`, `details`, `events`, `layers`, `settings` or `about`).
 - `#sw=1` registers the service worker on `localhost` too (it registers by itself only on https
   hosts); `#sw=0` unregisters it and deletes its caches. Without a staged manifest, the worker
   fetches everything from the network first, so edits show up on reload.

@@ -186,7 +186,7 @@ export function pageModules(root) {
 //   node scripts/lib/modgraph.mjs --check    exit 1 when index.html's lists are stale (CI; the
 //                                            repo tests check the same)
 //
-// A cold boot otherwise discovers its ~150 modules one import level at a time (main.js →
+// A cold boot otherwise discovers its ~165 modules one import level at a time (main.js →
 // render/context.js → postfx.js → EffectComposer.js → CopyShader.js: five round trips). The lists
 // hold every module a boot runs, so they all download in parallel from the first bytes:
 //   core  static <link rel=modulepreload> tags in <head>: main.js's static imports and the UI's

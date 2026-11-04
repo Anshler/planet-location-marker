@@ -894,6 +894,22 @@ export function createActions(deps) {
     }
 
     /**
+     * Night vision (display.red): the whole screen dim red, and kept awake (main.js bindNightVision).
+     * A device preference: saved with the display settings, never put in a link.
+     * @param {boolean} [on] omitted → toggle
+     * @returns {boolean} the new state
+     */
+    function setNightVision(on) {
+        const display = store.get().display;
+        const next = on === undefined ? !display.red : !!on;
+        if (!!display.red !== next) {
+            store.set({ display: { ...display, red: next } }, 'actions');
+            say(next ? 'Night vision on: the screen is dim red and stays awake' : 'Night vision off');
+        }
+        return next;
+    }
+
+    /**
      * Aurora activity: the Kp the modelled ovals are drawn for ('quiet' | 'typical' | 'storm';
      * core/store.js AURORA_SETTINGS). A setting, not live space weather.
      * @param {string} v
@@ -907,15 +923,52 @@ export function createActions(deps) {
         say(`Aurora activity: ${s} (modelled)`);
     }
 
-    /** The shareable URL for the current state (camera included). */
-    function shareUrl() {
-        let cam = null;
+    /**
+     * What the camera shows, read-only: rig.getView() (the URL's CamView: sky `{azDeg, altDeg,
+     * fovDeg}` with the vertical field) plus `aspect`, the scene canvas's width over height. Null
+     * without the 3D view. The sky dome draws its field-of-view wedge from it.
+     * @returns {(import('../core/types.js').CamView & {aspect:number})|null}
+     */
+    function getView() {
+        let v = null;
         try {
-            cam = render.rig?.getView?.() ?? null;
+            v = render.rig?.getView?.() ?? null;
         } catch {
-            cam = null;
+            v = null;
         }
-        const hash = serializeHash({ state: store.get(), clock, cam });
+        if (!v) return null;
+        const c = win?.document?.getElementById?.('scene');
+        const aspect = c?.clientWidth > 0 && c.clientHeight > 0 ? c.clientWidth / c.clientHeight : 16 / 9;
+        return { ...v, aspect };
+    }
+
+    /**
+     * The shareable URL for the current state (camera included). With `{event}`, a link to that
+     * event's sky instead (a calendar entry's deep link): paused at the instant a jump lands on
+     * (eventFraming), the event's selection (none when it has none) and view, on the Earth, no
+     * camera (the app turns to the selection) and no intro.
+     * @param {{event?: AstroEvent}} [opts]
+     */
+    function shareUrl(opts) {
+        const ev = opts?.event;
+        let hash;
+        if (ev) {
+            const plan = eventFraming(ev);
+            const st = store.get();
+            const select = ev.select && isSelectionId(ev.select) ? ev.select : null;
+            const mode = ev.view && VIEW_MODES.has(ev.view) ? ev.view : st.view.mode;
+            const state = { ...st, host: null, selection: select, view: { ...st.view, mode, vantage: 'none', track: 'none' } };
+            const at = { live: false, tMs: plan ? plan.tMs : Number(ev.tMs), rate: 1, playing: false };
+            hash = serializeHash({ state, clock: at, cam: null, extra: { intro: false } });
+        } else {
+            let cam = null;
+            try {
+                cam = render.rig?.getView?.() ?? null;
+            } catch {
+                cam = null;
+            }
+            hash = serializeHash({ state: store.get(), clock, cam });
+        }
         const loc = win?.location;
         if (!loc) return hash;
         return `${loc.origin && loc.origin !== 'null' ? loc.origin : ''}${loc.pathname}${loc.search}${hash}`;
@@ -1029,7 +1082,8 @@ export function createActions(deps) {
         const ui = store.get().ui;
         const cinema = !ui.cinema;
         store.set({ ui: { ...ui, cinema } }, 'actions');
-        say(cinema ? 'Interface hidden. Press H to show it again.' : 'Interface shown');
+        say(!cinema ? 'Interface shown' : store.get().status.coarse ? 'Interface hidden. Tap Show interface to bring it back.'
+            : 'Interface hidden. Press H to show it again.');
     }
 
     function resetCamera() {
@@ -1576,10 +1630,10 @@ export function createActions(deps) {
         toggleMap, setObserver2, compareWith, frameObservers, setSystem,
         // Phase 6: stand on Mars (the sky view from an areographic site) and back.
         standOnMars, leaveMars,
-        toggleLayer, setQuality, setTzMode, setSkyDark, setAuroraActivity, share,
+        toggleLayer, setQuality, setTzMode, setSkyDark, setAuroraActivity, setNightVision, share,
         toggleFullscreen, toggleCinema, resetCamera, replayIntro, jumpToEvent,
         // Extensions beyond SPEC §C.9 (used by shortcuts / the shell when present).
-        toggleDebug, openPalette, shareUrl, viewFromBody,
+        toggleDebug, openPalette, shareUrl, viewFromBody, getView,
         // Phase 7: the diagnostics report (About → Copy diagnostics).
         diagnostics, copyDiagnostics,
         // Eclipse 2027 (ROADMAP Phase 1): the shared path request and 'Stand in the path'.

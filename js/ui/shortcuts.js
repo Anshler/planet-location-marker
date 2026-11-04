@@ -99,6 +99,9 @@ export function bindShortcuts(ctx) {
             const n = code === 'Comma' ? -1 : 1;
             clock.step(kind, n);
             flash(`${n < 0 ? '−' : '+'}${STEP_LABEL[kind]}`);
+        } else if (code === 'KeyN' && e.shiftKey) {
+            // Before plain N (goLive), which would otherwise take Shift+N too.
+            flash(act('setNightVision') ? 'Night vision on' : 'Night vision off');
         } else if (code === 'KeyN') {
             clock.goLive(); flash('Live');
         } else if (/^(Digit|Numpad)[1-9]$/.test(code) && !e.shiftKey && !e.altKey) {

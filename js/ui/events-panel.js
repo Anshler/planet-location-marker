@@ -15,6 +15,12 @@
  * Data comes from the UI hub, which keeps the list covering ±1 year around the
  * simulated time via `services.astro` (`events` op) and the app's `bus 'events'`.
  *
+ * Each event shows its own glyph (ui/event-glyphs.js: the Moon's real phase, both bodies of a
+ * conjunction, an eclipse's actual overlap…). 'Add to calendar' (ui/ics.js) saves an .ics file
+ * offline: on the Next-up card, per row (the calendar button beside Jump), and for every eclipse
+ * of the next 12 months at once (ending the list under All, leading it under Eclipses). Each
+ * entry links back to its sky (actions.shareUrl({event})).
+ *
  * @module ui/events-panel
  */
 
@@ -24,6 +30,8 @@ import { MOMENTS, FAMOUS_COMETS } from '../core/moments.js';
 import { skyCaption } from '../astro/sky-caption.js';
 import { h, on, setText } from './dom.js';
 import { icon } from './icons.js';
+import { eventGlyph } from './event-glyphs.js';
+import { buildCalendar, eclipseBundle, icsFileName, placeKeyOf, saveIcs } from './ics.js';
 import { passEvent, isBrightPass } from './sat-passes.js';
 
 const DAY = 86400e3;
@@ -41,21 +49,14 @@ export const FILTERS = [
     { id: 'seasons', label: 'Seasons', test: (e) => e.kind === 'equinox' || e.kind === 'solstice' },
 ];
 
-export const KIND_ICON = {
-    'moon-phase': 'moon-phase', opposition: 'opposition', conjunction: 'conjunction', 'max-elongation': 'elongation',
-    'lunar-eclipse': 'eclipse', 'solar-eclipse': 'eclipse', 'local-solar-eclipse': 'eclipse', equinox: 'season', solstice: 'season',
-    occultation: 'occultation', brilliancy: 'brilliancy', transit: 'transit', 'lunar-apsis': 'apsis', 'ring-plane': 'rings',
-    'meteor-shower': 'meteor', 'sat-pass': 'satellite',
-};
-
-/** CSS colour for an event's icon. */
+/** CSS colour for an event's glyph tile (its tint). */
 function eventColor(ev) {
     switch (ev.kind) {
         case 'moon-phase': case 'occultation': case 'lunar-apsis': return 'var(--body-moon)';
-        case 'lunar-eclipse': return '#ff8a65';
+        case 'lunar-eclipse': return 'var(--ev-copper)';
         case 'solar-eclipse': case 'local-solar-eclipse': case 'transit': return 'var(--warn)';
         case 'equinox': case 'solstice': return 'var(--accent)';
-        case 'meteor-shower': return '#9fd4ff';
+        case 'meteor-shower': return 'var(--ev-meteor)';
         case 'sat-pass': return ev.color || 'var(--accent)';
         default: return ev.bodyId && ev.bodyId in BODY_INDEX ? `var(--body-${ev.bodyId})` : 'var(--muted)';
     }
@@ -78,6 +79,8 @@ export function mountEventsPanel(root, ctx) {
     const filterBar = h('div', { class: 'filters', role: 'group', 'aria-label': 'Filter events' }, chips);
     const next = h('div', { class: 'ev-next', hidden: true });
     const list = h('ol', { class: 'ev-list', 'aria-label': 'Upcoming events' });
+    // 'All eclipses in the next year' as one calendar file (shown under All and Eclipses).
+    const bundleBtn = h('button', { class: 'btn btn--soft btn--sm ev-bundle', type: 'button', hidden: true }, icon('calendar', { size: 16 }), h('span'));
     const empty = h('p', { class: 'empty' }, h('span', { class: 'spinner', 'aria-hidden': 'true' }), 'Computing upcoming events…');
     const tourBtns = TOURS.map((t) => h('button', {
         class: 'tour-card', type: 'button', 'data-tour': t.id, 'aria-pressed': 'false',
@@ -110,7 +113,7 @@ export function mountEventsPanel(root, ctx) {
         h('div', { class: 'section-head' }, h('h2', { class: 'panel-title' }, 'Guided tours'), h('span', { class: 'pill' }, 'Narrated')),
         h('div', { class: 'tours', role: 'group', 'aria-label': 'Guided tours' }, tourBtns),
         h('div', { class: 'section-head' }, h('h2', { class: 'panel-title' }, 'Upcoming events'), h('span', { class: 'pill' }, 'Next 12 months')),
-        marsNote, filterBar, next, list, empty,
+        marsNote, filterBar, next, list, empty, bundleBtn,
         h('p', { class: 'note' }, 'Times are shown in the time-bar zone. Jump moves the clock (and the view, where useful) to the event.'),
         h('div', { class: 'section-head' }, h('h2', { class: 'panel-title' }, 'The sky you were born under')),
         h('p', { class: 'pop__hint' }, 'Your birthday, from where you are now (change the place first for another one).'),
@@ -172,14 +175,54 @@ export function mountEventsPanel(root, ctx) {
             ui.act('startTour', tb.dataset.tour);
             return;
         }
+        const cal = /** @type {HTMLElement} */ (e.target).closest('[data-cal]');
+        if (cal) {
+            const ev = shownEvents[Number(cal.dataset.cal)];
+            if (!ev) return;
+            const z = ui.zoned(ev.tMs), p2 = (n) => String(n).padStart(2, '0');
+            addToCalendar([ev], ev.title, icsFileName(ev, `${z.y}-${p2(z.mo)}-${p2(z.d)}`), false);
+            return;
+        }
         const b = /** @type {HTMLElement} */ (e.target).closest('[data-ev]');
         if (!b) return;
         const ev = shownEvents[Number(b.dataset.ev)];
         if (ev) ui.act(ev.kind === 'sat-pass' ? 'watchPass' : 'jumpToEvent', ev.kind === 'sat-pass' ? ev.pass : ev);
     }));
+    offs.push(on(bundleBtn, 'click', () => {
+        if (!bundle.length) return;
+        const y0 = new Date(bundle[0].tMs).getUTCFullYear(), y1 = new Date(bundle.at(-1).tMs).getUTCFullYear();
+        const years = y0 === y1 ? String(y0) : `${y0}-${y1}`;
+        addToCalendar(bundle, `Eclipses ${years.replace('-', '–')}`, `eclipses-${years}.ics`, true);
+    }));
+
+    /**
+     * Saves events as an .ics file (share sheet on touch devices, else a download). Each entry
+     * links back to its sky; times are UTC, so any calendar shows them in its own zone.
+     * @param {any[]} evs
+     * @param {string} name the share sheet's title (and, for a bundle, the calendar's name)
+     * @param {string} fileName
+     * @param {boolean} named
+     */
+    function addToCalendar(evs, name, fileName, named) {
+        const o = store.get().observer;
+        let text;
+        try {
+            // Only a bundle names its calendar (X-WR-CALNAME): one event joins the user's own.
+            text = buildCalendar(evs, { nowMs: Date.now(), name: named ? name : '', place: ui.placeLabel(o), placeKey: placeKeyOf(o),
+                urlFor: (ev) => ui.act('shareUrl', { event: ev }) || '' });
+        } catch { text = ''; }
+        const toast = (message, kind = 'info') => ctx.bus?.emit?.('toast', { message, kind, timeoutMs: 3500 });
+        if (!text) { toast("The calendar file couldn't be made.", 'warn'); return; }
+        saveIcs(text, fileName, { title: name }).then((r) => {
+            if (r === 'saved') toast(evs.length > 1 ? `Saved ${evs.length} events as ${fileName}: open it to add them to your calendar` : `Saved ${fileName}: open it to add it to your calendar`);
+            else if (r === 'failed') toast("The calendar file couldn't be saved on this device.", 'warn');
+        });
+    }
 
     /** @type {any[]} */
     let shownEvents = [];
+    /** @type {any[]} the eclipses of the next 12 months (the bundle) */
+    let bundle = [];
     let lastKey = '';
     let lastRel = 0;
     /** @type {{ev:any, meta:HTMLElement}[]} */
@@ -197,12 +240,23 @@ export function mountEventsPanel(root, ctx) {
         }
         const f = FILTERS.find((x) => x.id === filter) || FILTERS[0];
         const upcoming = all.filter((e) => e && Number.isFinite(e.tMs) && e.tMs >= t - 30 * 60e3 && e.tMs <= t + 366 * DAY && f.test(e));
-        const key = `${filter}|${upcoming.length}|${upcoming[0]?.id ?? ''}|${upcoming.at(-1)?.id ?? ''}|${ui.displayTz()}|${ctx.store.get().display?.hour12}`;
+        const south = ctx.store.get().observer?.latDeg < 0;
+        const key = `${filter}|${upcoming.length}|${upcoming[0]?.id ?? ''}|${upcoming.at(-1)?.id ?? ''}|${ui.displayTz()}|${ctx.store.get().display?.hour12}|${south}`;
         if (!force && key === lastKey) { refreshRelative(t); return; }
         lastKey = key;
         empty.hidden = true;
         shownEvents = upcoming;
         metaEls = [];
+        bundle = eclipseBundle(ui.events?.list, t - 30 * 60e3, t + 366 * DAY);
+        bundleBtn.hidden = !bundle.length || (filter !== 'all' && filter !== 'eclipses');
+        // Under the Eclipses filter it leads the list; under All it ends it.
+        if (filter === 'eclipses') { if (bundleBtn.previousElementSibling !== filterBar) filterBar.after(bundleBtn); } else if (bundleBtn.previousElementSibling !== empty) empty.after(bundleBtn);
+        setText(bundleBtn.lastChild, bundle.length === 1 ? 'Add the eclipse of the next 12 months to a calendar'
+            : `Add all ${bundle.length} eclipses of the next 12 months to a calendar`);
+        const calBtn = (ev, i, cls) => h('button', {
+            class: `btn btn--soft btn--sm ${cls}`, type: 'button', 'data-cal': String(i),
+            'aria-label': `Add ${ev.title} to a calendar`, title: 'Add to calendar (.ics)',
+        }, icon('calendar', { size: 16 }));
 
         // "Next up" hero card.
         const first = upcoming[0];
@@ -212,11 +266,13 @@ export function mountEventsPanel(root, ctx) {
             next.replaceChildren(
                 h('span', { class: 'ev-next__eyebrow' }, 'Next up'),
                 h('div', { class: 'ev-next__row' },
-                    h('span', { class: 'ev__icon ev__icon--lg', style: { '--c': eventColor(first) }, 'aria-hidden': 'true' }, icon(KIND_ICON[first.kind] || 'events', { size: 22 })),
+                    h('span', { class: 'ev__icon ev__icon--lg', style: { '--c': eventColor(first) }, 'aria-hidden': 'true' }, eventGlyph(first, { size: 34, south })),
                     h('div', { class: 'ev__main' }, h('span', { class: 'ev-next__title' }, first.title), meta,
                         first.detail ? h('span', { class: 'ev__detail' }, first.detail) : null),
-                    h('button', { class: 'btn btn--primary btn--sm', type: 'button', 'data-ev': '0', 'aria-label': `${first.kind === 'sat-pass' ? 'Watch' : 'Jump to'} ${first.title}` },
-                        icon('arrow-right', { size: 16 }), first.kind === 'sat-pass' ? 'Watch' : 'Jump')));
+                    h('div', { class: 'ev__acts ev__acts--next' },
+                        h('button', { class: 'btn btn--primary btn--sm', type: 'button', 'data-ev': '0', 'aria-label': `${first.kind === 'sat-pass' ? 'Watch' : 'Jump to'} ${first.title}` },
+                            icon('arrow-right', { size: 16 }), first.kind === 'sat-pass' ? 'Watch' : 'Jump'),
+                        calBtn(first, 0, 'ev__cal'))));
             next.hidden = false;
         } else next.hidden = true;
 
@@ -230,13 +286,15 @@ export function mountEventsPanel(root, ctx) {
             const meta = h('span', { class: 'ev__meta' });
             metaEls.push({ ev, meta });
             items.push(h('li', { class: 'ev' },
-                h('span', { class: 'ev__icon', style: { '--c': eventColor(ev) }, 'aria-hidden': 'true' }, icon(KIND_ICON[ev.kind] || 'events', { size: 18 })),
+                h('span', { class: 'ev__icon', style: { '--c': eventColor(ev) }, 'aria-hidden': 'true' }, eventGlyph(ev, { size: 26, south })),
                 h('div', { class: 'ev__main' },
                     h('span', { class: 'ev__title' }, ev.title),
                     meta,
                     ev.detail ? h('span', { class: 'ev__detail' }, ev.detail) : null),
-                h('button', { class: 'btn btn--soft btn--sm ev__jump', type: 'button', 'data-ev': String(i), 'aria-label': `${ev.kind === 'sat-pass' ? 'Watch' : 'Jump to'} ${ev.title}, ${ui.fmtSpoken(ev.tMs)}` },
-                    ev.kind === 'sat-pass' ? 'Watch' : 'Jump')));
+                h('div', { class: 'ev__acts' },
+                    h('button', { class: 'btn btn--soft btn--sm ev__jump', type: 'button', 'data-ev': String(i), 'aria-label': `${ev.kind === 'sat-pass' ? 'Watch' : 'Jump to'} ${ev.title}, ${ui.fmtSpoken(ev.tMs)}` },
+                        ev.kind === 'sat-pass' ? 'Watch' : 'Jump'),
+                    calBtn(ev, i, 'ev__cal'))));
         });
         if (!upcoming.length) {
             items.push(h('li', { class: 'ev-none' }, filter === 'all' ? 'No events in the next 12 months.' : 'No events of this kind in the next 12 months.'));

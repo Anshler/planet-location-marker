@@ -5,7 +5,7 @@
      6 desktop layout · 7 top bar · 8 panel & tabs · 9 time bar · 10 view switch
      11 sky now · 12 body card · 13 events · 14 layers/settings/about
      15 dialogs & palette · 16 popovers · 17 toasts/flash/hint · 18 mobile sheet
-     19 text mode · 20 body classes · 21 motion
+     19 text mode · 20 body classes · 21 motion · 22 accessibility preferences
    ============================================================================= */
 
 /* 1 ─ Tokens ------------------------------------------------------------------ */
@@ -38,6 +38,9 @@
     --body-saturn: #e8c872;
     --body-uranus: #9fe3e6;
     --body-neptune: #7f97ff;
+    /* Event glyphs (ui/event-glyphs.js): an eclipsed Moon, a meteor shower. */
+    --ev-copper: #d0764a;
+    --ev-meteor: #9fd4ff;
 
     --r-1: 10px;
     --r-2: 16px;
@@ -105,7 +108,10 @@ html, body {
 /* Zero-specificity resets (:where) so every component class below wins over them. */
 :where(.ui) :where(button, input, select, textarea) { font: inherit; color: inherit; }
 :where(.ui svg.icon) { display: block; flex: none; }
-.ui :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* The accent ring has a dark halo, so it also shows on controls floating over a pale daytime sky
+   (accent on sky blue is about 1.1:1; the halo makes it ≥ 3:1 against either). Components that set
+   their own box-shadow keep it; the ring stays. */
+.ui :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 5px rgba(3, 6, 13, .82); }
 .ui :focus:not(:focus-visible) { outline: none; }
 .ui-overlay { display: contents; }
 .ui [hidden] { display: none !important; }
@@ -246,7 +252,7 @@ button.lbl:hover .lbl__dot { transform: scale(1.35); }
 }
 .lbl.is-new .lbl__text { animation: lbl-in 600ms var(--ease-out) both; }
 .lbl.is-new .lbl__dot { animation: lbl-dot-in 600ms var(--ease-out) both; }
-.lbl:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.lbl:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; box-shadow: 0 0 0 5px rgba(3, 6, 13, .82); }
 @keyframes lbl-in { from { opacity: 0; transform: translateX(-6px); } to { opacity: 1; transform: none; } }
 @keyframes lbl-dot-in { 0% { transform: scale(0); } 60% { transform: scale(1.6); } 100% { transform: scale(1); } }
 .lbl--cardinal.is-new .lbl__text { animation: none; }
@@ -1147,6 +1153,34 @@ body.no-webgl .vb-ruler, body.no-webgl .vb-point { display: none; }
 .skynow__summary { margin: -4px 0 12px; color: var(--muted); font-size: 12.5px; line-height: 1.5; font-variant-numeric: tabular-nums; }
 .skynow__summary:empty { display: none; }
 
+/* Tonight (js/ui/tonight.js): the dusk-to-dawn chart, a collapsible card at the top of Sky now. */
+/* Sky now's collapsible cards: the Sky dome (ui/sky-dome.js) and Tonight (ui/tonight.js). */
+.tonight, .dome { margin: 0 0 12px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255, 255, 255, .035); }
+.tonight[hidden] { display: none; }
+.tonight__head, .dome__head {
+    display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 12px;
+    border: 0; border-radius: 12px; background: transparent; color: var(--text); text-align: left; cursor: pointer;
+}
+.tonight__head:hover, .dome__head:hover { background: rgba(255, 255, 255, .04); }
+.tonight__head:focus-visible, .dome__head:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.tonight__title, .dome__title { font-size: 13px; font-weight: 750; }
+.tonight__meta, .dome__meta { flex: 1; min-width: 0; overflow: hidden; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
+.tonight__chev, .dome__chev { display: grid; color: var(--muted); transition: transform var(--t1) var(--ease); }
+.tonight.is-open .tonight__chev, .dome.is-open .dome__chev { transform: rotate(180deg); }
+.tonight__body, .dome__body { padding: 0 10px 10px; }
+.tonight__body[hidden], .dome__body[hidden] { display: none; }
+.dome__wrap { width: min(100%, var(--dome-max, 270px)); aspect-ratio: 1; margin: 0 auto; }
+.dome__cv { display: block; width: 100%; height: 100%; touch-action: manipulation; }
+.dome__foot { display: flex; flex-direction: column; align-items: center; gap: 6px; margin-top: 4px; }
+.dome__seg .seg__btn { height: 26px; padding: 0 11px; font-size: 12px; }
+.dome__hint { margin: 0 2px; color: var(--muted); font-size: 11px; line-height: 1.4; text-align: center; }
+.ui[data-layout="text"] .dome { --dome-max: 440px; }
+.tonight__cv { display: block; width: 100%; height: 143px; cursor: ew-resize; touch-action: pan-y; }
+.tonight__cv.is-dragging { cursor: grabbing; }
+.tonight__note, .tonight__legend { margin: 6px 2px 0; color: var(--muted); font-size: 11px; line-height: 1.4; }
+.tonight__note { color: var(--text-2); font-size: 12px; }
+.tonight__note[hidden] { display: none; }
+
 .body-list { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; }
 .body-list__item { margin: 0; }
 .body-list__group {
@@ -1186,7 +1220,10 @@ body.no-webgl .vb-ruler, body.no-webgl .vb-point { display: none; }
 .body-row__main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .body-row__name { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 650; }
 .body-row__sub { overflow: hidden; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; white-space: nowrap; text-overflow: ellipsis; }
-.body-row__pos { display: flex; align-items: baseline; gap: 5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.body-row__pos { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; }
+.body-row__now { display: flex; align-items: baseline; gap: 5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.body-row__spark { display: block; width: 44px; height: 16px; }
+.body-row__spark[hidden] { display: none; }
 .body-row__alt { font-size: 16px; font-weight: 750; }
 .body-row__dir { min-width: 2.4em; color: var(--muted); font-size: 12px; font-weight: 650; letter-spacing: .03em; }
 .body-row__dir:empty { display: none; }
@@ -1438,6 +1475,14 @@ body.no-webgl .vb-ruler, body.no-webgl .vb-point { display: none; }
 .ev__meta { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .ev__detail { color: var(--text-2); font-size: 12px; line-height: 1.35; }
 .ev-none { padding: 16px 4px; color: var(--muted); font-size: 13px; }
+/* The event's glyph (ui/event-glyphs.js), Jump and 'Add to calendar' (ui/ics.js). */
+.evg { display: block; }
+.ev__acts { display: flex; align-items: center; gap: 5px; }
+.ev__acts--next { flex-direction: column; align-items: stretch; }
+.ev__cal { width: 30px; padding: 0; color: var(--text-2); }
+.ev__acts--next .ev__cal { width: auto; }
+.ev-bundle { margin: 12px 0 2px; }
+.ev-bundle[hidden] { display: none; }
 
 /* 14 ─ Layers, settings, about ------------------------------------------------------------ */
 .group .switch-row { margin: 0 -10px; width: calc(100% + 20px); }
@@ -1495,6 +1540,9 @@ body.no-webgl .vb-ruler, body.no-webgl .vb-point { display: none; }
 .help__row dd { flex: 1 1 auto; min-width: 0; order: 1; margin: 0; color: var(--text-2); font-size: 13px; }
 .help__keys { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 4px; }
 .help__or { width: 2px; }
+.help__row .help__gesture { flex: 0 0 38%; order: 0; color: var(--text); font-size: 13px; font-weight: 650; }
+.help__foot { margin-top: 12px; }
+body.is-coarse .help:not(.is-keys) .help__grid { display: none; }
 .share { width: min(520px, 100%); }
 .share__row { display: flex; gap: 8px; margin-top: 14px; }
 .share__msg { min-height: 18px; margin-top: 8px; color: var(--ok); font-size: 12.5px; }
@@ -1559,6 +1607,24 @@ body.no-webgl .vb-ruler, body.no-webgl .vb-point { display: none; }
 .pal-opt__sub { overflow: hidden; color: var(--muted); font-size: 12px; white-space: nowrap; text-overflow: ellipsis; }
 .pal-opt__meta { display: flex; align-items: center; gap: 8px; }
 .pal-opt__coords { color: var(--faint); font-size: 11.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+/* A place's local time and sky (ui/location.js placeSky), on a pill in that sky's colour (sky-palette.js). */
+.pal-opt__sky {
+    align-self: flex-start;
+    max-width: 100%;
+    margin-top: 3px;
+    padding: 0 7px;
+    overflow: hidden;
+    border: 1px solid var(--line-2);
+    border-radius: var(--r-pill);
+    background: var(--sky, #070912);
+    color: #e8edf6;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    line-height: 17px;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+.pal-opt__sky[hidden] { display: none; }
 .pal-note { display: flex; align-items: center; padding: 4px 10px 8px; color: var(--muted); font-size: 12.5px; }
 .pal-note--quiet { color: var(--faint); }
 .pal-empty { padding: 18px 12px; color: var(--muted); font-size: 13px; text-align: center; }
@@ -1982,6 +2048,62 @@ body.is-map .vb-track, body.is-map .vb-expose { display: none; }
 .fade-overlay.is-on { animation: veil 220ms ease-out both; }
 @keyframes veil { from { opacity: .85; } to { opacity: 0; } }
 
+/* Coach marks (ui/coach.js): a spotlight cut out of a dimmed screen, and its tip. Above popovers, below dialogs and toasts. */
+.coach { position: fixed; inset: 0; z-index: 38; pointer-events: auto; }
+.coach__spot {
+    position: fixed;
+    border-radius: 14px;
+    box-shadow: 0 0 0 2px rgba(124, 196, 255, .85), 0 0 22px 4px rgba(124, 196, 255, .35), 0 0 0 200vmax rgba(3, 6, 13, .62);
+    pointer-events: none;
+    transition: left var(--t2) var(--ease-out), top var(--t2) var(--ease-out), width var(--t2) var(--ease-out), height var(--t2) var(--ease-out);
+}
+.coach__tip {
+    position: fixed;
+    width: min(320px, calc(100vw - 24px));
+    padding: 14px 16px 12px;
+    border: 1px solid var(--line-2);
+    border-radius: 16px;
+    box-shadow: 0 18px 48px rgba(0, 0, 0, .55);
+    animation: pop-in var(--t1) var(--ease-out) both;
+}
+.coach__count { color: var(--accent); font-size: 11px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+.coach__title { margin-top: 4px !important; font-size: 16px; font-weight: 780; }
+.coach__text { margin-top: 6px !important; color: var(--text-2); font-size: 13.5px; line-height: 1.45; }
+.coach__acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.ui:not([data-layout="mobile"]) .vb-more { display: none; }
+
+/* The intro's title card (ui/intro-caption.js): on <body>, outside #ui-root, which the intro hides. */
+.intro-cap {
+    position: fixed;
+    /* Under the pin, clear of the view switch, the time bar and the phone's sheet as the interface fades in. */
+    top: 58%;
+    left: 50%;
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    width: max-content;
+    max-width: calc(100vw - 32px);
+    padding: 12px 22px 13px;
+    border: 1px solid rgba(255, 255, 255, .1);
+    border-radius: 16px;
+    background: rgba(6, 9, 16, .56);
+    box-shadow: 0 10px 34px rgba(0, 0, 0, .4);
+    color: var(--text);
+    font-family: var(--font);
+    text-align: center;
+    pointer-events: none;
+    opacity: 0;
+    transform: translate(-50%, 8px);
+    transition: opacity .6s ease, transform .9s cubic-bezier(.2, .7, .2, 1);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+}
+.intro-cap.is-on { opacity: 1; transform: translate(-50%, 0); }
+.intro-cap__place { font-size: 13px; font-weight: 700; letter-spacing: .22em; text-transform: uppercase; }
+.intro-cap__line { color: #c2cbda; font-size: 15px; font-weight: 550; font-variant-numeric: tabular-nums; }
+
 /* 18 ─ Mobile: top bar, floating column, bottom sheet --------------------------------------------- */
 .ui[data-layout="mobile"] { --gutter: 12px; }
 .ui[data-layout="mobile"] .topbar {
@@ -2233,13 +2355,35 @@ body.is-cinema .ui .sheet {
 .ui.is-cinema.is-awake .cinema-exit { opacity: 1; }
 body.is-coarse .ui.is-cinema .cinema-exit { opacity: .85; }
 
-/* Sky view: a little more contrast for panels over a bright daytime sky. */
+/* Night vision (display.red; actions.setNightVision, main.js bindNightVision, index.html before the
+   first paint): the whole page, scene, labels and panels alike, as dim pure red by luminance. Three
+   colour-matrix functions, which browsers run on the GPU (no SVG filter): brightness(.042) leaves
+   headroom so nothing clips; sepia(1), whose rows are nearly proportional, maps every colour onto
+   one brownish hue at a weighted luminance (.29 R + .57 G + .14 B); saturate(100) drives that hue's
+   green and blue far below zero (clamped to 0) and its red to 62 % of the luminance. Measured in
+   headless Chrome: G = B = 0 and 159 levels, and the cheapest exact chain tried (six functions cost
+   twice as much in software compositing). test/ui.night-vision.test.mjs checks it with the spec's
+   matrices. */
+html.is-red { filter: brightness(.042) sepia(1) saturate(100); }
+
+/* Sky view: a little more contrast for panels over a bright daytime sky. The see-through glass of
+   the blur tiers let --muted fall to 4.3:1 and --faint to 3.1:1 at noon (measured on high), and to
+   3.5 and 2.5 over white cloud: in sky view it is .9 opaque and --faint a step lighter, which keeps
+   both above 4.5:1 even over white (5.4 and 4.7). Night skies look the same either way. */
+body.is-sky { --panel: rgba(12, 16, 26, .9); --faint: #8e9ab0; }
 body.is-sky .ui .glass { border-color: rgba(255, 255, 255, .1); }
 
 /* Coarse pointers: comfortable targets. */
 body.is-coarse .ui .icon-btn { min-width: 40px; min-height: 40px; }
 body.is-coarse .ui .switch-row { min-height: 48px; }
 body.is-coarse .ui .chip { height: 34px; }
+
+/* Touch-first copy: .for-fine shows with a mouse and keyboard, .for-coarse on touch; key caps and key
+   hints hide on touch (the help dialog's key table keeps them), and the place search gets its Cancel. */
+body:not(.is-coarse) .for-coarse, body.is-coarse .for-fine { display: none !important; }
+:is(.btn, .dialog__title) > :is(.for-fine, .for-coarse) { display: inline-flex; align-items: center; gap: inherit; }
+body.is-coarse .ui :is(.kbd, .kbds, .switch-row__keys):not(.help *) { display: none; }
+body.is-coarse .ui .palette__close { display: inline-flex; height: 40px; padding: 0 8px; background: none; color: var(--accent); font-weight: 650; }
 
 /* 21 ─ Motion ----------------------------------------------------------------------------------------- */
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -2315,3 +2459,52 @@ body.is-mars .ui[data-layout="mobile"] .tb-sol { min-width: 0; overflow: hidden;
 body.is-mars .ui[data-layout="mobile"] .tb-date { min-width: 0; flex: 0 1 auto; }
 body.is-mars .ui[data-layout="mobile"] .tb-date__icon { display: none; }
 body.is-mars .ui[data-layout="mobile"] .tb-date { padding: 0 4px; }
+
+/* 22 ─ Accessibility preferences (system settings; smoke --media emulates them) ------------------ */
+/* Reduce transparency: opaque panels and no backdrop blur, on every tier and view. The selectors
+   include body.is-sky so the sky view's own --panel gives way; !important beats the tier rules. */
+@media (prefers-reduced-transparency: reduce) {
+    :root, body.is-sky { --panel: rgb(10, 14, 23); --panel-solid: rgb(10, 14, 23); --surface: rgb(11, 15, 24); }
+    .glass, .intro-cap { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+    .intro-cap { background: rgb(6, 9, 16); }
+}
+
+/* More contrast: brighter secondary text, opaque panels and 1-px --line-2 edges on panels and chips. */
+@media (prefers-contrast: more) {
+    :root, body.is-sky {
+        --text-2: #dfe5ee; --muted: #c3ccd9; --faint: #aab4c4;
+        --line: rgba(255, 255, 255, .22); --line-2: rgba(255, 255, 255, .4);
+        --panel: rgb(9, 12, 20); --panel-solid: rgb(9, 12, 20);
+    }
+    .glass, .chip, .bchip, .seg, .popover, .dialog, .toast, .btn--soft { border: 1px solid var(--line-2); }
+    .glass { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+    .seg__btn.is-on, .seg__btn[aria-checked="true"], .seg__opt input:checked + span { box-shadow: inset 0 0 0 1px var(--line-2); }
+    .switch { box-shadow: inset 0 0 0 1px var(--line-2); }
+}
+
+/* Forced colours (Windows High Contrast and the like): the system palette replaces ours, which
+   drops backgrounds and shadows. Panels and controls get system-colour edges, and the states that
+   were only a fill (switches, segmented choices, pressed chips, the active tab, the time bar's
+   thumb) are drawn in Highlight. The scene's labels sit on the (unforced) 3D view, so they keep
+   their own colours. */
+@media (forced-colors: active) {
+    .glass, .popover, .dialog, .toast, .sheet, .ecl { border: 1px solid CanvasText; background: Canvas; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
+    .chip, .bchip, .echip, .btn, .seg, .icon-btn, .input, .select { border: 1px solid ButtonText; }
+    .switch, .switch__knob, .tabs__ink, .tb-scrub__thumb, .tb-scrub__knob, .seg__btn, .seg__opt span,
+    .chip--filter[aria-pressed="true"], .btn[aria-pressed="true"], .btn--ghost.is-on { forced-color-adjust: none; }
+    .switch { background: Canvas; box-shadow: inset 0 0 0 1px ButtonText; }
+    .switch__knob { background: ButtonText; box-shadow: none; }
+    .switch-row[aria-checked="true"] .switch { background: Highlight; box-shadow: none; }
+    .switch-row[aria-checked="true"] .switch__knob { background: HighlightText; }
+    .seg__btn, .seg__opt span { background: transparent; color: ButtonText; }
+    .seg .seg__btn.is-on, .seg .seg__btn[aria-checked="true"], .seg__opt input:checked + span,
+    .chip--filter[aria-pressed="true"], .btn[aria-pressed="true"], .btn--ghost.is-on { background: Highlight; color: HighlightText; box-shadow: none; }
+    .tabs__ink { background: Highlight; }
+    .tb-scrub__thumb::before { background: CanvasText; box-shadow: 0 0 0 1px Canvas; }
+    .tb-scrub__knob { background: Highlight; box-shadow: 0 0 0 2px CanvasText; }
+    .ui :focus-visible, .lbl:focus-visible, .tb-scrub:focus-visible { outline: 2px solid Highlight; box-shadow: none; }
+    #labels-root, .ui .dot { forced-color-adjust: none; }   /* the bodies' colour dots are their key */
+    /* Canvases (the time bar, Tonight, the Sky dome, sparklines) draw in the app's colours on a
+       transparent ground: they keep a dark one, whatever the system palette. */
+    .ui canvas { forced-color-adjust: none; background: rgb(10, 14, 23); }
+}

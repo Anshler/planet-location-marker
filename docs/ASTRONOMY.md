@@ -816,6 +816,13 @@ not being exactly square to both lines.
   - A body is *not visible* when within 12° of the Sun (7° for the Moon and Venus, which are
     bright enough to be seen closer to it).
   - The equipment hint follows the magnitude.
+  - The samples themselves come back as `series` (refracted altitudes per body, the Sun's
+    unrefracted centre), which the Tonight chart and Sky now's sparklines draw.
+- **Altitude series.** `altitudeSeries(body, …)` samples `Equator(of date, aberration)` →
+  `Horizon` at evenly spaced instants: the Sun unrefracted for the time bar's sky colours, the Moon
+  and the selected planet refracted for its bands (the Moon counts as up while its centre is above
+  −0.27°, its upper limb on the refracted horizon). The bands' Moon brightness uses Meeus (48.4)'s
+  low-precision phase angle (within 1.5 % of `Illumination`, test).
 - **Events** for the next 12 months:
   - Moon quarters;
   - oppositions and conjunctions (`SearchRelativeLongitude` 180°/0°);
@@ -1212,6 +1219,7 @@ roofs, in Mars colours. The light-time beam is a guide, not a ray.
 | Meteor rates | a factor of ~2 | Expected values for one observer (ZHR, r, the radiant's altitude, the modelled sky's limiting magnitude). The meteors drawn are illustrative. |
 | Star occultations | ~0.01° in separation, ~1 min in time | Fixed J2000 stars without proper motion or annual aberration; grazes near the Moon's limb may be misjudged (§7b). |
 | Year planner | ~1° (planets, Sun), ~2.5° (Moon) | Analytic altitudes from one RA/Dec a night, no refraction or parallax (§7b). |
+| Place search preview (`ui/location.js placeSky`) | Sun altitude ≤ 0.05°; sunrise/sunset ≲ 1 min within 90 min, a few min hours ahead in the Arctic; 'Moon up' ~0.5° near the horizon | 90° minus the great-circle distance to the readout's geocentric sub-point; the next crossing from the hour angle at 15°/h with the declination held; the Moon against Meeus' standard altitude +0.125° (mean parallax). A chip, not an almanac (tested against `SearchRiseSet`). |
 
 **Validation.** The tests in `test/astro.*.test.mjs` check these values from SPEC §D.5:
 

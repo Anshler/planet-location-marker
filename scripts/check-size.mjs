@@ -94,6 +94,9 @@ export const FILE_BUDGETS = {
     'assets/textures/earth_day_preview.webp': 16 * KB,
     'assets/textures/earth_night_preview.webp': 10 * KB,
     'assets/og.jpg': 250 * KB,
+    // The install dialog's screenshots (manifest.webmanifest; fetched by the browser, never by the app).
+    'assets/screenshots/globe-wide.jpg': 150 * KB,
+    'assets/screenshots/globe-narrow.jpg': 150 * KB,
     'assets/icons/favicon.svg': 12 * KB,
     'assets/icons/icon-192.png': 60 * KB,
     'assets/icons/icon-512.png': 150 * KB,

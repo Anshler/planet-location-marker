@@ -242,7 +242,8 @@ export function mountSkyNow(root, ctx) {
     const SPARK_W = 44, SPARK_H = 16;
     let sparkRev = 0, sparkOf = null;
     function updateSpark(r, id, t, s) {
-        const row = s ? (id === 'sun' ? -1 : s.ids.indexOf(id)) : -2;
+        const i = s && id !== 'sun' ? s.ids.indexOf(id) : -1;
+        const row = !s ? -2 : id === 'sun' ? -1 : i >= 0 ? i : -2;
         const show = row >= -1;
         if (r.spark.hidden === show) r.spark.hidden = !show;
         if (!show) return;

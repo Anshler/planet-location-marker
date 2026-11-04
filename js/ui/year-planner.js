@@ -1,19 +1,15 @@
 /**
- * The body card's year planner (ROADMAP visibility-year-planner) and the Sun's paths in words
- * (analemma-sun-path, text mode).
+ * Details' "The year ahead", a closed <details> with its sentence in the summary.
  *
- * Planets: a 12-month chart from the first of the current month. Each column is a night, each row
- * a time from 15:00 to 09:00 (standard time, so the rows never jump at a DST change); the
- * background is the sky (day, the three twilights, night, moonlit night: the monthly dark-Moon
- * band), and the planet's colour fills the hours it is up in darkness, brighter the higher it
- * stands. Ticks on top mark its oppositions, conjunctions, greatest elongations and greatest
- * brilliancy from the Events list; a line marks tonight. Clicking a night jumps there (sky view on
- * the planet when it is up). Under it, a sentence: when it is best, how high, how bright.
+ * Planets: a 12-month chart from the first of the month. Each column is a night, each row a time
+ * from 15:00 to 09:00 (standard time); the background is the sky (day, twilights, night, moonlit
+ * night), and the planet's colour fills the hours it is up in darkness, brighter the higher it
+ * stands. Ticks mark its oppositions, conjunctions, elongations and greatest brilliancy (Events);
+ * a line marks tonight; a click jumps to that night. The sentence: when it is best, how high, how
+ * bright. The Sun: its rise and set azimuths and noon altitude at the solstices and the equinox.
  *
- * The Sun: its rise and set azimuths and noon altitude on the solstices and the March equinox.
- *
- * Data from the astro worker (`visibilityYear`, about 25–50 ms, and `sunFigures`), requested for
- * the observer and month, debounced and cached. Pure DOM and a 2D canvas: works in text mode.
+ * From the astro worker (`visibilityYear`, `sunFigures`), debounced and cached; the chart is drawn
+ * only while open. DOM and a 2D canvas: works in text mode.
  *
  *   createYearPlanner(ctx) → {el, update(snap, id), destroy()}
  *
@@ -59,16 +55,15 @@ const part = (d) => (d <= 10 ? 'early' : d <= 20 ? 'mid' : 'late');
 export function createYearPlanner(ctx) {
     const { store, ui } = ctx;
     const offs = [];
-    const title = h('h3', { class: 'planner__title' }, 'Year planner');
-    const note = h('span', { class: 'planner__note' }, 'Approximate');
     const cv = h('canvas', { class: 'planner__cv', width: 320, height: CHART_H, role: 'img', 'aria-label': 'Visibility chart', tabindex: '-1' });
-    const summary = h('p', { class: 'planner__summary' });
-    const legend = h('p', { class: 'planner__legend' },
-        'Each column is a night, each row an hour from 15:00 to 09:00 (standard time). Coloured where it is at least 10° up in darkness; lighter bands are moonlit. Click a night to go there.');
+    const summary = h('span', { class: 'fold__sub' });
+    const legend = h('p', { class: 'note' },
+        'Approximate. Each column is a night, each row an hour from 15:00 to 09:00 (standard time). Coloured where it is at least 10° up in darkness; lighter bands are moonlit. Click a night to go there.');
     const bestBtn = h('button', { class: 'btn btn--soft btn--sm planner__best', type: 'button', hidden: true }, 'Jump to its best night');
     const sunText = h('p', { class: 'planner__sun', hidden: true });
-    const el = h('section', { class: 'planner', hidden: true, 'aria-label': 'Year planner' },
-        h('div', { class: 'planner__head' }, title, note), cv, summary, bestBtn, legend, sunText);
+    const el = h('details', { class: 'fold planner', hidden: true },
+        h('summary', null, h('span', null, 'The year ahead'), summary), cv, bestBtn, legend, sunText);
+    offs.push(on(el, 'toggle', () => { drawKey = ''; if (el.open && ui.snap && shownId) update(ui.snap, shownId); }));
 
     /** @type {Map<string, any>} key → PlannerYear */
     const cache = new Map();
@@ -145,7 +140,7 @@ export function createYearPlanner(ctx) {
                 bits.push(ok ? `${name[k]}: rises ${az(a.riseAzDeg)}, sets ${az(a.setAzDeg)}, ${Math.round(a.noonAltDeg)}° high at noon`
                     : `${name[k]}: ${a.noonAltDeg > 0 ? 'up all day' : 'below the horizon all day'}`);
             }
-            setText(sunText, `Sun paths here — ${bits.join('; ')}. The Layers tab draws them in Sky view (Sun paths & analemma).`);
+            setText(sunText, `Sun paths here — ${bits.join('; ')}.`);
             sunText.hidden = shownId !== 'sun';
         }, () => { if (sunPending === key) sunPending = ''; });
     }
@@ -291,8 +286,7 @@ export function createYearPlanner(ctx) {
         const planet = !!id && PLANNER_BODIES.includes(id);
         const isSun = id === 'sun';
         el.hidden = !(planet || isSun);
-        cv.hidden = summary.hidden = legend.hidden = note.hidden = !planet;
-        title.textContent = isSun ? 'Sun paths' : 'Year planner';
+        cv.hidden = summary.hidden = legend.hidden = !planet;
         if (isSun) {
             bestBtn.hidden = true;
             sunText.hidden = !sunKey;
@@ -304,10 +298,10 @@ export function createYearPlanner(ctx) {
         request(snap.tMs);
         if (!year) { setText(summary, 'Computing the year ahead…'); bestBtn.hidden = true; return; }
         const iNow = nightIndex(snap.tMs);
-        const key = `${yearKey}|${id}|${iNow}|${ui.events?.list?.length ?? 0}|${Math.round(cv.clientWidth)}|${store.get().display?.hour12}`;
+        const key = `${yearKey}|${id}|${iNow}|${ui.events?.list?.length ?? 0}|${el.open ? Math.round(cv.clientWidth) : 0}|${store.get().display?.hour12}`;
         if (key === drawKey) return;
         drawKey = key;
-        draw(id, snap.tMs);
+        if (el.open) draw(id, snap.tMs);
         const text = sentence(id);
         setText(summary, text);
         cv.setAttribute('aria-label', `Visibility chart for the next 12 months. ${text}`);

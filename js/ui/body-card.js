@@ -1,33 +1,22 @@
 /**
- * Details tab: the card for the selected body.
+ * Details tab: the selected body's card (docs/roadmap/UI-REDESIGN.md §4.8). The name, phase disc
+ * and kind; the verdict once (badge and tonight's best moment); the action row, never more than
+ * four: Look at it · Telescope and Follow (aria-pressed) · More (Turn the globe toward it, View the
+ * Earth from {name}, Earthrise, Compare…; text mode keeps Compare alone, as a button). Then a
+ * satellite's passes, the position sentence (the one place the constellation is named), 'find
+ * it' in hands at arm's length (astro/sky-guide.js), the light time, the facts, More positions,
+ * What these numbers mean, the Display switches under "Show on the view", the eyepiece
+ * (ui/eyepiece.js) and The year ahead (ui/year-planner.js). Without a selection: the nine bodies
+ * and "Search for a star, comet or spacecraft".
  *
- * - title with colour dot, a canvas phase disc and the tonight verdict badge;
- * - the position sentence ("Mars is 34° above the south-east horizon, in Taurus.");
- * - 'find it' in the real sky, in hands at arm's length (astro/sky-guide.js): "Face south-east,
- *   3½ fists up from the horizon, 1 fist above and to the right of the Moon.";
- * - the light-time sentence ("The light you see from Mars left 12 min 31 s ago.");
- * - Moon extras: phase name and age;
- * - the eyepiece portrait (ui/eyepiece.js): the body as a small telescope shows it now;
- * - actions: Look from here · Center · Telescope (sky view at a field that frames it, followed) ·
- *   Follow (sky view: keep it centred as time runs) · View from <body> (globe view) ·
- *   Earthrise (the Moon: the lunar-orbit vantage point) · Path ±6 months · Show where it's visible;
- * - fact grid: altitude/azimuth (refracted), rise · transit · set, distance,
- *   magnitude, phase, elongation, angular size, constellation, RA/Dec J2000 and
- *   of date, sub-point.
- *
- * Without a selection it shows a chooser with the nine bodies.
- *
- * An extra object (core/selection.js `comet:halley`, `guest:sn1054`, `craft:voyager1`, …) gets the
- * same card from its ExtraState and its provider's ExtraCard (astro/extras.js; ctx.extras): the
- * kind line, the position sentence and 'find it', the provider's lines (light or radio time, the
- * history), Look/Center/Telescope/Follow, altitude, azimuth, rise · transit · set when known,
- * magnitude, constellation and J2000 RA/Dec, the provider's facts, its caveat and sources.
+ * An extra object (core/selection.js `comet:halley`, `star:32349`, …) gets the same card from its
+ * provider's ExtraCard (astro/extras.js; ctx.extras).
  *
  * @module ui/body-card
  */
 
 import { BODIES, BODY_INDEX, AU_KM, hostBodies } from '../astro/bodies.js';
-import { h, on, setText, setAttr } from './dom.js';
+import { h, on, setText, setAttr, menu, switchRow } from './dom.js';
 import { icon } from './icons.js';
 import { moonPhaseName, isUp, lunarEclipseState, solarEclipseState, shownMag } from './sky-now.js';
 import { createEyepiece } from './eyepiece.js';
@@ -36,6 +25,7 @@ import { findIt, guideRefs } from '../astro/sky-guide.js';
 import { isExtraId } from '../core/selection.js';
 import { extraSky } from '../astro/extras.js';
 import { createPassBox } from './sat-passes.js';
+import { LAYER_GROUPS } from './layers.js';
 
 const SYNODIC_DAYS = 29.530589;
 
@@ -48,6 +38,19 @@ const VERDICT = {
     'not-visible': ['Not visible tonight', 'muted'],
 };
 const KIND_LABEL = { star: 'Star', moon: 'Moon', planet: 'Planet' };
+/** "What these numbers mean": every term the card uses, as whole sentences (R6; no title= hints). */
+const MEANINGS = [
+    ['Altitude', 'How high it stands above the horizon, as seen: atmospheric refraction lifts it a little.'],
+    ['Azimuth', 'Its compass direction, measured from north through east.'],
+    ['Rise · Transit · Set', 'Times for your local day. Transit is when it stands highest, due south or due north.'],
+    ['Magnitude', 'Brightness: lower is brighter. The faintest stars the eye can see are about 6.'],
+    ['Angle from the Sun (elongation)', 'How far from the Sun it appears in the sky; close to the Sun it is lost in the glare.'],
+    ['Sky coordinates (J2000)', 'Right ascension and declination (RA/Dec), astrometric, on the mean equator and equinox of J2000.'],
+    ['Sky coordinates (of date)', 'RA/Dec, apparent, on the true equator and equinox of the date.'],
+    ['Overhead point', 'The place on the Earth where it is straight overhead (the sub-point).'],
+    ['Find it', 'Held at arm’s length, a fist covers about 10° of sky and a finger about 1°. Hands differ, so this is approximate.'],
+];
+const layerLabel = (key) => LAYER_GROUPS.flatMap((g) => g.items).find((it) => it[0] === key)?.[1] ?? key;
 const EQUIPMENT = { 'naked-eye': 'naked eye', binoculars: 'binoculars', telescope: 'telescope' };
 
 /**
@@ -66,79 +69,94 @@ export function mountBodyCard(root, ctx) {
             class: 'bchip bchip--pick', type: 'button', 'data-id': b.id, style: { '--c': `var(--body-${b.id})` },
         }, h('span', { class: 'dot', 'aria-hidden': 'true' }), h('span', { class: 'bchip__name' }, b.name),
         h('kbd', { class: 'kbd kbd--ghost', 'aria-hidden': 'true' }, b.key))));
+    const findBtn = h('button', { class: 'btn btn--soft', type: 'button' }, icon('search', { size: 16 }), 'Search for a star, comet or spacecraft');
     const empty = h('div', { class: 'card-empty' },
         h('div', { class: 'card-empty__icon', 'aria-hidden': 'true' }, icon('target', { size: 28 })),
-        h('h2', { class: 'card-empty__title' }, 'Pick a body'),
+        h('h3', { class: 'card-empty__title' }, 'Pick a body'),
         h('p', { class: 'card-empty__text for-fine' }, 'Click a planet in the sky, a row in Up now, or press 1–9.'),
         h('p', { class: 'card-empty__text for-coarse' }, 'Tap a world at the end of its beam, a row in Up now, or a name below.'),
-        pickGrid);
+        pickGrid, findBtn);
     offs.push(on(pickGrid, 'click', (e) => {
         const b = /** @type {HTMLElement} */ (e.target).closest('[data-id]');
         if (b) ui.act('select', b.dataset.id, { fly: true });
     }));
+    offs.push(on(findBtn, 'click', () => ui.openPalette()));
 
     // ---------------------------------------------------------------- card
     const disc = h('canvas', { class: 'phase-disc', width: 64, height: 64, role: 'img', 'aria-label': '' });
-    const nameEl = h('h2', { class: 'card__name' });
+    const nameEl = h('h3', { class: 'card__name' });
     const kindEl = h('p', { class: 'card__kind' });
-    const verdict = h('span', { class: 'badge card__verdict', hidden: true });
+    const verdictBadge = h('span', { class: 'badge' });
+    const verdictText = h('span');
+    const verdict = h('p', { class: 'card__verdict', hidden: true }, verdictBadge, ' ', verdictText);
     const sentence = h('p', { class: 'card__sentence' });
     const lightText = h('span');
     const lightAgo = h('span', { class: 'card__light-ago' });
-    const light = h('p', { class: 'card__light' }, h('span', { class: 'card__light-icon', 'aria-hidden': 'true' }, icon('sparkle', { size: 16 })),
-        h('span', null, lightText, ' ', lightAgo));
+    const light = h('p', { class: 'card__light' }, icon('sparkle', { size: 14 }), h('span', null, lightText, ' ', lightAgo));
     const moonLine = h('p', { class: 'card__moon', hidden: true });
     const findText = h('span');
-    const findLine = h('p', {
-        class: 'card__find', hidden: true,
-        title: 'Held at arm’s length, a fist covers about 10° of sky and a finger about 1°. Hands differ, so this is approximate.',
-    }, h('span', { class: 'card__find-icon', 'aria-hidden': 'true' }, icon('ruler', { size: 16 })),
-    h('span', null, h('span', { class: 'card__find-label' }, 'Find it: '), findText));
-    // The eyepiece portrait (ui/eyepiece.js): Jupiter's moons, Saturn's rings, the libration-true Moon.
+    const findLine = h('p', { class: 'card__find', hidden: true }, icon('ruler', { size: 14 }),
+        h('span', null, h('span', { class: 'card__find-label' }, 'Find it: '), findText));
     const eyepiece = createEyepiece();
-    // The 12-month planner (planets) and the Sun's solstice paths in words (ui/year-planner.js).
+    const scopeGroup = h('div', { class: 'group' }, h('h4', { class: 'group-title' }, 'Through a small telescope'), eyepiece.el);
     const planner = createYearPlanner(ctx);
-    // A satellite's next visible passes, with 'Watch this pass' (ui/sat-passes.js).
     const passBox = createPassBox(ctx);
 
-    const actLook = actionBtn('sky', 'Look from here', 'Stand at the observer and look toward it');
-    const actCenter = actionBtn('target', 'Center', 'Turn the view toward it');
-    const actScope = actionBtn('eye', 'Telescope', 'Zoom in on it at its true size and orientation, following it');
-    const actTrack = actionBtn('crosshair', 'Follow', 'Keep it centred as time runs (K)', true);
-    const actFrom = actionBtn('globe', 'View from it', 'See the Earth from its direction: the side where it is overhead');
-    const actRise = actionBtn('vantage', 'Earthrise', 'Watch the Earth rise over the Moon’s limb from lunar orbit (Esc returns)', true);
-    const actPath = actionBtn('path', 'Path ±6 months', 'Show its apparent path for six months either side', true);
-    const actFoot = actionBtn('footprint', 'Show where it’s visible', 'Highlight where on Earth it is above the horizon', true);
-    const actCompare = actionBtn('compare', 'Compare with…', 'See it from a second place too: its own pin and beams, side by side in Up now');
-    const actions = h('div', { class: 'card__actions' }, actLook, actCenter, actScope, actTrack, actFrom, actRise, actPath, actFoot, actCompare);
+    const actLook = h('button', { class: 'btn btn--soft btn--accent', type: 'button' }, 'Look at it');
+    const toggleBtn = (name, label, tip) => h('button', { class: 'btn btn--soft btn--toggle', type: 'button', 'aria-pressed': 'false', 'data-tip': tip },
+        icon(name, { size: 16 }), icon('check', { size: 16 }), label);
+    const actScope = toggleBtn('eye', 'Telescope', 'Its true size and orientation, followed');
+    const actTrack = toggleBtn('crosshair', 'Follow', 'Keep it centred as time runs (K)');
+    const actMore = h('button', { class: 'btn btn--soft card__more', type: 'button', 'aria-label': 'More actions', 'data-tip': 'More actions' }, icon('more', { size: 16 }));
+    // Text mode: no camera, so Compare alone, as a button.
+    const actCompare = h('button', { class: 'btn btn--soft', type: 'button' }, icon('compare', { size: 16 }), 'Compare from a second place…');
+    const actions = h('div', { class: 'card__actions' }, actLook, actScope, actTrack, actMore, actCompare);
+
+    const sel = () => store.get().selection;
+    const mode = () => {
+        const st = store.get();
+        return st.status?.webgl === false ? 'text' : st.view?.mode === 'sky' ? 'sky' : st.view?.system ? 'system' : 'globe';
+    };
+    /** Who the "Earth from" item names: "the Sun", "the Moon", "Mars". */
+    const fromName = () => { const id = sel(); return id === 'sun' || id === 'moon' ? ui.bodySubject(id, false) : ui.bodyName(id); };
+    const moreItems = [
+        { icon: 'target', name: 'Turn the globe toward it', detail: 'Bring the side where it is overhead to the front', hidden: () => mode() !== 'globe', run: () => ui.act('flyToBody', sel()) },
+        { icon: 'globe', name: () => `View the Earth from ${fromName()}`, detail: 'The side of the Earth that faces it',
+            hidden: () => mode() !== 'globe' || isExtraId(sel()) || ui.onMars?.(), run: () => ui.act('viewFromBody', sel()) },
+        { kind: 'check', icon: 'vantage', name: 'Earthrise', detail: 'The Earth rising over the Moon’s limb, from lunar orbit', checked: () => store.get().view?.vantage === 'moon',
+            hidden: () => mode() !== 'globe' || sel() !== 'moon' || ui.onMars?.(), run: () => ui.act('setVantage', store.get().view?.vantage === 'moon' ? 'none' : 'moon') },
+        { icon: 'compare', name: 'Compare from a second place…', detail: 'Its own pin and beams, side by side in Up now',
+            hidden: () => isExtraId(sel()) || ui.onMars?.(), run: () => ui.act('compareWith') },
+    ];
+    const moreMenu = menu({ button: actMore, label: 'More actions', items: moreItems, host: ui.root, placement: 'bottom' });
+
+    // The Display switches themselves (R1's documented exception).
+    const swPath = switchRow({ label: layerLabel('trails'), keys: ['T'], checked: false, onChange: (v) => ui.act('toggleLayer', 'trails', v) });
+    const swFoot = switchRow({ label: layerLabel('footprint'), keys: ['O'], checked: false, onChange: (v) => ui.act('toggleLayer', 'footprint', v) });
+    const swSun = switchRow({ label: layerLabel('sunPath'), checked: false, onChange: (v) => ui.act('toggleLayer', 'sunPath', v) });
+    const showGroup = h('div', { class: 'group' }, h('h4', { class: 'group-title' }, 'Show on the view'), swPath.el, swFoot.el, swSun.el);
 
     const facts = {};
-    const fact = (key, label, { wide = false, hint } = {}) => {
+    const fact = (key, label, wide = false) => {
         const dd = h('dd', { class: 'fact__value' });
-        const el = h('div', { class: `fact${wide ? ' fact--wide' : ''}` }, h('dt', { class: 'fact__label', title: hint || null }, label), dd);
+        const el = h('div', { class: `fact${wide ? ' fact--wide' : ''}` }, h('dt', { class: 'fact__label' }, label), dd);
         facts[key] = { el, dd };
         return el;
     };
     const grid = h('dl', { class: 'facts' },
-        fact('alt', 'Altitude', { hint: 'Apparent, including atmospheric refraction' }),
-        fact('az', 'Azimuth', { hint: 'Measured from north through east' }),
-        fact('rts', 'Rise · Transit · Set', { wide: true, hint: 'For the observer’s local day' }),
-        fact('dist', 'Distance', { wide: true }),
-        fact('mag', 'Magnitude', { hint: 'Lower is brighter' }),
-        fact('phase', 'Phase'),
-        fact('elong', 'Elongation', { hint: 'Angle from the Sun' }),
-        fact('size', 'Angular size'),
-        fact('con', 'Constellation', { wide: true }),
-        fact('j2000', 'RA / Dec (J2000)', { wide: true, hint: 'Astrometric, mean equator and equinox of J2000' }),
-        fact('date', 'RA / Dec (of date)', { wide: true, hint: 'Apparent, true equator and equinox of date' }),
-        fact('sub', 'Sub-point', { wide: true, hint: 'Where on Earth it is straight overhead' }));
-    const tonight = h('p', { class: 'card__tonight', hidden: true });
+        fact('alt', 'Altitude'), fact('az', 'Azimuth'), fact('rts', 'Rise · Transit · Set', true), fact('dist', 'Distance', true),
+        fact('mag', 'Magnitude'), fact('phase', 'Phase'), fact('size', 'Angular size'));
+    const morePos = h('details', { class: 'fold' }, h('summary', null, 'More positions'), h('dl', { class: 'facts' },
+        fact('elong', 'Angle from the Sun (elongation)', true), fact('j2000', 'Sky coordinates (J2000)', true),
+        fact('date', 'Sky coordinates (of date)', true), fact('sub', 'Overhead point', true)));
+    const meaning = h('details', { class: 'fold' }, h('summary', null, 'What these numbers mean'), h('dl', { class: 'meanings note' },
+        ...MEANINGS.flatMap(([k, v]) => [h('dt', null, k), h('dd', null, v)])));
     // Extra objects: the provider's sentences, extra facts, honesty note and sources.
-    const xLines = h('div', { class: 'card__xlines' });
+    const xLines = h('div', { class: 'card__xlines', hidden: true });
     const xFacts = h('dl', { class: 'facts facts--extra' });
     const xCaveat = h('p', { class: 'note card__caveat' });
     const xSources = h('p', { class: 'note card__sources' });
-    const xBox = h('div', { class: 'card__extra', hidden: true }, xLines, xFacts, xCaveat, xSources);
+    const xBox = h('div', { class: 'card__extra', hidden: true }, xFacts, xCaveat, xSources);
     const tableNote = h('p', { class: 'note' }, 'Tables show apparent, refracted values; the 3D view draws astrometric J2000 directions.');
 
     // Rise · Transit · Set as three labelled cells (a day's set can come before its rise).
@@ -155,34 +173,24 @@ export function mountBodyCard(root, ctx) {
     facts.rts.dd.append(h('span', { class: 'rts' }, rtsRise.el, rtsTransit.el, rtsSet.el), rtsMsg);
 
     const card = h('article', { class: 'card', 'aria-live': 'off' },
-        h('header', { class: 'card__head' },
-            h('div', { class: 'card__disc' }, disc),
-            h('div', { class: 'card__titles' }, nameEl, kindEl),
-            verdict),
-        sentence, findLine, light, moonLine, xBox, passBox.el, eyepiece.el, actions, tonight, planner.el, grid, tableNote);
+        h('header', { class: 'card__head' }, h('div', { class: 'card__disc' }, disc), h('div', { class: 'card__titles' }, nameEl, kindEl)),
+        verdict, actions, passBox.el, sentence, findLine, light, moonLine, xLines, grid, xBox, morePos, meaning,
+        showGroup, scopeGroup, planner.el, tableNote);
 
     root.append(empty, card);
 
-    function actionBtn(iconName, label, tip, toggle = false) {
-        return h('button', {
-            class: 'btn btn--soft card__action', type: 'button', title: tip, ...(toggle ? { 'aria-pressed': 'false' } : {}),
-        }, icon(iconName, { size: 16 }), h('span', null, label));
-    }
-
-    const sel = () => store.get().selection;
     offs.push(on(actLook, 'click', () => {
         const id = sel();
         if (!id) return;
-        if (store.get().view?.mode === 'sky') ui.act('select', id, { fly: true });
+        if (mode() === 'sky') ui.act('select', id, { fly: true });
         else { ui.act('select', id, { fly: false }); ui.act('setViewMode', 'sky'); }
     }));
-    offs.push(on(actCenter, 'click', () => { const id = sel(); if (id) ui.act('flyToBody', id); }));
-    offs.push(on(actFrom, 'click', () => { const id = sel(); if (id) ui.act('viewFromBody', id); }));
-    offs.push(on(actScope, 'click', () => { const id = sel(); if (id) ui.act('telescope', id); }));
-    offs.push(on(actRise, 'click', () => ui.act('setVantage', store.get().view?.vantage === 'moon' ? 'none' : 'moon')));
+    offs.push(on(actScope, 'click', () => {
+        const id = sel();
+        if (!id) return;
+        if (store.get().ui?.scope?.id === id) ui.act('leaveTelescope'); else ui.act('telescope', id);
+    }));
     offs.push(on(actTrack, 'click', () => ui.act('setTracking', store.get().view?.track === 'body' ? 'none' : 'body')));
-    offs.push(on(actPath, 'click', () => ui.act('toggleLayer', 'trails', !store.get().layers?.trails)));
-    offs.push(on(actFoot, 'click', () => ui.act('toggleLayer', 'footprint', !store.get().layers?.footprint)));
     offs.push(on(actCompare, 'click', () => ui.act('compareWith')));
 
     // ---------------------------------------------------------------- rendering
@@ -202,12 +210,12 @@ export function mountBodyCard(root, ctx) {
         drawExtraGlyph(disc, m?.color ?? '#cfe0ff', m?.kind ?? '');
         disc.setAttribute('aria-label', m?.kindLabel ?? '');
         xBox.hidden = false;
+        xLines.hidden = false;
         for (const k of ['phase', 'elong', 'size', 'date', 'sub']) facts[k].el.hidden = true;
         verdict.hidden = true;
-        tonight.hidden = true;
         moonLine.hidden = true;
         eyepiece.el.hidden = true;
-        actPath.hidden = true;
+        scopeGroup.hidden = true;
         discKey = '';
     }
 
@@ -225,6 +233,7 @@ export function mountBodyCard(root, ctx) {
         if (key !== shownId) {
             shownId = key;
             xBox.hidden = true;
+            xLines.hidden = true;
             passBox.update(null, null);
             eyepiece.el.hidden = false;
             for (const k of ['phase', 'elong', 'size', 'date', 'sub']) facts[k].el.hidden = false;
@@ -233,36 +242,35 @@ export function mountBodyCard(root, ctx) {
             const b = hostBodies(mars ? 'mars' : 'earth')[BODY_INDEX[id]];
             card.style.setProperty('--c', `var(--body-${id})`);
             nameEl.replaceChildren(h('span', { class: 'dot dot--lg', 'aria-hidden': 'true' }), b.name);
-            actFrom.lastChild.textContent = `View from ${b.id === 'sun' || b.id === 'moon' ? `the ${b.name}` : b.name}`;
-            actPath.hidden = b.kind !== 'planet';
             discKey = '';
         }
     }
 
+    /** The action row and the switches, for the view, the body and the host. */
     function syncLayerButtons() {
-        const ly = store.get().layers || {};
-        setAttr(actPath, 'aria-pressed', String(!!ly.trails));
-        setAttr(actFoot, 'aria-pressed', String(!!ly.footprint));
-        const sky = store.get().view?.mode === 'sky';
-        actLook.lastChild.textContent = sky ? 'Aim here' : 'Look from here';
-        // A globe view: in sky view 'Center' already turns to the body, and text mode has no globe.
-        const noGl = store.get().status?.webgl === false;
-        const extra = isExtraId(sel());
-        // On Mars (phase 1) the globe-side tools have no globe: footprint, compare, Earthrise, paths.
+        const st = store.get();
+        const ly = st.layers || {};
+        const id = sel();
+        const m = mode();
+        const text = m === 'text';
+        const extra = isExtraId(id);
+        // On Mars the globe-side tools have no globe: footprint, compare, Earthrise, paths.
         const mars = !!ui.onMars?.();
-        actFrom.hidden = sky || noGl || extra;
-        actScope.hidden = noGl;
-        actFoot.hidden = extra || mars;
-        actCompare.hidden = extra || mars;
-        if (mars) actPath.hidden = true;
-        const rise = store.get().view?.vantage === 'moon';
-        actRise.hidden = noGl || sel() !== 'moon' || mars;
-        setAttr(actRise, 'aria-pressed', String(rise));
-        actRise.lastChild.textContent = rise ? 'Back to the globe' : 'Earthrise';
-        actTrack.hidden = !sky || noGl;
-        setAttr(actTrack, 'aria-pressed', String(sky && store.get().view?.track === 'body'));
-        const o2 = store.get().observer2;
-        actCompare.lastChild.textContent = o2 ? `Compared with ${o2.name || 'a second place'}` : 'Compare with…';
+        actLook.hidden = actScope.hidden = actMore.hidden = text;
+        actTrack.hidden = m !== 'sky';
+        actCompare.hidden = !text || extra || mars;
+        // More holds nothing for an extra object in Sky view: no button then.
+        if (!text) actMore.hidden = !moreItems.some((it) => !it.hidden());
+        setAttr(actScope, 'aria-pressed', String(!!id && st.ui?.scope?.id === id));
+        setAttr(actTrack, 'aria-pressed', String(m === 'sky' && st.view?.track === 'body'));
+        const kind = id in BODY_INDEX ? BODIES[BODY_INDEX[id]].kind : '';
+        swPath.el.hidden = text || mars || (kind !== 'planet' && id !== 'moon');
+        swFoot.el.hidden = text || mars || extra || m === 'sky';
+        swSun.el.hidden = text || id !== 'sun';
+        showGroup.hidden = swPath.el.hidden && swFoot.el.hidden && swSun.el.hidden;
+        swPath.set(!!ly.trails);
+        swFoot.set(!!ly.footprint);
+        swSun.set(!!ly.sunPath);
     }
 
     /** An extra object's card (4 Hz): position, find it, the provider's ExtraCard. */
@@ -283,6 +291,7 @@ export function mountBodyCard(root, ctx) {
                         : `${name} is not in the sky at this date.`);
             findLine.hidden = true;
             light.hidden = true;
+            morePos.hidden = true;
             xLines.replaceChildren();
             xFacts.replaceChildren();
             setText(xCaveat, '');
@@ -292,9 +301,10 @@ export function mountBodyCard(root, ctx) {
             return;
         }
         grid.hidden = false;
+        morePos.hidden = false;
         const sky = extraSky(st);
         const con = sky.constellation?.name || '';
-        setText(kindEl, `${info?.kindLabel || m?.kindLabel || ''}${con ? ` · in ${con}` : ''}`);
+        setText(kindEl, info?.kindLabel || m?.kindLabel || '');
         const { alt, az } = ui.altAz(st);
         let sent = '';
         if (Number.isFinite(alt)) {
@@ -339,7 +349,6 @@ export function mountBodyCard(root, ctx) {
         if (Number.isFinite(st.distAU)) setText(facts.dist.dd, ui.fmt('fmtDistAU', st.distAU));
         facts.mag.el.hidden = !Number.isFinite(st.mag);
         if (Number.isFinite(st.mag)) setText(facts.mag.dd, `${ui.fmt('fmtMag', st.mag)}${st.approx ? ' (approx.)' : ''}`);
-        setText(facts.con.dd, con ? `${con}${sky.constellation?.symbol ? ` (${sky.constellation.symbol})` : ''}` : '—');
         setText(facts.j2000.dd, `${ui.fmt('fmtRA', sky.raH)} / ${ui.fmt('fmtDec', sky.decDeg)}`);
         syncLayerButtons();
     }
@@ -350,6 +359,7 @@ export function mountBodyCard(root, ctx) {
         if (id && isExtraId(id) && snap) { updateExtra(snap, id); return; }
         if (!id || !snap?.bodies) return;
         grid.hidden = false;
+        morePos.hidden = false;
         facts.rts.el.hidden = false;
         facts.dist.el.hidden = false;
         facts.mag.el.hidden = false;
@@ -362,7 +372,7 @@ export function mountBodyCard(root, ctx) {
         const con = b.constellation?.name || '';
         const subject = ui.bodySubject(id);
 
-        setText(kindEl, `${KIND_LABEL[info.kind] || ''}${con ? ` · in ${con}` : ''}`);
+        setText(kindEl, KIND_LABEL[info.kind] || '');
 
         // Position sentence.
         let sent = '';
@@ -404,13 +414,11 @@ export function mountBodyCard(root, ctx) {
             moonLine.hidden = false;
         } else moonLine.hidden = true;
 
-        // Verdict + tonight line.
         const rep = id === 'sun' ? null : ui.tonightFor(id);
         if (rep && VERDICT[rep.verdict]) {
             const [label, tone] = VERDICT[rep.verdict];
-            setText(verdict, label);
-            verdict.className = `badge card__verdict badge--${tone}`;
-            verdict.hidden = false;
+            setText(verdictBadge, label);
+            verdictBadge.className = `badge badge--${tone}`;
             const bits = [];
             if (Number.isFinite(rep.bestMs) && rep.verdict !== 'not-visible' && rep.verdict !== 'daytime') {
                 bits.push(`best around ${ui.fmtWhen(rep.bestMs, t)}${Number.isFinite(rep.bestAltDeg) ? `, ${Math.round(rep.bestAltDeg)}° high` : ''}${Number.isFinite(rep.bestAzDeg) ? ` in the ${ui.compassWords(rep.bestAzDeg)}` : ''}`);
@@ -419,9 +427,9 @@ export function mountBodyCard(root, ctx) {
                 bits.push(`visible ${ui.fmtClock(rep.windowStartMs)}–${ui.fmtClock(rep.windowEndMs)}`);
             }
             if (rep.equipment && EQUIPMENT[rep.equipment] && rep.verdict !== 'not-visible') bits.push(EQUIPMENT[rep.equipment]);
-            setText(tonight, bits.length ? `Tonight: ${bits.join(' · ')}` : '');
-            tonight.hidden = !bits.length;
-        } else { verdict.hidden = true; tonight.hidden = true; }
+            setText(verdictText, bits.join(' · '));
+            verdict.hidden = false;
+        } else verdict.hidden = true;
 
         // Facts.
         setText(facts.alt.dd, Number.isFinite(alt) ? ui.fmt('fmtAlt', alt) : '—');
@@ -446,7 +454,6 @@ export function mountBodyCard(root, ctx) {
         }
         const size = ui.fmt('fmtAngSize', b.angDiamArcsec);
         setText(facts.size.dd, size !== '—' ? size : angSize(b.angDiamArcsec));
-        setText(facts.con.dd, con ? `${con}${b.constellation?.symbol ? ` (${b.constellation.symbol})` : ''}` : '—');
         setText(facts.j2000.dd, Number.isFinite(b.raJ2000H) ? `${ui.fmt('fmtRA', b.raJ2000H)} / ${ui.fmt('fmtDec', b.decJ2000Deg)}` : '—');
         setText(facts.date.dd, Number.isFinite(b.raDateH) ? `${ui.fmt('fmtRA', b.raDateH)} / ${ui.fmt('fmtDec', b.decDateDeg)}` : '—');
         setText(facts.sub.dd, Number.isFinite(b.subLatDeg) ? ui.latLonText(b.subLatDeg, b.subLonDeg, 2, ', ') : '—');
@@ -475,6 +482,7 @@ export function mountBodyCard(root, ctx) {
         const marsSky = snap.host === 'mars';
         eyepiece.el.hidden = marsSky && (id === 'mars' || id === 'moon');
         if (!eyepiece.el.hidden) eyepiece.update(snap, id);
+        scopeGroup.hidden = eyepiece.el.hidden;
         if (marsSky) planner.el.hidden = true;
         else planner.update(snap, id);
         syncLayerButtons();
@@ -504,7 +512,7 @@ export function mountBodyCard(root, ctx) {
     offs.push(store.subscribe((st) => st.layers, syncLayerButtons));
     offs.push(store.subscribe((st) => st.view, syncLayerButtons));
     offs.push(store.subscribe((st) => st.status?.webgl, syncLayerButtons));
-    offs.push(store.subscribe((st) => st.observer2, syncLayerButtons));
+    offs.push(store.subscribe((st) => st.ui?.scope, syncLayerButtons));
     offs.push(store.subscribe((st) => st.host?.id, () => { showFor(store.get().selection); syncLayerButtons(); if (ui.snap) update(ui.snap); }));
     offs.push(ui.on('almanac', () => { if (ui.snap && sel()) update(ui.snap); }));
     offs.push(ui.on('display', () => { if (ui.snap && sel()) update(ui.snap); }));
@@ -512,15 +520,15 @@ export function mountBodyCard(root, ctx) {
 
     return {
         update,
-        destroy() { offs.forEach((off) => off()); eyepiece.destroy(); planner.destroy(); passBox.destroy(); root.textContent = ''; },
+        destroy() { offs.forEach((off) => off()); moreMenu.destroy(); eyepiece.destroy(); planner.destroy(); passBox.destroy(); root.textContent = ''; },
     };
 }
 
-/** "31′ 36″" for discs ≥ 1′, else "17.3″". */
 function lowerFirst(t) {
     return t ? t.charAt(0).toLowerCase() + t.slice(1) : t;
 }
 
+/** "31′ 36″" for discs ≥ 1′, else "17.3″". */
 function angSize(as) {
     if (!Number.isFinite(as) || as <= 0) return '—';
     if (as >= 60) {

@@ -62,7 +62,10 @@ function afterFrame() {
  * except while `holdUploads(p)` holds them: from the start of rc.compile() until it settles and
  * one frame is out. An upload issued while the GPU process links the boot shaders waits for that
  * work on the main thread (≈ 360 ms measured on a desktop GPU); afterwards it takes a few ms. A
- * held map is still ready and bound: a frame drawn meanwhile uploads it itself.
+ * held map is still ready and bound: a frame drawn meanwhile uploads it itself. A tier switch
+ * holds with `{bind: false}` instead: a map decoded meanwhile becomes ready (onReady) only once it
+ * is on the GPU, so the first frame of the new tier never uploads one. The held uploads then go
+ * out one per task, each after a frame; holdUploads' promise resolves when they are all out.
  *
  * Previews: get(key) of a day or night map returns its 512 px preview (PREVIEW) while the map
  * loads, once the preview is in (state 'preview'); onReady(key) still fires for the map itself.
@@ -76,8 +79,8 @@ function afterFrame() {
  *   progress:()=>{loaded:number,total:number},
  *   isReady:(key:string)=>boolean,
  *   state:(key:string)=>'idle'|'loading'|'preview'|'ready'|'failed',
- *   holdUploads:(until:Promise<unknown>)=>void,
- *   setAnisotropy:(n?:number)=>void,
+ *   holdUploads:(until:Promise<unknown>, opts?:{bind?:boolean})=>Promise<void>,
+ *   setAnisotropy:(n?:number, keys?:string[])=>void,
  *   restore:()=>void,
  *   dispose:()=>void }}
  */
@@ -94,21 +97,37 @@ export function createTextureStore(renderer, { onProgress, prefetched = null } =
     const entries = new Map();
     const placeholders = new Map();
     let disposed = false;
-    /** While uploads are held (holdUploads): the textures decoded meanwhile, uploaded afterwards. */
+    /** While uploads are held (holdUploads): the textures decoded or changed meanwhile, uploaded afterwards. */
     let gate = null;
+    /** The gate's `bind` option: false keeps a map decoded meanwhile unready until its upload. */
+    let gateBinds = true;
+    /** @type {{tex:THREE.Texture, done:(()=>void)|null}[]} */
     const held = [];
+    /** @type {Promise<void>|null} */
+    let flushing = null;
 
-    function upload(tex) {
-        if (gate) { held.push(tex); return; }
+    function initTexture(tex) {
         try { renderer?.initTexture?.(tex); } catch { /* upload lazily on first use instead */ }
     }
 
+    /** Uploads now, or after the gate; `done` runs once the texture is on the GPU. */
+    function upload(tex, done = null) {
+        if (gate) { held.push({ tex, done }); return; }
+        initTexture(tex);
+        done?.();
+    }
+
     /** One held upload per task, each after a frame, so two large maps never share a long task. */
-    async function flushHeld() {
-        while (held.length && !gate && !disposed) {
-            upload(held.shift());
-            if (held.length) await afterFrame();
-        }
+    function flushHeld() {
+        flushing ??= (async () => {
+            while (held.length && !gate && !disposed) {
+                const h = held.shift();
+                initTexture(h.tex);
+                h.done?.();
+                if (held.length) await afterFrame();
+            }
+        })().finally(() => { flushing = null; });
+        return flushing;
     }
 
     function entryOf(key) {
@@ -221,7 +240,10 @@ export function createTextureStore(renderer, { onProgress, prefetched = null } =
                 const decoded = await decode(blob);
                 if (disposed) { decoded.image.close?.(); return; }
                 const tex = makeTexture(key, decoded);
-                upload(tex);
+                // A tier switch's hold: bound once on the GPU, so no frame uploads it.
+                if (gate && !gateBinds) await new Promise((resolve) => upload(tex, resolve));
+                else upload(tex);
+                if (disposed) return;
                 e.tex = tex;
                 e.state = 'ready';
                 emit({ key, done: true });
@@ -273,30 +295,41 @@ export function createTextureStore(renderer, { onProgress, prefetched = null } =
             return st !== 'ready' && entries.get(previewKeyFor(key))?.state === 'ready' ? 'preview' : st;
         },
         /**
-         * Holds eager uploads until `until` settles and one more frame is out (rc.compile() at boot).
+         * Holds eager uploads until `until` settles and one more frame is out (rc.compile() at boot,
+         * a tier switch's compile). `bind: false` (tier switches): a map decoded meanwhile stays
+         * unready until its upload. Resolves once the held uploads are out, or at once when a newer
+         * hold takes over (that one uploads them).
          * @param {Promise<unknown>} until
+         * @param {{bind?:boolean}} [opts]
+         * @returns {Promise<void>}
          */
-        holdUploads(until) {
+        holdUploads(until, { bind = true } = {}) {
             const g = Promise.resolve(until).then(() => {}, () => {}).then(afterFrame).then(() => {
-                if (gate !== g) return;
+                if (gate !== g) return undefined;
                 gate = null;
-                flushHeld();
+                return flushHeld();
             });
             gate = g;
+            gateBinds = bind !== false;
+            return g;
         },
         /**
-         * Sets the anisotropic filtering of every mipmapped map (TierCfg.anisotropy; absent = 8x),
-         * clamped to the GPU's limit. A change re-uploads the loaded maps: tier changes only.
+         * Sets the anisotropic filtering of the mipmapped maps (TierCfg.anisotropy; absent = 8x),
+         * clamped to the GPU's limit: every loaded map, or only `keys` (the new tier's). A change
+         * re-uploads the map (three sets sampler state on upload), through the hold if one is on:
+         * tier changes only. A map left out keeps its filtering until a tier that uses it sets it.
          * @param {number} [n]
+         * @param {string[]} [keys]
          */
-        setAnisotropy(n) {
+        setAnisotropy(n, keys) {
             const next = Math.max(1, Math.min(maxAnisotropy, Number.isFinite(n) && n > 0 ? n : 8));
-            if (next === anisotropy) return;
             anisotropy = next;
-            for (const e of entries.values()) {
-                if (!e.tex || !e.tex.generateMipmaps) continue;
+            const list = Array.isArray(keys) ? keys.map((k) => entries.get(k)) : entries.values();
+            for (const e of list) {
+                if (!e?.tex || !e.tex.generateMipmaps || e.tex.anisotropy === next) continue;
                 e.tex.anisotropy = next;
                 e.tex.needsUpdate = true;
+                upload(e.tex);
             }
         },
         /** After a WebGL context restore: re-upload every loaded texture from its retained image. */
@@ -307,6 +340,7 @@ export function createTextureStore(renderer, { onProgress, prefetched = null } =
         /** Frees GPU and decoded-image memory. The store is unusable afterwards. */
         dispose() {
             disposed = true;
+            for (const h of held) h.done?.();
             held.length = 0;
             for (const e of entries.values()) {
                 if (e.tex) {

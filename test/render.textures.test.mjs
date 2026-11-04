@@ -112,3 +112,87 @@ test('store: a day or night map shows its preview while it loads, or after it fa
         globalThis.fetch = had;
     }
 }));
+
+test('store: a tier switch hold ({bind: false}) binds a map only once it is on the GPU', () => withFakeDecoder(async () => {
+    const had = globalThis.fetch;
+    globalThis.fetch = fakeFetch([]);
+    try {
+        const uploads = [];
+        const store = createTextureStore(fakeRenderer(uploads), {});
+        const order = [];
+        store.onReady('day2k', () => order.push(`ready:day2k:${uploads.includes('day2k')}`));
+        let release;
+        const flushed = store.holdUploads(new Promise((r) => { release = r; }), { bind: false });
+        const loaded = store.load(['day2k', 'night2k']);
+        for (let i = 0; i < 5; i++) await tick(2);
+        assert.equal(store.isReady('day2k'), false, 'decoded but held: not bound, so no frame uploads it');
+        assert.equal(store.state('day2k'), 'loading');
+        assert.deepEqual(uploads, []);
+        let out = false;
+        flushed.then(() => { out = true; });
+        release();
+        await loaded;
+        await flushed;
+        assert.equal(out, true);
+        assert.deepEqual(uploads, ['day2k', 'night2k'], 'one per task');
+        assert.deepEqual(order, ['ready:day2k:true'], 'ready after its upload');
+        assert.equal(store.isReady('night2k'), true);
+        await store.load(['moon']);
+        assert.equal(uploads.at(-1), 'moon', 'eager again');
+    } finally {
+        globalThis.fetch = had;
+    }
+}));
+
+test('store: a newer hold takes the held uploads over; the older promise resolves at once', () => withFakeDecoder(async () => {
+    const had = globalThis.fetch;
+    globalThis.fetch = fakeFetch([]);
+    try {
+        const uploads = [];
+        const store = createTextureStore(fakeRenderer(uploads), {});
+        let r1, r2;
+        const a = store.holdUploads(new Promise((r) => { r1 = r; }), { bind: false });
+        const loaded = store.load(['day2k']);
+        for (let i = 0; i < 5; i++) await tick(2);
+        const b = store.holdUploads(new Promise((r) => { r2 = r; }), { bind: false });
+        r1();
+        await a;
+        assert.deepEqual(uploads, [], 'still held by the newer hold');
+        r2();
+        await b;
+        await loaded;
+        assert.deepEqual(uploads, ['day2k']);
+        assert.equal(store.isReady('day2k'), true);
+    } finally {
+        globalThis.fetch = had;
+    }
+}));
+
+test('store: setAnisotropy re-uploads only the listed keys, through the hold', () => withFakeDecoder(async () => {
+    const had = globalThis.fetch;
+    globalThis.fetch = fakeFetch([]);
+    try {
+        const uploads = [];
+        const store = createTextureStore(fakeRenderer(uploads), {});
+        await store.load(['day2k', 'night2k']);
+        assert.deepEqual(uploads, ['day2k', 'night2k']);
+        assert.equal(store.get('day2k').anisotropy, 8);
+        let release;
+        const flushed = store.holdUploads(new Promise((r) => { release = r; }), { bind: false });
+        store.setAnisotropy(16, ['day2k', 'moon']);
+        assert.equal(store.get('day2k').anisotropy, 16);
+        assert.equal(store.get('night2k').anisotropy, 8, 'not in the tier: left alone');
+        assert.equal(uploads.length, 2, 'held while the shaders compile');
+        release();
+        await flushed;
+        assert.deepEqual(uploads, ['day2k', 'night2k', 'day2k'], 're-uploaded before the commit');
+        store.setAnisotropy(16, ['day2k']);
+        assert.equal(uploads.length, 3, 'unchanged: no upload');
+        store.setAnisotropy(8);
+        assert.deepEqual(uploads.slice(3), ['day2k'], 'every map without keys; at once without a hold');
+        await store.load(['moon']);
+        assert.equal(store.get('moon').anisotropy, 8, 'new maps take the current value');
+    } finally {
+        globalThis.fetch = had;
+    }
+}));

@@ -14,7 +14,7 @@ const NEAR = Date.parse('2026-10-11T08:00:00Z');
 
 test('worker.js is importable on the main thread without side effects', () => {
     assert.equal(typeof W.runOp, 'function');
-    assert.deepEqual(Object.keys(W.OPS).sort(), ['almanac', 'eclipsePath', 'events', 'moonOrbit', 'orbits', 'path', 'ping', 'riseSet', 'satPasses', 'sunFigures', 'sunSeries', 'tonight', 'twilight', 'visibilityYear']);
+    assert.deepEqual(Object.keys(W.OPS).sort(), ['almanac', 'altSeries', 'eclipsePath', 'events', 'moonOrbit', 'orbits', 'path', 'ping', 'riseSet', 'satPasses', 'sunFigures', 'sunSeries', 'tonight', 'twilight', 'visibilityYear']);
     assert.equal(typeof globalThis.onmessage, 'undefined');
 });
 
@@ -36,6 +36,8 @@ test('runOp: every op returns the documented shape', () => {
     assert.ok(path.dirS instanceof Float32Array);
     const ss = W.runOp('sunSeries', { observer: HANOI, fromMs: NEAR, toMs: NEAR + 864e5, n: 96 });
     assert.ok(ss instanceof Float32Array && ss.length === 96);
+    const ms = W.runOp('altSeries', { bodyId: 'moon', observer: HANOI, fromMs: NEAR, toMs: NEAR + 864e5, n: 48, refraction: 'normal' });
+    assert.ok(ms instanceof Float32Array && ms.length === 48);
     const alm = W.runOp('almanac', { observer: HANOI, dayStartMs: DAY_START, nearMs: NEAR, n: 48 });
     assert.deepEqual(Object.keys(alm), ['riseSet', 'twilight', 'tonight', 'sunSeries']);
     assert.equal(alm.sunSeries.values.length, 48);
@@ -57,7 +59,7 @@ test('handleMessage replies {id, ok, result} with transferables, or {id, ok: fal
     assert.equal(replies[0].msg.id, 7);
     assert.equal(replies[0].msg.ok, true);
     assert.deepEqual(replies[0].transfer, [replies[0].msg.result.buffer]);
-    assert.equal(replies[1].transfer.length, 3, 'tMs, dirS and eclLonDeg buffers');
+    assert.equal(replies[1].transfer.length, 6, 'tMs, dirS, eclLonDeg and the three ghosts buffers');
     assert.deepEqual(replies[2].msg, { id: 9, ok: false, error: { name: 'TypeError', message: 'observer.latDeg and observer.lonDeg must be finite numbers' } });
     assert.equal(replies[3].msg.ok, false);
     assert.equal(replies[3].msg.error.name, 'RangeError');
@@ -65,6 +67,12 @@ test('handleMessage replies {id, ok, result} with transferables, or {id, ok: fal
     assert.deepEqual(W.serializeError('astronomy-engine threw a string'), { name: 'Error', message: 'astronomy-engine threw a string' });
     assert.deepEqual(W.transferablesOf([1, 2]), []);
     assert.deepEqual(W.transferablesOf({ sunSeries: { values: new Float32Array(2) } }).length, 1);
+    // almanac → tonight → series → alt / sunAlt: three levels down, both buffers go.
+    const deep = { tonight: { series: { alt: new Float32Array(2), sunAlt: new Float32Array(2) }, reports: [{ x: new Float32Array(1) }] } };
+    assert.deepEqual(W.transferablesOf(deep), [deep.tonight.series.alt.buffer, deep.tonight.series.sunAlt.buffer]);
+    const tn = [];
+    W.handleMessage({ id: 11, op: 'tonight', args: { observer: HANOI, nearMs: NEAR } }, (msg, transfer) => tn.push(transfer));
+    assert.equal(tn[0].length, 2, 'the tonight series is transferred');
 });
 
 // ---------------------------------------------------------------------------

@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 // Zero-dependency dev server for the static site (`npm start`).
 //
-//   node scripts/serve.mjs [--port=8080] [--host=127.0.0.1] [--subpath=/planet-location-marker/] [--quiet]
+//   node scripts/serve.mjs [--port=8080] [--host=127.0.0.1] [--subpath=/planet-location-marker/] [--root=dir] [--quiet]
 //
 // Serves the repo root with correct MIME types (incl. .mjs, .svg, .webmanifest) and
 // `Cache-Control: no-store`, so edits show up on reload. If the port is taken it tries the
 // next ten. `--subpath` mounts the site under a prefix exactly like GitHub Pages does — any
 // absolute URL in the app then 404s, which catches SPEC R4 violations early.
-// Use --host=0.0.0.0 to test from a phone on the same network.
+// Use --host=0.0.0.0 to test from a phone on the same network. `--root=_site` serves a staged copy
+// instead of the repo (node scripts/stage-site.mjs _site: the deploy's stamped sw.js and manifest).
 
 import path from 'node:path';
 import os from 'node:os';
@@ -23,7 +24,7 @@ const PORT = Number(args.port ?? process.env.PORT ?? 8080);
 const HOST = args.host ?? '127.0.0.1';
 const quiet = args.quiet === 'true';
 
-const app = createStaticServer(ROOT, {
+const app = createStaticServer(args.root && args.root !== 'true' ? path.resolve(args.root) : ROOT, {
     prefix: args.subpath,
     log: quiet ? null : (line) => {
         const [status] = line.split(' ');

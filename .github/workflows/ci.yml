@@ -67,6 +67,24 @@ jobs:
           node scripts/smoke.mjs --offline --expect-ready --assert --tz=UTC --reduced-motion
           --out=smoke/utc-reduced-motion.png --json=smoke/utc-reduced-motion.json
 
+      # The offline promise, on the site exactly as pages.yml deploys it: the staged sw.js (its
+      # content-hashed version) precaches from sw-manifest.json, then the page reloads offline and
+      # must boot from the worker alone, under the Pages sub-path.
+      - name: Smoke — offline reload through the service worker (staged site, sub-path)
+        if: ${{ !cancelled() }}
+        run: |
+          node scripts/stage-site.mjs _site
+          node scripts/smoke.mjs --root=_site --subpath=/planet-location-marker/ --offline --assert --offline-reload --url='/#intro=0' \
+            --out=smoke/offline-reload.png --json=smoke/offline-reload.json
+
+      # Lose and restore the WebGL context at Medium (composer, MSAA, bloom): drawing must resume
+      # with no WebGL warnings.
+      - name: Smoke — context loss and restore, Medium
+        if: ${{ !cancelled() }}
+        run: >
+          node scripts/smoke.mjs --offline --assert --context-loss --url='/#q=medium&intro=0'
+          --out=smoke/context-loss.png --json=smoke/context-loss.json
+
       - name: Upload smoke screenshots
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4

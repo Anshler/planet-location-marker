@@ -49,12 +49,12 @@
 //                            deploy's manifest; on the repo it tests the dev worker
 //   --context-loss           WEBGL_lose_context: lose and restore the context once the app is ready;
 //                            drawing must resume, the overlay leave and no WebGL warning appear
-//   --perf                   count-based performance gates (scripts/lib/perf-gates.mjs), once the app is
+//   --perf[=low|medium|high] count-based performance gates (scripts/lib/perf-gates.mjs), once the app is
 //                            ready: shader programs and draw calls within the tier's budget (globe and
 //                            sky view), no frame in 3 s on the paused globe, none in a paused sky view
 //                            (a twinkling tier: ≤ 32/s), no getBoundingClientRect inside a frame
-//                            callback during a 3 s time-lapse. Open scripts/lib/perf-gates.mjs perfScene
-//                            (the scene the budgets were measured on), e.g. --url='/#…&q=high'
+//                            callback during a 3 s time-lapse. With a tier and no --url it opens the
+//                            scene the budgets were measured on (perfScene) at that tier
 //
 // Exit codes: 0 pass · 1 errors or failed assertions · 2 infrastructure problem.
 
@@ -94,6 +94,7 @@ const ASSERT = flag('assert');
 const OFFLINE_RELOAD = flag('offline-reload');
 const CONTEXT_LOSS = flag('context-loss');
 const PERF = flag('perf');
+const PERF_TIER = PERF && /^(low|medium|high|max)$/.test(args.perf) ? args.perf : null;
 const EXPECT_READY = ASSERT || flag('expect-ready') || OFFLINE_RELOAD || CONTEXT_LOSS || PERF;
 /** --perf: the gates' shim, probe and judge (they import js/core/quality.js, so only when asked). */
 const perfGates = PERF ? await import('./lib/perf-gates.mjs') : null;
@@ -102,7 +103,7 @@ const FORMAT = /^jpe?g$/i.test(args.format ?? '') ? 'jpeg' : 'png';
 /** `url` with `flag` (e.g. 'sw=1') in its hash. */
 const withHashFlag = (url, f) => (url.includes('#') ? `${url}${/[#&]$/.test(url) ? '' : '&'}${f}` : `${url}#${f}`);
 const OPT = {
-    url: OFFLINE_RELOAD ? withHashFlag(args.url ?? '/', 'sw=1') : args.url ?? '/',
+    url: OFFLINE_RELOAD ? withHashFlag(args.url ?? '/', 'sw=1') : args.url ?? (PERF_TIER ? perfGates.perfScene(PERF_TIER) : '/'),
     wait: Number(args.wait ?? (EXPECT_READY ? 15000 : 8000)),
     width: Number(args.width ?? (MOBILE ? 390 : 1440)),
     height: Number(args.height ?? (MOBILE ? 844 : 900)),

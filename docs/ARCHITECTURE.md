@@ -55,6 +55,7 @@ the UI and the render stack with literal `import('./…')` calls, so:
 |---|---|---|
 | Entry | `index.html` | Import map (`three`, `three/addons/`). `modulepreload` for the whole boot graph (generated; §3 'Early downloads'). Preload for `data/cities.json`. Inline loader. Classic scripts for error capture (`window.__pcLoader`) and feature detection (`window.__pcEnv`), which also preloads three.js, the render stack and the Earth previews when the 3D view can run. |
 | | `js/main.js` | Boot sequence, service wiring, store-to-module subscriptions, click picking, tier switching, the intro runner, the guided-tour loader (`startTour`), `window.__app`. |
+| | `sw.js` | The service worker (classic script; §9 'The service worker'). In the repo it is the dev worker (network first); the deploy stamps a content-hashed `VERSION` into its staged copy, which installs each version atomically from `sw-manifest.json`. |
 | App glue | `js/app/actions.js` | `createActions(deps)`: the only API the UI calls besides `store` and `clock`. Also `normalizeObserver`, `eventFraming` (how a jump frames its event), `eclipseFocusExpired`, `eclipsePlayRange` and `lookSpanning`. |
 | | `js/app/mars-host.js` | `createMarsHost(deps)`: standing on Mars (loaded by `main.js bindHost` the first time `store.host` is Mars). `enter()` hands the loop a Mars snapshot source (`loop.setHost`), broadcasts `setHost('mars')`, hides the Earth-only groups (`R.earthGroups`), registers the `sat:` provider and adds `render/mars-sky.js` once a renderer exists; `leave()` undoes it. No three.js. |
 | | `js/app/eclipse-chase.js` | `ribbonPlan` (which eclipse the globe's path ribbon shows), `chaseLegs`/`chaseTarget` and `createEclipseChase` (the shadow chase behind `actions.chaseEclipse`). No three.js. |
@@ -68,6 +69,7 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/app/intro.js` | `playIntro(opts)`: the first-visit camera flight, pin drop and beam launch (after a pre-roll that holds the opening pose while the loader fades). |
 | | `js/app/tours.js` | Guided tours, loaded on demand: the pure step builders (`tonightSteps`, `yearSteps`, `eclipseSteps`, `ambientSteps`) and `createTourRunner` (captions, pause/resume/next, state capture and restore). No three.js. |
 | | `js/app/fallback.js` | Text-mode banner (with Retry after repeated context losses), context-lost overlay, fatal-error hand-off. |
+| | `js/app/sw-client.js` | `createSwClient(deps)`, imported at idle time: registers `sw.js` (`swMode`: https hosts, or `#sw=1`; `#sw=0` unregisters), the "A new version is ready · Reload" toast, the first visit's warm-up, and the state behind `__app.sw`. No three.js. |
 | | `js/app/session.js` | `sessionStorage`, guarded (`sessionLoad`, `sessionSave`): this tab's context-loss record outlives a reload, not the tab. Saved preferences stay in `core/prefs.js`. |
 | | `js/app/extras-setup.js` | `registerExtras(extras, {fetchJson, onDso})`: registers the guest-star and comet providers at boot, the spacecraft once `data/craft.json` arrives and the deep-sky objects once `data/dso.json` does; `registerStars(extras, {getCatalog, fetchJson})`: the catalogue-star provider once `sky.json` is decoded, following the selection and fetching `data/starinfo.json` on the first star (§4, Extra objects). |
 | Core | `js/core/store.js` | Immutable slices, selector subscriptions, `DEFAULT_STATE`. |
@@ -214,8 +216,10 @@ the UI and the render stack with literal `import('./…')` calls, so:
    holds its opening pose for the loader's 0.7 s fade (pre-roll), and the horizon disc grows out
    with the pin's ripple. A `tour=` link starts its tour here (also in text mode).
 10. **Idle work.** Deferred textures (cloud and ocean masks, Moon, Milky Way), one almanac
-    and events push from the worker, and service-worker registration (https only). The new
-    worker is handed the URLs this visit already loaded, so the next visit works offline.
+    and events push from the worker, and the service worker (`app/sw-client.js`: on https hosts,
+    or with `#sw=1` in the hash the page opened with). The worker is handed the URLs this visit
+    already loaded, so the next visit works offline with this visit's textures too (§9 'The
+    service worker').
 
 Feature detection happens in `index.html` before any module loads. With no WebGL2 or no import
 maps, the body gets `no-webgl`, the canvas is hidden, `fallback.js` shows the banner, and the panels
@@ -636,10 +640,12 @@ an **extra object** with a namespaced id (`core/selection.js`): `<kind>:<key>`, 
   `schedule`, which first checks that CI passed on that commit) writes a fresh copy into the
   **staged** site only — nothing is committed daily. The script validates every set (checksums,
   catalogue number, SGP4 accepts it, < 30 days old) and keeps the previous one for any that fails;
-  a CelesTrak outage leaves the committed file (the step is `continue-on-error`). `sw.js` serves
-  this one file **network-first** (3 s, then the cache) instead of cache-first per VERSION, so a
-  returning visitor gets the day's elements without a VERSION bump; it is precached too. No test
-  depends on the date, so CI stays green however old the committed file gets.
+  a CelesTrak outage leaves the committed file (the step is `continue-on-error`). It is outside
+  the service worker's version (`sw-manifest.json`'s `fresh`, `stage-site.mjs FRESH_FILES`): `sw.js`
+  serves it **network-first** (3 s, then the cache) instead of cache-first, so a returning visitor
+  gets the day's elements while the daily redeploy, which changes nothing else, is no new version;
+  it is precached too. No test depends on the date, so CI stays green however old the committed
+  file gets.
 - **Propagation** (`astro/sgp4.js`, pure): near-Earth SGP4 (Vallado et al. 2006, WGS-72), TEME →
   Earth-fixed by GMST (`temeToEf`); deep-space orbits (≥ 225 min) are rejected. Verified against
   Vallado's published vectors (`test/fixtures/sgp4-vallado.json`: 158 rows, within 1 mm).
@@ -974,7 +980,8 @@ change.
   meanwhile; so Max is ready as fast as High and sharpens in place. A GPU that cannot take a knob
   loses that knob only (`tierConfig`): under 8192 px it keeps the 4k Earth maps, under 4096 the
   4k-only features, and postfx clamps MSAA to the context. The service worker never precaches them;
-  they are cached cache-first on first use, so Max works offline after one visit.
+  they are cached on first use (checked against the version's hashes), so Max works offline after
+  one visit, and an update carries them over while their bytes are unchanged.
 - **Switching.** Settings and `?q=` pin a tier. Auto lets the governor step down, never up. If the
   frame-time EMA stays above 1.3 × the budget for 2 s, it lowers the DPR by 0.25 and then drops a
   tier, with a 5 s cooldown. Under `navigator.webdriver` the governor is never sampled.
@@ -1105,7 +1112,7 @@ change.
 | A render module throws at creation | That feature is skipped and the rest renders. |
 | A render module throws per frame | Three strikes, then it is hidden, with one toast. |
 | The renderer throws | Text mode (`context-failed`). |
-| `webglcontextlost` | Rendering pauses (the panels keep updating) and a non-blocking "Graphics were reset — restoring…" overlay appears. While the context is lost, `rc` disposes everything in the scenes, its stand-in quad and the whole post chain: every GL call is then a silent no-op, so only three's per-context bookkeeping goes, and a later `dispose()` never deletes the lost context's objects on the new one (no 'object does not belong to this context' warnings). On restore, `rc` builds a new chain for the current tier, `textures.restore()` fetches the maps whose decoded copy was closed again (one at a time, HTTP or service-worker cache) and uploads them, and nothing draws until that promise settles; then rendering resumes. |
+| `webglcontextlost` | Rendering pauses (the panels keep updating) and a non-blocking "Graphics were reset — restoring…" overlay appears. While the context is lost, `rc` disposes everything in the scenes, its stand-in quad and the whole post chain: every GL call is then a silent no-op, so only three's per-context bookkeeping goes, and a later `dispose()` never deletes the lost context's objects on the new one (no 'object does not belong to this context' warnings). On restore, `rc` builds a new chain for the current tier, `textures.restore()` fetches the maps whose decoded copy was closed again (one at a time, HTTP or service-worker cache) and uploads them, and nothing draws until that promise settles; then rendering resumes. The context reports itself lost before `webglcontextlost` is dispatched, so `rc.render`, `capture` and `compile` also check `gl.isContextLost()`: no frame draws in between (one that did made three throw, left the session on the direct path and logged a blit feedback loop on every frame after the restore). |
 | A second context loss within 60 s | As above, and the session is held one tier lower (`governor.pin` and the staged tier switch) with the toast "Reduced graphics detail to keep things stable" (`core/context-loss.js`). The record is in `sessionStorage` (`app/session.js`), so a tab that reloads instead of restoring (iOS) boots at that tier. Saved preferences are untouched; choosing a tier in Settings overrides it. At low there is nothing lower: it restores. |
 | A third context loss within 60 s | Text mode with the "graphics kept resetting" banner; its Retry reloads with the window cleared, held at low. Until then a reload of the tab boots in text mode too, and the feature detection skips the 3D preloads. |
 | A closed map cannot be fetched again on restore (or not within 15 s) | Its 512 px preview's image takes its place (day and night maps; others a 1 × 1 pixel of the placeholder colour), so no frame uploads a closed image; the key counts as failed, and the "Some imagery couldn't load." toast shows. |
@@ -1118,6 +1125,51 @@ change.
 | Geolocation is denied | Toast, and the location palette opens. |
 | Bad hash values | They are dropped, with the toast "Some link settings were invalid." An out-of-range `t` is clamped, paused, and gets the 1000–3000 toast. |
 | Slow network | After 8 s the loader offers "continue with low detail". After 40 s without code, it says so. |
+| Offline, after one visit to the deployed site | Everything boots from the service worker's cache: the shell, every module (the astro worker's too), the boot data and the textures this visit's tier used. A tier never used before shows its placeholders and the imagery toast. |
+| A new version deployed while the page is open | Nothing changes under the page: the old version keeps serving it from its own cache. The new one installs in the background and the toast "A new version is ready · Reload" offers to switch. |
+| A deploy in the middle of an install | A file whose bytes are not the manifest's fails the install; the browser tries again on a later visit, keeping what was already verified. |
+| The new version fails to boot | The loader's error panel's Reload first activates a version waiting in the worker, so a fixed deploy can replace a broken one. |
+
+### The service worker
+
+`sw.js` has two modes, chosen when the site is staged.
+
+- **Staged** (the deploy). `scripts/stage-site.mjs` writes `_site/sw-manifest.json`:
+  `{version, sha256, precache, fresh, files: [[path, sha256]]}`. `files` lists every shipped file
+  except `sw.js` and the fresh files; `sha256` is taken over those lines plus `sw.js`'s source;
+  `version` is `js/version.js`'s VERSION, `+` and its first 16 hex digits. The script stamps that
+  version and `STAGED = true` into `_site/sw.js`, so any changed byte is a new worker for the
+  browser's update check, and an unchanged redeploy (the daily `data/tle.json` refresh) is not.
+  - `precache` is `index.html` and its local links (stylesheet, manifest, icons), the page's
+    whole module graph as `scripts/check-size.mjs` budgets it (`modgraph.mjs pageModules`: static
+    and dynamic imports and the astro worker's graph, ≈ 3.8 MB raw, most of which the first visit
+    has already loaded), `PRECACHE_DATA` (sky, cities, spacecraft, deep-sky objects, star details,
+    satellites) and the two Earth previews: 184 files, ≈ 4.5 MB. Textures and `data/stars8.json`
+    stay lazy.
+  - **Install** reads the manifest (its version must be the worker's), copies every file an
+    older version's cache holds with the same hash, then fetches the rest (`cache: 'no-cache'`,
+    so Pages answers 304 for what the HTTP cache has; once more with `reload` on a mismatch) and
+    checks each hash. A missing file or another deploy's bytes fail the install. There is no
+    `skipWaiting`: an update waits, and the worker posts `{type: 'update-ready'}` to open pages.
+  - **Activate** deletes every other version's cache, then claims the pages.
+  - **Fetch.** Every file in the manifest is cache-first within the version, `index.html`, `js/`
+    and `css/` included, so a page never mixes versions. A miss (a texture) is fetched and kept
+    only when its bytes match the manifest; `fresh` files are network-first (3 s, then the cache).
+    Other origins (the geocoders), `sw.js` and `sw-manifest.json` are left to the browser.
+- **Dev** (the repo as served by `npm start`, or a branch deploy). `VERSION` is `js/version.js`'s
+  (a test checks) and there is no manifest: everything in scope is network-first and cached as it
+  arrives, so edits show on reload while online and the last copy works offline.
+
+The page side is `app/sw-client.js`. It registers the worker on secure origins when the site comes
+over https from a real host, or with `#sw=1` (localhost, the smoke test); `#sw=0` unregisters it and
+deletes the `pc2-` caches. After the worker is active it posts `{type: 'precache', urls}` with the
+URLs this visit loaded (the first visit ran before the worker controlled it); the reply
+`{type: 'precached'}` sets `__app.sw.precached`. On `update-ready`, or a version found waiting at
+start, the sticky toast "A new version is ready · Reload" posts `{type: 'skip-waiting'}` to it and
+reloads on `controllerchange` (or after 4 s). A version activated from another tab reloads a hidden
+tab at once and offers the reload in a visible one; the state is in the hash, so a reload keeps the
+view. `__app.sw` is `{version, controlled, precached, staged, waiting, …}`, and the diagnostics
+report carries the version.
 
 ---
 
@@ -1165,7 +1217,8 @@ are applied live through `onExternalChange`. It writes nothing while a tour play
 
 ## 11. Debugging, testing, tooling
 
-- **`window.__app`** has `ready`, `version` and `tier`; `snapshot()` for the full-detail snapshot;
+- **`window.__app`** has `ready`, `version`, `tier` and `sw` (the service worker: version, controlled,
+  precached); `snapshot()` for the full-detail snapshot;
   `stats()` returning `{fps, frames, drawCalls, geometries, textures, beamsVisible, labelsVisible,
   phase, tier, disabled}`; and `store`, `clock` and `actions`. `__app.internals` exposes the render
   objects for console spelunking. It is not a stable API.
@@ -1195,6 +1248,15 @@ are applied live through `onExternalChange`. It writes nothing while a tour play
   (those requests get HTTP 404 and are not judged), `--at=1000,3000` (timed screenshots
   `<out>-<ms>.png`; the run then skips its wait for the intro to finish) and `--throttle=150,9000`
   (a slow network: round-trip ms and kbit/s, through CDP `Network.emulateNetworkConditions`).
+- **`--offline-reload`** (smoke) opens the page with `#sw=1`, waits for the worker to control it
+  and reply `precached` (on a staged `--root`: the manifest's version, every precache file cached),
+  then goes offline (CDP `Network.emulateNetworkConditions` and the server stops) and reloads. The
+  reload must get ready, receive the astro worker's events, show no imagery toast and be served by
+  the worker alone, and the acceptance checks then run offline. CI runs it on the staged site under
+  the Pages sub-path (`node scripts/stage-site.mjs _site`, then `--root=_site`;
+  `node scripts/serve.mjs --root=_site` serves the same copy). **`--context-loss`** loses and
+  restores the WebGL context (`WEBGL_lose_context`) once the app is ready: the overlay must show
+  and leave, five frames be drawn and no WebGL warning appear (CI: at Medium).
 - **`npm run size`** enforces the per-tier transfer budgets (low 3.76 MB, medium 4.52 MB, high
   8 MB raw, re-baselined from the spec's estimate to the measured unminified module graph; low and
   medium stay under 6 MB, high under 8 MB) and the 32 MB deploy limit. Max (≈ 20.8 MB) is reported but has no budget;

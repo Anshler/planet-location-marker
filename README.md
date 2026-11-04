@@ -65,6 +65,10 @@ browser, and nothing needs the network.
   - Click the globe (with Undo), type coordinates in decimal or DMS, or use your location.
   - Online place search is an optional extra.
 - **Deep links.** Every view is a shareable URL: place, time, speed, selection, layers and camera.
+- **Works offline after the first visit.** The deployed site installs as a whole: every module and
+  the star, city and event data are cached in the background on the first visit, so it opens with
+  no network the next time. A new version downloads only what changed, waits, and says "A new
+  version is ready · Reload" instead of mixing old and new files.
 - **Fast everywhere.**
   - Three automatic quality tiers, with a governor that steps down when frames get slow, plus a
     manual Max (Settings → Quality) with 8K Earth maps and every effect at full detail, for fast GPUs.
@@ -121,6 +125,11 @@ Maintenance scripts:
   `data/raw/`.
 - `npm run preload` regenerates the boot module preload lists in `index.html` after a module is
   added or its static imports change (`npm test` says when they are stale).
+- `node scripts/stage-site.mjs _site` stages the site as the deploy does: it writes
+  `sw-manifest.json` and stamps the service worker's content-hashed version into `_site/sw.js`.
+  `node scripts/serve.mjs --root=_site --subpath=/planet-location-marker/` serves that copy, and
+  `node scripts/smoke.mjs --root=_site --subpath=/planet-location-marker/ --offline-reload` checks
+  that it reloads offline.
 
 Useful URL options (in the hash):
 
@@ -128,6 +137,9 @@ Useful URL options (in the hash):
 - `#debug=1` shows the performance overlay.
 - `#q=low` forces a quality tier (`low`, `medium`, `high` or `max`).
 - `#t=2027-02-06T16:00:00Z&p=0` freezes time at a moment.
+- `#sw=1` registers the service worker on `localhost` too (it registers by itself only on https
+  hosts); `#sw=0` unregisters it and deletes its caches. Without a staged manifest, the worker
+  fetches everything from the network first, so edits show up on reload.
 
 ## Accuracy
 
@@ -164,8 +176,10 @@ The site is plain static files.
 - **GitHub Pages, recommended.** In the repository, open **Settings → Pages → Build and deployment
   → Source: GitHub Actions**. Every push to `main` then runs CI, which covers the tests, the size
   budgets and the headless smoke tests. If CI passes, `.github/workflows/pages.yml` stages the site
-  files and deploys them.
+  files, stamps the service worker's version and deploys them.
 - **Branch deploy.** "Deploy from a branch: `main` / root" also works. `.nojekyll` is included.
+  The service worker then has no manifest: it still works offline, but fetches everything from
+  the network first instead of installing each version as a whole.
 - **Any static host** works too. All URLs are relative, so a sub-path is fine.
 
 ## Credits and licences

@@ -8,7 +8,9 @@
 // Raw bytes on disk are budgeted (1 MB = 10⁶ B); gzip "wire" sizes are informational
 // (GitHub Pages compresses JS/CSS/JSON/SVG/HTML).
 //
-//   low ≤ 4.41 MB · medium ≤ 5.19 MB · high ≤ 8 MB · staged site ≤ 32 MB
+//   low ≤ 4.55 MB · medium ≤ 5.34 MB · high ≤ 8 MB · staged site ≤ 32 MB
+//   (Phase 6 historic-skies, Halley and the spacecraft add ≈ 140 KB of shared JS: the extras
+//   selection model, Julian calendar, guest stars, comets and craft, raised by that plus 5 %.)
 //   SPEC §E.6 set 3.0 / 3.6 / 4.8 MB from an estimate of ≈ 1.35 MB of JavaScript. The shipped,
 //   unminified-by-design module graph (no build step) measures ≈ 2.0 MB raw incl. CSS
 //   (≈ 0.6 MB gzipped; three.js + astronomy-engine alone are 1.17 MB raw), so the budgets were
@@ -58,7 +60,7 @@ const MB = 1e6, KB = 1e3;
 // Phase 5 (solar-system zoom): the orrery (render/orrery.js + GLSL, astro/orrery.js, the rig's system mode, overlay
 // pass, labels and UI; ≈ 101 KB of JS).
 // Phase 5 batch 2 re-baseline (find it in the real sky, quality, views, solar-system zoom, all four merged): measured low 4.30 / medium 5.06 MB, budgets + ~2.5 %.
-export const TIER_BUDGETS = { low: 4410 * KB, medium: 5190 * KB, high: 8 * MB };
+export const TIER_BUDGETS = { low: 4550 * KB, medium: 5340 * KB, high: 8 * MB };
 /** Tiers that are measured and printed but have no budget (max: a deliberate, manual choice). */
 export const INFO_TIERS = ['max'];
 // The max tier's 8192 px maps (≈ 15.2 MB) ship with the site; 32 MB keeps headroom (Pages allows 1 GB).
@@ -67,6 +69,8 @@ export const FILE_BUDGETS = {
     'data/milkyway.png': 250 * KB,
     'data/sky.json': 200 * KB,
     'data/cities.json': 200 * KB,
+    // The spacecraft ephemerides (scripts/build-craft.mjs; fetched after boot, precached by sw.js).
+    'data/craft.json': 48 * KB,
     'assets/og.jpg': 250 * KB,
     'assets/icons/favicon.svg': 12 * KB,
     'assets/icons/icon-192.png': 60 * KB,

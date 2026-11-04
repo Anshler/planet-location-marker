@@ -24,6 +24,16 @@ the page, in the module worker (`js/astro/worker.js`) and in the Node test suite
 - **Range.** The clock is clamped to 1000-01-01 … 3000-01-01. A "Reduced accuracy" badge appears
   outside 1800–2200 (see §8).
 - **Julian date.** `jdUT = ms / 86 400 000 + 2 440 587.5`, kept in the snapshot for display.
+- **Calendars** (`core/tz.js`). Instants are UTC and `t=` is a proleptic Gregorian ISO instant at
+  every epoch. Displayed calendar dates before Friday 15 October 1582 are **Julian**, as the records
+  of the time give them (4 July 1054, 29 February 1504): `toCalendar` goes Gregorian → Julian Day
+  Number → Julian (the standard integer algorithms; JDN 2299160 = 4 Oct 1582 Julian, 2299161 =
+  15 Oct 1582 Gregorian, 2451545 = 1 Jan 2000), weekdays are shared (Thursday 4 → Friday 15
+  October), the Julian calendar's leap day comes every fourth year (29 Feb 1500 exists), and typed
+  dates on or before 4 Oct 1582 are read as Julian (the ten days between never existed). One
+  worldwide cut-over is a simplification: Britain and its colonies switched in 1752, Russia in 1918,
+  so a British date between 1582 and 1752 in the records is still Julian. The clock's floor,
+  1 January 1000 proleptic Gregorian, shows as 27 December 999 (Julian).
 
 ---
 
@@ -305,6 +315,77 @@ libration = AE.Libration(t)                               // 'full' only: it fee
 - **Constellations.** The 88 figures come from d3-celestial. The Milky Way is a 2048×1024 raster
   of its outline levels, sampled through `sceneDirToRaDecUv`.
 - **Planet glyphs.** Their size and brightness follow the live magnitude from `AE.Illumination`.
+
+### 5a. Guest stars: the supernovae of 1006–1604 (`js/astro/guest-stars.js`)
+
+- **Where.** Each is a fixed J2000 direction, its remnant's position: SN 1006 (Lupus,
+  15h02m48s −41°55′), SN 1054 (the Crab, 5h34m32s +22°01′, 1.1° from ζ Tauri, "near" which the
+  Song records place it), SN 1181 (Pa 30, 0h53m11s +67°30′; the identification is recent, Ritter
+  et al. 2021, earlier 3C 58), Tycho's (0h25m20s +64°08′) and Kepler's (17h30m42s −21°29′). The
+  sky is static in EQJ, so precession comes from the Earth's orientation like every star. Alt/az,
+  rise, transit and set use Astronomy Engine's user-defined star (`DefineStar` on `Body.Star8`).
+- **When and how bright.** Dated as recorded (Julian before 1582): first sighting, peak and last
+  sighting. Before the first recorded local day the star is not drawn. From the first sighting to
+  the peak it brightens by 1.2 mag (linear); after the peak a template fades it: type Ia (1006,
+  1181, 1572, 1604) 0.1 mag/day for 20 days, 0.03 mag/day to day 50, then a tail of 0.0155 mag/day
+  (0.025 for SN 1181, seen for 185 days); SN 1054 2.0 mag over its 23 days of daylight visibility,
+  then 0.0159 mag/day, so each crosses mag 5–6 near its last recorded sighting (tested). Peaks:
+  −7.5, −6, 0, −4, −2.5, each uncertain by about ±1 mag (±0.5 for 1572 and 1604).
+- **Drawn** as stars by the star field's own shader (render/extras.js), so they twinkle, redden
+  and fade into twilight like the catalogue; a −6 star fades from view only in full daylight.
+  **Illustrative:** the light curve between the records. The Chaco Canyon pictograph "may record"
+  SN 1054; that reading is debated.
+
+### 5b. Comets: Halley at five apparitions (`js/astro/comets.js`)
+
+- **Elements.** Heliocentric osculating elements {q, e, i, Ω, ω, T} in the ecliptic and equinox of
+  **J2000**, one set per apparition, from JPL Horizons: DASTCOM records 90000018 (1066, solution
+  SAO/1066), 90000023 (1456), 90000029 (1910), and osculating elements at perihelion integrated from
+  record 90000030 for 1986 and 2061. The old solutions go back to Yeomans & Kiang (1981), whose
+  tables are referred to **B1950**; Horizons serves them in J2000. For elements quoted in B1950,
+  `elementsB1950ToJ2000` rotates the orbit's P and Q vectors: B1950 ecliptic (ε = 23.4457889°) →
+  B1950 equator → FK5 J2000 equator (the FK4 → FK5 matrix of Standish 1982) → J2000 ecliptic
+  (ε = 84381.448″). Marsden's B1950 elements of 1986 (Ω = 58.1440°) come out within 0.001° of
+  Horizons' J2000 set (Ω = 58.8599°): without the rotation the node would be 0.7° out.
+- **Motion.** Two-body Kepler propagation around the Sun (k = 0.01720209895): Newton on Kepler's
+  equation from Danby's starter (elliptic), Newton on e sinh H − H = M (hyperbolic), Barker's
+  closed form (parabolic). Time is TT (Astronomy Engine's ΔT); T is TDB (≈ TT). Each set is used
+  within ±548 days of its perihelion, nowhere else (the comet is not drawn).
+- **Where it is seen.** Geocentric = comet(t − τ) − Earth(t) (the snapshot's heliocentric Earth),
+  the light time τ iterated three times, then the observer's place on the globe taken off
+  (`topocentricScene`) and mapped through S: astrometric J2000, like the bodies.
+- **Accuracy.** Against Horizons' own ephemeris from the same records: under 0.3′ at all five
+  apparitions (11 dates tested), distances within 2e-4 AU. The two-body model ignores planetary
+  perturbations over the ±1.5 years and non-gravitational forces. The *absolute* accuracy for 1066
+  and 1456 is about a degree (perihelion time and ΔT), shown as 'approximate'.
+- **Brightness.** JPL's total magnitude law m = M1 + 5 log Δ + k1 log r with M1 = 5.5, k1 = 8
+  (Horizons' T-mag: 5.06 on 1986-03-15, tested). Drawn while brighter than mag 9.
+- **Tails** (illustrative, physically guided). The ion tail runs straight along the heliocentric
+  radius vector (anti-Sun) at the light-time epoch; the dust tail curves in the orbit plane:
+  comet + L·(s·r̂ − 0.55·s²·v̂), lagging behind the motion. Lengths grow as r⁻² inside 2.5 AU,
+  0.04/r² AU (ion, ≤ 0.15 AU) and 0.025/r² AU (dust, ≤ 0.08 AU), widths 0.0006–0.0036 AU and
+  0.001–0.01 AU. The 3D samples are projected from the observer, so foreshortening is real (the
+  Earth passed through the tail on 19 May 1910). Brightness and length are a model, not a prediction.
+
+### 5c. Spacecraft (`js/astro/craft.js`, `data/craft.json`)
+
+- **Data.** JPL Horizons heliocentric geometric ICRF state vectors (TDB) for Voyager 1 (-31),
+  Voyager 2 (-32), New Horizons (-98) and JWST (-170), sampled every 4 days (1 day for JWST) and
+  every 2 hours within ±6 days of each flyby, then thinned to adaptive knots: an interval is split
+  at its worst sample until cubic Hermite interpolation of the knots' positions and velocities is
+  within max(1.2e-5 AU, 2e-5 × the distance from the Earth) of every sample (≈ 4″ far out, about
+  1,800 km for JWST). 589 knots (365 of them JWST's halo orbit), 32 KB (`scripts/build-craft.mjs`).
+- **Accuracy.** Against Horizons' astrometric RA/Dec: Voyager 1 0.0001°, Voyager 2 at Neptune
+  0.0007°, New Horizons at Pluto 0.001°, JWST 0.01° (tested). Past the data (2100 for the Voyagers,
+  2050 for New Horizons) they coast in straight lines, labelled 'projected'; JWST is not shown after
+  2031-11 (its halo orbit is unknown) or anything before launch.
+- **Radio time.** One way, for a message sent now: τ with |craft(t + τ) − Earth(t)| = cτ, iterated.
+  Voyager 1 passes one light-day in mid-November 2026 (crossing 24 h on 17–18 November). The beam
+  points to where its signal comes from now (light-time corrected).
+- **DSN.** 'In view of' Goldstone (35.43° N, 116.89° W), Madrid (40.43° N, 4.25° W) or Canberra
+  (35.40° S, 148.98° E) when the craft is at least 6° above that complex's horizon (topocentric,
+  geometric). A visibility test, not the DSN schedule: Voyager 2, at −60° declination, is only ever
+  in Canberra's view.
 
 ---
 
@@ -863,6 +944,10 @@ and AE's contacts to 0.1 s; the shapes are illustrative.
 | Sub-points, footprint | geocentric | The footprint is the hemisphere where the body's geocentric direction is above the horizon. Parallax and refraction are not applied. It is a guide, not a contact time. |
 | World map twilight lines | ≲ 1° of solar altitude | Geocentric and unrefracted, from the sphere's normal (§6c); the panels use the topocentric, refracted Sun. |
 | Parallax distance (two places) | ≲ 1 % | Small-angle triangulation over the pins' chord (§6c). |
+| Halley's Comet | < 0.3′ against Horizons (same orbits); ≈ 1° absolute in 1066 and 1456 | Two-body propagation within ±1.5 years of each perihelion (§5b). Tails illustrative. |
+| Guest stars | position exact (remnant); brightness ±1 mag | Light curves are templates between the recorded dates (§5a). |
+| Spacecraft | ≤ 0.001° (0.01° JWST) | Hermite knots against Horizons; straight-line 'projected' past 2100 / 2050 (§5c). |
+| Calendar | exact | Julian before 15 Oct 1582 everywhere; the local adoption date is not modelled (§1). |
 
 **Validation.** The tests in `test/astro.*.test.mjs` check these values from SPEC §D.5:
 
@@ -890,6 +975,17 @@ and AE's contacts to 0.1 s; the shapes are illustrative.
 
 ## 9. Sources
 
+- **JPL Horizons.** NASA/JPL-Caltech, <https://ssd.jpl.nasa.gov/horizons/>: spacecraft state
+  vectors (`data/craft.json`), Halley's per-apparition elements and the reference ephemerides in
+  `test/astro.comets.test.mjs` and `test/astro.craft.test.mjs` (retrieved 2026-11-04).
+- **Halley's orbits.** D. K. Yeomans & T. Kiang (1981), "The long-term motion of comet Halley",
+  *MNRAS* 197, 633. FK4 → FK5: E. M. Standish (1982), *A&A* 115, 20.
+- **Historical supernovae.** F. R. Stephenson & D. A. Green (2002), *Historical Supernovae and their
+  Remnants*, OUP; P. F. Winkler et al. (2003), *ApJ* 585, 324 (SN 1006); G. W. Collins et al.
+  (1999), *PASP* 111, 871 (SN 1054); A. Ritter et al. (2021), *ApJL* 918, L33 (Pa 30, SN 1181);
+  O. Krause et al. (2008), *Nature* 456, 617 (Tycho's).
+- **Calendars.** E. G. Richards, "Calendars", in *Explanatory Supplement to the Astronomical
+  Almanac* (3rd ed., 2013), ch. 15 (Julian Day Number algorithms).
 - **Astronomy Engine.** Don Cross, <https://github.com/cosinekitty/astronomy>, MIT. This covers the
   API reference and the model notes on VSOP87, the lunar theory, IAU 2000B nutation, IAU 2006
   precession and Espenak–Meeus ΔT.

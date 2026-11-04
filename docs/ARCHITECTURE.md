@@ -65,15 +65,18 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/app/intro.js` | `playIntro(opts)`: the first-visit camera flight, pin drop and beam launch (after a pre-roll that holds the opening pose while the loader fades). |
 | | `js/app/tours.js` | Guided tours, loaded on demand: the pure step builders (`tonightSteps`, `yearSteps`, `eclipseSteps`, `ambientSteps`) and `createTourRunner` (captions, pause/resume/next, state capture and restore). No three.js. |
 | | `js/app/fallback.js` | Text-mode banner, context-lost overlay, fatal-error hand-off. |
+| | `js/app/extras-setup.js` | `registerExtras(extras, {fetchJson})`: registers the guest-star and comet providers at boot and the spacecraft once `data/craft.json` arrives (§4, Extra objects). |
 | Core | `js/core/store.js` | Immutable slices, selector subscriptions, `DEFAULT_STATE`. |
 | | `js/core/bus.js` | Fixed event types: `readout`, `toast`, `announce`, `almanac`, `events`, `intro`. |
 | | `js/core/clock.js` | Simulated time: Live mode, the signed rate ladder, steps, log-time tweens, range loops, clamping to 1000–3000. |
 | | `js/core/url-state.js` | `parseHash`, `serializeHash` and `bindUrl`, which keeps the URL hash in sync (throttled `replaceState`; held while `suspended()`, i.e. during a tour). |
 | | `js/core/tour-catalog.js` | `TOURS` (id, title, blurb, running time), `TOUR_IDS`, `isTourId`: what the Events tab lists and `#tour=` accepts. |
+| | `js/core/selection.js` | What `store.selection` may hold: a BodyId or a namespaced extra id (`EXTRA_KINDS`, `isExtraId`, `isSelectionId`, `parseSelectionId`, `normalizeSelectionId`). |
+| | `js/core/moments.js` | `MOMENTS` (famous skies as deep links: caption, sources, hash) and `FAMOUS_COMETS` (Halley's five apparitions), listed by the Events tab. |
 | | `js/core/quality.js` | `TIERS`, `detectTier`, `tierConfig`, `autoStartTier`, and `createGovernor` (downgrade only, display-cadence budget). |
 | | `js/core/sampling.js` | Renderer policies, pure: `halton`, `createSupersampler` (idle supersampling: which frames accumulate, their weight and jitter, when to park), `viewMotionPx`, `streakShutter` and `strobeDim` (fast-time streaks). |
 | | `js/core/prefs.js` | `localStorage` under `pc2.`, falling back to memory. |
-| | `js/core/tz.js`, `js/core/format.js` | Time zones (canonicalised, DST-safe) and every displayed number and string. |
+| | `js/core/tz.js`, `js/core/format.js` | Time zones (canonicalised, DST-safe) and every displayed number and string. Calendar dates before 15 Oct 1582 are shown Julian (`toCalendar`, `fromCalendar`, `parseCalendarInput`, JDN helpers); instants and `t=` stay Gregorian UTC. |
 | | `js/core/types.js` | JSDoc typedefs: the shared contract. |
 | Geo | `js/geo/cities.js` | About 1,600 GeoNames cities. Fuzzy search, `nearest`, `byTz`. |
 | | `js/geo/geocode.js` | Online providers with timeouts, a circuit breaker and an LRU cache. |
@@ -95,6 +98,11 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/astro/totality.js` | Totality from the ground: Baily's beads (lunar limb profile), corona epoch parameters, contact-time display adaptation, the horizon ring's azimuthal shape. Illustrative in detail (ASTRONOMY.md). |
 | | `js/astro/orrery.js` | The solar-system zoom, pure: the crossfade (`systemBlend`, 80 → 150 R), the camera's pose (`systemPose`: pivot sliding from the Earth to the Sun, ecliptic direction, `liftLat`), the orbit polylines (`orbitPolylines`, the worker's `orbits`), the retrograde figure's sight lines (`sightAt`, `sightLines`, `sightStepMs`) and the edge arrows' place (`edgeExit`). |
 | | `js/astro/vantage.js` | Vantage points (loaded by the rig on first use): the L1 pose (235 R sunward, 4° toward ecliptic north, north up, 0.7°), the Earthrise orbit (`planLunarOrbit`: 150 km up, in the plane through the Earth direction nearest the ecliptic, rising over the sunlit limb; `lunarOrbitPose`: the orbiter's place at any time, looking along its track), `vantageFov`, `vantageNear`, `moonInFront`. |
+| | `js/astro/extras.js` | The extra-object registry (`createExtras`): providers per kind, `fill(snap)` → `snap.extras`, `state`, `meta`, `card`, `onChange`; `topocentricScene`, `extraAltAz`, `extraSky` (§4, Extra objects). |
+| | `js/astro/guest-stars.js` | The five naked-eye supernovae of 1006–1604 (`GUEST_STARS`, remnant positions, records), `guestMagnitude` (light-curve templates), `guestRiseSet` (AE `DefineStar` on `Star8`), the 'guest' provider. |
+| | `js/astro/comets.js` | Halley's Comet at its 1066, 1456, 1910, 1986 and 2061 apparitions: Kepler solvers (elliptic, hyperbolic, Barker), `elementsB1950ToJ2000`, light-time geocentric positions, the magnitude law, tail geometry (`fillTails`), the 'comet' provider. |
+| | `js/astro/craft.js` | Voyager 1 and 2, New Horizons, JWST from `data/craft.json`: `decodeCraft`, Hermite `craftStateAt` (straight-line 'projected' past the data), `radioTimeS`, `dsnInView`, the 'craft' provider. |
+| | `js/astro/sky-caption.js` | `skyCaption(snap)`: 'The sky you were born under' ('Jupiter was in Leo…; the Moon was 62% lit…'). |
 | | `js/astro/sky-guide.js` | Finding it in the real sky: hands at arm's length (`handSpan`: a fist ≈ 10°, a finger ≈ 1°), `findIt` ('Face south-east, 4 fists up from the horizon, 1 fist left of the Moon.'), `guideRefs` (the Moon, bright planets and, by night, 24 bright J2000 stars as signposts), the ruler's numbers (`separationDeg`, `fmtAngle`, `rulerText`) and `edgeHit` (where an off-screen pointer meets the free area's edge). |
 | Data | `js/data/catalog.js` | Decodes `data/sky.json` into GPU-ready typed arrays in the scene frame. |
 | Render | `js/render/context.js` | Renderer, scene, camera, tier switching, `invalidate`/`onInvalidate`, context loss, stats; `setAccumulation` (long exposures), `capture` (a one-task render at another size), video sessions (`beginCapture`, `captureCamera`/`releaseCamera`, `endCapture`), `render(ss)` (a jittered supersampling sample; a shown overlay takes the same jitter) and `setOverlay` (a second scene drawn over the first with its own camera and depth: the orrery). |
@@ -113,8 +121,12 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/render/ruler.js`, `edge-chips.js` | The angle ruler (a great-circle arc between two tapped ends, fixed buffers, its reading as a `'ruler'` label); the off-screen pointers (a DOM chip at the free area's edge per findable body outside the field, a tap turns there). |
 | | `js/render/trails.js`, `flare.js`, `debug.js` | Retrograde paths, procedural lens flare (six-spike starburst, hexagonal aperture ghosts; no textures), `?debug=1` overlay. |
 | | `js/render/eclipse-path.js` | The path of a central solar eclipse on the globe: ribbon, centre line, 30-min ticks, the live umbra marker; reveal modes for the chase. |
+| | `js/render/extras.js` | Extra objects at infinity: guest stars as points of the star field's own material (`sky.starMaterial`), hollow-diamond markers (spacecraft), the selected extra's ring; `pickCandidates()`. |
+| | `js/render/comets.js` | A comet's coma (true angular size, 5 px floor) and its ion and dust tails, billboards at infinity through the tail samples. |
+| | `js/render/craft.js` | The spacecraft's radio beams: a small instanced set on the beams' shaders under `#define RADIO` (fine dashes, faint), from the pin, with the `spacecraft` layer. |
 | Camera | `js/camera/rig.js`, `picking.js` | Orbit and sky-view camera, Earth-lock, fly-to tweens, `follow()` (the shadow chase), sidereal tracking, `setVantage()` (View from L1, Earthrise), the flat map (`setMode('map')`, `mapK`, `mapFrame`), the system zoom past 150 R (`setSystem`, `system`, `systemBlend`, `onSystemChange`), `frameSpan()` (the Earth–Moon framing), `setAiming()`/`setSkyAim()` (the phone steers the look); analytic globe, map (`pickMap`), glyph and map-point (`pickPoint`) picking. |
 | | `js/camera/aim.js` | 'Point at the sky' (loaded on first use, no three.js): device orientation → the rear camera's direction and the screen's up in ENU (`deviceVectors`), a level look (`lookOf`), an adaptive vector low-pass (`aimFilterStep`), and `createAim` (sensor events, iOS compass learning, deadband, Align offset, idle and hidden stops, wake lock). |
+| Data | `data/craft.json` | Spacecraft knots (TDB JD, 1e-6 AU, 1e-8 AU/day), built by `scripts/build-craft.mjs` from JPL Horizons; fetched after boot, precached by `sw.js`. |
 | UI | `js/ui/index.js` and its modules | Shell, top bar, time bar, Sky Now, body card (with `eyepiece.js`: the 2D-canvas eyepiece portrait, also in text mode), events (with the guided tours), Eclipse Companion, the tour's lower third (`tour-bar.js`), layers, settings, about, help, toasts, shortcuts, announcer; the share menu, `postcard.js` (postcard and Save-image dialog, the typographic band), `video.js` (the time-lapse video dialog: presets, frame size, progress and preview, the burned-in date stamp) and `expose.js` (Expose presets and the exposure's status pill); the vantage menu and its caption pill (`view-switch.js`: vantage points, the world map, the solar system).; the ruler and 'Point at the sky' buttons with their status pills (`sky-tools.js`); the body card's 'Find it' line.; the world map entry and the second place (`Compare with…` in the place search) |
 
 ---
@@ -441,6 +453,65 @@ critical CSS read them.
 - **Snapshots.** `snap` is frame detail. It is recomputed when sim time moves by 0.5 s or more, the
   observer changes or the clock jumps. `snapFull` is full detail at 4 Hz. Both are preallocated
   once and rewritten in place. `__app.snapshot()` returns `snapFull`.
+
+### Extra objects: selections beyond the nine bodies
+
+The nine `BODIES` stay a contract (their order, `Snapshot.bodies`, the beam instances, the 1–9 keys,
+`BODY_IDS`). Everything else that can be selected, labelled, picked and shown in the body card is
+an **extra object** with a namespaced id (`core/selection.js`): `<kind>:<key>`, kind one of
+`star`, `dso`, `comet`, `craft`, `guest`, key `[a-z0-9][a-z0-9._+-]{0,31}` (e.g. `comet:halley`,
+`craft:voyager1`, `guest:sn1054`; reserved for later: `star:<hip>`, `dso:m31`).
+
+- **State and URL.** `store.selection` is a BodyId, an extra id or null (`isSelectionId`).
+  `actions.select(id)` accepts both; `sel=` round-trips both (`normalizeSelectionId`; a well-formed
+  extra id is kept even while its data is loading). `trk=b` tracks an extra too (the rig finds it
+  in `snap.extras`).
+- **Registry** (`astro/extras.js`, `createExtras()`; one per app: `R.extras`, `__app.extras`). A
+  module registers a **provider** per kind: `extras.register({kind, kindLabel, ids(), meta(id),
+  fill(snap, id, st), card?(id, st, snap)})` → an unregister function. `meta(id)` returns
+  `{name, color, glyph:'star'|'marker'|'coma'|'none', label:'always'|'selected'|'never', layer?,
+  short?}`: `glyph` says who draws it ('star' and 'marker' by `render/extras.js`, 'coma' by its own
+  module, 'none' by an existing layer, e.g. a catalogue star: only the selection ring), `layer` a
+  `Layers` key that must be on. `registry.refresh()` re-reads a provider's `ids()`; `onChange(fn)`
+  fires on every registration change (the loop recomputes both snapshots, the labels feed rebuilds,
+  the body card completes).
+- **Per snapshot.** The loop calls `extras.fill(snap)` right after `computeSnapshot` (frame and
+  full detail; with the skyglow and aurora fills). It keeps `snap.extras`, an array of
+  **ExtraState** in registry order (`snap.extrasVersion` = `extras.version`), created once per id
+  and refilled in place: `{id, kind, dirS (Float64Array(3), topocentric astrometric J2000, scene
+  frame — like BodyState.dirS), distAU (NaN at infinity), lightTimeS, mag (NaN: none), altGeomDeg,
+  azGeomDeg, altDeg, azDeg (refracted), above, present, approx, data}`. The provider's `fill` sets
+  `dirS`, `distAU`, `mag`, `present` (exists and is drawn at this instant), `approx` (outside its
+  data's validity) and its own preallocated `data` (Halley's tail samples, a craft's geocentric
+  vector); the registry adds alt/az from the snapshot's observer frame. Helpers:
+  `topocentricScene(gx, gy, gz, snap, out)` (geocentric AU → topocentric unit vector, distance),
+  `extraSky(st)` (J2000 RA/Dec and constellation, for cards). `registry.state(snap, id)` finds one.
+- **Consumers, generically.** Labels (`labels-feed.js`): an anchor per labelled extra at its live
+  `dirS` (orbit view: a spacecraft's label rides its beam), `gate` = present, `below` per frame,
+  priority 78 (100 when selected). Picking (`main.js`): after the bodies, `R.mods.extras.pickCandidates()`
+  (drawn, refraction-lifted directions, 16 px). Body card (`ui/body-card.js`): the provider's
+  `card()` → `{kindLabel, subtitle, lines[], facts[[label, value]], caveat, sources[], rts?}` plus
+  the generic position sentence, 'Find it', alt/az, magnitude, constellation, J2000 RA/Dec; actions
+  Look/Center/Telescope (`telescopeFov`: 24° for a comet, 6° otherwise)/Track. The UI hub's
+  `bodyName`/`bodyOf` answer for extras (`ctx.extras`), so the narrator and Sky panel work too.
+  Render modules get `setSelection(id)` as before; the nine-body modules ignore extra ids.
+- **Providers today.** `guest` (`astro/guest-stars.js`, 'stars' layer), `comet` (`astro/comets.js`),
+  `craft` (`astro/craft.js`, the `spacecraft` layer, off by default; registered when
+  `data/craft.json` has loaded). A later kind (catalogue stars, deep-sky objects) adds a provider
+  in `app/extras-setup.js` (or registers when its lazy data arrives) and, if it draws its own
+  glyphs, a render module that reads `snap.extras`.
+
+### History: the Julian calendar, Moments and 'born under'
+
+- Calendar dates before 15 Oct 1582 are shown Julian everywhere dates are printed: `format.fmtDate`
+  and the UI hub's `zoned()` (which returns `cal`), the time bar's stamp (a 'Julian' tag whose title
+  gives the Gregorian date), its day and month ticks, and the date dialog, which reads typed dates on
+  or before 4 Oct 1582 as Julian (`tz.parseCalendarInput`; a Julian date the native picker cannot
+  hold makes it a text field). Instants, the clock and `t=` stay Gregorian UTC.
+- The Events tab ends with 'The sky you were born under' (a date and time in the time-bar zone →
+  sky view at that instant and `skyCaption` of the next readout), the Moments and the Famous comets
+  (`core/moments.js`: links whose `href` is the hash; the app applies it like any link and the
+  phone sheet drops to its peek).
 
 ---
 
@@ -775,7 +846,10 @@ change.
   on the same view later.
 - `loc2`, `n2`, `tz2` are a second place to compare with (its pin, dashed beams and Sky now's
   side-by-side card). They are links only, never saved.
-- `sel` selects a body and opens its card (the Details tab), as a click on it would.
+- `sel` selects a body or an extra object (`comet:halley`, `guest:sn1054`, `craft:voyager1`; §4) and
+  opens its card (the Details tab), as a click on it would.
+- `ly` letter `v` is the `spacecraft` layer (off by default).
+- `t` is always a Gregorian ISO instant, also before 1582, when the app shows the Julian date.
 - `sky` is the Sky darkness setting (`display.skyDark`): `auto` (omitted), `pristine` or a Bortle class `1`–`9`.
 - `au` is the Aurora activity setting (`display.aurora`): `quiet`, `typical` (omitted) or `storm`.
 - `tour` starts a guided tour (`tonight`, `year`, `eclipse-2027`, `ambient`) once the app is ready,

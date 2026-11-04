@@ -20,7 +20,9 @@ const CACHE = `${PREFIX}${VERSION}`;
 const SCOPE = new URL('./', self.location).href;   // works under a GitHub Pages sub-path
 const SHELL_KEY = new URL('index.html', SCOPE).href;
 const NAV_TIMEOUT_MS = 4000;
-const PRECACHE = ['index.html', 'manifest.webmanifest', 'assets/icons/favicon.svg', 'assets/icons/icon-192.png'];
+// data/craft.json (the spacecraft, astro/craft.js) is fetched after boot, off the critical path; it
+// is precached so the spacecraft work offline from the first visit on.
+const PRECACHE = ['index.html', 'manifest.webmanifest', 'assets/icons/favicon.svg', 'assets/icons/icon-192.png', 'data/craft.json'];
 
 /** Path of a same-scope URL relative to the scope, without query or hash ('' = the root). */
 function scopedPath(url) {

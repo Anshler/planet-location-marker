@@ -948,6 +948,13 @@ change.
   as occluders, re-read on resize and at most every 500 ms while rendering — never per frame. A
   label overflowing the viewport by ≤ 12 px is nudged inside, otherwise hidden. If you rename
   those UI classes, update `OCCLUDER_SELECTOR`.
+- **No layout reads inside a frame.** A frame only asks for the occluder rects and new labels'
+  boxes; a task queued from it (`readAfterFrame`, after the browser's own layout for that frame)
+  reads them, and the next declutter uses them. A label never shown yet waits for its box,
+  hidden but laid out, and that task places it at once; a shown label whose text changed keeps
+  its old box until then. The time bar sizes its canvas from its ResizeObserver's entries and `bindViewInsets`
+  (`main.js`) measures in a task after the frame, so a time-lapse calls `getBoundingClientRect`
+  from no frame callback at all (a CI gate, §11).
 - **Exports used by `beams.js`:** `labelExtent(id)` (measured label box, cached per id) and
   `uiOccluders()`.
 

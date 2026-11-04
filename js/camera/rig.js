@@ -380,6 +380,10 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
     const qPrev = new THREE.Quaternion();
     let hasPrev = false;
     const dq = new THREE.Quaternion();
+    // The last update moved the camera only by following the Earth's turn (earth-lock): a
+    // sub-pixel drift for the loop, not motion (idle supersampling keeps its history).
+    let lockOnly = false;
+    const lockPos = new THREE.Vector3();
     const obsLat = { v: 0 }, obsLon = { v: 0 };
     // Observer frame in world and Earth-local coordinates.
     const posW = new THREE.Vector3(1, 0, 0), upW = new THREE.Vector3(1, 0, 0);
@@ -1916,9 +1920,10 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
     function stepOrbit(dt, lockApplied) {
         if (!controls) {
             orbitQuat(camera.position, camera.quaternion);
+            lockOnly = lockApplied;
             return lockApplied;
         }
-        let moved = lockApplied;
+        let moved = false;
         const r = camera.position.length();
         if (zoomTarget !== null) {
             const k = reduced ? 1 : 1 - Math.exp(-dt / 90);
@@ -1929,9 +1934,14 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         }
         // Slower rotation near the surface, so a drag moves the ground at a sane rate.
         controls.rotateSpeed = 0.5 * clamp((camera.position.length() - 1) / 2.4, 0.06, 1);
-        if (controls.update()) moved = true;
+        // OrbitControls reports any change since its last update, the lock's own included (its
+        // threshold is absolute: 150 R out, 0.5 s of the Earth's turn passes it): only a move of
+        // its own counts.
+        if (lockApplied) lockPos.copy(camera.position);
+        if (controls.update() && (!lockApplied || camera.position.distanceToSquared(lockPos) > 1e-14 * lockPos.lengthSq())) moved = true;
         setNearFor(camera.position.length());
-        return moved;
+        lockOnly = lockApplied && !moved;
+        return moved || lockApplied;
     }
 
     // ---- per-frame -----------------------------------------------------------------------------------------
@@ -1943,8 +1953,12 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
      * @returns {boolean} true when the camera moved (render needed)
      */
     function update(dtMs, snap) {
+        lockOnly = false;
         let moved = advance(dtMs, snap);
-        if (release.on && applyRelease(now())) moved = true;
+        if (release.on && applyRelease(now())) {
+            moved = true;
+            lockOnly = false;
+        }
         updateSystemBlend();
         // Every module's update() runs before the renderer refreshes the camera's world
         // matrices; doing it here keeps CPU projections (label anchors) on this frame's pose.
@@ -2594,6 +2608,11 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         /** The map plane's frame (geo/mapview.js; live, rewritten as each morph starts). */
         get mapFrame() { return mapv.frame; },
         get tweening() { return !!tween || !!sys.tween; },
+        /**
+         * The last update() moved the camera only to follow the Earth's turn (earth-lock in orbit):
+         * the loop counts it as drift, not motion.
+         */
+        get lockOnly() { return lockOnly; },
         get dragging() { return pointers.size > 0; },
         get earthLock() { return earthLock; },
         get reducedMotion() { return reduced; },

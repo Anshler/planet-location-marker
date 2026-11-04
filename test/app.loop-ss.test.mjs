@@ -11,7 +11,7 @@ import { createClock } from '../js/core/clock.js';
 const LUXOR = { latDeg: 25.7, lonDeg: 32.6, elevM: 0, name: 'Luxor', country: 'Egypt', tz: 'Africa/Cairo', tzApprox: false, source: 'url' };
 const NIGHT = Date.parse('2027-08-01T22:00:00Z');
 
-function harness({ supersample = 8, rate = 1, playing = false, moving = () => false, rcSS = true } = {}) {
+function harness({ supersample = 8, rate = 1, playing = false, moving = () => false, rcSS = true, lockFollow = false } = {}) {
     let queue = [];
     const win = {
         requestAnimationFrame(fn) { queue.push(fn); return queue.length; },
@@ -28,7 +28,16 @@ function harness({ supersample = 8, rate = 1, playing = false, moving = () => fa
         renderer: null, camera, size: { w: 800, h: 600 }, dpr: 1, supersampling: rcSS,
         render(ss) { renders.push(ss ? { ...ss } : null); },
     };
-    const rig = { mode: 'orbit', skyBlend: 0, tweening: false, camera, update: () => moving() };
+    const rig = { mode: 'orbit', skyBlend: 0, tweening: false, camera, update: () => moving(), lockOnly: false };
+    if (lockFollow) {
+        // Earth-lock: each new frame snapshot turns the camera with the Earth (a sub-pixel move).
+        let lastT = NaN;
+        rig.update = (dt, snap) => {
+            rig.lockOnly = snap.tMs !== lastT && Number.isFinite(lastT);
+            lastT = snap.tMs;
+            return rig.lockOnly;
+        };
+    }
     const updates = { n: 0 };
     const probe = { object3d: {}, update() { updates.n++; } };
     const loop = createLoop({
@@ -82,6 +91,16 @@ test('Live 1×: the 0.5 s snapshot steps join the history instead of resetting i
     h.tick(180);   // 3 s: about six snapshot steps
     assert.ok(h.renders.length >= 5 && h.renders.length <= 8, `${h.renders.length} frames in 3 s`);
     for (const s of h.renders) assert.ok(s && s.weight === 1 / 8, 'an EMA sample each, no fresh history');
+    h.dispose();
+});
+
+test('Live 1× with earth-lock: following the Earth turning is drift, not motion', () => {
+    const h = harness({ supersample: 8, playing: true, rate: 1, lockFollow: true });
+    h.tick(60);
+    h.renders.length = 0;
+    h.tick(180);
+    assert.ok(h.renders.length >= 5 && h.renders.length <= 8, `${h.renders.length} frames in 3 s (not a re-refine each step)`);
+    for (const s of h.renders) assert.ok(s && s.weight === 1 / 8, 'the history stays: an EMA sample each');
     h.dispose();
 });
 

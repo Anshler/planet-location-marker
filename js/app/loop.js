@@ -465,6 +465,12 @@ export function createLoop(deps) {
             if (rig && !disabled.has(rig)) {
                 try {
                     moving = !!rig.update(dt, snap);
+                    // Earth-lock following the Earth's turn (Live 1×: every snapshot) is a drift: the
+                    // frame is drawn, and supersampling measures it instead of dropping the history.
+                    if (moving && rig.lockOnly) {
+                        moving = false;
+                        dirty = true;
+                    }
                 } catch (err) {
                     strike(rig, 'update', err);
                 }

@@ -1,6 +1,6 @@
 # UI redesign: a calm skeleton
 
-Status: **approved spec**, ready to implement in four chunks (§13). Branch `p7/redesign`, base `40131ce`. Chunk 1 is implemented; its deviations are in §15.
+Status: **approved spec**, ready to implement in four chunks (§13). Branch `p7/redesign`, base `40131ce`. Chunks 1 and 2 are implemented; their deviations are in §15.
 
 The owner asked for this: "We've added quite a bit so the UI is getting quite dense and complex. Complex is fine but it has to be intuitive — see if we can improve that."
 
@@ -1628,3 +1628,53 @@ the right thing and records it here.
   chip and the phone's "+{n} more". `menu()` is about 3 KB. To stay under zero, the chunk also
   deleted seven icons nothing referenced (`fullscreen-exit`, `chevron-left`, `clock`, `panel`,
   `grid`, `signal`, `signal-off`) and shortened the rewritten modules' JSDoc.
+
+### Chunk 2 (one Time popover)
+
+- **The zone's place is the observer's name.** The zone uses `ui.placeShort`, which for the
+  default observer is "Royal Observatory Greenwich", so the date button reads "… · Royal
+  Observatory Greenwich, UTC+0 ▾" (and the Observer segment says the same). It fits a 1440-px
+  window; when the bar is tighter (the Julian tag, the ⚠ badge, a long name) only the place
+  ellipsizes, never the offset, and under a 940-px bar the short form "UTC+0" shows, as specified.
+  The zone templates (`zoneTemplates`) are whole phrases; an approximate zone reads "{place},
+  {offset} (approx.)" and "{offset} (approx.)".
+- **Phone stamp.** Two lines as drawn (time and chevron, then "Sat 6 Feb 2027 · UTC+0"). At 390 px
+  the day sometimes leaves no room for the zone ("Wed 11 Nov 2026"): the zone then wraps onto a
+  clipped third line and disappears whole instead of showing "U…". The rate readout's minimum
+  width on the phone went from 46 to 36 px to make that rare. The ⚠ badge stays in the phone row
+  (icon only), and the body strip stays in the sheet head until chunk 3.
+- **Phone step buttons.** They are the bar's own two buttons, moved into Time › Stepping by
+  `arrange()` (one set of handlers, Shift and Alt included), labelled "Back 1 hour" and "Forward 1
+  hour" there.
+- **No time control hidden by width.** Besides `unitSel`'s 940-px rule, the bar also hid the step
+  buttons under a 640-px bar (`.tb-back, .tb-fwd { display: none }`), which is what removed them
+  at 1000×700 and in text mode on a phone. That rule is deleted too: a narrow bar drops only the
+  unit text. A bar under 520 px (text mode on a phone) lets the stamp wrap inside the date button.
+- **Tooltips.** The step buttons' tooltip keeps the key on its first line ("Back 1 hour ,") and the
+  modifiers on the second (`data-tip2`, CSS `white-space: pre`).
+- **Copy.** The Loop section's note is "Times are in {zone}." without "Loop the clock between two
+  moments.", which its summary already says (R5). The Julian sentence is the mock-up's shorter
+  one. "One loop takes {seconds} s" is one label around the number input.
+- **What closes the popover.** Go, a quick jump, Start and Stop close it and return focus to the
+  date button, as the two old popovers did; the step unit, Time runs, the zone and the 24-hour
+  switch keep it open.
+- **"Loop" in the readout** shows for every clock range (Play the eclipse and the analemma too), as
+  "Timelapse" did; the `loop` chip still shows only for a range that is not the analemma's stride.
+- **Announcement.** "Times in {zone}." is said by the popover's segment, not by `setTzMode`, so
+  Reset all settings stays quiet.
+- **Mars.** On desktop the zone gives way to the Sol stamp, as the zone chip did; on the phone the
+  Sol stamp wraps to two lines so the chevron stays. The date button's name there is "Earth date
+  and time: {stamp}, {zone}. On Mars: {sol}. Open the time panel".
+- **Fixed on the way (pre-existing):** with the phone sheet at full, its focus trap pulled focus
+  out of any popover (the old date popover too), so the date field could not be typed in. An open
+  `.popover` now counts as inside `trapFocus` (two lines; chunk 3's several-roots change builds on it).
+- **Deleted on the way:** the `reverse` icon (nothing uses it), the `.seg__opt` native-radio
+  segment (Playback is now `segmented()`), the time bar's unused `is-live`/`is-paused` classes and
+  the scrubber's unused id.
+- **Popover size.** It is 456 px wide (four quick jumps on one row) with 8-px section gaps, so at
+  1280×720 it fits above the date button (582 px tall); on shorter windows it overlaps the bar,
+  as `openPopover` clamps it, and scrolls inside.
+- **Bytes.** The chunk is −0.5 KB raw (estimate −1.0); the redesign is −1.1 KB against `40131ce`
+  (medium 5,828,349 B, low 5,071,449 B; the −8 KB cumulative estimate assumed chunk 1's −7 KB). To
+  get there the rewritten `timebar.js` JSDoc was shortened (§11, cut 1).
+

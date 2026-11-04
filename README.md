@@ -45,10 +45,15 @@ browser, and nothing needs the network.
   alt-az grid.
 - **A time machine.**
   - Live mode, or any speed from −1 year/s to +1 year/s.
-  - Steps of a minute, an hour, a day, a sidereal day, a lunar month or a year.
+  - Step buttons that show their step (`1 h`): a minute, an hour, a day, a sidereal day, a lunar
+    month or a year.
   - A scrubber in the sky's own colours (golden hour, violet twilight, indigo and night), with a
     thin band for when the Moon is up, one for the selected planet and gold bars over eclipses;
-    a time-lapse loop between two dates, and any year from 1000 to 3000.
+    a loop between two dates, and any year from 1000 to 3000.
+  - The date button shows the time zone ("Greenwich, UTC+0", "This device, UTC+7" or "UTC") and
+    opens the **Time** panel: go to a date (with quick jumps to sunset, midnight and sunrise),
+    the step size, which way time runs, a loop between two moments, the time zone and the
+    24-hour clock, and what the time bar's colours and marks mean.
 - **Sky Now and body details.**
   - For every body: altitude and azimuth with a compass arrow, rise, transit and set, magnitude,
     phase, distance, elongation and constellation.
@@ -118,7 +123,7 @@ browser, and nothing needs the network.
 |---|---|
 | <kbd>Space</kbd> | Play / pause |
 | <kbd>[</kbd> / <kbd>]</kbd> | Slower / faster |
-| <kbd>R</kbd> | Reverse time |
+| <kbd>R</kbd> | Reverse time (also Time → Time runs) |
 | <kbd>,</kbd> / <kbd>.</kbd> | Step −/+ 1 hour |
 | <kbd>Shift</kbd>+<kbd>,</kbd> / <kbd>.</kbd> | Step −/+ 1 day (or Shift with a step button) |
 | <kbd>Alt</kbd>+<kbd>,</kbd> / <kbd>.</kbd> | Step −/+ 1 sidereal day (or Alt with a step button) |

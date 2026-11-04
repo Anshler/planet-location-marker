@@ -1,10 +1,10 @@
 /**
- * Settings tab: quality (Auto / Low / Medium / High / Max with the running tier),
- * time display zone (Observer / Device / UTC), 24-hour clock, sky darkness
+ * Settings tab: quality (Auto / Low / Medium / High / Max with the running tier), sky darkness
  * (Auto from location / Pristine / Bortle 1–9), aurora activity (Quiet / Typical / Storm: the
  * modelled ovals, not live data), night vision (the screen dim red and kept awake;
  * main.js bindNightVision), Replay intro and
- * Reset all settings (with confirmation).
+ * Reset all settings (with confirmation). The time zone and the 24-hour clock live in the Time
+ * popover (ui/timebar.js).
  *
  * @module ui/settings
  */
@@ -42,22 +42,6 @@ export function mountSettings(root, ctx) {
         onChange: (v) => ui.act('setQuality', v),
     });
     const running = h('p', { class: 'setting__hint' });
-
-    // Time display.
-    const tzMode = segmented({
-        label: 'Show times in',
-        options: [{ value: 'observer', label: 'Observer' }, { value: 'device', label: 'Device' }, { value: 'utc', label: 'UTC' }],
-        value: st0.display?.tzMode || 'observer',
-        onChange: (v) => {
-            if (typeof ctx.actions?.setTzMode === 'function') ui.act('setTzMode', v);
-            else store.set({ display: { ...store.get().display, tzMode: v } });
-        },
-    });
-    const tzHint = h('p', { class: 'setting__hint' });
-    const clock24 = switchRow({
-        label: '24-hour clock', checked: !st0.display?.hour12,
-        onChange: (on24) => store.set({ display: { ...store.get().display, hour12: !on24 } }),
-    });
 
     // Sky darkness (light pollution in sky view; js/astro/skyglow.js).
     const skyId = 'settings-sky-dark';
@@ -100,7 +84,6 @@ export function mountSettings(root, ctx) {
     root.append(
         h('div', { class: 'section-head' }, h('h2', { class: 'panel-title' }, 'Settings')),
         h('div', { class: 'group' }, h('h3', { class: 'group-title' }, 'Quality'), quality.el, running),
-        h('div', { class: 'group' }, h('h3', { class: 'group-title' }, 'Time display'), tzMode.el, tzHint, clock24.el),
         h('div', { class: 'group' }, h('h3', { class: 'group-title' }, h('label', { for: skyId }, 'Sky darkness')), skyDark, skyHint),
         h('div', { class: 'group' }, h('h3', { class: 'group-title' }, h('label', { for: auroraId }, 'Aurora activity')), aurora, auroraHint),
         h('div', { class: 'group' }, h('h3', { class: 'group-title' }, 'View'), red.el),
@@ -130,13 +113,6 @@ export function mountSettings(root, ctx) {
         // Max held lower for the session (repeated GPU context losses) says what runs instead.
         setText(running, st.quality?.setting === 'max' && st.quality?.active === 'max' ? MAX_CAPTION
             : `Running: ${active}${st.quality?.setting === 'auto' ? ' · chosen automatically for this device' : ''}`);
-        tzMode.set(st.display?.tzMode || 'observer');
-        const mode = st.display?.tzMode || 'observer';
-        const t = ui.snap?.tMs ?? ctx.clock?.tMs ?? Date.now();
-        setText(tzHint, mode === 'utc' ? 'Coordinated Universal Time.'
-            : mode === 'device' ? `This device’s zone (${ui.offsetText(t)}).`
-                : `${ui.placeShort(st.observer)} time (${ui.offsetText(t)}${st.observer?.tzApprox ? ', approximate' : ''}).`);
-        clock24.set(!st.display?.hour12);
         const sd = st.display?.skyDark || 'auto';
         if (skyDark.value !== sd) skyDark.value = sd;
         const sg = ui.snap?.skyglow;

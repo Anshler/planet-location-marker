@@ -622,24 +622,6 @@ body.tier-medium:not(.is-coarse) .glass {
 .group .seg { display: flex; width: 100%; }
 /* Full-width groups share the width evenly; slim padding lets five choices (Quality) fit a phone. */
 .group .seg__btn { padding: 0 6px; }
-.seg--radio { display: flex; width: 100%; }
-.seg__opt { position: relative; display: flex; flex: 1; }
-.seg__opt input { position: absolute; inset: 0; margin: 0; opacity: 0; cursor: pointer; }
-.seg__opt span {
-    display: grid;
-    flex: 1;
-    place-items: center;
-    height: 30px;
-    padding: 0 8px;
-    border-radius: 9px;
-    color: var(--muted);
-    font-size: 12.5px;
-    font-weight: 650;
-    white-space: nowrap;
-    transition: background-color var(--t1), color var(--t1);
-}
-.seg__opt input:checked + span { background: rgba(255, 255, 255, .13); color: var(--text); box-shadow: 0 1px 2px rgba(0, 0, 0, .35); }
-.seg__opt input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 .link { display: inline-flex; align-items: center; gap: 4px; color: var(--accent); text-decoration: none; font-weight: 600; }
 .link:hover { text-decoration: underline; text-underline-offset: 3px; }
@@ -674,6 +656,9 @@ body.tier-medium:not(.is-coarse) .glass {
     }
     [data-tip][data-kbd]:hover::after,
     [data-tip][data-kbd]:focus-visible::after { content: attr(data-tip) "\2003" attr(data-kbd); }
+    /* The step buttons: the step and its key, then the modifiers on a second line. */
+    .tb-step[data-tip]:hover::after, .tb-step[data-tip]:focus-visible::after { content: attr(data-tip) "\2003" attr(data-kbd) "\A" attr(data-tip2); white-space: pre; }
+    .tb-back[data-tip]:hover::after, .tb-back[data-tip]:focus-visible::after { left: 0; transform: none; }
     [data-tip-side="bottom"]:hover::after,
     [data-tip-side="bottom"]:focus-visible::after { top: calc(100% + 9px); bottom: auto; }
     [data-tip-side="left"]:hover::after,
@@ -889,10 +874,8 @@ body.tier-medium:not(.is-coarse) .glass {
 .tb-zone { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .tb-zone--center { flex: 1 1 auto; justify-content: center; }
 .tb-zone--right { justify-content: flex-end; }
-.tb-tools[hidden] { display: none; }
-.tb-sep { flex: none; width: 1px; height: 22px; margin: 0 5px; background: var(--line-2); }
-.tb-spacer { flex: 1 1 0; min-width: 4px; }
-.tb-unit { margin-left: 2px; }
+/* Step buttons: the glyph and the unit ('1 h'); the unit gives way in a narrow bar. */
+.tb-step { display: inline-flex; gap: var(--sp-1); width: auto; min-width: 36px; padding: 0 var(--sp-2); font-size: var(--fs-2); font-weight: var(--fw-2); white-space: nowrap; }
 .tb-rate {
     display: inline-flex;
     flex: none;
@@ -914,11 +897,13 @@ body.tier-medium:not(.is-coarse) .glass {
     white-space: nowrap;
 }
 .tb-rate__value.is-reverse { color: var(--warn); }
-.tb-reverse.is-on { background: rgba(255, 204, 102, .13); color: var(--warn); }
+/* Paused: the rate it would run at, muted (its name ends with 'paused'). */
+.tb-rate__value.is-paused { color: var(--muted); }
 .tb-date {
     position: relative;
     display: inline-flex;
-    flex: none;
+    flex: 0 1 auto;
+    min-width: 0;
     align-items: center;
     gap: 9px;
     height: 38px;
@@ -932,16 +917,19 @@ body.tier-medium:not(.is-coarse) .glass {
 }
 .tb-date:hover, .tb-date[aria-expanded="true"] { background: rgba(255, 255, 255, .06); border-color: var(--line); }
 .tb-date__icon { display: grid; color: var(--muted); }
-.stamp { display: inline-flex; align-items: baseline; gap: 7px; font-size: 15.5px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: .005em; white-space: nowrap; }
+.tb-date__chev { flex: none; align-self: center; color: var(--muted); }
+.stamp { display: inline-flex; align-items: baseline; gap: 7px; min-width: 0; font-size: 15.5px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: .005em; white-space: nowrap; }
+/* The zone: '{place}, UTC+0' (the place ellipsizes first), or the short form in a narrow bar. */
+.stamp__zone, .stamp__zl { display: inline-flex; min-width: 0; }
+.stamp__zone { color: var(--muted); font-size: var(--fs-2); font-weight: var(--fw-2); }
+.stamp__zone::before { content: "·"; margin-right: 7px; color: var(--faint); }
+.stamp__place { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.stamp__zs { display: none; }
 .stamp__sep { color: var(--faint); }
 .stamp__time { font-weight: 750; }
 /* The Julian-calendar tag (dates before 15 Oct 1582; its title gives the Gregorian date). */
 .stamp__cal { align-self: center; padding: 1px 5px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); font-size: 10.5px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; cursor: help; }
 .stamp__cal[hidden] { display: none; }
-.tb-accuracy { flex: none; }
-.tb-tz { flex: none; height: 30px; font-weight: 600; }
-.tb-lapse { flex: none; height: 32px; padding: 0 11px; }
-.tb-lapse.is-on { color: var(--accent); }
 .tb-live { display: inline-flex; flex: none; }
 .live-pill {
     display: inline-flex;
@@ -1041,29 +1029,26 @@ body.tier-medium:not(.is-coarse) .glass {
 .tb-scrub__tip.is-event { color: var(--text); border-color: rgba(124, 196, 255, .4); }
 .tb-scrub__tip[hidden] { display: none; }
 
-/* In the desktop bar the accuracy warning is an icon chip (the full text stays for screen readers / tooltip). */
-.tb-zone .tb-accuracy { flex: none; padding: 0 6px; cursor: help; }
-.tb-zone .tb-accuracy__text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
-.tb-zone .tb-lapse { width: 36px; padding: 0; justify-content: center; }
-.tb-tz { gap: 0; min-width: 0; max-width: 100%; }
-.tb-tz__place { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The accuracy warning is an icon chip (the full text stays for screen readers, the tooltip and the Time popover). */
+.tb-accuracy { flex: none; padding: 0 6px; cursor: help; }
+.tb-accuracy__text { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 /* When "Return to now" replaces the LIVE pill the right zone grows. It keeps its size, and the
-   time-zone chip gives way by ellipsizing the place name instead of sliding under the stepper. */
+   date button gives way by ellipsizing the place in its zone. */
 .tb-zone--left, .tb-zone--right { flex: none; }
-.tb-zone .tb-tz { flex: 0 1 auto; overflow: hidden; }
-.tb-zone .tb-lapse__label { display: none; }
 @container timebar (max-width: 940px) {
-    .tb-unit { display: none; }
+    .stamp__zl { display: none; }
+    .stamp__zs { display: inline; }
     .btn--now__long { display: none; }
     .btn--now__short { display: inline; }
 }
 @container timebar (max-width: 760px) {
     .stamp { font-size: 14.5px; }
-    .tb-date__icon { display: none; }
-    .tb-tz { padding: 0 9px; }
+    .tb-date__icon, .tb-step__unit { display: none; }
 }
-@container timebar (max-width: 640px) {
-    .tb-back, .tb-fwd { display: none; }
+/* A very narrow bar (text mode on a phone): the stamp wraps instead of running out of the button. */
+@container timebar (max-width: 520px) {
+    .tb-date { height: auto; min-height: 38px; }
+    .stamp { flex-wrap: wrap; row-gap: 2px; }
 }
 /* Narrow desktop bars (small laptops, rail closed): two rows instead of overlapping controls.
    shell.js measures the bar, so the view switch above follows the taller height. */
@@ -1687,19 +1672,31 @@ body.is-coarse .help:not(.is-keys) .help__grid { display: none; }
     animation: pop-in var(--t1) var(--ease-out) both;
 }
 .popover[hidden] { display: none; }
-.pop-lapse { width: 400px; }
-.pop__title { display: flex; align-items: center; gap: 8px; margin-bottom: 12px; font-size: 14px; font-weight: 750; }
-.pop__title svg { color: var(--accent); }
-.pop__form { display: flex; flex-direction: column; gap: 12px; }
-.pop__grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
-.pop__grid--2 { grid-template-columns: 120px minmax(0, 1fr); }
 .pop__hint { color: var(--muted); font-size: 12.5px; }
-.pop__jul { margin-left: 4px; padding-block: 2px; }
 .pop__error { color: var(--danger); font-size: 12.5px; }
 .pop__error[hidden] { display: none; }
 .pop__quick { display: flex; flex-wrap: wrap; gap: 6px; }
-.pop__actions { display: flex; justify-content: flex-end; gap: 8px; }
 .pop__zone { color: var(--faint); font-weight: 500; }
+/* The Time popover (ui/timebar.js): Go to, Stepping, Loop, Show times in, the legend. */
+.pop-time { width: 456px; max-height: calc(100dvh - 24px); overflow-y: auto; padding: var(--sp-2) var(--sp-4) var(--sp-3); }
+.pt__head { display: flex; align-items: center; justify-content: space-between; }
+.pt__title { font-size: var(--fs-4); font-weight: var(--fw-3); }
+.pt__sec, .pt__body { display: flex; flex-direction: column; gap: var(--sp-2); }
+.pt__sec { margin: var(--sp-2) 0; }
+.pop-time .group-title, .pop-time .note { margin: 0; }
+.pt__row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); }
+.pt__row[hidden], .pt__warn[hidden] { display: none; }
+.pt__grow { flex: 1; }
+.pt__row .input--num { width: 72px; }
+.pt__end { justify-content: flex-end; }
+.pt__warn { display: flex; gap: var(--sp-1); color: var(--warn); }
+.pt__steps .tb-step { flex: 1; height: var(--h-ctl); border: 1px solid var(--line); }
+.pop-time .seg { display: flex; }
+.pop-time .seg__btn { padding: 0 var(--sp-2); }
+.pt__more { border-top: 1px solid var(--line); }
+.pt__more > summary { padding: var(--sp-3) 0; font-size: var(--fs-3); font-weight: var(--fw-2); cursor: pointer; }
+.pt__body { padding-bottom: var(--sp-3); }
+.pt__legend { margin: 0; padding-left: var(--sp-4); color: var(--muted); font-size: var(--fs-2); line-height: 1.5; }
 .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .field__label { color: var(--muted); font-size: 12px; font-weight: 650; }
 
@@ -2086,36 +2083,29 @@ body.is-vantage #labels-root { visibility: hidden; }
    weekday and rate label, so the gaps and the rate floor are small and real time reads "1×". */
 .ui[data-layout="mobile"] .tb-main { flex-wrap: nowrap; gap: 4px; height: 46px; }
 .ui[data-layout="mobile"] .tb-rate .icon-btn { width: 34px; min-width: 34px; }
-.ui[data-layout="mobile"] .tb-date .stamp { min-width: 0; max-width: 100%; overflow: hidden; }
-.ui[data-layout="mobile"] .stamp__day, .ui[data-layout="mobile"] .stamp__time { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+/* Two lines: the time and the chevron, then the day and the zone's short form. The zone wraps onto
+   a third line, clipped, when the day leaves no room for it, so it is never cut in half. */
 .ui[data-layout="mobile"] .tb-play { width: 42px; height: 42px; }
-.ui[data-layout="mobile"] .tb-date { flex: 1 1 auto; justify-content: flex-start; min-width: 0; height: 44px; padding: 0 6px; }
-.ui[data-layout="mobile"] .tb-date__icon, .ui[data-layout="mobile"] .stamp__sep, .ui[data-layout="mobile"] .stamp__cal { display: none; }
-.ui[data-layout="mobile"] .stamp { flex-direction: column-reverse; align-items: flex-start; gap: 1px; line-height: 1.12; }
-.ui[data-layout="mobile"] .stamp__time { font-size: 18px; font-weight: 750; }
+.ui[data-layout="mobile"] .tb-date { flex: 1 1 auto; gap: var(--sp-1); height: 44px; padding: 0 4px; }
+.ui[data-layout="mobile"] .stamp { flex-wrap: wrap; align-items: center; gap: 0 var(--sp-1); height: 34px; overflow: hidden; }
+.ui[data-layout="mobile"] .stamp::after { content: ""; order: 3; flex-basis: 100%; }
+.ui[data-layout="mobile"] .tb-date__icon, .ui[data-layout="mobile"] .stamp__sep, .ui[data-layout="mobile"] .stamp__cal,
+.ui[data-layout="mobile"] .stamp__zl { display: none; }
+.ui[data-layout="mobile"] .stamp__time { order: 1; font-size: 18px; font-weight: 750; line-height: 20px; }
 .ui[data-layout="mobile"] .stamp__time.is-h12 { font-size: 16px; } /* "12:00:00 AM" */
-.ui[data-layout="mobile"] .stamp__day { color: var(--muted); font-size: 11.5px; font-weight: 600; }
-.ui[data-layout="mobile"] .tb-rate__value { min-width: 46px; font-size: 12.5px; }
+.ui[data-layout="mobile"] .tb-date__chev { order: 2; }
+.ui[data-layout="mobile"] .stamp__day, .ui[data-layout="mobile"] .stamp__zone { order: 4; font-size: 11.5px; line-height: 14px; }
+.ui[data-layout="mobile"] .stamp__day { min-width: 0; overflow: hidden; color: var(--muted); font-weight: 600; text-overflow: ellipsis; }
+.ui[data-layout="mobile"] .stamp__zone::before { margin-right: var(--sp-1); }
+.ui[data-layout="mobile"] .stamp__zs { display: inline; }
+.ui[data-layout="mobile"] .tb-rate__value { min-width: 36px; font-size: 12.5px; }
 .ui[data-layout="mobile"] .tb-rate { height: 36px; }
-.ui[data-layout="mobile"] .btn--now__long { display: none; }
-.ui[data-layout="mobile"] .btn--now__short { display: inline; }
 /* Text-only on the phone: the icon's width goes to the date (long rate labels such as "−10 min/s"
-   and "Timelapse" only ever show with this button, never with the LIVE pill). */
+   and "Loop" only ever show with this button, never with the LIVE pill). */
 .ui[data-layout="mobile"] .btn--now { gap: 5px; padding: 0 12px; height: 34px; }
 .ui[data-layout="mobile"] .btn--now > svg { display: none; }
 .ui[data-layout="mobile"] .live-pill { height: 34px; padding: 0 10px; letter-spacing: .12em; }
 .ui[data-layout="mobile"] .tb-scrub { height: 36px; margin: 0; }
-.ui[data-layout="mobile"] .tb-tools {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 6px;
-    padding: 4px 0 10px;
-}
-.ui[data-layout="mobile"] .tb-tools .tb-lapse { width: 40px; padding: 0; }
-.ui[data-layout="mobile"] .tb-tools .tb-lapse__label { display: none; }
-.ui[data-layout="mobile"] .tb-tools .tb-tz { margin-left: auto; }
-.ui[data-layout="mobile"] .tb-tz__place { display: none; }
 .ui[data-layout="mobile"] .strip { padding: 4px 0 6px; }
 .ui[data-layout="mobile"] .panel { position: static; display: block; width: auto; border: 0; border-radius: 0; background: none; box-shadow: none; }
 .ui[data-layout="mobile"] .panel__head { position: sticky; top: 0; z-index: 2; padding: 0 6px; background: var(--surface-solid); }
@@ -2173,11 +2163,9 @@ body.is-touring .ui[data-layout="mobile"] .toasts { bottom: calc(var(--sheet-h, 
     .ui[data-layout="mobile"] .loc-chip__coords, .ui[data-layout="mobile"] .loc-chip__sep,
     .ui[data-layout="text"] .loc-chip__coords, .ui[data-layout="text"] .loc-chip__sep { display: none; }
     .pick-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .pop__grid--2 { grid-template-columns: 1fr; }
 }
 @media (max-width: 360px) {
     .ui[data-layout="mobile"] .tb-rate .icon-btn--sm { width: 26px; }
-    .ui[data-layout="mobile"] .tb-rate__value { min-width: 48px; }
 }
 
 /* 19 ─ Text mode (no WebGL2): a readable single-column document ------------------------------------- */
@@ -2346,14 +2334,12 @@ body.is-mars { --body-mars: #6fb6ff; }
 .palette.is-mars .palette__search, .palette.is-mars .palette__list { display: none; }
 .note--mars[hidden] { display: none; }
 .note--mars { color: #ffc79e; }
-/* The desktop bar has no room for both clocks: on Mars the Sol stamp replaces the (Earth) zone chip. */
-body.is-mars .tb-zone .tb-tz { display: none; }
-/* The phone bar has room for one clock: on Mars the Sol stamp replaces the Earth date (its zone chip says Earth time). */
-body.is-mars .ui[data-layout="mobile"] .tb-date .stamp { display: none; }
-body.is-mars .ui[data-layout="mobile"] .tb-sol { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 12px; padding: 1px 4px; }
-body.is-mars .ui[data-layout="mobile"] .tb-date { min-width: 0; flex: 0 1 auto; }
-body.is-mars .ui[data-layout="mobile"] .tb-date__icon { display: none; }
-body.is-mars .ui[data-layout="mobile"] .tb-date { padding: 0 4px; }
+/* The desktop bar has no room for both clocks: on Mars the Sol stamp replaces the (Earth) zone. */
+body.is-mars .stamp__zone { display: none; }
+/* The phone bar has room for one clock: on Mars the Sol stamp replaces the Earth date (the date
+   button's name says Earth time, and the Time popover names the zone). */
+body.is-mars .ui[data-layout="mobile"] .stamp > :not(.tb-date__chev) { display: none; }
+body.is-mars .ui[data-layout="mobile"] .tb-sol { order: -1; min-width: 0; padding: 1px 4px; font-size: var(--fs-1); white-space: normal; }
 
 /* 22 ─ Accessibility preferences (system settings; smoke --media emulates them) ------------------ */
 /* Reduce transparency: opaque panels and no backdrop blur, on every tier and view. The selectors
@@ -2373,7 +2359,7 @@ body.is-mars .ui[data-layout="mobile"] .tb-date { padding: 0 4px; }
     }
     .glass, .chip, .bchip, .seg, .popover, .dialog, .toast, .btn--soft { border: 1px solid var(--line-2); }
     .glass { -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
-    .seg__btn.is-on, .seg__btn[aria-checked="true"], .seg__opt input:checked + span { box-shadow: inset 0 0 0 1px var(--line-2); }
+    .seg__btn.is-on, .seg__btn[aria-checked="true"] { box-shadow: inset 0 0 0 1px var(--line-2); }
     .switch { box-shadow: inset 0 0 0 1px var(--line-2); }
 }
 
@@ -2385,14 +2371,14 @@ body.is-mars .ui[data-layout="mobile"] .tb-date { padding: 0 4px; }
 @media (forced-colors: active) {
     .glass, .popover, .dialog, .toast, .sheet, .ecl { border: 1px solid CanvasText; background: Canvas; -webkit-backdrop-filter: none !important; backdrop-filter: none !important; }
     .chip, .bchip, .echip, .btn, .seg, .icon-btn, .input, .select { border: 1px solid ButtonText; }
-    .switch, .switch__knob, .tabs__ink, .tb-scrub__thumb, .tb-scrub__knob, .seg__btn, .seg__opt span,
+    .switch, .switch__knob, .tabs__ink, .tb-scrub__thumb, .tb-scrub__knob, .seg__btn,
     .chip--filter[aria-pressed="true"], .btn[aria-pressed="true"], .btn--ghost.is-on { forced-color-adjust: none; }
     .switch { background: Canvas; box-shadow: inset 0 0 0 1px ButtonText; }
     .switch__knob { background: ButtonText; box-shadow: none; }
     .switch-row[aria-checked="true"] .switch { background: Highlight; box-shadow: none; }
     .switch-row[aria-checked="true"] .switch__knob { background: HighlightText; }
-    .seg__btn, .seg__opt span { background: transparent; color: ButtonText; }
-    .seg .seg__btn.is-on, .seg .seg__btn[aria-checked="true"], .seg__opt input:checked + span,
+    .seg__btn { background: transparent; color: ButtonText; }
+    .seg .seg__btn.is-on, .seg .seg__btn[aria-checked="true"],
     .chip--filter[aria-pressed="true"], .btn[aria-pressed="true"], .btn--ghost.is-on { background: Highlight; color: HighlightText; box-shadow: none; }
     .tabs__ink, .vb-btn__dot { forced-color-adjust: none; background: Highlight; }
     .tb-scrub__thumb::before { background: CanvasText; box-shadow: 0 0 0 1px Canvas; }

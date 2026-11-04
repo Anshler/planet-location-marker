@@ -1,9 +1,9 @@
 /**
- * Time bar: play / step / rate / reverse, the date-time button (popover with a
- * `datetime-local` input interpreted in the display timezone; before 15 Oct 1582 a text field in
- * the Julian calendar, core/tz.js parseCalendarInput), the timezone
- * chip (Observer → Device → UTC), the Live pill / "Return to now", the
- * Timelapse (range loop) popover and the scrubber.
+ * Time bar: step buttons (showing the unit), play, the date button (stamp, zone, chevron), the
+ * accuracy badge, the speed and Live / "Return to now", over the scrubber. The date button (and the
+ * loop chip's Edit, through `ui.openTime(section)`) opens the Time popover: Go to (in the display
+ * zone; Julian before 15 Oct 1582, core/tz.js parseCalendarInput), Stepping, Loop between two
+ * moments (a clock range), Show times in and a legend of the scrubber.
  *
  * Scrubber design: a fixed playhead over a timeline that scrolls with time.
  * The visible window depends on |rate| (±12 h, ±3 d, ±30 d, ±1 yr). Its
@@ -27,7 +27,7 @@
  */
 
 import { BODIES, BODY_INDEX } from '../astro/bodies.js';
-import { h, on, setText, setAttr, clamp, openPopover, uid } from './dom.js';
+import { h, on, setText, setAttr, clamp, openPopover, segmented, switchRow, tpl } from './dom.js';
 import { icon, swapIcon } from './icons.js';
 import { parseCalendarInput, toCalendar, fromCalendar } from '../core/tz.js';
 import { createMarsTime, marsTimeTT, marsClockText, marsSunAltDeg, marsSiteNear } from '../astro/mars-clock.js';
@@ -40,15 +40,27 @@ const DAY = 86400e3;
 const RAD = Math.PI / 180;
 const RATE_MAX = 31557600;
 
-/** Step choices for the step buttons (`clock.step(kind)`). */
-const STEP_UNITS = [
-    { kind: 'minute', label: 'Minute', long: '1 minute' },
-    { kind: 'hour', label: 'Hour', long: '1 hour' },
-    { kind: 'day', label: 'Day', long: '1 day' },
-    { kind: 'siderealDay', label: 'Sid. day', long: '1 sidereal day' },
-    { kind: 'month', label: 'Month', long: '1 lunar month' },
-    { kind: 'year', label: 'Year', long: '1 year' },
+/** Step units (`clock.step(kind)`): the popover's name, the buttons' unit, their names' phrase. */
+export const STEP_UNITS = [
+    { kind: 'minute', label: 'Minute', unit: '1 min', long: '1 minute' },
+    { kind: 'hour', label: 'Hour', unit: '1 h', long: '1 hour' },
+    { kind: 'day', label: 'Day', unit: '1 d', long: '1 day' },
+    { kind: 'siderealDay', label: 'Sidereal day (23 h 56 min)', unit: '1 sid. day', long: '1 sidereal day' },
+    { kind: 'month', label: 'Lunar month', unit: '1 mo', long: '1 lunar month' },
+    { kind: 'year', label: 'Year', unit: '1 yr', long: '1 year' },
 ];
+
+/**
+ * The clock's zone as whole-phrase tpl() templates: [long form, short form (narrow bar, phone)].
+ * @param {'observer'|'device'|'utc'} mode
+ * @param {boolean} [approx] the observer's zone is estimated
+ * @returns {[string, string]}
+ */
+export function zoneTemplates(mode, approx = false) {
+    if (mode === 'utc') return ['UTC', 'UTC'];
+    if (mode === 'device') return ['This device, {offset}', '{offset}'];
+    return approx ? ['{place}, {offset} (approx.)', '{offset} (approx.)'] : ['{place}, {offset}', '{offset}'];
+}
 
 // The sky palette (SPEC F.2): golden hour, rose-violet civil, indigo nautical, near-black night.
 const LUT = SKY_LUT;
@@ -160,12 +172,10 @@ export function halfWindowFor(rate) {
 }
 
 /**
- * Re-aims a cached gradient row (RGBA, one pixel per column) at a window that now starts at
- * `start`. A slide of under half a column keeps the row as it is; a longer one shifts it by whole
- * columns. Sets `out` to the columns still to compute, [from, to), and moves `cache.start` to the
- * start the row now represents (within half a column of `start`). Allocation-free. `data` may
- * hold several rows of `width` (the scrubber's gradient and its bands): shifting the buffer as a
- * whole carries pixels across row ends only into the columns `out` names for recomputing.
+ * Re-aims a cached gradient row (RGBA, a pixel per column) at a window now starting at `start`:
+ * under half a column keeps it, more shifts it by whole columns. Sets `out` to the columns left to
+ * compute, [from, to), and `cache.start` to the start the row now shows. Allocation-free. `data`
+ * may hold several rows (the bands): pixels carried across row ends land only in `out`'s columns.
  * @param {{start: number}} cache
  * @param {Uint8ClampedArray} data `rows * width * 4` bytes
  * @param {number} width columns
@@ -198,140 +208,158 @@ const pad2 = (n) => (n < 10 ? '0' : '') + n;
 const easeOutCubic = (x) => 1 - (1 - x) ** 3;
 
 /**
- * Mounts the time bar.
+ * Mounts the time bar and its Time popover, which `ui.openTime(section)` opens too.
  * @param {HTMLElement} root `<section class="timebar">`
  * @param {any} ctx UiCtx
- * @returns {{update(snap:any): void, destroy(): void, toolsEl: HTMLElement}}
+ * @returns {{update(snap:any): void, destroy(): void}}
  */
 export function mountTimebar(root, ctx) {
     const { store, clock, ui } = ctx;
     const offs = [];
     let unit = STEP_UNITS[1];
 
-    // ================================================================ controls
-    const btn = (cls, label, iconName, tip, kbdHint) => h('button', {
-        class: `icon-btn ${cls}`, type: 'button', 'aria-label': label, 'data-tip': tip || label,
-        ...(kbdHint ? { 'data-kbd': kbdHint } : {}),
-    }, icon(iconName, { size: 20 }));
-
-    const btnBack = btn('tb-back', 'Step back 1 hour', 'step-back', 'Step back', ',');
-    const btnPlay = btn('tb-play icon-btn--primary', 'Pause', 'pause', 'Pause', 'Space');
-    const btnFwd = btn('tb-fwd', 'Step forward 1 hour', 'step-fwd', 'Step forward', '.');
-    const unitSel = h('select', { class: 'select tb-unit', 'aria-label': 'Step size', 'data-tip': 'Step size' },
-        STEP_UNITS.map((u) => h('option', { value: u.kind }, u.label)));
-    unitSel.value = unit.kind;
-
-    const btnSlower = h('button', { class: 'icon-btn icon-btn--sm', type: 'button', 'aria-label': 'Slower', 'data-tip': 'Slower', 'data-kbd': '[' }, icon('minus', { size: 16 }));
+    // ================================================================ the bar
+    const iconBtn = (cls, label, name, size, kbdHint) => h('button', {
+        class: `icon-btn ${cls}`, type: 'button', 'aria-label': label, 'data-tip': label, 'data-kbd': kbdHint,
+    }, icon(name, { size }));
+    // The step buttons name their unit; the tooltip's second line gives the modifiers (CSS data-tip2).
+    const unitBack = h('span', { class: 'tb-step__unit' });
+    const unitFwd = h('span', { class: 'tb-step__unit' });
+    const stepBtn = (cls, key, ...kids) => h('button', {
+        class: `icon-btn tb-step ${cls}`, type: 'button', 'data-kbd': key, 'data-tip2': 'Shift: 1 day · Alt: 1 sidereal day',
+    }, ...kids);
+    const btnBack = stepBtn('tb-back', ',', icon('step-back', { size: 20 }), unitBack);
+    const btnFwd = stepBtn('tb-fwd', '.', unitFwd, icon('step-fwd', { size: 20 }));
+    const btnPlay = iconBtn('tb-play icon-btn--primary', 'Pause', 'pause', 20, 'Space');
+    const btnSlower = iconBtn('icon-btn--sm', 'Slower', 'minus', 16, '[');
     const rateOut = h('output', { class: 'tb-rate__value', 'aria-live': 'off' }, 'Real time');
-    const btnFaster = h('button', { class: 'icon-btn icon-btn--sm', type: 'button', 'aria-label': 'Faster', 'data-tip': 'Faster', 'data-kbd': ']' }, icon('plus', { size: 16 }));
+    const btnFaster = iconBtn('icon-btn--sm', 'Faster', 'plus', 16, ']');
     const rateGroup = h('div', { class: 'tb-rate', role: 'group', 'aria-label': 'Speed' }, btnSlower, rateOut, btnFaster);
-    const btnReverse = btn('tb-reverse', 'Reverse time', 'reverse', 'Reverse', 'R');
-    btnReverse.setAttribute('aria-pressed', 'false');
 
     const stampDay = h('span', { class: 'stamp__day' });
     // Before 15 Oct 1582 the date is Julian, as records give it; the tag says so (title: the Gregorian date).
     const stampCal = h('span', { class: 'stamp__cal', hidden: true }, 'Julian');
-    const stampSep = h('span', { class: 'stamp__sep', 'aria-hidden': 'true' }, '·');
     const stampTime = h('span', { class: 'stamp__time' });
-    const dateBtn = h('button', {
-        class: 'tb-date', type: 'button', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'data-tip': 'Go to a date and time',
-    }, h('span', { class: 'tb-date__icon' }, icon('calendar', { size: 18 })), h('span', { class: 'stamp' }, stampDay, stampCal, stampSep, stampTime));
+    // The zone the clock shows: the long form, or the short one in a narrow bar and on the phone (CSS).
+    const zoneLong = h('span', { class: 'stamp__zl' });
+    const zoneShort = h('span', { class: 'stamp__zs' });
     // Standing on Mars: the site's mission sol (or Mars Sol Date) and local mean solar time.
     const stampMars = h('span', { class: 'tb-sol', hidden: true, title: 'Local mean solar time at the Martian site (Allison & McEwen 2000, as Mars24)' });
-    dateBtn.append(stampMars);
+    const dateBtn = h('button', {
+        class: 'tb-date', type: 'button', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'aria-controls': 'pop-time',
+        'data-tip': 'Go to a date, step, loop or change the time zone',
+    }, h('span', { class: 'tb-date__icon' }, icon('calendar', { size: 18 })),
+    h('span', { class: 'stamp' }, stampDay, stampCal, h('span', { class: 'stamp__sep', 'aria-hidden': 'true' }, '·'), stampTime,
+        h('span', { class: 'stamp__zone' }, zoneLong, zoneShort), icon('chevron-down', { size: 16, className: 'tb-date__chev' })), stampMars);
     const badge = h('span', { class: 'badge badge--warn tb-accuracy', hidden: true, title: 'Planet positions are most accurate between 1800 and 2200' },
         icon('warning', { size: 14 }), h('span', { class: 'tb-accuracy__text' }, 'Reduced accuracy'));
-    const tzChip = h('button', { class: 'chip tb-tz', type: 'button', 'data-tip': 'Change time zone' });
-    const lapseBtn = h('button', {
-        class: 'btn btn--ghost tb-lapse', type: 'button', 'aria-label': 'Timelapse', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'data-tip': 'Loop between two moments',
-    }, icon('timelapse', { size: 18 }), h('span', { class: 'tb-lapse__label' }, 'Timelapse'));
     const livePill = h('span', { class: 'live-pill', role: 'status', 'aria-label': 'Live: showing the current time' },
         h('span', { class: 'live-pill__dot', 'aria-hidden': 'true' }), 'LIVE');
     const nowBtn = h('button', { class: 'btn btn--now', type: 'button', 'data-tip': 'Back to the current time', 'data-kbd': 'N' },
         icon('live', { size: 18 }), h('span', { class: 'btn--now__long' }, 'Return to now'), h('span', { class: 'btn--now__short' }, 'Now'));
     const liveWrap = h('div', { class: 'tb-live' }, livePill, nowBtn);
-
     const rowMain = h('div', { class: 'tb-row tb-main' });
-    const zoneL = h('div', { class: 'tb-zone tb-zone--left' });
-    const zoneC = h('div', { class: 'tb-zone tb-zone--center' });
-    const zoneR = h('div', { class: 'tb-zone tb-zone--right' });
-    const toolsEl = h('div', { class: 'tb-row tb-tools' });
 
     // ================================================================ scrubber
     const canvas = h('canvas', { class: 'tb-scrub__canvas', 'aria-hidden': 'true' });
     const thumb = h('span', { class: 'tb-scrub__thumb', 'aria-hidden': 'true' }, h('span', { class: 'tb-scrub__knob' }));
     const tip = h('span', { class: 'tb-scrub__tip', 'aria-hidden': 'true', hidden: true });
-    const scrubId = uid('scrub');
     const scrub = h('div', {
-        class: 'tb-scrub', id: scrubId, role: 'slider', tabindex: '0', 'aria-label': 'Time',
+        class: 'tb-scrub', role: 'slider', tabindex: '0', 'aria-label': 'Time',
         'aria-valuemin': '0', 'aria-valuemax': '1', 'aria-valuenow': '0',
     }, canvas, thumb, tip);
-    root.append(rowMain, scrub, toolsEl);
+    root.append(rowMain, scrub);
 
-    // ================================================================ popovers
-    const popHost = ui.root || document.body;
-    const dateInput = h('input', {
-        class: 'input', type: 'datetime-local', step: '1', min: '1000-01-01T00:00', max: '3000-01-01T00:00',
-        'data-autofocus': '',
-    });
-    const dateZone = h('span', { class: 'pop__zone' });
-    // The native picker is Gregorian: from a Gregorian date, a Julian-only day (29 Feb 1500) needs
-    // the text entry, which this button switches to.
-    const julBtn = h('button', { class: 'btn btn--ghost btn--sm pop__jul', type: 'button' }, 'Type a Julian date');
-    const dateCal = h('p', { class: 'pop__hint pop__cal' },
-        'Dates before 15 Oct 1582 are in the Julian calendar, as records of the time give them. ', julBtn);
+    // ================================================================ the Time popover (§4.5)
+    const dtInput = () => h('input', { class: 'input', type: 'datetime-local', step: '1', min: '1000-01-01T00:00', max: '3000-01-01T00:00' });
+    const field = (label, control, cls = 'field') => h('label', { class: cls }, h('span', { class: 'field__label' }, label), control);
+    const title = (text) => h('h3', { class: 'group-title' }, text);
+    const zoneSpan = () => h('span', { class: 'pop__zone' });
+
+    // Go to.
+    const dateInput = dtInput();
+    const zoneGo = zoneSpan();
+    // The native picker is Gregorian: a Julian-only day (29 Feb 1500) needs the text entry.
+    const julBtn = h('button', { class: 'btn btn--ghost btn--sm', type: 'button' }, 'Type a Julian date');
     const quick = h('div', { class: 'pop__quick', role: 'group', 'aria-label': 'Quick jumps' });
-    const goBtn = h('button', { class: 'btn btn--primary', type: 'submit' }, 'Go');
-    const dateForm = h('form', { class: 'pop__form', novalidate: true },
-        h('label', { class: 'field' }, h('span', { class: 'field__label' }, 'Date and time ', dateZone), dateInput),
-        dateCal,
+    const accuracy = h('p', { class: 'note pt__warn', hidden: true }, icon('warning', { size: 14 }), 'Positions are less accurate before 1800 and after 2200.');
+    const goForm = h('form', { class: 'pt__sec', novalidate: true }, title('Go to'),
+        h('div', { class: 'pt__row' }, field(tpl('Date and time ({zone})', { zone: zoneGo }), dateInput, 'field pt__grow'),
+            h('button', { class: 'btn btn--primary', type: 'submit' }, 'Go')),
         quick,
-        h('div', { class: 'pop__actions' }, goBtn));
-    const datePop = h('div', { class: 'popover pop-date', role: 'dialog', 'aria-label': 'Go to date and time', hidden: true },
-        h('div', { class: 'pop__title' }, icon('calendar', { size: 16 }), 'Go to date & time'), dateForm);
+        h('p', { class: 'note' }, tpl('Dates before 15 October 1582 are Julian. {button}', { button: julBtn })),
+        accuracy);
 
-    const fromInput = h('input', { class: 'input', type: 'datetime-local', step: '1', min: '1000-01-01T00:00', max: '3000-01-01T00:00', 'data-autofocus': '' });
-    const toInput = h('input', { class: 'input', type: 'datetime-local', step: '1', min: '1000-01-01T00:00', max: '3000-01-01T00:00' });
+    // Stepping.
+    const unitSel = h('select', { class: 'select' }, STEP_UNITS.map((u) => h('option', { value: u.kind }, u.label)));
+    const runs = segmented({
+        label: 'Time runs', options: [{ value: 'fwd', label: 'Forward' }, { value: 'back', label: 'Backward' }], value: 'fwd',
+        onChange: (v) => { if ((v === 'back') !== (clock.rate < 0)) clock.reverse(); syncControls(); },
+    });
+    // Phone only: the bar has no step buttons there, so arrange() moves them in here.
+    const stepRow = h('div', { class: 'pt__row pt__steps', hidden: true });
+    const stepping = h('div', { class: 'pt__sec' }, title('Stepping'),
+        field('Step buttons move by', unitSel, 'pt__row'),
+        h('p', { class: 'note for-fine' }, 'Shift-click: 1 day. Alt-click: 1 sidereal day.'),
+        h('div', { class: 'pt__row' }, h('span', { class: 'field__label', 'aria-hidden': 'true' }, 'Time runs'), runs.el, h('kbd', { class: 'kbd' }, 'R')),
+        stepRow);
+
+    // Loop between two moments.
+    const fromInput = dtInput();
+    const toInput = dtInput();
     const durInput = h('input', { class: 'input input--num', type: 'number', min: '1', max: '600', step: '1', value: '10', inputmode: 'numeric' });
-    const modeName = uid('lapse-mode');
-    const modes = [['loop', 'Loop'], ['pingpong', 'Ping-pong'], ['once', 'Once']].map(([v, l], i) =>
-        h('label', { class: 'seg__opt' }, h('input', { type: 'radio', name: modeName, value: v, checked: i === 0 }), h('span', null, l)));
+    let playback = 'loop';
+    const playSeg = segmented({
+        label: 'Playback', options: [{ value: 'loop', label: 'Loop' }, { value: 'pingpong', label: 'Back and forth' }, { value: 'once', label: 'Once' }],
+        value: playback, onChange: (v) => { playback = v; },
+    });
+    const zoneLoop = zoneSpan();
     const lapseErr = h('p', { class: 'pop__error', role: 'alert', hidden: true });
     const stopBtn = h('button', { class: 'btn btn--ghost', type: 'button', hidden: true }, 'Stop');
-    const startBtn = h('button', { class: 'btn btn--primary', type: 'submit' }, icon('play', { size: 14 }), 'Start');
-    const lapseZone = h('span', { class: 'pop__zone' });
-    const lapseForm = h('form', { class: 'pop__form', novalidate: true },
-        h('p', { class: 'pop__hint' }, 'Loop the clock between two moments. Times in ', lapseZone, '.'),
-        h('div', { class: 'pop__grid' },
-            h('label', { class: 'field' }, h('span', { class: 'field__label' }, 'From'), fromInput),
-            h('label', { class: 'field' }, h('span', { class: 'field__label' }, 'To'), toInput)),
-        h('div', { class: 'pop__grid pop__grid--2' },
-            h('label', { class: 'field' }, h('span', { class: 'field__label' }, 'Duration (seconds)'), durInput),
-            h('div', { class: 'field' }, h('span', { class: 'field__label', id: `${modeName}-l` }, 'Playback'),
-                h('div', { class: 'seg seg--radio', role: 'radiogroup', 'aria-labelledby': `${modeName}-l` }, modes))),
+    const loopForm = h('form', { class: 'pt__body', novalidate: true },
+        h('p', { class: 'note' }, tpl('Times are in {zone}.', { zone: zoneLoop })),
+        field('From', fromInput), field('To', toInput),
+        h('label', { class: 'field__label pt__row' }, tpl('One loop takes {seconds} s', { seconds: durInput })),
+        playSeg.el,
         lapseErr,
-        h('div', { class: 'pop__actions' }, stopBtn, startBtn));
-    const lapsePop = h('div', { class: 'popover pop-lapse', role: 'dialog', 'aria-label': 'Timelapse', hidden: true },
-        h('div', { class: 'pop__title' }, icon('timelapse', { size: 16 }), 'Timelapse'), lapseForm);
-    popHost.append(datePop, lapsePop);
+        h('div', { class: 'pt__row pt__end' }, stopBtn, h('button', { class: 'btn btn--primary', type: 'submit' }, icon('play', { size: 14 }), 'Start')));
+    const loopBox = h('details', { class: 'pt__more' }, h('summary', null, 'Loop between two moments'), loopForm);
+
+    // Show times in.
+    const tzSeg = segmented({
+        label: 'Show times in', options: [{ value: 'observer', label: 'Your place' }, { value: 'device', label: 'This device' }, { value: 'utc', label: 'UTC' }],
+        value: 'observer',
+        onChange: (v) => { ui.act('setTzMode', v); ctx.bus.emit('announce', `Times in ${zoneText}.`); },
+    });
+    const clock24 = switchRow({
+        label: '24-hour clock', checked: !store.get().display?.hour12,
+        onChange: (on24) => store.set({ display: { ...store.get().display, hour12: !on24 } }),
+    });
+    const legend = h('details', { class: 'pt__more' }, h('summary', null, 'What the time bar shows'),
+        h('ul', { class: 'pt__body pt__legend' }, ['The colour is the Sun’s height: day, twilight, night.', 'The top edge shows when the selected planet is up.',
+            'The bottom edge shows when the Moon is up.', 'Gold bars are eclipses, and ticks are events.'].map((t) => h('li', null, t))));
+
+    const closeBtn = iconBtn('icon-btn--sm', 'Close', 'close', 16);
+    const pop = h('div', { class: 'popover pop-time', id: 'pop-time', role: 'dialog', 'aria-labelledby': 'pop-time-title', hidden: true },
+        h('div', { class: 'pt__head' }, h('h2', { class: 'pt__title', id: 'pop-time-title' }, 'Time'), closeBtn),
+        goForm, stepping, loopBox,
+        h('div', { class: 'pt__sec' }, title('Show times in'), tzSeg.el, clock24.el),
+        legend);
+    (ui.root || document.body).append(pop);
 
     // ================================================================ arrangement per layout
     function arrange(layout) {
         if (layout === 'mobile') {
-            rowMain.replaceChildren(btnPlay, dateBtn, rateGroup, liveWrap);
-            toolsEl.replaceChildren(btnBack, unitSel, btnFwd, btnReverse, lapseBtn, tzChip, badge);
-            toolsEl.hidden = false;
+            rowMain.replaceChildren(btnPlay, dateBtn, badge, rateGroup, liveWrap);
+            stepRow.replaceChildren(btnBack, btnFwd);
         } else {
-            // Three zones: transport · date & zone · speed, timelapse and live.
-            zoneL.replaceChildren(btnBack, btnPlay, btnFwd, unitSel);
-            zoneC.replaceChildren(dateBtn, badge, tzChip);
-            zoneR.replaceChildren(rateGroup, btnReverse, lapseBtn, liveWrap);
-            rowMain.replaceChildren(zoneL, zoneC, zoneR);
-            toolsEl.replaceChildren();
-            toolsEl.hidden = true;
+            // Three zones: transport · date and zone · speed and live.
+            rowMain.replaceChildren(h('div', { class: 'tb-zone tb-zone--left' }, btnBack, btnPlay, btnFwd),
+                h('div', { class: 'tb-zone tb-zone--center' }, dateBtn, badge), h('div', { class: 'tb-zone tb-zone--right' }, rateGroup, liveWrap));
         }
+        stepRow.hidden = layout !== 'mobile';
         geomDirty = true;
-        syncControls(true); // the rate label is compact on the phone
+        syncControls(true); // the rate label is compact and the step buttons spelled out on the phone
         kick();
     }
 
@@ -347,19 +375,10 @@ export function mountTimebar(root, ctx) {
     }));
     offs.push(on(btnSlower, 'click', () => { clock.slower(); syncControls(); }));
     offs.push(on(btnFaster, 'click', () => { clock.faster(); syncControls(); }));
-    offs.push(on(btnReverse, 'click', () => { clock.reverse(); syncControls(); }));
     offs.push(on(nowBtn, 'click', () => { clock.goLive(); syncControls(); }));
-    offs.push(on(tzChip, 'click', () => {
-        const order = ['observer', 'device', 'utc'];
-        const cur = store.get().display?.tzMode || 'observer';
-        const next = order[(order.indexOf(cur) + 1) % order.length];
-        if (ui.act('setTzMode', next) === undefined && typeof ctx.actions?.setTzMode !== 'function') {
-            store.set({ display: { ...store.get().display, tzMode: next } });
-        }
-    }));
 
-    // -- date popover -------------------------------------------------------
-    let datePopCtl = null;
+    // -- the popover ----------------------------------------------------------
+    let popCtl = null;
     /** The display calendar's date and time (Julian before 15 Oct 1582: ui.zoned). */
     function toInputValue(ms) {
         const z = ui.zoned(clamp(ms, MIN_MS, MAX_MS - 1000));
@@ -381,28 +400,15 @@ export function mountTimebar(root, ctx) {
         input.placeholder = jul ? 'YYYY-MM-DD HH:MM (Julian)' : '';
         input.value = toInputValue(ms);
     }
-    function zoneText() {
-        const st = store.get();
-        const mode = st.display?.tzMode || 'observer';
-        const off = ui.offsetText(clock.tMs);
-        if (mode === 'utc') return '(UTC)';
-        if (mode === 'device') return `(this device · ${off})`;
-        return `(${ui.placeShort(st.observer)} · ${off}${st.observer?.tzApprox ? ', approx.' : ''})`;
-    }
     function quickJumps() {
-        const t = clock.tMs;
-        const items = [];
-        items.push(['Now', null, () => clock.goLive()]);
         const tw = ui.almanac.night?.twilight;
-        if (tw && Number.isFinite(tw.sunsetMs)) items.push(['Sunset', tw.sunsetMs, null]);
-        const z = ui.zoned(t);
-        const midnight = ui.toUtc({ y: z.y, mo: z.mo, d: z.d + 1, h: 0, mi: 0, s: 0, cal: z.cal });
-        items.push(['Midnight', midnight, null]);
-        if (tw && Number.isFinite(tw.sunriseMs)) items.push(['Sunrise', tw.sunriseMs, null]);
-        quick.replaceChildren(...items.map(([label, ms, fn]) => h('button', {
+        const z = ui.zoned(clock.tMs);
+        const items = [['Now', null], ['Sunset', tw?.sunsetMs], ['Midnight', ui.toUtc({ y: z.y, mo: z.mo, d: z.d + 1, h: 0, mi: 0, s: 0, cal: z.cal })],
+            ['Sunrise', tw?.sunriseMs]].filter(([, ms]) => ms === null || Number.isFinite(ms));
+        quick.replaceChildren(...items.map(([label, ms]) => h('button', {
             class: 'chip chip--quick', type: 'button',
-            onClick: () => { if (fn) fn(); else jumpTo(ms); closeDate(); },
-        }, h('span', null, label), ms != null ? h('span', { class: 'chip__meta' }, ui.fmtClock(ms)) : null)));
+            onClick: () => { if (ms === null) clock.goLive(); else jumpTo(ms); closeTime(); },
+        }, h('span', null, label), ms !== null ? h('span', { class: 'chip__meta' }, ui.fmtClock(ms)) : null)));
     }
     function jumpTo(ms) {
         if (!Number.isFinite(ms)) return;
@@ -411,18 +417,37 @@ export function mountTimebar(root, ctx) {
         clock.setTime(target, { animateMs: reduced() || dist < 60e3 ? 0 : clamp(500 + Math.log10(1 + dist / HOUR) * 450, 500, 1600) });
         kick();
     }
-    function openDate() {
-        if (datePopCtl) { closeDate(); return; }
-        closeLapse();
-        inputFor(dateInput, clock.tMs);
-        julBtn.hidden = dateInput.type === 'text';
-        dateInput.removeAttribute('aria-invalid');
-        setText(dateZone, zoneText());
-        quickJumps();
-        datePopCtl = openPopover(dateBtn, datePop, { placement: 'top', within: root, onClose: () => { datePopCtl = null; } });
+    /** What each section focuses when `ui.openTime(section)` opens it. */
+    const FIRST = { go: () => dateInput, step: () => unitSel, loop: () => fromInput, zone: () => tzSeg.el.querySelector('[tabindex="0"]') };
+    /** Opens the Time popover at a section ('go' | 'step' | 'loop' | 'zone') and focuses its first control. */
+    function openTime(section = 'go') {
+        if (!popCtl) {
+            inputFor(dateInput, clock.tMs);
+            julBtn.hidden = dateInput.type === 'text';
+            dateInput.removeAttribute('aria-invalid');
+            quickJumps();
+            const r = clock.range;
+            inputFor(fromInput, r ? r.fromMs : clock.tMs);
+            inputFor(toInput, r ? r.toMs : clock.tMs + DAY);
+            durInput.value = String(r ? Math.round(r.durationS) : 10);
+            playback = r?.loop || 'loop';
+            playSeg.set(playback);
+            lapseErr.hidden = true;
+            loopBox.open = !!r;
+            popCtl = openPopover(dateBtn, pop, { placement: 'top', within: root, focus: false, onClose: () => { popCtl = null; } });
+            syncPop();
+        }
+        if (section === 'loop') loopBox.open = true;
+        popCtl.reposition();
+        const el = (FIRST[section] || FIRST.go)();
+        el?.focus({ preventScroll: true });
+        el?.scrollIntoView({ block: 'nearest' });
     }
-    function closeDate() { datePopCtl?.close(); datePopCtl = null; }
-    offs.push(on(dateBtn, 'click', openDate));
+    function closeTime() { popCtl?.close(); }
+    ui.openTime = openTime;
+    offs.push(on(dateBtn, 'click', () => (popCtl ? closeTime() : openTime())));
+    offs.push(on(closeBtn, 'click', closeTime));
+    for (const d of [loopBox, legend]) offs.push(on(d, 'toggle', () => popCtl?.reposition()));
     offs.push(on(julBtn, 'click', () => {
         const v = dateInput.value || toInputValue(clock.tMs);
         dateInput.type = 'text';
@@ -432,35 +457,15 @@ export function mountTimebar(root, ctx) {
         julBtn.hidden = true;
         dateInput.focus();
     }));
-    offs.push(on(dateForm, 'submit', (e) => {
+    offs.push(on(goForm, 'submit', (e) => {
         e.preventDefault();
         const ms = fromInputValue(dateInput.value);
         if (!Number.isFinite(ms)) { dateInput.setAttribute('aria-invalid', 'true'); dateInput.focus(); return; }
         jumpTo(ms);
-        closeDate();
+        closeTime();
     }));
-
-    // -- timelapse popover ----------------------------------------------------
-    let lapsePopCtl = null;
-    function openLapse() {
-        if (lapsePopCtl) { closeLapse(); return; }
-        closeDate();
-        const r = clock.range;
-        const t = clock.tMs;
-        inputFor(fromInput, r ? r.fromMs : t);
-        inputFor(toInput, r ? r.toMs : t + DAY);
-        durInput.value = String(r ? Math.round(r.durationS) : 10);
-        const mode = r?.loop || 'loop';
-        for (const m of modes) { const inp = m.querySelector('input'); inp.checked = inp.value === mode; }
-        stopBtn.hidden = !r;
-        lapseErr.hidden = true;
-        setText(lapseZone, zoneText().replace(/^\(|\)$/g, ''));
-        lapsePopCtl = openPopover(lapseBtn, lapsePop, { placement: 'top', within: root, onClose: () => { lapsePopCtl = null; } });
-    }
-    function closeLapse() { lapsePopCtl?.close(); lapsePopCtl = null; }
-    offs.push(on(lapseBtn, 'click', openLapse));
-    offs.push(on(stopBtn, 'click', () => { clock.setRange(null); closeLapse(); syncControls(); }));
-    offs.push(on(lapseForm, 'submit', (e) => {
+    offs.push(on(stopBtn, 'click', () => { clock.setRange(null); closeTime(); syncControls(); }));
+    offs.push(on(loopForm, 'submit', (e) => {
         e.preventDefault();
         let a = fromInputValue(fromInput.value), b = fromInputValue(toInput.value);
         const dur = clamp(Math.round(Number(durInput.value) || 10), 1, 600);
@@ -472,97 +477,106 @@ export function mountTimebar(root, ctx) {
         if (b < a) [a, b] = [b, a];
         if (b - a < 60e3) b = a + HOUR;
         a = clamp(a, MIN_MS, MAX_MS); b = clamp(b, MIN_MS, MAX_MS);
-        const loop = modes.map((m) => m.querySelector('input')).find((i) => i.checked)?.value || 'loop';
-        clock.setRange({ fromMs: a, toMs: b, durationS: dur, loop });
+        clock.setRange({ fromMs: a, toMs: b, durationS: dur, loop: playback });
         if (!clock.playing) clock.play();
-        closeLapse();
+        closeTime();
         syncControls();
     }));
 
     // ================================================================ control state
     let lastStampAt = 0;
     let lastYear = NaN;
+    let zoneMode = '', zoneOff = NaN;
+    let zoneText = '';               // the zone's long form: accessible names, the popover, announcements
     function syncControls(force = false) {
-        const playing = clock.playing;
-        const live = clock.live;
-        const rate = clock.rate;
-        const range = clock.range;
+        const { playing, live, rate, range } = clock;
+        const mobile = ui.layout === 'mobile';
         swapIcon(btnPlay, playing ? 'pause' : 'play', 20);
         setAttr(btnPlay, 'aria-label', playing ? 'Pause' : 'Play');
         btnPlay.dataset.tip = playing ? 'Pause' : 'Play';
-        const unitLong = unit.long;
-        setAttr(btnBack, 'aria-label', `Step back ${unitLong}`);
-        setAttr(btnFwd, 'aria-label', `Step forward ${unitLong}`);
-        btnBack.dataset.tip = `Back ${unitLong}`;
-        btnFwd.dataset.tip = `Forward ${unitLong}`;
+        setAttr(btnBack, 'aria-label', `Step back ${unit.long}`);
+        setAttr(btnFwd, 'aria-label', `Step forward ${unit.long}`);
+        btnBack.dataset.tip = `Back ${unit.long}`;
+        btnFwd.dataset.tip = `Forward ${unit.long}`;
+        // In the bar the unit alone ('1 h'); in the phone's popover the whole phrase.
+        setText(unitBack, mobile ? `Back ${unit.long}` : unit.unit);
+        setText(unitFwd, mobile ? `Forward ${unit.long}` : unit.unit);
         // The phone row is tight: real time reads '1×' there so the date keeps its year.
-        setText(rateOut, range ? 'Timelapse' : ui.fmt('fmtRate', rate, { compact: ui.layout === 'mobile' }));
+        const rateText = range ? 'Loop' : ui.fmt('fmtRate', rate, { compact: mobile });
+        setText(rateOut, rateText);
+        setAttr(rateOut, 'aria-label', playing ? `Speed: ${rateText}` : `Speed: ${rateText}, paused`);
         rateOut.classList.toggle('is-reverse', rate < 0 && !range);
+        rateOut.classList.toggle('is-paused', !playing);
         btnSlower.disabled = !!range || rate <= -RATE_MAX;
         btnFaster.disabled = !!range || rate >= RATE_MAX;
-        setAttr(btnReverse, 'aria-pressed', String(rate < 0));
-        btnReverse.classList.toggle('is-on', rate < 0);
+        // The ladder goes from 1× to −1×: the next Slower turns time around.
+        btnSlower.dataset.tip = rate > 0 && rate <= 1 ? 'Slower (then backward)' : 'Slower';
         livePill.hidden = !live;
         nowBtn.hidden = live;
-        root.classList.toggle('is-live', live);
-        root.classList.toggle('is-paused', !playing);
-        lapseBtn.classList.toggle('is-on', !!range);
-        setAttr(lapseBtn, 'aria-pressed', String(!!range));
         stampTime.classList.toggle('is-h12', !!store.get().display?.hour12);
         syncStamp(force);
-        syncTz();
+        if (popCtl) syncPop();
+    }
+    /** The popover's state from the clock and the store (while it is open). */
+    function syncPop() {
+        const st = store.get();
+        if (unitSel.value !== unit.kind) unitSel.value = unit.kind;
+        runs.set(clock.rate < 0 ? 'back' : 'fwd');
+        stopBtn.hidden = !clock.range;
+        accuracy.hidden = badge.hidden;
+        tzSeg.set(st.display?.tzMode || 'observer');
+        setText(tzSeg.el.firstChild, ui.placeShort(st.observer) || 'Your place');
+        clock24.set(!st.display?.hour12);
+    }
+    /** The zone's long and short forms (zoneTemplates) in the date button and the popover. */
+    function syncZone(t, mode) {
+        const obs = store.get().observer;
+        const [long, short] = zoneTemplates(mode, !!obs?.tzApprox);
+        const offset = ui.offsetText(t);
+        const place = ui.placeShort(obs) || 'Your place';
+        // The place gives way (ellipsis) before the offset does.
+        zoneLong.replaceChildren(tpl(long, { place: h('span', { class: 'stamp__place' }, place), offset }));
+        zoneText = zoneLong.textContent;
+        setText(zoneShort, tpl(short, { offset }).textContent);
+        setText(zoneGo, zoneText);
+        setText(zoneLoop, zoneText);
     }
     function syncStamp(force) {
         const now = performance.now();
         if (!force && now - lastStampAt < 90) return;
         lastStampAt = now;
         const t = clock.tMs;
+        const z = ui.zoned(t);
         setText(stampDay, ui.fmtDay(t));
         setText(stampTime, ui.fmtClock(t, { seconds: true }));
-        const jul = ui.zoned(t).cal === 'julian';
+        const jul = z.cal === 'julian';
         if (stampCal.hidden === jul) stampCal.hidden = !jul;
         if (jul) {
-            const g = new Date(t + ui.zoned(t).offsetMin * 60e3);
+            const g = new Date(t + z.offsetMin * 60e3);
             const tipText = `Julian calendar, as records of the time give it. Gregorian (proleptic): ${g.getUTCDate()} ${ui.MONTHS[g.getUTCMonth()]} ${g.getUTCFullYear()}`;
             if (stampCal.title !== tipText) stampCal.title = tipText;
         }
-        setAttr(dateBtn, 'aria-label', `Date and time: ${ui.fmtSpoken(t)}${jul ? ' (Julian calendar)' : ''}. Change`);
-        const host = store.get().host;
+        const st = store.get();
+        const mode = st.display?.tzMode || 'observer';
+        if (force || mode !== zoneMode || z.offsetMin !== zoneOff) { zoneMode = mode; zoneOff = z.offsetMin; syncZone(t, mode); }
+        const stamp = ui.fmtSpoken(t);
+        const host = st.host;
         const mars = host?.id === 'mars';
         if (stampMars.hidden === mars) stampMars.hidden = !mars;
+        let sol = '';
         if (mars) {
             const site = marsSiteNear(host.latDeg, host.lonDeg, 0.5);
-            const txt = marsClockText(marsTimeTT(ttDaysApprox(t), host.lonDeg, MT), site ? { ...site, lonDeg: host.lonDeg } : { lonDeg: host.lonDeg }).text;
-            setText(stampMars, txt);
+            sol = marsClockText(marsTimeTT(ttDaysApprox(t), host.lonDeg, MT), site ? { ...site, lonDeg: host.lonDeg } : { lonDeg: host.lonDeg }).text;
+            setText(stampMars, sol);
         }
+        setAttr(dateBtn, 'aria-label', mars ? `Earth date and time: ${stamp}, ${zoneText}. On Mars: ${sol}. Open the time panel`
+            : jul ? `Date and time: ${stamp} (Julian calendar), ${zoneText}. Open the time panel`
+                : `Date and time: ${stamp}, ${zoneText}. Open the time panel`);
         const y = new Date(t).getUTCFullYear();
         if (y !== lastYear) {
             lastYear = y;
             badge.hidden = !(y < 1800 || y > 2200);
         }
-    }
-    function syncTz() {
-        const st = store.get();
-        const mode = st.display?.tzMode || 'observer';
-        const off = ui.offsetText(clock.tMs);
-        let text, place = '', label, tipText = 'Change time zone';
-        if (mode === 'utc') { text = 'UTC'; label = 'Times in UTC. Switch to observer time'; }
-        else if (mode === 'device') { text = off; place = ' · This device'; label = `Times in this device's zone, ${off}. Switch to UTC`; }
-        else if (st.observer?.tzApprox) { text = `${off} (approx.)`; label = `Times at the observer, ${off}, approximate. Switch to this device's time`; }
-        else {
-            // The location chip already names the observer's place: the chip shows the offset
-            // only, and the place stays in its accessible name and tooltip.
-            const p = ui.placeShort(st.observer);
-            text = off;
-            label = `Times in ${p}, ${off}. Switch to this device's time`;
-            tipText = `Times in ${p}. Change time zone`;
-        }
-        // Standing on Mars the clock is still the Earth's: say so.
-        if (st.host?.id === 'mars') { label = `Earth time: ${label}`; tipText = 'The clock is the Earth’s; Mars time is beside the date'; }
-        // The place part is its own span so the phone layout can drop it.
-        if (tzChip.textContent !== text + place) tzChip.replaceChildren(text, place ? h('span', { class: 'tb-tz__place' }, place) : '');
-        setAttr(tzChip, 'aria-label', label);
-        if (tzChip.dataset.tip !== tipText) tzChip.dataset.tip = tipText;
     }
 
     // ================================================================ scrubber engine
@@ -607,9 +621,8 @@ export function mountTimebar(root, ctx) {
 
     let roW = 0, roH = 0;             // the scrubber's box as the ResizeObserver last reported it
     /**
-     * Sizes the canvas only when something flagged it. The size comes from the ResizeObserver's
-     * entry, so draw() (a frame callback) never reads layout; only a first draw before the
-     * observer's first entry, or a browser without one, reads the box (and the left edge with it).
+     * Sizes the canvas when flagged, from the ResizeObserver's entry, so draw() never reads layout
+     * (only a first draw before the observer's entry, or a browser without one, reads the box).
      */
     function resizeCanvas() {
         if (!geomDirty && observesSize) return;
@@ -729,10 +742,8 @@ export function mountTimebar(root, ctx) {
     }
 
     /**
-     * Updates the cached gradient row for the current window. A window that slid by less than
-     * one column reuses it as is (the error is under a device pixel); a longer slide shifts the
-     * row by whole columns and computes only the exposed ones, so steady time-lapse costs a few
-     * columns of trig per frame instead of the whole width.
+     * Updates the cached gradient row for the window, computing only the columns a slide exposed,
+     * so steady fast time costs a few columns of trig per frame.
      * @returns {boolean} whether the row changed
      */
     function updateGradient(obs) {
@@ -755,9 +766,9 @@ export function mountTimebar(root, ctx) {
     }
 
     /**
-     * Computes columns [from, to) of the cached rows (window start `grad.start`): the sky's colour
-     * by the Sun's altitude, then where the Moon is up (silver, brighter the fuller it is) and
-     * where the selected planet is up (in its colour); the bands stay clear on wide windows and Mars.
+     * Computes columns [from, to) of the cached rows: the sky's colour by the Sun's altitude, where
+     * the Moon is up (brighter the fuller) and the selected planet (its colour); no bands on wide
+     * windows or on Mars.
      */
     function fillGradient(obs, from, to, wide, useSeries) {
         const cw = canvas.width;
@@ -1183,7 +1194,6 @@ export function mountTimebar(root, ctx) {
     kick();
 
     return {
-        toolsEl,
         update() { if (!raf) { syncControls(); kick(); } },
         destroy() {
             offs.forEach((off) => off());
@@ -1191,8 +1201,9 @@ export function mountTimebar(root, ctx) {
             clearTimeout(secTimer);
             if (raf) cancelAnimationFrame(raf);
             dropSeries(series); dropSeries(moonSeries); dropSeries(bodySeries);
-            closeDate(); closeLapse();
-            datePop.remove(); lapsePop.remove();
+            closeTime();
+            pop.remove();
+            if (ui.openTime === openTime) delete ui.openTime;
             root.textContent = '';
         },
     };

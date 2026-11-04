@@ -5,7 +5,7 @@
  * guard?}) · update(id, {detail}) · clear(id) · top() · exitTop() · flash(text). Esc (shortcuts.js)
  * calls exitTop, which flashes `exit.done`; a `guard()` warning (an exposure with frames) asks for
  * a second Esc within 3 s. The owners set their chips (view-switch.js, sky-tools.js, expose.js,
- * shell.js; the loop's is here); the actions announce entering and leaving.
+ * shell.js; the loop's is here, its Edit opens Time › Loop); the actions announce entering and leaving.
  *
  * @module ui/modes
  */
@@ -155,6 +155,7 @@ export function mountModes(host, ctx) {
         set('loop', {
             icon: 'timelapse', title: `Looping ${ui.fmtWhen(r.fromMs, clock.tMs)} → ${ui.fmtWhen(r.toMs, r.fromMs)}`,
             detail: r.loop === 'once' ? `${r.durationS} s, played once` : `${r.durationS} s per loop, ${PLAY[r.loop] ?? PLAY.loop}`,
+            actions: [{ label: 'Edit', run: () => ui.openTime?.('loop') }],
             exit: { label: 'Stop the loop', done: 'Loop stopped', run: () => clock.setRange(null) },
         });
     };

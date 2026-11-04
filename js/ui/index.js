@@ -316,7 +316,7 @@ function createUiHub(ctx, rootEl) {
         return latLonText(o.latDeg, o.lonDeg, 2);
     }
 
-    /** Short place name for the tz chip and summaries ("Hanoi"). */
+    /** Short place name for the clock's zone and summaries ("Hanoi"). */
     function placeShort(o) {
         const name = String(o?.name || '').trim();
         if (name) return name.replace(/^near\s+/i, '');

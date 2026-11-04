@@ -6,7 +6,7 @@
  * (`aria-hidden`) unless a `title` is given, in which case they get `role="img"`
  * and a <title>.
  *
- * Spec names: play pause step-back step-fwd reverse live search locate pin globe sky
+ * Spec names: play pause step-back step-fwd live search locate pin globe sky
  * share layers info calendar settings close help fullscreen chevron-up
  * sun moon planet eye eye-off undo copy — plus UI extras listed in ICON_NAMES.
  *
@@ -27,7 +27,6 @@ const ICONS = {
     pause: [['rect', { x: 6.6, y: 5.2, width: 3.6, height: 13.6, rx: 1.1, ...F }], ['rect', { x: 13.8, y: 5.2, width: 3.6, height: 13.6, rx: 1.1, ...F }]],
     'step-back': [['path', { d: 'M6.5 5.5v13' }], ['path', { d: 'M18.2 6.6v10.8a.8.8 0 0 1-1.25.66L9.4 12.66a.8.8 0 0 1 0-1.32l7.55-5.4a.8.8 0 0 1 1.25.66z', ...F }]],
     'step-fwd': [['path', { d: 'M17.5 5.5v13' }], ['path', { d: 'M5.8 6.6v10.8a.8.8 0 0 0 1.25.66l7.55-5.4a.8.8 0 0 0 0-1.32L7.05 5.94a.8.8 0 0 0-1.25.66z', ...F }]],
-    reverse: [['path', { d: 'M4 8.5h14.5' }], ['path', { d: 'M15 5l3.5 3.5L15 12' }], ['path', { d: 'M20 15.5H5.5' }], ['path', { d: 'M9 12l-3.5 3.5L9 19' }]],
     live: [['circle', { cx: 12, cy: 12, r: 2.3, ...F }], ['path', { d: 'M8.4 8.4a5.1 5.1 0 0 0 0 7.2M15.6 8.4a5.1 5.1 0 0 1 0 7.2' }], ['path', { d: 'M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8' }]],
     search: [['circle', { cx: 10.8, cy: 10.8, r: 6.3 }], ['path', { d: 'M15.5 15.5L20 20' }]],
     locate: [['circle', { cx: 12, cy: 12, r: 6.5 }], ['circle', { cx: 12, cy: 12, r: 2.2, ...F }], ['path', { d: 'M12 2.8v2.7M12 18.5v2.7M2.8 12h2.7M18.5 12h2.7' }]],

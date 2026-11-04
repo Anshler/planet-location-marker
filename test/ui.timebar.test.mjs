@@ -2,7 +2,8 @@
 // columns and only the exposed columns are recomputed. The result must match a fresh row.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { slideGradientRow, halfWindowFor, moonLitApprox, eclipseSpan } from '../js/ui/timebar.js';
+import { slideGradientRow, halfWindowFor, moonLitApprox, eclipseSpan, STEP_UNITS, zoneTemplates } from '../js/ui/timebar.js';
+import { STEP } from '../js/core/clock.js';
 import { SKY_LUT, LUT_N, LUT_MIN, LUT_STEP, skyLutIndex, C_GOLD, C_NIGHT } from '../js/ui/sky-palette.js';
 import { AE } from '../js/astro/ae.js';
 
@@ -161,4 +162,26 @@ test('eclipseSpan: local solar contacts, the umbral or penumbral lunar phase, no
     assert.equal(eclipseSpan({ kind: 'solar-eclipse', tMs: 5 }, out), false, 'a global eclipse has no local span');
     assert.equal(eclipseSpan({ kind: 'local-solar-eclipse', c1Ms: null, c4Ms: 90 }, out), false);
     assert.equal(eclipseSpan(null, out), false);
+});
+
+test('STEP_UNITS: every clock step, six of them, with a unit for the buttons and a whole phrase', () => {
+    assert.deepEqual(STEP_UNITS.map((u) => u.kind), ['minute', 'hour', 'day', 'siderealDay', 'month', 'year']);
+    for (const u of STEP_UNITS) {
+        assert.ok(Object.hasOwn(STEP, u.kind), u.kind);
+        assert.match(u.unit, /^1 \S/, `${u.kind} unit`);
+        assert.match(u.long, /^1 [a-z ]+$/, `${u.kind} phrase`);
+    }
+    assert.equal(STEP_UNITS.find((u) => u.kind === 'siderealDay').label, 'Sidereal day (23 h 56 min)', 'plain words, then the length');
+});
+
+test('zoneTemplates: Observer names the place, Device says so, UTC is just UTC; short forms keep the offset', () => {
+    const fill = (t, p) => t.replace(/\{(\w+)\}/g, (_, k) => p[k]);
+    const parts = { place: 'Greenwich', offset: 'UTC+0' };
+    assert.deepEqual(zoneTemplates('observer').map((t) => fill(t, parts)), ['Greenwich, UTC+0', 'UTC+0']);
+    assert.deepEqual(zoneTemplates('device').map((t) => fill(t, parts)), ['This device, UTC+0', 'UTC+0']);
+    assert.deepEqual(zoneTemplates('utc'), ['UTC', 'UTC'], 'UTC mode no longer looks like Observer at Greenwich');
+    assert.deepEqual(zoneTemplates('observer', true).map((t) => fill(t, parts)), ['Greenwich, UTC+0 (approx.)', 'UTC+0 (approx.)']);
+    // Whole phrases: the placeholders are named, and the short form never needs the place.
+    for (const m of ['observer', 'device', 'utc']) for (const t of zoneTemplates(m)) assert.doesNotMatch(t, /\{(?!place\}|offset\})/);
+    for (const m of ['observer', 'device', 'utc']) assert.doesNotMatch(zoneTemplates(m)[1], /\{place\}/);
 });

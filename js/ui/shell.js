@@ -233,7 +233,7 @@ export function mountShell(root, ctx) {
         const vh = window.innerHeight;
         const safe = safeProbe.offsetHeight || 0;
         headH = Math.max(120, Math.round(handle.offsetHeight + (sheetHead.offsetHeight || 112)));
-        // Peek shows the handle, the time bar and the body strip (the tools row sits below the fold).
+        // Peek shows the handle, the time bar and the body strip.
         const peekContent = Math.round(handle.offsetHeight + timebarEl.offsetHeight + stripEl.offsetHeight);
         const full = Math.max(240, vh - 56);
         const peek = Math.min(full, Math.max(132, peekContent) + safe);
@@ -254,7 +254,6 @@ export function mountShell(root, ctx) {
         // Content below the fold must not take keyboard focus.
         const folded = name === 'peek' && ui.layout === 'mobile';
         sheetBody.inert = folded;
-        timebar.toolsEl.inert = folded;
         handle.setAttribute('aria-expanded', String(name !== 'peek'));
         handle.setAttribute('aria-label', name === 'full' ? 'Collapse panel' : 'Expand panel');
         if (!fromStore) setStoreUi({ sheet: name });
@@ -355,13 +354,11 @@ export function mountShell(root, ctx) {
         if (releaseTrap) { releaseTrap(); releaseTrap = null; }
         if (mode === 'mobile') {
             setRail(false);
-            sheetHead.append(timebarEl, stripEl, timebar.toolsEl);
+            sheetHead.append(timebarEl, stripEl);
             sheetBody.append(panelEl);
             root.append(skip, topbarEl, modes.el, hudEl, viewbarEl, sheet, overlay);
         } else {
             sheetBody.inert = false;
-            timebar.toolsEl.inert = false;
-            timebarEl.append(timebar.toolsEl);
             // Text mode: the Eclipse Companion sits inline above Sky now.
             if (mode === 'text') root.append(skip, topbarEl, modes.el, timebarEl, hudEl, panelEl, viewbarEl, overlay);
             else root.append(skip, topbarEl, modes.el, hudEl, viewbarEl, timebarEl, panelEl, overlay);

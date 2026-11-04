@@ -234,3 +234,11 @@ Use the 1000–3000 range and the unused Astronomy Engine APIs.
   Mars's moons 'moon:'; satellites are host 'earth' (hidden from Mars). npm test (839), size, smoke, smoke:mobile, text mode
   pass. Budgets low 5.0 / medium 5.79 MB (measured 4.86 / 5.62 — medium has ~0.38 MB under its 6 MB line). Note: pages.yml
   now also deploys on a daily schedule to refresh satellite elements.
+- 2026-11-06: Phase 6 review (3 lens reviewers + 1 fixer): 24 findings (11 blocking), 23 fixed in f3cd59f..de8b00c
+  (Earth satellites leaking into the Mars sky, Earth-only facts on Mars, Moments links dropping layers/view, meteor bursts
+  after a time step, polar-summer shower text, Sun-path azimuths, star-card light-time, text-mode star links, Julian date
+  entry, docs figures). Verified correct: Halley 1066 vs JPL Horizons (0.02°), occultations/transits/ring crossings/meteor
+  peaks, Mars24 clock, Phobos/Deimos transits. Open: proper motion for the max-only deep stars (needs the Hipparcos cache
+  rebuild). npm test (848), size, vendor/textures/data --check, smoke (desktop, sub-path, mobile, UTC + reduced motion),
+  text mode pass. PHASE 6 DONE. Next session: Phase 7 (interface & engineering), then the deferred items; the graphify
+  graph is rebuilt once at the very end (owner's call).

@@ -31,7 +31,7 @@ export function mountReport(ctx) {
     const copy = h('button', { class: 'btn btn--soft', type: 'button' }, icon('copy', { size: 15 }), 'Copy diagnostics');
     const issue = h('a', { class: 'btn btn--soft', href: issueUrl(), target: '_blank', rel: 'noopener noreferrer' },
         'Report an issue', icon('external', { size: 13 }));
-    const status = h('p', { class: 'setting__hint', role: 'status', 'aria-live': 'polite' });
+    const status = h('p', { class: 'note', role: 'status', 'aria-live': 'polite' });
     const text = h('textarea', { class: 'input report__text', readonly: true, rows: 8, hidden: true, 'aria-label': 'Diagnostics' });
     const off = on(copy, 'click', async () => {
         const r = await ctx.actions?.copyDiagnostics?.();

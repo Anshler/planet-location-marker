@@ -122,8 +122,12 @@ export function mountDisplay(root, ctx) {
     const otherSum = h('summary');
     const otherBody = h('div', { class: 'fold__body' });
     const other = h('details', { class: 'fold' }, otherSum, otherBody);
-    const layersEl = h('div', null,
-        h('div', { class: 'section-head' }, viewNote, resetLayers), ...boxes, other,
+    // The rows are compact; ⓘ shows every layer's description (still each row's aria-describedby).
+    const describe = h('button', {
+        class: 'icon-btn icon-btn--sm', type: 'button', 'aria-expanded': 'false', 'aria-label': 'What the layers show', 'data-tip': 'What the layers show',
+    }, icon('info', { size: 16 }));
+    const layersEl = h('div', { class: 'display-layers' },
+        h('div', { class: 'section-head' }, viewNote, describe, resetLayers), ...boxes, other,
         h('p', { class: 'note' }, 'Layer choices are remembered on this device and included in shared links.'));
     let shownView = '';
     function placeLayers() {
@@ -139,6 +143,7 @@ export function mountDisplay(root, ctx) {
         setText(otherSum, view === 'sky' ? `Only on the globe · ${rest.length}` : `Only in Sky view · ${rest.length}`);
         setText(viewNote, view === 'sky' ? 'Layers for the Sky view.' : 'Layers for the globe view.');
     }
+    offs.push(on(describe, 'click', () => describe.setAttribute('aria-expanded', String(layersEl.classList.toggle('is-described')))));
     offs.push(on(resetLayers, 'click', () => {
         store.set({ layers: { ...DEFAULT_STATE.layers } });
         ui.flash('Layers reset to their defaults');
@@ -152,7 +157,7 @@ export function mountDisplay(root, ctx) {
         h('option', { value: 'pristine' }, 'Pristine (no light pollution)'),
         ...BORTLE_NAMES.map((name, i) => h('option', { value: String(i + 1) }, `Bortle ${i + 1} · ${name}`)));
     skyDark.value = st0.display?.skyDark || 'auto';
-    const skyHint = h('p', { class: 'setting__hint' });
+    const skyHint = h('p', { class: 'note' });
     offs.push(on(skyDark, 'change', () => ui.act('setSkyDark', skyDark.value)));
     // The Kp the modelled ovals are drawn for (js/astro/geomag.js). No live data.
     const aurora = segmented({
@@ -160,7 +165,7 @@ export function mountDisplay(root, ctx) {
         options: [{ value: 'quiet', label: 'Quiet' }, { value: 'typical', label: 'Typical' }, { value: 'storm', label: 'Storm' }],
         value: st0.display?.aurora || 'typical', onChange: (v) => ui.act('setAuroraActivity', v),
     });
-    const auroraHint = h('p', { class: 'setting__hint' });
+    const auroraHint = h('p', { class: 'note' });
     const conditions = h('div', { class: 'group', 'data-reveal': 'conditions' },
         h('h3', { class: 'group-title' }, 'Sky conditions'),
         h('label', { class: 'field' }, h('span', { class: 'field__label' }, 'Light pollution'), skyDark), skyHint,
@@ -172,7 +177,7 @@ export function mountDisplay(root, ctx) {
         options: ['auto', 'low', 'medium', 'high', 'max'].map((v) => ({ value: v, label: v === 'auto' ? 'Auto' : TIER_NAME[v] })),
         value: st0.quality?.setting || 'auto', onChange: (v) => ui.act('setQuality', v),
     });
-    const running = h('p', { class: 'setting__hint' });
+    const running = h('p', { class: 'note' });
     const qualityEl = group('Quality', quality.el, running);
 
     // ---------------------------------------------------------------- comfort
@@ -183,7 +188,7 @@ export function mountDisplay(root, ctx) {
         checked: !!st0.display?.red, onChange: (v) => ui.act('setNightVision', v),
         note: globalThis.navigator && !('wakeLock' in navigator) ? 'This browser cannot keep the screen awake' : '',
     });
-    const motion = h('p', { class: 'setting__hint' });
+    const motion = h('p', { class: 'note' });
 
     // ---------------------------------------------------------------- about, app
     const aboutBody = h('div', { class: 'fold__body' });

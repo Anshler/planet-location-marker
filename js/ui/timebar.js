@@ -253,8 +253,8 @@ export function mountTimebar(root, ctx) {
         h('span', { class: 'stamp__zone' }, zoneLong, zoneShort), icon('chevron-down', { size: 16, className: 'tb-date__chev' })), stampMars);
     const badge = h('span', { class: 'badge badge--warn tb-accuracy', hidden: true, title: 'Planet positions are most accurate between 1800 and 2200' },
         icon('warning', { size: 14 }), h('span', { class: 'tb-accuracy__text' }, 'Reduced accuracy'));
-    const livePill = h('span', { class: 'live-pill', role: 'status', 'aria-label': 'Live: showing the current time' },
-        h('span', { class: 'live-pill__dot', 'aria-hidden': 'true' }), 'LIVE');
+    const livePill = h('span', { class: 'badge badge--live', role: 'status', 'aria-label': 'Live: showing the current time' },
+        h('span', { class: 'badge__pulse', 'aria-hidden': 'true' }), 'LIVE');
     const nowBtn = h('button', { class: 'btn btn--now', type: 'button', 'data-tip': 'Back to the current time', 'data-kbd': 'N' },
         icon('live', { size: 18 }), h('span', { class: 'btn--now__long' }, 'Return to now'), h('span', { class: 'btn--now__short' }, 'Now'));
     const liveWrap = h('div', { class: 'tb-live' }, livePill, nowBtn);
@@ -406,7 +406,7 @@ export function mountTimebar(root, ctx) {
         const items = [['Now', null], ['Sunset', tw?.sunsetMs], ['Midnight', ui.toUtc({ y: z.y, mo: z.mo, d: z.d + 1, h: 0, mi: 0, s: 0, cal: z.cal })],
             ['Sunrise', tw?.sunriseMs]].filter(([, ms]) => ms === null || Number.isFinite(ms));
         quick.replaceChildren(...items.map(([label, ms]) => h('button', {
-            class: 'chip chip--quick', type: 'button',
+            class: 'chip', type: 'button',
             onClick: () => { if (ms === null) clock.goLive(); else jumpTo(ms); closeTime(); },
         }, h('span', null, label), ms !== null ? h('span', { class: 'chip__meta' }, ui.fmtClock(ms)) : null)));
     }

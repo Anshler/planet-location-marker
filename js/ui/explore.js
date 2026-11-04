@@ -82,7 +82,7 @@ export function mountExplore(root, ctx) {
         else store.set({ ui: { ...s.ui, palette: 'mars' } });
     }));
 
-    root.append(tours, group('The sky you were born under', h('p', { class: 'pop__hint' }, 'Your birthday, seen from where you are now.'), bornForm),
+    root.append(tours, group('The sky you were born under', h('p', { class: 'note' }, 'Your birthday, seen from where you are now.'), bornForm),
         history('Moments in history', MOMENTS, 4, `Show all ${MOMENTS.length} moments`, 'moments'),
         history('Famous comets', FAMOUS_COMETS, 3, `Show all ${FAMOUS_COMETS.length} comets`, 'moments moments--comets'),
         group('Other places', h('div', { class: 'tours' }, two.el, mars.el), twoOn),

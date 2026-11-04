@@ -226,14 +226,14 @@ export function mountShell(root, ctx) {
     let heights = { peek: 100, half: 300, full: 550 };
     let headH = 100;
 
-    /** Heights above the tab bar: peek is the head (handle and time bar), half leaves ≥ 120 px of content. */
+    /** Heights above the tab bar: peek is the head (handle and time bar), half leaves ≥ 190 px of content. */
     function measureSheet() {
         // The tab bar's top (fixed, so offsetTop is in the viewport; a tablet's floats 12 px up).
         const above = nav.offsetTop || window.innerHeight - 56;
         headH = Math.round(handle.offsetHeight + (sheetHead.offsetHeight || 82));
         const full = Math.max(240, above - 56);
         const peek = Math.min(full, headH);
-        const half = clamp(Math.round(above * 0.5), Math.min(full, peek + 120), full);
+        const half = clamp(Math.round(above * 0.5), Math.min(full, peek + 192), full);
         heights = { peek, half, full };
         root.style.setProperty('--sheet-full', `${full}px`);
         root.style.setProperty('--sheet-head-h', `${headH}px`);

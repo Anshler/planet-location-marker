@@ -20,6 +20,7 @@ const TRACK_FROM = 1000, TRACK_TO = 3000, TRACK_STEP = 20;
 /** Tick half-length, radians (on the sphere). */
 const TICK = 0.35 * DEG, TICK_BIG = 0.7 * DEG;
 const MARK = 0.9 * DEG;
+const REF_Y = Object.freeze([0, 1, 0]), REF_X = Object.freeze([1, 0, 0]);
 const COLOR = '#e7c98f';
 const PALE = '#b9a988';
 
@@ -129,7 +130,7 @@ export function createPrecession(rc) {
     const e1 = new Float64Array(3), e2 = new Float64Array(3);
     function cross(p, k, size) {
         // Two short arcs through p, along two directions perpendicular to it.
-        const ref = Math.abs(p[1]) < 0.9 ? [0, 1, 0] : [1, 0, 0];
+        const ref = Math.abs(p[1]) < 0.9 ? REF_Y : REF_X;
         e1[0] = p[1] * ref[2] - p[2] * ref[1]; e1[1] = p[2] * ref[0] - p[0] * ref[2]; e1[2] = p[0] * ref[1] - p[1] * ref[0];
         let l = Math.hypot(e1[0], e1[1], e1[2]) || 1; e1[0] /= l; e1[1] /= l; e1[2] /= l;
         e2[0] = p[1] * e1[2] - p[2] * e1[1]; e2[1] = p[2] * e1[0] - p[0] * e1[2]; e2[2] = p[0] * e1[1] - p[1] * e1[0];

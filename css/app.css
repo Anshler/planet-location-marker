@@ -2502,7 +2502,7 @@ body.is-mars .ui[data-layout="mobile"] .tb-date { padding: 0 4px; }
     .tb-scrub__thumb::before { background: CanvasText; box-shadow: 0 0 0 1px Canvas; }
     .tb-scrub__knob { background: Highlight; box-shadow: 0 0 0 2px CanvasText; }
     .ui :focus-visible, .lbl:focus-visible, .tb-scrub:focus-visible { outline: 2px solid Highlight; box-shadow: none; }
-    #labels-root { forced-color-adjust: none; }
+    #labels-root, .ui .dot { forced-color-adjust: none; }   /* the bodies' colour dots are their key */
     /* Canvases (the time bar, Tonight, the Sky dome, sparklines) draw in the app's colours on a
        transparent ground: they keep a dark one, whatever the system palette. */
     .ui canvas { forced-color-adjust: none; background: rgb(10, 14, 23); }

@@ -341,7 +341,7 @@ function createUiHub(ctx, rootEl) {
         lastReq: { next: 0, day: 0, night: 0, events: 0 },
         fails: { next: 0, day: 0, night: 0, events: 0 },
     };
-    const events = { list: null, fromMs: NaN, toMs: NaN, key: '', source: '' };
+    const events = { list: null, fromMs: NaN, toMs: NaN, key: '', lp: 0, source: '' };
 
     const observerKey = (o = ctx.store.get().observer) =>
         `${(+o.latDeg).toFixed(4)},${(+o.lonDeg).toFixed(4)},${Math.round(+o.elevM || 0)}`;
@@ -434,17 +434,24 @@ function createUiHub(ctx, rootEl) {
                 (r) => publish(r, r?.twilight || null), twilightOnly);
         }
 
-        // Event list (scrubber ticks + Events tab): keep [t − 1 yr, t + 1 yr] covered.
-        const evStale = !events.list || events.key !== key || t < events.fromMs + 20 * DAY || t > events.toMs - 300 * DAY;
+        // Event list (scrubber ticks + Events tab): keep [t − 1 yr, t + 1 yr] covered. skyLp, this
+        // site's light pollution, sets the meteor-shower rates "under this sky"; a coarse change of it
+        // (the city estimate arriving after boot, the Sky darkness setting) refreshes the list.
+        const skyLp = ui.snap?.skyglow?.lpZenith;
+        const lpBucket = Number.isFinite(skyLp) ? Math.round(2 * Math.log10(1 + Math.max(0, skyLp))) : 0;
+        const evStale = !events.list || events.key !== key || events.lp !== lpBucket
+            || t < events.fromMs + 20 * DAY || t > events.toMs - 300 * DAY;
         if (evStale && !alm.pending.events && now - alm.lastReq.events > gapFor('events', 2500)) {
             const fromMs = t - 365 * DAY;
-            const evArgs = { observer: astroObserver(st.observer), fromMs, days: 730, tz: observerTz(st.observer), hour12: !!st.display?.hour12 };
+            const evArgs = { observer: astroObserver(st.observer), fromMs, days: 730, tz: observerTz(st.observer), hour12: !!st.display?.hour12,
+                skyLp: Number.isFinite(skyLp) ? skyLp : undefined };
             request('events', 'events', evArgs, (list) => {
                 if (!Array.isArray(list)) return;
                 events.list = list.slice().sort((a, b) => a.tMs - b.tMs);
                 events.fromMs = fromMs;
                 events.toMs = fromMs + 730 * DAY;
                 events.key = key;
+                events.lp = lpBucket;
                 events.source = 'ui';
                 em.emit('events', events);
             });

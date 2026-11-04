@@ -1303,6 +1303,16 @@ body.no-webgl .vb-ruler, body.no-webgl .vb-point { display: none; }
     font-variant-numeric: tabular-nums;
 }
 .card__tonight[hidden] { display: none; }
+/* The year planner (ui/year-planner.js). */
+.planner { display: grid; gap: 6px; margin: 2px 0 0; }
+.planner[hidden], .planner [hidden] { display: none; }
+.planner__head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.planner__title { margin: 0; color: var(--text); font-size: 13px; font-weight: 750; letter-spacing: .02em; }
+.planner__note { color: var(--muted); font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.planner__cv { display: block; width: 100%; height: 160px; border-radius: 10px; border: 1px solid var(--line); background: #080b16; cursor: crosshair; }
+.planner__summary, .planner__sun { margin: 0; color: var(--text-2); font-size: 13px; line-height: 1.45; font-variant-numeric: tabular-nums; }
+.planner__legend { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.4; }
+.planner__best { justify-self: start; }
 .facts { display: grid; grid-template-columns: 1fr 1fr; column-gap: 16px; margin: 2px 0 0; }
 .fact { min-width: 0; padding: 9px 0 8px; border-top: 1px solid var(--line); }
 .fact[hidden] { display: none; }
@@ -1350,9 +1360,9 @@ body.no-webgl .vb-ruler, body.no-webgl .vb-point { display: none; }
 .tour-card__title { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; }
 .tour-card__title svg { flex-shrink: 0; color: var(--accent); }
 .tour-card__blurb { color: var(--muted); font-size: 11.5px; line-height: 1.35; }
-.filters { display: flex; gap: 6px; margin: 2px 0 14px; overflow-x: auto; scrollbar-width: none; }
+.filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 14px; }
 .filters::-webkit-scrollbar { display: none; }
-.filters .chip { flex: 1 0 auto; justify-content: center; padding: 0 10px; }
+.filters .chip { flex: 0 0 auto; justify-content: center; padding: 0 10px; }
 .ev-next {
     margin-bottom: 14px;
     padding: 13px 14px 14px;

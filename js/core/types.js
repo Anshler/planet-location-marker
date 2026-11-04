@@ -16,7 +16,9 @@
 /** @typedef {{beams:boolean, ghostBeams:boolean, sunMoonBeams:boolean, stars:boolean, constellations:boolean,
  *   constellationNames:boolean, starNames:boolean, milkyWay:boolean, clouds:boolean, atmosphere:boolean, ecliptic:boolean,
  *   eqGrid:boolean, altAzGrid:boolean, horizon:boolean, footprint:boolean, subpoints:boolean, trails:boolean, labels:boolean,
- *   landscape:boolean}} Layers `landscape`: the sky view's illustrative landscape (geo/horizon.js) */
+ *   landscape:boolean, sunPath:boolean, meteors:boolean}} Layers `landscape`: the sky view's illustrative landscape
+ *   (geo/horizon.js); `sunPath`: Sun paths, the noon analemma and the subsolar figure-8 (render/sunpath.js); `meteors`:
+ *   shower radiants and illustrative meteors in sky view (render/meteors.js) */
 /** The solar eclipse in focus: set by actions.jumpToEvent for a solar eclipse event, cleared by any
  * other jump and once simulated time is more than a day from `peakMs` (main.js, eclipseFocusExpired).
  * `peakMs` is the event's instant (global greatest eclipse, or the local maximum when `local`);
@@ -101,8 +103,10 @@
 /** @typedef {{name:string, admin:string, country:string, cc:string, lat:number, lon:number, tz:string|null, pop:number,
  *   source:'offline'|'open-meteo'|'photon'|'nominatim', score?:number}} Place */
 /** @typedef {{id:string, kind:'moon-phase'|'opposition'|'conjunction'|'max-elongation'|'lunar-eclipse'|'solar-eclipse'|
- *   'local-solar-eclipse'|'equinox'|'solstice', bodyId:BodyId|null, tMs:number, title:string, detail:string,
- *   select:BodyId|null, view:'orbit'|'sky'|null}} AstroEvent */
+ *   'local-solar-eclipse'|'equinox'|'solstice'|'occultation'|'brilliancy'|'transit'|'lunar-apsis'|'ring-plane'|'meteor-shower',
+ *   bodyId:BodyId|null, tMs:number, title:string, detail:string,
+ *   select:BodyId|null, view:'orbit'|'sky'|null, look?:{azDeg:number, altDeg:number, fovDeg?:number}}} AstroEvent
+ * `look` (meteor showers): where a sky-view jump faces when no body is selected. Phase 6 kinds: astro/events.js. */
 
 // ─────────────────────── Additional shared shapes (G2 modules) ───────────────────────
 

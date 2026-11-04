@@ -354,6 +354,21 @@ function bindSkySite(store, loop, cities, cityIndexP) {
 // ---------------------------------------------------------------------------------------------
 
 /**
+ * The Sun's figures for render/sunpath.js (astro worker `sunFigures`): today's path starts at the
+ * observer's local midnight so its hour ticks fall on the clock's hours.
+ * @param {any} snap
+ * @returns {Promise<any>}
+ */
+function requestSunFigures(snap) {
+    if (!R.astro || !snap?.observer) return Promise.reject(new Error('no astro client'));
+    const o = snap.observer;
+    const zone = R.store?.get?.().observer?.tz || tz.approxTzForLon(o.lonDeg);
+    let dayStartMs;
+    try { dayStartMs = tz.localDayStart(snap.tMs, zone); } catch { dayStartMs = undefined; }
+    return R.astro.call('sunFigures', { observer: { latDeg: o.latDeg, lonDeg: o.lonDeg, elevM: o.elevM || 0 }, tMs: snap.tMs, dayStartMs });
+}
+
+/**
  * Imports the render stack in parallel. Each entry is the module namespace or null (its failure
  * is logged and the feature is skipped). Literal specifiers keep the import graph crawlable.
  */
@@ -370,6 +385,8 @@ async function importRenderStack() {
         totality: import('./render/totality.js'),
         ground: import('./render/ground.js'),
         trails: import('./render/trails.js'),
+        meteors: import('./render/meteors.js'),
+        sunPath: import('./render/sunpath.js'),
         eclipsePath: import('./render/eclipse-path.js'),
         beams: import('./render/beams.js'),
         planets: import('./render/planets.js'),
@@ -932,6 +949,12 @@ async function bootRender(ctx) {
     create('totality', m.totality && (() => m.totality.createTotality(rc)), space);
     create('ground', m.ground && (() => m.ground.createGround(rc, { textures, horizon, cities })));
     const trails = create('trails', m.trails && (() => m.trails.createTrails(rc)), furnitureSpace);
+    // Meteor showers (sky view): radiants near their peak and illustrative meteors; the radiant labels go to the feed.
+    create('meteors', m.meteors && (() => m.meteors.createMeteors(rc, {
+        clock, store, reducedMotion: rm, onAnchors: () => R.labelsFeed?.markDirty(),
+    })));
+    // Sun paths and the analemma (sky view) and the subsolar figure-8 (globe), from the astro worker.
+    create('sunPath', m.sunPath && (() => m.sunPath.createSunPath(rc, { store, request: requestSunFigures })), furnitureSpace);
     const eclipseRibbon = create('eclipsePath', m.eclipsePath && (() => m.eclipsePath.createEclipsePath(rc)), furnitureSpace);
     const beams = create('beams', m.beams && (() => m.beams.createBeams(rc, { reducedMotion: rm })), furnitureSpace);
     // The second place's beams (two-observers: dashed, amber), from snap.second.
@@ -988,6 +1011,7 @@ async function bootRender(ctx) {
         getPlanets: () => (R.mods.planets && !R.loop?.isDisabled?.(R.mods.planets) ? R.mods.planets : null),
         getRuler: () => (R.mods.ruler && !R.loop?.isDisabled?.(R.mods.ruler) ? R.mods.ruler : null),
         getOrrery: () => (R.mods.orrery && !R.loop?.isDisabled?.(R.mods.orrery) ? R.mods.orrery : null),
+        getSkyExtras: () => (R.mods.meteors && !R.loop?.isDisabled?.(R.mods.meteors) ? [R.mods.meteors] : []),
     }) : null;
     R.labelsFeed = labelsFeed;
     loader.progress(0.45, 'Loading imagery');

@@ -25,7 +25,7 @@ export const DARK_SUN_DEG = -12;
 export const ANALEMMA_DAYS = 365;
 export const ANALEMMA_S = 20;
 /** Layers the renderers do not draw while exposing. */
-export const EXPOSE_HIDDEN_LAYERS = Object.freeze(['constellations', 'eqGrid', 'ecliptic', 'altAzGrid', 'trails', 'subpoints', 'footprint']);
+export const EXPOSE_HIDDEN_LAYERS = Object.freeze(['constellations', 'eqGrid', 'ecliptic', 'altAzGrid', 'trails', 'subpoints', 'footprint', 'sunPath']);
 
 const DAY = 864e5;
 const MIN = 6e4;

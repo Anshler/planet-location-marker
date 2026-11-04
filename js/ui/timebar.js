@@ -79,10 +79,11 @@ function buildLut() {
 /** Event-kind colours for scrubber ticks. */
 function tickColor(ev) {
     switch (ev.kind) {
-        case 'moon-phase': return '#d8dde6';
+        case 'moon-phase': case 'occultation': case 'lunar-apsis': return '#d8dde6';
         case 'lunar-eclipse': return '#ff8a65';
-        case 'solar-eclipse': case 'local-solar-eclipse': return '#ffcc66';
+        case 'solar-eclipse': case 'local-solar-eclipse': case 'transit': return '#ffcc66';
         case 'equinox': case 'solstice': return '#7cc4ff';
+        case 'meteor-shower': return '#9fd4ff';
         default: return (ev.bodyId && BODIES[BODY_INDEX[ev.bodyId]]?.color) || '#c9d4e3';
     }
 }

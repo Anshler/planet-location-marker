@@ -34,7 +34,7 @@ export const LAYER_CODES = Object.freeze([
     ['b', 'beams'], ['g', 'ghostBeams'], ['o', 'sunMoonBeams'], ['s', 'stars'], ['c', 'constellations'],
     ['C', 'constellationNames'], ['n', 'starNames'], ['m', 'milkyWay'], ['k', 'clouds'], ['a', 'atmosphere'],
     ['e', 'ecliptic'], ['q', 'eqGrid'], ['z', 'altAzGrid'], ['h', 'horizon'], ['f', 'footprint'],
-    ['p', 'subpoints'], ['t', 'trails'], ['l', 'labels'], ['d', 'landscape'],
+    ['p', 'subpoints'], ['t', 'trails'], ['l', 'labels'], ['d', 'landscape'], ['y', 'sunPath'], ['r', 'meteors'],
 ].map((pair) => Object.freeze(pair)));
 const LAYER_BY_CODE = new Map(LAYER_CODES);
 const KNOWN_KEYS = new Set(['loc', 'n', 'cc', 'tz', 'el', 't', 'r', 'p', 'view', 'lock', 'sel', 'ly', 'q', 'sky', 'au', 'cam', 'trk', 'vt', 'intro', 'debug', 'tour',
@@ -50,7 +50,7 @@ const TRACK_CODES = Object.freeze({ b: 'body', s: 'stars' });
 const NUM_RE = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d{1,3})?$/;
 const ISO_RE = /^(\d{4})(?:-(\d{2})(?:-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?)?)?)?(Z|[+-]\d{2}(?::?\d{2})?)?$/i;
 
-/** The `ly` value for DEFAULT_STATE.layers ('bgoscCnmkazhld'). */
+/** The `ly` value for DEFAULT_STATE.layers ('bgoscCnmkazhldr'). */
 export const DEFAULT_LAYER_CODE = layersToCode(DEFAULT_STATE.layers);
 
 /** @param {string} s */

@@ -29,6 +29,8 @@ export const LAYER_GROUPS = [
             ['eqGrid', 'Equatorial grid (of date)', ['G'], 'Right ascension and declination of date: the true pole and equinox'],
             ['altAzGrid', 'Horizon grid (Sky view)', null, 'Altitude and azimuth when standing on the ground'],
             ['landscape', 'Illustrative landscape (Sky view)', null, 'Invented hills, trees and sea for your place; rise and set times use the flat horizon'],
+            ['meteors', 'Meteors (Sky view)', null, 'Shower radiants near their peak and illustrative meteors; pause for an hour’s composite'],
+            ['sunPath', 'Sun paths & analemma', null, 'Today’s and the solstices’ paths and the noon figure-8 in Sky view; the subsolar figure-8 on the globe'],
         ],
     },
     {

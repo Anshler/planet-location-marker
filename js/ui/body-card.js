@@ -25,6 +25,7 @@ import { h, on, setText, setAttr } from './dom.js';
 import { icon } from './icons.js';
 import { moonPhaseName, isUp, lunarEclipseState, solarEclipseState, shownMag } from './sky-now.js';
 import { createEyepiece } from './eyepiece.js';
+import { createYearPlanner } from './year-planner.js';
 import { findIt, guideRefs } from '../astro/sky-guide.js';
 
 const SYNODIC_DAYS = 29.530589;
@@ -85,6 +86,8 @@ export function mountBodyCard(root, ctx) {
     h('span', null, h('span', { class: 'card__find-label' }, 'Find it: '), findText));
     // The eyepiece portrait (ui/eyepiece.js): Jupiter's moons, Saturn's rings, the libration-true Moon.
     const eyepiece = createEyepiece();
+    // The 12-month planner (planets) and the Sun's solstice paths in words (ui/year-planner.js).
+    const planner = createYearPlanner(ctx);
 
     const actLook = actionBtn('sky', 'Look from here', 'Stand at the observer and look toward it');
     const actCenter = actionBtn('target', 'Center', 'Turn the view toward it');
@@ -137,7 +140,7 @@ export function mountBodyCard(root, ctx) {
             h('div', { class: 'card__disc' }, disc),
             h('div', { class: 'card__titles' }, nameEl, kindEl),
             verdict),
-        sentence, findLine, light, moonLine, eyepiece.el, actions, tonight, grid,
+        sentence, findLine, light, moonLine, eyepiece.el, actions, tonight, planner.el, grid,
         h('p', { class: 'note' }, 'Tables show apparent, refracted values; the 3D view draws astrometric J2000 directions.'));
 
     root.append(empty, card);
@@ -326,6 +329,7 @@ export function mountBodyCard(root, ctx) {
                 : `${info.name}: ${Math.round(frac * 100)}% of the disc lit, lit side ${litRight ? 'right' : 'left'}`);
         }
         eyepiece.update(snap, id);
+        planner.update(snap, id);
         syncLayerButtons();
     }
 
@@ -358,7 +362,7 @@ export function mountBodyCard(root, ctx) {
 
     return {
         update,
-        destroy() { offs.forEach((off) => off()); eyepiece.destroy(); root.textContent = ''; },
+        destroy() { offs.forEach((off) => off()); eyepiece.destroy(); planner.destroy(); root.textContent = ''; },
     };
 }
 

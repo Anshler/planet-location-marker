@@ -56,6 +56,8 @@ export const ECLIPSE_LEAD_MS = 20e3;
 /** Sky-view fields of view of eclipse framings: the central phase and lunar eclipses fill 5°. */
 export const ECLIPSE_FOV_DEG = 5;
 export const PARTIAL_ECLIPSE_FOV_DEG = 10;
+/** A transit of Mercury or Venus: the Sun's disc with room around it. */
+export const TRANSIT_FOV_DEG = 2;
 /** AE eclipse altitudes are the refracted centre; the Sun's upper limb is this much higher. */
 const SUN_LIMB_DEG = 0.27;
 const MAX_PATHS = 4;
@@ -67,6 +69,7 @@ export const LAYER_LABELS = Object.freeze({
     milkyWay: 'Milky Way', clouds: 'Clouds', atmosphere: 'Atmosphere', ecliptic: 'Ecliptic', eqGrid: 'Equatorial grid (of date)',
     altAzGrid: 'Horizon grid', horizon: 'Horizon disc', footprint: 'Visibility footprint', subpoints: 'Sub-points',
     trails: 'Path of selected body', labels: 'Labels', landscape: 'Illustrative landscape',
+    sunPath: 'Sun paths and analemma', meteors: 'Meteors',
 });
 
 const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
@@ -207,6 +210,8 @@ function sameSpot(a, b) {
  *   plays at 1×, looking at the Sun mid-way through what follows at a 5° field;
  * - any other local solar eclipse lands paused on its `visibleMs` (maximum, or the visible part
  *   nearest it) at 10°; a lunar eclipse seen from here on its `visibleMs` at 5° on the Moon;
+ * - a transit seen from here on its `visibleMs` at 2°, a star occultation at 5° on the Moon, and a
+ *   meteor shower on its best hour here (`visibleMs`), facing `ev.look` (the radiant);
  * - everything else lands paused on its instant with the current field.
  * `aimMs` is the instant whose sky the look is aimed at (equal to `tMs` unless playing).
  * @param {AstroEvent & Record<string, any>} ev
@@ -226,6 +231,11 @@ export function eventFraming(ev) {
         return { tMs: vis, aimMs: vis, play: false, fovDeg: PARTIAL_ECLIPSE_FOV_DEG };
     }
     if (ev.kind === 'lunar-eclipse' && ev.view === 'sky') return { tMs: vis, aimMs: vis, play: false, fovDeg: ECLIPSE_FOV_DEG };
+    // A transit seen from here: the Sun at a 2° field when it is up; a star occultation: the Moon at 5°.
+    if (ev.kind === 'transit' && ev.view === 'sky') return { tMs: vis, aimMs: vis, play: false, fovDeg: TRANSIT_FOV_DEG };
+    if (ev.kind === 'occultation') return { tMs: t, aimMs: t, play: false, fovDeg: ECLIPSE_FOV_DEG };
+    // A meteor shower: its best hour here, facing the radiant (ev.look), paused on the composite.
+    if (ev.kind === 'meteor-shower' && Number.isFinite(ev.visibleMs)) return { tMs: vis, aimMs: vis, play: false, fovDeg: undefined };
     return { tMs: t, aimMs: t, play: false, fovDeg: undefined };
 }
 
@@ -1008,6 +1018,12 @@ export function createActions(deps) {
                 if (Number.isFinite(plan.fovDeg)) look.fovDeg = plan.fovDeg;
                 settle(r.setMode?.('sky', { animate, look }));
             }
+        } else if (mode === 'sky' && ev.look && Number.isFinite(ev.look.azDeg) && Number.isFinite(ev.look.altDeg)) {
+            // Events without a body (meteor showers): face the direction the event gives.
+            const look = { azDeg: ev.look.azDeg, altDeg: ev.look.altDeg };
+            const fov = Number.isFinite(plan.fovDeg) ? plan.fovDeg : ev.look.fovDeg;
+            if (Number.isFinite(fov)) look.fovDeg = fov;
+            settle(r.setMode?.('sky', { animate, look }));
         }
     }
 

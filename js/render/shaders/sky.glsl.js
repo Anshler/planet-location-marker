@@ -528,7 +528,8 @@ void main() {
 /**
  * @see LINE_VERT. Defines: TRAIL (fade/dash by vParam against uNow; vParam is the sample index),
  * HIGHLIGHT (iStyle.y > 0.5 switches to uHighlightColor and uHighlightAlpha, so the highlighted
- * figure keeps its strength when the rest recede).
+ * figure keeps its strength when the rest recede), METEOR (vParam 0 → 1 from the train to the head;
+ * iStyle.y tints from uColor to uHighlightColor).
  */
 export const LINE_FRAG = /* glsl */`
 uniform vec3 uColor;
@@ -563,6 +564,13 @@ void main() {
     float dash = mix(1.0, step(0.45, fract(along / (7.0 * uDpr))), past);
     float ends = smoothstep(0.0, 0.12 * uSpan, vParam) * smoothFall(uSpan, 0.88 * uSpan, vParam);
     a *= mix(1.0, 0.45, past) * dash * (0.25 + 0.75 * ends);
+#endif
+#ifdef METEOR
+    // A meteor (render/meteors.js): vParam runs from its fading train (0) to its head (1);
+    // iStyle.y mixes the slow (uColor) and fast (uHighlightColor) meteor tints; the head whitens.
+    float head = vParam * vParam;
+    col = mix(mix(uColor, uHighlightColor, vStyle.y), vec3(1.0), 0.6 * head * head);
+    a = uAlpha * vStyle.x * (0.05 + 0.95 * head);
 #endif
     a *= cov * g;
     if (a <= 0.002) discard;

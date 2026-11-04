@@ -84,7 +84,10 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/astro/bodies.js` | `BODIES`. Its order is a contract. |
 | | `js/astro/frames.js` | The S mapping, Earth orientation, ENU, alt/az, matrix helpers. |
 | | `js/astro/snapshot.js` | `computeSnapshot`: everything about one instant, into preallocated arrays. |
-| | `js/astro/almanac.js`, `events.js`, `paths.js` | Rise/set, twilight, Tonight; events (with eclipse contacts, `localSolarEclipseAt`); retrograde paths. |
+| | `js/astro/almanac.js`, `events.js`, `paths.js` | Rise/set, twilight, Tonight; events (with eclipse contacts, `localSolarEclipseAt`; Phase 6: Moon–star occultations of five hard-coded J2000 stars `OCCULTATION_STARS`, Venus at greatest brilliancy, transits, the year's perigee/apogee extremes and perigee full Moons, Saturn's ring-plane crossings, meteor-shower maxima; transits and apsides cached across calls); retrograde paths. |
+| | `js/astro/meteors.js` | Meteor showers, pure: the IMO calendar table `SHOWERS` (with `validFrom`/`validTo` years), `precessionDeg` and `showerPeakMs` (λ☉ J2000 + precession → AE.SearchSunLongitude), `zhrAt`, `radiantAt`, `hourlyRate`, `meteorLimitMag`, and the deterministic generator (`BUCKET_MS`, `hash01`, `poissonCount`, `meteorShape`, `sampleMagnitude`). |
+| | `js/astro/planner.js` | The year planner, pure: `visibilityYear` (365 nights × 15:00–09:00 standard time: the Sun's, the Moon's and each planet's altitude, magnitudes, elongations; analytic altitudes from one RA/Dec a night), `plannerVisible`, `plannerSummary`. Worker op `visibilityYear`. |
+| | `js/astro/sunpath.js` | `sunFigures`: today's, the solstices' and the March equinox's Sun paths (local ENU, apparent), rise/set azimuths, the noon analemma, the subsolar figure-8 at the current UT time of day. Worker op `sunFigures`. |
 | | `js/astro/eclipse-path.js` | `eclipsePath`: the centre line and limits of a central solar eclipse; `citiesInPath`, `nearestCentrePoint`, `pathAt`, `shadowPoint`. Render support: `ribbonMesh` (the globe's ribbon, once per eclipse), `pathFrameLocal` (the shadow and its heading, allocation-free), `shadowAxisPoint`, `umbraNear`. |
 | | `js/astro/worker.js`, `client.js` | Module worker plus a Promise client with a main-thread fallback. |
 | | `js/astro/parallax.js` | `compareSight(snapA, snapB, i)`: a body seen from two places at one instant: the angle between the two sightlines, the baseline and the distance they imply (the Moon's parallax). |
@@ -113,9 +116,11 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/render/ruler.js`, `edge-chips.js` | The angle ruler (a great-circle arc between two tapped ends, fixed buffers, its reading as a `'ruler'` label); the off-screen pointers (a DOM chip at the free area's edge per findable body outside the field, a tap turns there). |
 | | `js/render/trails.js`, `flare.js`, `debug.js` | Retrograde paths, procedural lens flare (six-spike starburst, hexagonal aperture ghosts; no textures), `?debug=1` overlay. |
 | | `js/render/eclipse-path.js` | The path of a central solar eclipse on the globe: ribbon, centre line, 30-min ticks, the live umbra marker; reveal modes for the chase. |
+| | `js/render/meteors.js` | Layer `meteors` (`r`, sky view): radiant rings with label anchors (`anchors()`, appended by the labels feed's `getSkyExtras`) for showers within 25 % of maximum, and illustrative meteors on a `METEOR` line layer: live (medium+, clock running, no reduced motion; launched as sim time passes each hash-seeded meteor, played for 0.3–0.8 s of wall time, launches capped at 2.5/s, frames requested only while a streak flies) or a static one-hour composite (paused or reduced motion, any tier). `stats()`. |
+| | `js/render/sunpath.js` | Layer `sunPath` (`y`): today's path with hour ticks, the solstice and equinox paths and the noon analemma as line layers in the observer's ENU frame (sky view), and the subsolar figure-8 as a line on the globe (Earth-fixed); figures from the worker via `request(snap)` (main.js `requestSunFigures`), only while the layer is on. `stats()`. |
 | Camera | `js/camera/rig.js`, `picking.js` | Orbit and sky-view camera, Earth-lock, fly-to tweens, `follow()` (the shadow chase), sidereal tracking, `setVantage()` (View from L1, Earthrise), the flat map (`setMode('map')`, `mapK`, `mapFrame`), the system zoom past 150 R (`setSystem`, `system`, `systemBlend`, `onSystemChange`), `frameSpan()` (the Earth–Moon framing), `setAiming()`/`setSkyAim()` (the phone steers the look); analytic globe, map (`pickMap`), glyph and map-point (`pickPoint`) picking. |
 | | `js/camera/aim.js` | 'Point at the sky' (loaded on first use, no three.js): device orientation → the rear camera's direction and the screen's up in ENU (`deviceVectors`), a level look (`lookOf`), an adaptive vector low-pass (`aimFilterStep`), and `createAim` (sensor events, iOS compass learning, deadband, Align offset, idle and hidden stops, wake lock). |
-| UI | `js/ui/index.js` and its modules | Shell, top bar, time bar, Sky Now, body card (with `eyepiece.js`: the 2D-canvas eyepiece portrait, also in text mode), events (with the guided tours), Eclipse Companion, the tour's lower third (`tour-bar.js`), layers, settings, about, help, toasts, shortcuts, announcer; the share menu, `postcard.js` (postcard and Save-image dialog, the typographic band), `video.js` (the time-lapse video dialog: presets, frame size, progress and preview, the burned-in date stamp) and `expose.js` (Expose presets and the exposure's status pill); the vantage menu and its caption pill (`view-switch.js`: vantage points, the world map, the solar system).; the ruler and 'Point at the sky' buttons with their status pills (`sky-tools.js`); the body card's 'Find it' line.; the world map entry and the second place (`Compare with…` in the place search) |
+| UI | `js/ui/index.js` and its modules | Shell, top bar, time bar, Sky Now, body card (with `eyepiece.js`: the 2D-canvas eyepiece portrait, also in text mode; `year-planner.js`: the planets' 12-month chart on a 2D canvas and the Sun's solstice paths in words, from the worker, also in text mode), events (with the guided tours and the Moon/Planets/Eclipses/Meteors/Seasons filters), Eclipse Companion, the tour's lower third (`tour-bar.js`), layers, settings, about, help, toasts, shortcuts, announcer; the share menu, `postcard.js` (postcard and Save-image dialog, the typographic band), `video.js` (the time-lapse video dialog: presets, frame size, progress and preview, the burned-in date stamp) and `expose.js` (Expose presets and the exposure's status pill); the vantage menu and its caption pill (`view-switch.js`: vantage points, the world map, the solar system).; the ruler and 'Point at the sky' buttons with their status pills (`sky-tools.js`); the body card's 'Find it' line.; the world map entry and the second place (`Compare with…` in the place search) |
 
 ---
 
@@ -197,7 +202,18 @@ critical CSS read them.
   Sun at a 5° field; a partial one paused on its `visibleMs` at 10°; a lunar eclipse seen from
   here on the Moon at 5°. The field rides on the rig's look (`setMode('sky', {look: {azDeg,
   altDeg, fovDeg}})`): one look tween in sky view; from the globe a zoom chained after the descent,
-  which lands at 70° as before.
+  which lands at 70° as before. A transit seen from here lands on its `visibleMs` at 2°, a star
+  occultation on the Moon at 5°, and a meteor shower paused on its best hour here facing `ev.look`
+  (the radiant; events without a body carry `look`), on the meteor composite.
+- **Phase 6 sky content** (events-breadth, meteor showers, the year planner, Sun paths). The UI
+  hub's `events` request carries `skyLp` (the site's artificial zenith light from `snap.skyglow`) so
+  meteor rates read "under this sky"; a coarse change of it (the city estimate arriving, the Sky
+  darkness setting) refreshes the list. The body card's planner asks the worker for
+  `visibilityYear` (the observer, the first of the month at local standard midnight; cached per
+  observer and month, debounced) and draws the event ticks from `ui.events`. `render/sunpath.js`
+  asks for `sunFigures` through `main.js requestSunFigures` (today starts at the zone's midnight).
+  `render/meteors.js` reads `clock` directly (sim time and rate) and calls `onAnchors` →
+  `labelsFeed.markDirty()` when its radiants change; its labels reach the feed via `getSkyExtras`.
 - **Sidereal tracking and the telescope** (`view.track`, url `trk=b|s`, K). In sky view the rig
   can keep the selected body centred at its refracted place (`'body'`, zenith up) or hold the
   star field still with the J2000 pole up while the horizon swings (`'stars'`); engaging and
@@ -761,13 +777,14 @@ change.
 
 ```
 #loc=21.0285,105.8542&n=Hanoi&cc=VN&tz=Asia/Ho_Chi_Minh&el=15&t=2027-08-02T10:07:00Z&r=3600&p=1
- &view=orbit&lock=1&sel=moon&ly=bgoscCnmkazhld&q=auto&sky=auto&cam=o:21.0,105.8,3.2&intro=0&debug=1
+ &view=orbit&lock=1&sel=moon&ly=bgoscCnmkazhldr&q=auto&sky=auto&cam=o:21.0,105.8,3.2&intro=0&debug=1
 ```
 
 - No `t` means Live.
 - `r` is the signed rate in sim-seconds per second, snapped to the ladder.
 - `ly` is the exact set of enabled layers. `d` is the illustrative landscape: links made before it
-  existed carry no `d`, so they open with the flat horizon.
+  existed carry no `d`, so they open with the flat horizon. `r` is meteors (on by default; older
+  links open without them) and `y` the Sun paths and analemma (off by default).
 - `cam` is `o:lat,lon,dist` (the sub-camera point), `s:az,alt,fov` or, with `view=map`,
   `m:lat,lon,dist` (the map's centre and the camera's distance from the plane). An orbit distance
   past 150 R (up to 80 AU, whole radii) is the solar-system zoom: lat/lon is then its direction

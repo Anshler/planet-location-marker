@@ -836,6 +836,77 @@ and AE's contacts to 0.1 s; the shapes are illustrative.
   azimuth that puts a centred body (or bright star) at its true azimuth. Altitude comes from
   gravity and is good to a degree or two.
 
+## 7b. More events, meteor showers, the year planner and the Sun's paths (Phase 6)
+
+**More events** (`js/astro/events.js`, all in the worker, ≈ 7 ms more for 730 days once warm;
+transits and apsides are cached across calls):
+
+- **Moon–star occultations.** Aldebaran, Regulus, Spica, Antares and the Pleiades (Alcyone) as
+  fixed J2000 unit vectors (Hipparcos via SIMBAD; proper motion, ≤ 0.2″/yr, and the stars' 20″ of
+  annual aberration are ignored). The topocentric astrometric Moon (`Equator(ofdate=false,
+  aberration=false)`, consistent with J2000 star places) is tabulated every 6 h; each monthly pass
+  is minimised on a Catmull–Rom interpolation of that table (≈ 0.02°, the diurnal parallax being
+  the fastest term), and only passes within 0.15° of the limit, with the Moon up and the Sun down,
+  are refined against AE. Listed: occultations (separation < the Moon's semi-diameter; for the
+  Pleiades < 0.75°) and passes closer than 0.5° (1° for the cluster), with the Moon ≥ 3° up and the
+  Sun ≤ −3° here. Checked against a brute-force 20-minute scan at eight sites (55 of 56 found; the
+  miss sits on the 3° gate).
+- **Venus at greatest brilliancy**: `AE.SearchPeakMagnitude` (2026-11-27 01:47 UT, mag −4.87).
+- **Transits** of Mercury and Venus: `AE.SearchTransit`, with the Sun's upper limb up at the start,
+  greatest transit and end deciding what is seen here (2032-11-13: 06:41–11:07 UT, greatest 08:54
+  UT, as NASA lists it).
+- **The Moon's distance**: per calendar year, `AE.SearchLunarApsis` gives the closest perigee and
+  the farthest apogee; every perigee within 24 h of full Moon (the phase angle 180° ± 12.2°) is a
+  "perigee full Moon". The quarter's own "a supermoon" note (full Moon closer than 361,900 km) stays.
+  Sizes are against the mean 384,400 km (larger ∝ 1/d, brighter ∝ 1/d²).
+- **Saturn's ring-plane crossings**: the sign of `Illumination('Saturn').ring_tilt`, sampled every
+  10 days and bisected to seconds; crossings closer than 400 days are one edge-on season, listed
+  once (2038-10-15, 2039-04-01, 2039-07-09).
+- **Mars at opposition** says "perihelic" below 1.42 AU from the Sun and "aphelic" above 1.6 AU.
+
+**Meteor showers** (`js/astro/meteors.js`). The thirteen annual showers of the IMO calendar's
+working list, each with the solar longitude of maximum λ☉ (J2000.0), its activity window, radiant
+and drift, V∞, population index r and ZHR. Streams are fixed to the stars, so the peak in the equinox
+of date is at λ☉ + p_A, with the IAU 2006 general precession p_A = 5028.796″T + 1.105″T²; the
+instant is `AE.SearchSunLongitude` of that. This reproduces the IMO's published maxima (Geminids
+2023-12-14 19h and 2024-12-14 01h UT, Perseids 2024-08-12 13–16h, Quadrantids 2025-01-03 15h) and
+puts the Perseids of 1066 at λ_date ≈ 127°, late July. History: `validFrom` keeps the Geminids
+(first seen ~1862), Quadrantids (~1835), Ursids (~1900) and Draconids (1926) out of earlier years;
+the Quadrantids are cut off after 2400 (their stream is being moved off Earth's path; the year is
+illustrative). Outbursts and storms are not modelled. Activity is ZHR(λ) = ZHRmax·10^(−B|λ − λmax|)
+inside the window (Jenniskens 1994 slopes where given, broad illustrative ones otherwise, e.g. the
+Geminids' B+ 0.39 / B− 0.81). The expected rate is the IMO's ZHR definition turned around:
+HR = ZHR·sin h·r^(lm − 6.5), with lm from the zenith sky's brightness (`skyglow.js`: airglow,
+moonlight by KS91, the site's light pollution) plus twilight, capped at 6.5. The Events entry
+samples the night around the peak hourly (geometric altitudes from RA/Dec of date and the sidereal
+clock) and quotes the best hour: "about N meteors an hour from a dark site, M under this sky". These
+are expectations for one observer under a clear sky; rounded, and labelled illustrative.
+
+**The meteors drawn in sky view** are illustrative (`render/meteors.js`). Simulated time is cut into
+10 s buckets; each bucket's count per source is a Poisson draw with the source's rate (×1.6 for the
+paths the horizon cut removes), and each meteor's start (3–100° from the radiant, uniform over the
+sphere), length (∝ sin ψ, foreshortened near the radiant), duration (0.3–0.8 s, slower meteors
+longer) and magnitude (P(m) ∝ r^m) are hashes of (bucket, source, index). Meteors move along great
+circles away from their radiant. Live, they play for wall-clock time with launches capped at 2.5 a
+second; paused, an hour's meteors are composited, star-aligned. The sporadic background is 8 an
+hour under a perfect sky, with random radiants.
+
+**The year planner** (`js/astro/planner.js`). 365 nights from the first of the month, sampled every
+20 minutes from 15:00 to 09:00 local standard time. One RA/Dec of date per body per night
+(`GeoVector` rotated by `Rotation_EQJ_EQD`, refreshed monthly), the Moon at three nodes a night;
+altitudes from sin h = sin φ sin δ + cos φ cos δ cos H with the sidereal clock running. No refraction,
+no parallax: within ~1° of `AE.Horizon` for the planets and the Sun, ~2.5° for the Moon. Visible
+means ≥ 10° up, the Sun below −6° (−12° for planets fainter than mag 4, as `tonight`) and ≥ 12° from
+the Sun. Magnitudes from `AE.Illumination` every third night.
+
+**The Sun's paths** (`js/astro/sunpath.js`). Apparent (refracted) alt/az every 10 minutes over today
+(from the zone's midnight) and over this year's solstices and March equinox (from local mean
+midnight), the noon analemma at local mean noon (UT 12h − λ/15) each day, and the subsolar point
+(δ☉, RA☉ − GAST) at the current UT time of day each day. Sampling at a fixed UT is the same as at a
+fixed standard-time reading anywhere, so no zone or DST logic enters. Checked against Paris: noon
+altitudes 64.6° and 17.7° at the solstices, sunrise azimuths 51° and 125°; the subsolar 8 spans
+±23.44° and −4.1° … +3.6° of longitude at 12:00 UT (the equation of time).
+
 ---
 
 ## 8. Accuracy budget
@@ -863,6 +934,10 @@ and AE's contacts to 0.1 s; the shapes are illustrative.
 | Sub-points, footprint | geocentric | The footprint is the hemisphere where the body's geocentric direction is above the horizon. Parallax and refraction are not applied. It is a guide, not a contact time. |
 | World map twilight lines | ≲ 1° of solar altitude | Geocentric and unrefracted, from the sphere's normal (§6c); the panels use the topocentric, refracted Sun. |
 | Parallax distance (two places) | ≲ 1 % | Small-angle triangulation over the pins' chord (§6c). |
+| Meteor-shower peaks | ≲ 1 h against the IMO calendar | λ☉ (J2000) + precession through `SearchSunLongitude` (§7b). Real maxima vary from year to year; outbursts are not modelled. |
+| Meteor rates | a factor of ~2 | Expected values for one observer (ZHR, r, the radiant's altitude, the modelled sky's limiting magnitude). The meteors drawn are illustrative. |
+| Star occultations | ~0.01° in separation, ~1 min in time | Fixed J2000 stars without proper motion or annual aberration; grazes near the Moon's limb may be misjudged (§7b). |
+| Year planner | ~1° (planets, Sun), ~2.5° (Moon) | Analytic altitudes from one RA/Dec a night, no refraction or parallax (§7b). |
 
 **Validation.** The tests in `test/astro.*.test.mjs` check these values from SPEC §D.5:
 
@@ -902,6 +977,11 @@ and AE's contacts to 0.1 s; the shapes are illustrative.
 - **Nutation.** D. D. McCarthy & B. J. Luzum (2003), "An abridged model of the precession-nutation
   of the celestial pole" (IAU 2000B), *Celest. Mech. Dyn. Astr.* 85, 37.
 - **ΔT.** F. Espenak & J. Meeus (2006), *Five Millennium Canon of Solar Eclipses*, NASA/TP-2006-214141.
+- **Meteor showers.** International Meteor Organization, *Meteor Shower Calendar* (working list:
+  λ☉ of maxima in J2000.0, radiants, drift, V∞, r, ZHR), <https://www.imo.net/resources/calendar/>.
+  Activity slopes: P. Jenniskens (1994), "Meteor stream activity I. The annual streams", *A&A* 287, 990.
+- **Bright-star positions** for occultations: the Hipparcos new reduction, F. van Leeuwen (2007),
+  *A&A* 474, 653, via SIMBAD (CDS, Strasbourg).
 - **Meeus.** J. Meeus (1998), *Astronomical Algorithms*, 2nd ed., Willmann-Bell. Used for
   refraction, rise and set, and the general methods.
 - **Refraction.** Þ. Sæmundsson (1986), *Sky & Telescope* 72, 70.

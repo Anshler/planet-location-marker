@@ -1107,7 +1107,7 @@ body.no-webgl .vb-ruler, body.no-webgl .vb-point { display: none; }
     border: 1px solid rgba(255, 255, 255, .14);
     border: 1px solid color-mix(in srgb, var(--c, #fff) 40%, transparent);
     border-radius: 13px;
-    background: rgba(9, 13, 21, .74);
+    background: rgba(9, 13, 21, .92);   /* opaque enough to cover a star name beneath */
     color: #eef3fb;
     font: 650 12px/1 var(--font);
     white-space: nowrap;

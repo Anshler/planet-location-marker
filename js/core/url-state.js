@@ -412,7 +412,12 @@ function parseViewKeys(params, out, invalid) {
     if (params.has('cam')) {
         const views = params.get('cam').split('|').map(parseCamPart).filter(Boolean);
         if (!views.length) invalid.push('cam');
-        else out.cam = views.find((c) => c.mode === (out.view ?? 'orbit')) ?? views[0];
+        else {
+            // A single camera without `view=` names the view, so a hand-written link cannot put the
+            // rig in one view while the store keeps another.
+            if (out.view === undefined && views.length === 1) out.view = views[0].mode;
+            out.cam = views.find((c) => c.mode === (out.view ?? 'orbit')) ?? views[0];
+        }
     }
     if (params.has('trk')) {
         const v = params.get('trk').trim().toLowerCase();

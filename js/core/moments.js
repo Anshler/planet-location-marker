@@ -7,6 +7,9 @@
 // best naked-eye views of Halley's five apparitions (astro/comets.js), found by a search over each
 // apparition for a dark sky, a high comet and a bright tail.
 
+import { layersToCode } from './url-state.js';
+import { DEFAULT_STATE } from './store.js';
+
 /**
  * @typedef {{ id:string, title:string, when:string, caption:string, sources:string[], hash:string }} Moment
  */
@@ -14,7 +17,8 @@
 /** Builds a moment's hash: always paused at `t`, without the intro. */
 function link({ lat, lon, n, tz, t, view = 'sky', sel = null, cam = null, ly = null }) {
     const parts = [`loc=${lat},${lon}`, `n=${encodeURIComponent(n)}`, `tz=${tz}`, `t=${t}`, 'p=0'];
-    if (view !== 'orbit') parts.push(`view=${view}`);
+    // Always named: a hash without `view=` keeps the current view.
+    parts.push(`view=${view}`);
     if (sel) parts.push(`sel=${sel}`);
     if (cam) parts.push(`cam=${cam}`);
     if (ly) parts.push(`ly=${ly}`);
@@ -23,7 +27,7 @@ function link({ lat, lon, n, tz, t, view = 'sky', sel = null, cam = null, ly = n
 }
 
 /** The default layers plus the spacecraft (url-state LAYER_CODES 'v'). */
-const LY_CRAFT = 'bgoscCnmkazhldvx';
+const LY_CRAFT = layersToCode({ ...DEFAULT_STATE.layers, spacecraft: true });
 
 /** @type {ReadonlyArray<Moment>} */
 export const MOMENTS = Object.freeze([

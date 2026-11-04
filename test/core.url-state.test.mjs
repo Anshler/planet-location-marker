@@ -564,3 +564,14 @@ test('sel= round-trips extra objects (namespaced ids) and rejects malformed ones
     assert.match(hash, /(^|&)sel=comet:halley(&|$)/);
     assert.equal(parseHash(hash).selection, 'comet:halley');
 });
+
+test('a single cam= without view= names the view; view= wins when both are given', () => {
+    assert.equal(parseHash('#cam=o:20,-130,7').view, 'orbit');
+    assert.equal(parseHash('#cam=s:180,20,60').view, 'sky');
+    assert.equal(parseHash('#cam=m:10,20,2').view, 'map');
+    const both = parseHash('#view=sky&cam=o:20,-130,7|s:180,20,60');
+    assert.equal(both.view, 'sky');
+    assert.equal(both.cam.mode, 'sky');
+    // A pair without view= is the app's own orbit link: no view is implied.
+    assert.equal(parseHash('#cam=o:20,-130,7|s:180,20,60').view, undefined);
+});

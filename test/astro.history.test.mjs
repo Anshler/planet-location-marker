@@ -6,6 +6,7 @@ import { GUEST_STARS, guestById, guestMagnitude, guestRiseSet, createGuestProvid
 import { MOMENTS, FAMOUS_COMETS } from '../js/core/moments.js';
 import { skyCaption } from '../js/astro/sky-caption.js';
 import { parseHash } from '../js/core/url-state.js';
+import { DEFAULT_STATE } from '../js/core/store.js';
 import { MIN_MS, MAX_MS } from '../js/core/clock.js';
 import { createExtras } from '../js/astro/extras.js';
 import { createCometProvider } from '../js/astro/comets.js';
@@ -70,6 +71,12 @@ test('every Moment is a valid link that shows what its caption promises', () => 
         assert.deepEqual(p.invalid ?? [], [], `${m.id}: ${p.invalid}`);
         assert.ok(p.tMs >= MIN_MS && p.tMs <= MAX_MS && p.playing === false && p.intro === false, m.id);
         assert.ok(p.observer && p.observer.tz, m.id);
+        // The view is always named (a hash without it keeps the current one) and matches the camera.
+        assert.ok(p.view && (!p.cam || p.cam.mode === p.view), `${m.id}: view ${p.view}, cam ${p.cam?.mode}`);
+        // A Moment's layers add to the defaults, never turn one off (prefs would keep it off).
+        if (p.layers) {
+            for (const [k, on] of Object.entries(DEFAULT_STATE.layers)) if (on) assert.ok(p.layers[k], `${m.id}: layer ${k} kept`);
+        }
         if (MOMENTS.includes(m)) assert.ok(m.caption.length > 40 && m.sources.length > 0, m.id);
         // The selected extra object is in the sky, above the horizon.
         if (p.selection && p.selection.includes(':') && !p.selection.startsWith('craft:')) {

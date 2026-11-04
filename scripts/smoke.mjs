@@ -49,6 +49,12 @@
 //                            deploy's manifest; on the repo it tests the dev worker
 //   --context-loss           WEBGL_lose_context: lose and restore the context once the app is ready;
 //                            drawing must resume, the overlay leave and no WebGL warning appear
+//   --perf                   count-based performance gates (scripts/lib/perf-gates.mjs), once the app is
+//                            ready: shader programs and draw calls within the tier's budget (globe and
+//                            sky view), no frame in 3 s on the paused globe, none in a paused sky view
+//                            (a twinkling tier: ≤ 32/s), no getBoundingClientRect inside a frame
+//                            callback during a 3 s time-lapse. Open scripts/lib/perf-gates.mjs perfScene
+//                            (the scene the budgets were measured on), e.g. --url='/#…&q=high'
 //
 // Exit codes: 0 pass · 1 errors or failed assertions · 2 infrastructure problem.
 
@@ -67,7 +73,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const KNOWN_FLAGS = new Set(['url', 'out', 'wait', 'width', 'height', 'dpr', 'mobile', 'eval', 'block', 'offline',
     'expect-ready', 'assert', 'format', 'quality', 'tz', 'reduced-motion', 'subpath', 'json', 'verbose', 'help',
     'at', 'fail', 'no-webgl', 'init', 'gpu', 'angle', 'headed', 'browser', 'root', 'chrome-args', 'throttle',
-    'offline-reload', 'context-loss']);
+    'offline-reload', 'context-loss', 'perf']);
 const GEOCODER_HOSTS = new Set(['geocoding-api.open-meteo.com', 'photon.komoot.io', 'nominatim.openstreetmap.org']);
 const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
@@ -76,8 +82,9 @@ const args = Object.fromEntries(process.argv.slice(2).map((a) => {
     return m ? [m[1], m[2] ?? 'true'] : [a, 'true'];
 }));
 if (args.help) {
-    const head = fs.readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\n').slice(1, 60);
-    console.log(head.filter((l) => l.startsWith('//')).map((l) => l.slice(3)).join('\n'));
+    const lines = fs.readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\n');
+    const head = lines.slice(1, lines.findIndex((l, i) => i > 0 && !l.startsWith('//')));
+    console.log(head.map((l) => l.slice(3)).join('\n'));
     process.exit(0);
 }
 for (const k of Object.keys(args)) if (!KNOWN_FLAGS.has(k)) console.warn(`smoke: unknown option --${k} (ignored)`);
@@ -86,7 +93,10 @@ const flag = (k) => args[k] !== undefined && args[k] !== 'false';
 const ASSERT = flag('assert');
 const OFFLINE_RELOAD = flag('offline-reload');
 const CONTEXT_LOSS = flag('context-loss');
-const EXPECT_READY = ASSERT || flag('expect-ready') || OFFLINE_RELOAD || CONTEXT_LOSS;
+const PERF = flag('perf');
+const EXPECT_READY = ASSERT || flag('expect-ready') || OFFLINE_RELOAD || CONTEXT_LOSS || PERF;
+/** --perf: the gates' shim, probe and judge (they import js/core/quality.js, so only when asked). */
+const perfGates = PERF ? await import('./lib/perf-gates.mjs') : null;
 const MOBILE = flag('mobile');
 const FORMAT = /^jpe?g$/i.test(args.format ?? '') ? 'jpeg' : 'png';
 /** `url` with `flag` (e.g. 'sw=1') in its hash. */
@@ -165,7 +175,7 @@ const watchdog = setTimeout(async () => {
     console.error('smoke: timed out');
     await cleanup();
     process.exit(2);
-}, OPT.wait + 120000);
+}, OPT.wait + 120000 + (PERF ? 240000 : 0));
 watchdog.unref();
 
 // ------------------------------------------------------------------ helpers --------------
@@ -291,6 +301,7 @@ async function openPage(exe) {
     if (OPT.fail.length) await page('Fetch.enable', fetchPatterns());
     if (OPT.init) await page('Page.addScriptToEvaluateOnNewDocument', { source: OPT.init });
     if (OFFLINE_RELOAD) await page('Page.addScriptToEvaluateOnNewDocument', { source: COUNT_EVENTS });
+    if (PERF) await page('Page.addScriptToEvaluateOnNewDocument', { source: perfGates.PERF_SHIM });
     await page('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true });
     return page;
 }
@@ -344,6 +355,7 @@ function describeRun(target, exe) {
     if (OPT.throttle) bits.push(`throttled to ${OPT.throttle[0]} ms RTT, ${OPT.throttle[1]} kbit/s`);
     if (OFFLINE_RELOAD) bits.push('offline reload through the service worker');
     if (CONTEXT_LOSS) bits.push('context loss and restore');
+    if (PERF) bits.push('performance gates');
     console.log(`smoke: ${target}\n       ${bits.join(', ')}; ${exe.split(/[\\/]/).pop()}`);
 }
 
@@ -405,7 +417,9 @@ async function run() {
         await sleep(600);   // a few frames after the camera settles
     }
 
-    // ---- --context-loss, then --offline-reload (the checks below then run on the reloaded page)
+    // ---- --perf, --context-loss, then --offline-reload (the checks below then run on the reloaded page)
+    let perf = null;
+    if (PERF && readyMs !== null) perf = await perfRun(evaluate);
     if (CONTEXT_LOSS && readyMs !== null) await contextLoss(evaluate);
     if (OFFLINE_RELOAD && readyMs !== null) readyMs = await offlineReload(page, evaluate) ?? readyMs;
 
@@ -420,7 +434,15 @@ async function run() {
     let final = null;
     if (ASSERT && readyMs !== null) final = await acceptance({ evaluate, stats });
 
-    return { target, readyMs, evalResult, final, shot: true, atFiles };
+    return { target, readyMs, evalResult, final, shot: true, atFiles, perf };
+}
+
+/** --perf: runs the probe in the page and judges it (scripts/lib/perf-gates.mjs). */
+async function perfRun(evaluate) {
+    const m = await evaluate(`(${perfGates.perfProbe})(${JSON.stringify(perfGates.PROBE_OPTIONS)})`)
+        .catch((e) => ({ error: e.message }));
+    for (const c of perfGates.judgePerf(m)) check(c.name, c.ok, c.detail);
+    return m;
 }
 
 /**
@@ -634,6 +656,7 @@ if (result?.final && !result.final.error) {
     console.log(`  info  stats  fps=${f.fps} frames=${f.frames} drawCalls=${f.drawCalls} geometries=${f.geometries} `
         + `textures=${f.textures} beams=${f.beamsVisible} labels=${f.labelsVisible}`);
 }
+if (result?.perf) console.log(`  info  perf   ${perfGates.perfSummary(result.perf)}`);
 if (result?.evalResult !== undefined) {
     const v = result.evalResult;
     console.log('eval:', typeof v === 'string' ? v : JSON.stringify(v, null, 2));
@@ -653,8 +676,8 @@ if (OPT.json) {
     fs.writeFileSync(OPT.json, JSON.stringify({
         ok: !failed, url: result?.target ?? null, viewport: { width: OPT.width, height: OPT.height, dpr: OPT.dpr, mobile: MOBILE },
         options: { offline: OPT.offline, tz: OPT.tz, reducedMotion: OPT.reducedMotion, subpath: OPT.subpath, noWebgl: OPT.noWebgl, fail: OPT.fail,
-            offlineReload: OFFLINE_RELOAD, contextLoss: CONTEXT_LOSS, root: OPT.root === ROOT ? null : OPT.root },
-        readyMs: result?.readyMs ?? null, checks, stats: result?.final ?? null, errors: log.errors, warnings: log.warnings,
+            offlineReload: OFFLINE_RELOAD, contextLoss: CONTEXT_LOSS, perf: PERF, root: OPT.root === ROOT ? null : OPT.root },
+        readyMs: result?.readyMs ?? null, checks, stats: result?.final ?? null, perf: result?.perf ?? null, errors: log.errors, warnings: log.warnings,
         external: net.external, failed: log.failed, screenshot: result?.shot ? path.resolve(OPT.out) : null,
     }, null, 2));
 }

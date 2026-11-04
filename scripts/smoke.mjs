@@ -23,6 +23,8 @@
 //   --format=png|jpeg --quality=0..100   screenshot encoding (quality: jpeg only)
 //   --tz=Area/City           emulate a time zone (e.g. --tz=UTC to regression-test UTC systems)
 //   --reduced-motion         emulate prefers-reduced-motion: reduce
+//   --media=f:v,f:v          emulate other media features (CDP Emulation.setEmulatedMedia), e.g.
+//                            --media=prefers-contrast:more,forced-colors:active,prefers-reduced-transparency:reduce
 //   --subpath=/repo/         serve the site under a sub-path, like GitHub Pages
 //   --json=file              also write the results as JSON
 //   --verbose                echo console messages and requests as they happen
@@ -54,7 +56,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // ------------------------------------------------------------------ options --------------
 
 const KNOWN_FLAGS = new Set(['url', 'out', 'wait', 'width', 'height', 'dpr', 'mobile', 'eval', 'block', 'offline',
-    'expect-ready', 'assert', 'format', 'quality', 'tz', 'reduced-motion', 'subpath', 'json', 'verbose', 'help',
+    'expect-ready', 'assert', 'format', 'quality', 'tz', 'reduced-motion', 'media', 'subpath', 'json', 'verbose', 'help',
     'at', 'fail', 'no-webgl', 'init', 'gpu', 'angle', 'headed', 'browser', 'root', 'chrome-args']);
 const GEOCODER_HOSTS = new Set(['geocoding-api.open-meteo.com', 'photon.komoot.io', 'nominatim.openstreetmap.org']);
 const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
@@ -64,7 +66,7 @@ const args = Object.fromEntries(process.argv.slice(2).map((a) => {
     return m ? [m[1], m[2] ?? 'true'] : [a, 'true'];
 }));
 if (args.help) {
-    const head = fs.readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\n').slice(1, 40);
+    const head = fs.readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\n').slice(1, 44);
     console.log(head.filter((l) => l.startsWith('//')).map((l) => l.slice(3)).join('\n'));
     process.exit(0);
 }
@@ -85,6 +87,8 @@ const OPT = {
     out: args.out ?? path.join(os.tmpdir(), `smoke${MOBILE ? '-mobile' : ''}.${FORMAT === 'jpeg' ? 'jpg' : 'png'}`),
     tz: args.tz && args.tz !== 'true' ? args.tz : null,
     reducedMotion: flag('reduced-motion'),
+    media: (args.media ?? '').split(',').map((s) => s.trim().split(':')).filter(([n, v]) => n && v && n !== 'true')
+        .map(([name, value]) => ({ name, value })),
     offline: flag('offline'),
     block: (args.block ?? '').split(',').map((s) => s.trim()).filter((s) => s && s !== 'true'),
     subpath: args.subpath && args.subpath !== 'true' ? args.subpath : null,
@@ -255,9 +259,8 @@ async function openPage(exe) {
         await page('Emulation.setUserAgentOverride', { userAgent: mobileUserAgent(userAgent), platform: 'Android' });
     }
     if (OPT.tz) await page('Emulation.setTimezoneOverride', { timezoneId: OPT.tz });
-    if (OPT.reducedMotion) {
-        await page('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
-    }
+    const features = [...(OPT.reducedMotion ? [{ name: 'prefers-reduced-motion', value: 'reduce' }] : []), ...OPT.media];
+    if (features.length) await page('Emulation.setEmulatedMedia', { features });
     if (OPT.fail.length) await page('Fetch.enable', fetchPatterns());
     if (OPT.init) await page('Page.addScriptToEvaluateOnNewDocument', { source: OPT.init });
     await page('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true });
@@ -281,6 +284,7 @@ function describeRun(target, exe) {
     if (OPT.block.length) bits.push(`blocked ${OPT.block.join(',')}`);
     if (OPT.tz) bits.push(`tz=${OPT.tz}`);
     if (OPT.reducedMotion) bits.push('reduced motion');
+    if (OPT.media.length) bits.push(OPT.media.map((f) => `${f.name}: ${f.value}`).join(', '));
     if (OPT.noWebgl) bits.push('no WebGL');
     if (OPT.fail.length) bits.push(`404 for ${OPT.fail.join(',')}`);
     console.log(`smoke: ${target}\n       ${bits.join(', ')}; ${exe.split(/[\\/]/).pop()}`);
@@ -498,7 +502,7 @@ if (OPT.json) {
     fs.mkdirSync(path.dirname(path.resolve(OPT.json)), { recursive: true });
     fs.writeFileSync(OPT.json, JSON.stringify({
         ok: !failed, url: result?.target ?? null, viewport: { width: OPT.width, height: OPT.height, dpr: OPT.dpr, mobile: MOBILE },
-        options: { offline: OPT.offline, tz: OPT.tz, reducedMotion: OPT.reducedMotion, subpath: OPT.subpath, noWebgl: OPT.noWebgl, fail: OPT.fail },
+        options: { offline: OPT.offline, tz: OPT.tz, reducedMotion: OPT.reducedMotion, media: OPT.media, subpath: OPT.subpath, noWebgl: OPT.noWebgl, fail: OPT.fail },
         readyMs: result?.readyMs ?? null, checks, stats: result?.final ?? null, errors: log.errors, warnings: log.warnings,
         external: net.external, failed: log.failed, screenshot: result?.shot ? path.resolve(OPT.out) : null,
     }, null, 2));

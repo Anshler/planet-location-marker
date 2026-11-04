@@ -13,8 +13,8 @@
  * honoured (Safari, Firefox < 98), with an <img> element.
  *
  * Memory: a decoded ImageBitmap is closed once its map is on the GPU (4096 × 2048 is 33.5 MB of
- * RAM, 8192 × 4096 134 MB), except a map whose pixels the CPU reads too (ASSETS `cpu`: the ocean
- * masks, render/ground.js). The GPU copy is the only one then: a context restore or a new
+ * RAM, 8192 × 4096 134 MB), except a map marked ASSETS `keep` (the ocean masks, whose pixels
+ * render/ground.js reads, and the two 512 px previews). The GPU copy is the only one then: a context restore or a new
  * anisotropy fetches the file again (from the HTTP or service-worker cache) and decodes it into the
  * same Texture before it is uploaded. An <img> (Safari) cannot be closed and stays.
  */
@@ -132,7 +132,7 @@ export function createTextureStore(renderer, { onProgress, prefetched = null } =
     function initTexture(tex, bump = false) {
         if (bump) tex.needsUpdate = true;
         try { renderer?.initTexture?.(tex); } catch { return; /* upload lazily on first use instead */ }
-        if (!renderer || ASSETS[tex.name]?.cpu || glLost()) return;
+        if (!renderer || ASSETS[tex.name]?.keep || glLost()) return;
         setTimeout(() => {
             const img = tex.image;
             if (!disposed && !isClosed(img) && typeof img?.close === 'function' && !glLost()) img.close();
@@ -150,7 +150,9 @@ export function createTextureStore(renderer, { onProgress, prefetched = null } =
      * Puts a closed map's pixels back: the file again (HTTP or service-worker cache), decoded into
      * the same Texture (same size, so the GPU storage fits) and uploaded. `restore`: after a context
      * loss, when the next frame would upload the closed image itself (and throw); if the file cannot
-     * be had within RESTORE_WAIT_MS, a 1 × 1 stand-in takes its place so that it uploads cleanly.
+     * be had within RESTORE_WAIT_MS, its preview's image (day and night maps) or a 1 × 1 pixel of its
+     * placeholder colour takes its place: the restored context allocates the GPU storage afresh, at
+     * the stand-in's size, so it uploads cleanly.
      * @returns {Promise<void>} never rejects
      */
     function reload(e, restore = false) {
@@ -171,7 +173,15 @@ export function createTextureStore(renderer, { onProgress, prefetched = null } =
                 if (!restore || !e.tex || !isClosed(e.tex.image)) return;
                 // A late arrival is no use any more: the stand-in sets the GPU storage's size.
                 got?.then((d) => d.image.close?.(), () => {});
-                e.tex.image = typeof ImageData === 'function' ? new ImageData(1, 1) : { width: 1, height: 1 };
+                const pv = entries.get(previewKeyFor(e.key))?.tex;
+                if (pv?.image && !isClosed(pv.image)) {
+                    e.tex.image = pv.image;
+                    e.tex.flipY = pv.flipY;
+                } else {
+                    const hex = PLACEHOLDER_HEX[e.key] ?? 0;
+                    const px = [(hex >> 16) & 255, (hex >> 8) & 255, hex & 255, 255];
+                    e.tex.image = typeof ImageData === 'function' ? new ImageData(new Uint8ClampedArray(px), 1, 1) : { width: 1, height: 1 };
+                }
                 e.tex.needsUpdate = true;
                 e.state = 'failed';
                 emit({ key: e.key, error: err instanceof Error ? err : new Error(String(err)) });

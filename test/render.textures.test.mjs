@@ -232,7 +232,7 @@ function losableRenderer(uploads, gl = { lost: false }) {
     };
 }
 
-test('store: a decoded bitmap is closed once uploaded and its listeners ran; a CPU-read mask keeps it', () => withClosingDecoder(async (stats) => {
+test('store: a decoded bitmap is closed once uploaded and its listeners ran; a kept map (mask, preview) is not', () => withClosingDecoder(async (stats) => {
     const had = globalThis.fetch;
     globalThis.fetch = fakeFetch([]);
     try {
@@ -240,11 +240,12 @@ test('store: a decoded bitmap is closed once uploaded and its listeners ran; a C
         const store = createTextureStore(losableRenderer(uploads), {});
         const seen = [];
         store.onReady('day2k', (tex) => seen.push(tex.image.width));
-        await store.load(['day2k', 'roughness2k']);
+        await store.load(['day2k', 'roughness2k', 'dayPreview']);
         assert.deepEqual(seen, [2], 'listeners see the image');
         await tick(5);
         assert.equal(store.get('day2k').image.width, 0, 'closed: the GPU holds the only copy');
         assert.equal(store.get('roughness2k').image.width, 2, 'the ocean mask is read on the CPU (ground.js)');
+        assert.equal(store.get('dayPreview').image.width, 2, 'a preview is a restore\'s stand-in');
         assert.equal(stats.closed, 1);
     } finally {
         globalThis.fetch = had;
@@ -285,7 +286,7 @@ test('store: restore() fetches closed maps again, one at a time, into the same T
     }
 }));
 
-test('store: a closed map that cannot be fetched on restore gets a 1×1 stand-in, so no frame throws', () => withClosingDecoder(async () => {
+test('store: a closed map that cannot be fetched on restore takes its preview or a 1×1 stand-in, so no frame throws', () => withClosingDecoder(async () => {
     const had = globalThis.fetch;
     let fail = false;
     const ok = fakeFetch([]), gone = fakeFetch([], { status: 503 });
@@ -294,14 +295,16 @@ test('store: a closed map that cannot be fetched on restore gets a 1×1 stand-in
         const errors = [];
         const uploads = [];
         const store = createTextureStore(losableRenderer(uploads), { onProgress: (e) => e.error && errors.push(e.key) });
-        await store.load(['day2k']);
+        await store.load(['nightPreview', 'day2k', 'night2k']);
         await tick(5);
-        const day = store.get('day2k');
+        const day = store.get('day2k'), night = store.get('night2k');
         fail = true;
         await store.restore();
-        assert.equal(day.image.width, 1, 'uploadable');
-        assert.deepEqual(errors, ['day2k'], 'reported like any failed map');
+        assert.equal(day.image.width, 1, 'no preview: one pixel, uploadable');
+        assert.equal(night.image, store.get('nightPreview').image, 'the preview\'s pixels');
+        assert.deepEqual(errors, ['day2k', 'night2k'], 'reported like any failed map');
         assert.equal(store.isReady('day2k'), false);
+        assert.equal(store.get('night2k'), store.get('nightPreview'), 'new consumers get the preview itself');
     } finally {
         globalThis.fetch = had;
     }

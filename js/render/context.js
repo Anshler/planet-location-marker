@@ -131,6 +131,8 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
     let dprOverride = null;
     let postfx = null;
     let lost = false;
+    /** After a restore, until its listeners' work is done (the maps fetched again): nothing draws. */
+    let restoring = false;
     let frames = 0;
     let forceResize = true;
     let presentQueued = false;
@@ -189,6 +191,8 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
 
     function ensurePostFx() {
         const chain = chainCfg(cfg);
+        // While lost, the restore builds the chain (a tier staged meanwhile is its cfg).
+        if (lost) return chain;
         if (chain.composer && !postfx) {
             try {
                 postfx = createPostFx(renderer, scene, camera, chain, { w: size.w, h: size.h, dpr });
@@ -379,7 +383,7 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
      * @returns {boolean} false when nothing could be captured (context lost, disposed)
      */
     function capture(w, h, scale, draw, read, opts) {
-        if (lost || disposed || session) return false;
+        if (lost || restoring || disposed || session) return false;
         const gl = renderer.getContext();
         const W = Math.max(16, Math.min(maxBuffer, Math.round(w)));
         const H = Math.max(16, Math.min(maxBuffer, Math.round(h)));
@@ -414,7 +418,7 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
      * @returns {boolean} false when the context is lost, disposed or a session runs
      */
     function beginCapture(w, h, scale, opts) {
-        if (lost || disposed || session) return false;
+        if (lost || restoring || disposed || session) return false;
         const W = Math.max(16, Math.min(maxBuffer, Math.round(w)));
         const H = Math.max(16, Math.min(maxBuffer, Math.round(h)));
         const s = Number.isFinite(scale) && scale > 0 ? scale : 1;
@@ -519,7 +523,7 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
      * @param {{x:number, y:number, weight:number}|null} [ss]
      */
     function render(ss) {
-        if (lost || disposed) return;
+        if (lost || restoring || disposed) return;
         renderer.info.reset();
         const jitter = ss && postfx?.supersample && !postfx.accum ? ss : null;
         const e = camera.projectionMatrix.elements;
@@ -636,7 +640,7 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
      * @returns {Promise<void>} never rejects
      */
     async function compile({ paced = false } = {}) {
-        if (lost || disposed) return;
+        if (lost || restoring || disposed) return;
         const parallel = !!renderer.extensions?.has?.('KHR_parallel_shader_compile');
         const n0 = renderer.info.programs?.length ?? 0;
         let offLost = null;
@@ -766,23 +770,73 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
     }
 
     // ---- context loss -------------------------------------------------------------------------
+    /**
+     * Releases three's bookkeeping of everything drawn so far, while the context is lost: every GL
+     * call is then a silent no-op, and the dispose listener three hung on each geometry, material,
+     * texture and render target (the lost context's, with its buffers, vertex arrays and programs)
+     * runs and removes itself. The objects stay usable: after the restore three hangs new listeners
+     * as it draws them. Without this a later dispose() (a tier switch's new Earth mesh, the bloom
+     * pass, three's one full-screen triangle that every pass shares) would delete the lost
+     * context's objects on the new one: an 'object does not belong to this context' warning each.
+     * The post chain goes with it (its targets, passes and their quads); the restore builds a new one.
+     */
+    function releaseLost() {
+        const seen = new Set();
+        const rel = (o) => {
+            if (!o || seen.has(o) || typeof o.dispose !== 'function') return;
+            seen.add(o);
+            try { o.dispose(); } catch { /* best effort */ }
+        };
+        const relMat = (m) => {
+            if (!m || seen.has(m)) return;
+            rel(m);
+            for (const k in m) if (m[k]?.isTexture) rel(m[k]);
+            for (const k in m.uniforms) {
+                const v = m.uniforms[k]?.value;
+                if (v?.isTexture) rel(v);
+                else if (Array.isArray(v)) for (const t of v) if (t?.isTexture) rel(t);
+            }
+        };
+        for (const sc of overlay ? [scene, overlay.scene] : [scene]) {
+            sc.traverse((o) => {
+                rel(o.geometry);
+                if (Array.isArray(o.material)) o.material.forEach(relMat);
+                else relMat(o.material);
+            });
+        }
+        if (quad) { rel(quad.mesh.geometry); rel(quad.basic); }
+        try { postfx?.dispose(); } catch { /* ignore */ }
+        postfx = null;
+    }
     const onLost = (e) => {
         e.preventDefault(); // allows the browser to restore the context
         lost = true;
+        releaseLost();
         for (const cb of lostCbs) { try { cb(e); } catch { /* ignore */ } }
     };
     const onRestored = () => {
         lost = false;
-        // three re-creates GL state lazily; rebuild the composer targets explicitly. Its own
-        // restore listener (added with the renderer, so it runs first) has already reset its GL
-        // bookkeeping: the old composer's framebuffers, textures and vertex arrays died with the
-        // lost context, and dispose() would delete them on the new one (INVALID_OPERATION, one
-        // warning each). Drop it unreleased instead.
-        postfx = null;
+        // three re-creates GL state lazily (its own restore listener, added with the renderer, has
+        // already reset its bookkeeping); the post chain is built here, for the current tier.
         ensurePostFx();
         forceResize = true;
         resize();
-        for (const cb of restoredCbs) { try { cb(); } catch { /* ignore */ } }
+        // A listener may return a promise (main.js: the texture store fetching maps whose decoded
+        // copy it closed): nothing draws or captures until those settle.
+        const waits = [];
+        for (const cb of restoredCbs) {
+            try {
+                const r = cb();
+                if (r && typeof r.then === 'function') waits.push(r.then(() => {}, () => {}));
+            } catch { /* ignore */ }
+        }
+        if (waits.length) {
+            restoring = true;
+            Promise.all(waits).then(() => {
+                restoring = false;
+                invalidate();
+            });
+        }
         invalidate();
     };
     canvas.addEventListener('webglcontextlost', onLost, false);
@@ -826,8 +880,8 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
         get tier() { return cfg; },
         /** Current pixel ratio. */
         get dpr() { return dpr; },
-        /** True between webglcontextlost and webglcontextrestored. */
-        get lost() { return lost; },
+        /** True from webglcontextlost until the restore's own work (onContextRestored promises) is done. */
+        get lost() { return lost || restoring; },
         /** Active post-processing chain, or null on the direct (low tier) path. */
         get postfx() { return postfx; },
         /** The long-exposure stacking pass while Expose is on (render/accum.js), else null. */

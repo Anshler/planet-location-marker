@@ -8,7 +8,7 @@
 // Raw bytes on disk are budgeted (1 MB = 10⁶ B); gzip "wire" sizes are informational
 // (GitHub Pages compresses JS/CSS/JSON/SVG/HTML).
 //
-//   low ≤ 3.86 MB · medium ≤ 4.62 MB · high ≤ 8 MB · staged site ≤ 32 MB
+//   low ≤ 3.92 MB · medium ≤ 4.68 MB · high ≤ 8 MB · staged site ≤ 32 MB
 //   SPEC §E.6 set 3.0 / 3.6 / 4.8 MB from an estimate of ≈ 1.35 MB of JavaScript. The shipped,
 //   unminified-by-design module graph (no build step) measures ≈ 2.0 MB raw incl. CSS
 //   (≈ 0.6 MB gzipped; three.js + astronomy-engine alone are 1.17 MB raw), so the budgets were
@@ -44,7 +44,9 @@ const MB = 1e6, KB = 1e3;
 // High: 5.73 → 8 MB, the owner's new ceiling for that tier (low and medium keep tight budgets).
 // Phase 5 (capture): long-exposure stacking (accum pass, controller, presets) and the postcard / Save image path
 // (capture, band, dialogs; ≈ 86 KB of JS and CSS on every tier): low 3.76 → 3.86, medium 4.52 → 4.62 MB (high has room).
-export const TIER_BUDGETS = { low: 3.86 * MB, medium: 4.62 * MB, high: 8 * MB };
+// Phase 5 (guided tours): the tour runner and builders (loaded on demand, but crawled), the catalogue, the lower third,
+// the Events-tab entry and CSS (≈ 57 KB) raise low and medium by 60 KB (+5 %).
+export const TIER_BUDGETS = { low: 3.92 * MB, medium: 4.68 * MB, high: 8 * MB };
 /** Tiers that are measured and printed but have no budget (max: a deliberate, manual choice). */
 export const INFO_TIERS = ['max'];
 // The max tier's 8192 px maps (≈ 15.2 MB) ship with the site; 32 MB keeps headroom (Pages allows 1 GB).

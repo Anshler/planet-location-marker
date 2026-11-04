@@ -31,7 +31,8 @@ export const NEAR_CITY_KM = 300;
 const AT_CITY_KM = 15;
 /** Sources that represent a deliberate user choice (persisted, remembered in recent places). */
 export const USER_SOURCES = Object.freeze(['click', 'city', 'search', 'geo', 'manual']);
-const OBSERVER_SOURCES = new Set(['default', 'url', 'saved', 'tzguess', 'click', 'city', 'search', 'geo', 'manual']);
+/** 'tour': placed by a guided tour (never persisted; the tour restores the user's observer). */
+const OBSERVER_SOURCES = new Set(['default', 'url', 'saved', 'tzguess', 'click', 'city', 'search', 'geo', 'manual', 'tour']);
 const VIEW_MODES = new Set(['orbit', 'sky']);
 const TRACK_KINDS = new Set(['none', 'body', 'stars']);
 /** The telescope's narrowest framing (the rig's sky-view floor). */
@@ -353,6 +354,7 @@ export function telescopeFov(id, snap, aspect = 16 / 9) {
  *          getSnap?:()=>import('../core/types.js').Snapshot|null,
  *          runIntro?:(opts?:{force?:boolean})=>Promise<unknown>,
  *          toggleDebug?:()=>boolean,
+ *          tours?:{start:(id:string)=>Promise<boolean>, stop:()=>void, next:()=>void, resume:()=>void},
  *          win?:Window, doc?:Document, nav?:Navigator}} deps
  * @returns {object} Actions
  */
@@ -1099,6 +1101,22 @@ export function createActions(deps) {
         return render.capture?.frame?.(opts) ?? null;
     }
 
+    /**
+     * Guided tours (js/app/tours.js, which main.js loads on demand; ids in core/tour-catalog.js).
+     * `deps.tours` is {start(id), stop(), next(), resume()}; without it (tests, a failed load) the
+     * calls do nothing. startTour resolves true once the tour runs.
+     */
+    function startTour(id) {
+        const t = deps.tours;
+        if (typeof t?.start !== 'function') return Promise.resolve(false);
+        return Promise.resolve(t.start(id)).catch(() => false);
+    }
+    const tourCall = (name) => () => {
+        try {
+            deps.tours?.[name]?.();
+        } catch { /* the tour ends itself on errors */ }
+    };
+
     return {
         setObserver, undoObserver, locateMe,
         select, flyToBody, setViewMode, cycleView, setEarthLock, setTracking, cycleTracking, telescope,
@@ -1123,6 +1141,12 @@ export function createActions(deps) {
         get chasing() { return chase.active; },
         /** True when an undo is available. */
         get canUndo() { return undoStack.length > 0; },
+        // Guided tours (ROADMAP Phase 5): start one, end it (restoring the state it found), skip to
+        // its next step, or resume it after input paused it. store.ui.tour describes the one on screen.
+        startTour,
+        stopTour: tourCall('stop'),
+        nextTourStep: tourCall('next'),
+        resumeTour: tourCall('resume'),
     };
 }
 

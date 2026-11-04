@@ -53,7 +53,7 @@ export const DEFAULT_STATE = deepFreeze({
         subpoints: false, trails: false, labels: true, landscape: true,
     },
     display: { tzMode: 'observer', hour12: false, skyDark: 'auto', aurora: 'typical' }, quality: { setting: 'auto', active: 'medium', ceiling: 'medium' },
-    ui: { panel: 'sky', sheet: 'peek', cinema: false, help: false, palette: false, eclipse: null },
+    ui: { panel: 'sky', sheet: 'peek', cinema: false, help: false, palette: false, eclipse: null, tour: null },
     status: { phase: 'boot', progress: 0, webgl: true, onlineSearch: 'unknown', reducedMotion: false, coarse: false, introPlaying: false },
 });
 

@@ -22,6 +22,10 @@
  * `peakMs` is the event's instant (global greatest eclipse, or the local maximum when `local`);
  * either works for eclipsePath / actions.eclipsePath. `kind` is the event's eclipseKind.
  * @typedef {{peakMs:number, kind:'total'|'annular'|'partial'|null, local:boolean, eventId:string|null}} EclipseFocus */
+/** The guided tour on screen (js/app/tours.js): its lower-third caption and step, null when none plays.
+ * While it is set, layers are not saved to prefs, the URL hash is not written and the UI narrator is
+ * quiet (unless `paused`); the tour restores the state it found when it ends.
+ * @typedef {{id:string, title:string, step:number, steps:number, caption:string, paused:boolean, ambient:boolean}} TourState */
 /** @typedef {{ observer:Observer, selection:BodyId|null,
  *   view:{mode:'orbit'|'sky', earthLock:boolean, track:'none'|'body'|'stars'},
  *   layers:Layers,
@@ -29,7 +33,7 @@
  *     aurora:'quiet'|'typical'|'storm'},
  *   quality:{setting:'auto'|'low'|'medium'|'high'|'max', active:'low'|'medium'|'high'|'max', ceiling:'low'|'medium'|'high'},
  *   ui:{panel:'sky'|'details'|'events'|'layers'|'settings'|'about', sheet:'peek'|'half'|'full', cinema:boolean, help:boolean, palette:boolean,
- *       eclipse:EclipseFocus|null},
+ *       eclipse:EclipseFocus|null, tour:TourState|null},
  *   status:{phase:'boot'|'loading'|'ready'|'error', progress:number, webgl:boolean, onlineSearch:'unknown'|'ok'|'down',
  *           reducedMotion:boolean, coarse:boolean, introPlaying:boolean} }} AppState */
 /** BodyState: every vector is in SCENE frame (see section D).
@@ -125,7 +129,7 @@
 /** Result of `parseHash`. Every key is optional; `invalid` lists keys that were present but rejected or clamped.
  * @typedef {{ observer?:Observer&{cc:string}, tMs?:number, live?:boolean, rate?:number, playing?:boolean,
  *   view?:'orbit'|'sky', earthLock?:boolean, selection?:BodyId|null, layers?:Layers,
- *   quality?:'auto'|'low'|'medium'|'high'|'max', skyDark?:string, aurora?:'quiet'|'typical'|'storm', cam?:CamView, track?:'body'|'stars', intro?:boolean, debug?:boolean, invalid?:string[] }} HashState */
+ *   quality?:'auto'|'low'|'medium'|'high'|'max', skyDark?:string, aurora?:'quiet'|'typical'|'storm', cam?:CamView, track?:'body'|'stars', intro?:boolean, debug?:boolean, tour?:string, invalid?:string[] }} HashState */
 
 /** Device probe for `detectTier` (js/core/quality.js).
  * @typedef {{webgl2:boolean, rendererString?:string, maxTextureSize?:number, dpr?:number, deviceMemory?:number, cores?:number,

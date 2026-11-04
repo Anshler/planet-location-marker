@@ -21,7 +21,7 @@ index.html        import map · inline loader · feature detection · global err
    ├─ js/geo/     offline cities, online geocoder, lat/lon parsing, landscape profile     PURE
    ├─ js/astro/   astronomy: frames, snapshot, almanac, events, paths, worker + client    PURE
    ├─ js/data/    star-catalog decoder                                                    PURE
-   ├─ js/app/     actions (UI → app API), frame loop, label feed, intro, fallback         glue
+   ├─ js/app/     actions (UI → app API), frame loop, label feed, intro, tours, fallback  glue
    ├─ js/ui/      the DOM interface                         (dynamic import, never three)
    └─ js/render/  three.js scene modules  ┐                 (dynamic import)
       js/camera/  camera rig and picking  ┘
@@ -53,19 +53,21 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | Area | Module | Responsibility |
 |---|---|---|
 | Entry | `index.html` | Import map (`three`, `three/addons/`). `modulepreload` for three, astronomy-engine and `main.js`. Preload for `data/cities.json`. Inline loader. Classic scripts for error capture (`window.__pcLoader`) and feature detection (`window.__pcEnv`). |
-| | `js/main.js` | Boot sequence, service wiring, store-to-module subscriptions, click picking, tier switching, the intro runner, `window.__app`. |
+| | `js/main.js` | Boot sequence, service wiring, store-to-module subscriptions, click picking, tier switching, the intro runner, the guided-tour loader (`startTour`), `window.__app`. |
 | App glue | `js/app/actions.js` | `createActions(deps)`: the only API the UI calls besides `store` and `clock`. Also `normalizeObserver`, `eventFraming` (how a jump frames its event), `eclipseFocusExpired`, `eclipsePlayRange` and `lookSpanning`. |
 | | `js/app/eclipse-chase.js` | `ribbonPlan` (which eclipse the globe's path ribbon shows), `chaseLegs`/`chaseTarget` and `createEclipseChase` (the shadow chase behind `actions.chaseEclipse`). No three.js. |
 | | `js/app/loop.js` | `createLoop(deps)`: the frame loop with render-on-demand, guarded module calls and strikes, governor sampling and the 4 Hz readout. `redraw()` draws one frame on demand (captures). |
 | | `js/app/capture.js` | `createCapture(deps).frame(opts)`: the scene rendered once at a requested size into a 2D canvas, with the label feed's labels reprojected for that camera (`projectAnchor`, `projectLabels`, `paintLabels`). Postcards and the long exposure's Save image. No three.js. |
 | | `js/app/expose.js` | Long-exposure presets, pure: `photoLayers` (no line art in a stack), `trailsLook`, `nextDarkMs`, `meanNoonMs`, `analemmaPlan`. |
 | | `js/app/labels-feed.js` | `buildAnchors(state, snap, catalog, trails)` and `createLabelsFeed(deps)`: label anchors with live vectors. |
-| | `js/app/intro.js` | `playIntro(opts)`: the first-visit camera flight, pin drop and beam launch. |
+| | `js/app/intro.js` | `playIntro(opts)`: the first-visit camera flight, pin drop and beam launch (after a pre-roll that holds the opening pose while the loader fades). |
+| | `js/app/tours.js` | Guided tours, loaded on demand: the pure step builders (`tonightSteps`, `yearSteps`, `eclipseSteps`, `ambientSteps`) and `createTourRunner` (captions, pause/resume/next, state capture and restore). No three.js. |
 | | `js/app/fallback.js` | Text-mode banner, context-lost overlay, fatal-error hand-off. |
 | Core | `js/core/store.js` | Immutable slices, selector subscriptions, `DEFAULT_STATE`. |
 | | `js/core/bus.js` | Fixed event types: `readout`, `toast`, `announce`, `almanac`, `events`, `intro`. |
 | | `js/core/clock.js` | Simulated time: Live mode, the signed rate ladder, steps, log-time tweens, range loops, clamping to 1000–3000. |
-| | `js/core/url-state.js` | `parseHash`, `serializeHash` and `bindUrl`, which keeps the URL hash in sync (throttled `replaceState`). |
+| | `js/core/url-state.js` | `parseHash`, `serializeHash` and `bindUrl`, which keeps the URL hash in sync (throttled `replaceState`; held while `suspended()`, i.e. during a tour). |
+| | `js/core/tour-catalog.js` | `TOURS` (id, title, blurb, running time), `TOUR_IDS`, `isTourId`: what the Events tab lists and `#tour=` accepts. |
 | | `js/core/quality.js` | `TIERS`, `detectTier`, `tierConfig`, `autoStartTier`, and `createGovernor` (downgrade only, display-cadence budget). |
 | | `js/core/prefs.js` | `localStorage` under `pc2.`, falling back to memory. |
 | | `js/core/tz.js`, `js/core/format.js` | Time zones (canonicalised, DST-safe) and every displayed number and string. |
@@ -101,7 +103,7 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/render/trails.js`, `flare.js`, `debug.js` | Retrograde paths, procedural lens flare (six-spike starburst, hexagonal aperture ghosts; no textures), `?debug=1` overlay. |
 | | `js/render/eclipse-path.js` | The path of a central solar eclipse on the globe: ribbon, centre line, 30-min ticks, the live umbra marker; reveal modes for the chase. |
 | Camera | `js/camera/rig.js`, `picking.js` | Orbit and sky-view camera, Earth-lock, fly-to tweens, `follow()` (the shadow chase); analytic globe and glyph picking. |
-| UI | `js/ui/index.js` and its modules | Shell, top bar, time bar, Sky Now, body card (with `eyepiece.js`: the 2D-canvas eyepiece portrait, also in text mode), events, Eclipse Companion, layers, settings, about, help, toasts, shortcuts, announcer; the share menu, `postcard.js` (postcard and Save-image dialog, the typographic band) and `expose.js` (Expose presets and the exposure's status pill). |
+| UI | `js/ui/index.js` and its modules | Shell, top bar, time bar, Sky Now, body card (with `eyepiece.js`: the 2D-canvas eyepiece portrait, also in text mode), events (with the guided tours), Eclipse Companion, the tour's lower third (`tour-bar.js`), layers, settings, about, help, toasts, shortcuts, announcer; the share menu, `postcard.js` (postcard and Save-image dialog, the typographic band) and `expose.js` (Expose presets and the exposure's status pill). |
 
 ---
 
@@ -126,8 +128,10 @@ the UI and the render stack with literal `import('./…')` calls, so:
 7. **Render.** `loop.attach(...)` adds the renderer. Store subscriptions start driving modules.
 8. **Ready.** The loader fades when the critical textures are in, after 5 s, or when the user
    chooses "Slow connection — continue with low detail". `status.phase` becomes `'ready'`.
-9. **Intro.** It plays on the first visit unless the hash has `intro=0`, a `cam` or `view=sky`,
-   or the user prefers reduced motion. Otherwise the beams launch with a short stagger.
+9. **Intro.** It plays on the first visit unless the hash has `intro=0`, a `cam`, `view=sky` or
+   `tour`, or the user prefers reduced motion. Otherwise the beams launch with a short stagger. It
+   holds its opening pose for the loader's 0.7 s fade (pre-roll), and the horizon disc grows out
+   with the pin's ripple. A `tour=` link starts its tour here (also in text mode).
 10. **Idle work.** Deferred textures (cloud and ocean masks, Moon, Milky Way), one almanac
     and events push from the worker, and service-worker registration (https only). The new
     worker is handed the URLs this visit already loaded, so the next visit works offline.
@@ -151,6 +155,7 @@ critical CSS read them.
 | `tier-low`, `tier-medium`, `tier-high`, `tier-max` | The active quality tier. |
 | `no-webgl` | Text mode. |
 | `is-intro`, `is-intro-out` | The intro is playing (UI hidden), then the UI fade-in. |
+| `is-touring` | A guided tour plays (`ui.tour`): toasts move above its lower third. |
 
 ---
 
@@ -251,6 +256,20 @@ critical CSS read them.
   sentence, the brand mark), encodes a JPEG as soon as its dialog opens, and shares it with
   `navigator.share({files})` straight from the next tap (iOS needs that fresh activation) or
   downloads it. Text mode draws the band on a drawn night sky.
+- **Guided tours** (`actions.startTour(id)`, the Events tab, or `#tour=<id>` once the app is
+  ready). `main.js` imports `app/tours.js` on the first tour and keeps one runner. A tour is a list
+  of plain-data steps built from the observer, the time and, for 'Tonight from here', the worker's
+  `tonight()` report; each step sets a caption, then any of the observer (source `'tour'`, never
+  persisted), the clock (a sweep, a `once` range, a rate, Live, or a per-frame day-by-day stepper),
+  selection, layers, Earth-lock, tracking, a sky look or globe flight (the rig's promises, waited
+  for at most 5 s), the telescope framing, an event jump or the shadow chase, then holds. While
+  `ui.tour` is set, `bindPreferences` saves no layers, `bindUrl` writes nothing (its first write
+  afterwards replaces a `tour=` link), the UI narrator is quiet (the runner announces each caption)
+  and the mobile sheet is lowered. Esc or 'End tour' ends a tour; other pointer, wheel or key input
+  pauses it (Resume replays the step, Next skips it); Ambient ends on input. The end restores the
+  observer (keys the tour added are cleared), selection, view, layers, cinema, sheet, the eclipse
+  in focus, the clock and, unless input ended it, the camera. Text mode plays captions and time
+  jumps; reduced motion lands sweeps on their last day. A link opened during a tour ends it first.
 - **`bus`** carries transient events. `readout` is the full-detail snapshot at 4 Hz, published
   only when time or the observer changed. The UI requests its own almanac data through
   `services.astro`. `main.js` pushes one almanac and events set at boot as a head start.
@@ -552,9 +571,11 @@ change.
 - `sel` selects a body and opens its card (the Details tab), as a click on it would.
 - `sky` is the Sky darkness setting (`display.skyDark`): `auto` (omitted), `pristine` or a Bortle class `1`–`9`.
 - `au` is the Aurora activity setting (`display.aurora`): `quiet`, `typical` (omitted) or `storm`.
+- `tour` starts a guided tour (`tonight`, `year`, `eclipse-2027`, `ambient`) once the app is ready,
+  instead of the intro. It is read, never written: the hash shows the restored state afterwards.
 
 `bindUrl` writes the hash at most every 500 ms and leaves a fresh visit's URL clean. Hand edits
-are applied live through `onExternalChange`.
+are applied live through `onExternalChange`. It writes nothing while a tour plays.
 
 ---
 

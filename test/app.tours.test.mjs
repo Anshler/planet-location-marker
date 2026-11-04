@@ -187,7 +187,7 @@ test('wait resolves after the delay or at once on abort', async () => {
 });
 
 /** The runner in text mode (no rig) on the real store and clock, with instant timers. */
-function harness({ frozen = false, reduced = false } = {}) {
+function harness({ frozen = false, reduced = false, rig = null } = {}) {
     const store = createStore({
         observer: { ...DEFAULT_STATE.observer, latDeg: 10.82, lonDeg: 106.63, name: 'Ho Chi Minh City', tz: 'Asia/Ho_Chi_Minh', source: 'city' },
         selection: 'venus', view: { mode: 'orbit', earthLock: false, track: 'none' },
@@ -215,7 +215,7 @@ function harness({ frozen = false, reduced = false } = {}) {
         : { setTimeout: (fn) => setTimeout(fn, 0), clearTimeout: (id) => clearTimeout(id) };
     let t = 0;
     const runner = createTourRunner({
-        store, bus, clock, actions, win, timers, getRig: () => null, getSnap: () => null,
+        store, bus, clock, actions, win, timers, getRig: () => rig, getSnap: () => null,
         now: () => (t += 400), raf: (cb) => setTimeout(() => cb(t), 0),
         astro: { call: async (op) => (op === 'tonight' ? report() : null) },
     });
@@ -353,4 +353,39 @@ test('runner: reduced motion lands each sweep on its last day', async () => {
     await runner.start('year');
     await until(() => !runner.active);
     assert.ok(seen.length < 20, `${seen.length} jumps, no strobing`);
+});
+
+test('restore: the map, the system zoom and a vantage way back come back exactly; a globe pose flies', async () => {
+    const cases = [
+        { cam: { mode: 'map', latDeg: 30, lonDeg: 100, distance: 3 }, view: { mode: 'map' }, exact: true },
+        { cam: { mode: 'orbit', latDeg: 24.56, lonDeg: 104.15, distance: 140729 }, view: { mode: 'orbit', system: true }, exact: true },
+        { cam: { mode: 'orbit', latDeg: 40, lonDeg: 60, distance: 5 }, view: { mode: 'orbit', vantage: 'l1' }, exact: true },
+        { cam: { mode: 'orbit', latDeg: -20, lonDeg: 30, distance: 8 }, view: { mode: 'orbit' }, exact: false },
+    ];
+    for (const c of cases) {
+        const log = [];
+        const rig = {
+            getView: () => c.cam,
+            setView: (cam) => { log.push(['setView', cam]); return true; },
+            flyToLatLon: (lat, lon, o) => { log.push(['fly', o.distance]); return Promise.resolve(true); },
+            setMode: () => Promise.resolve(true),
+        };
+        const h = harness({ frozen: true, reduced: true, rig });
+        h.store.set({ view: { ...h.store.get().view, vantage: 'none', ...c.view } });
+        await h.runner.start('tonight');
+        await tick();
+        h.runner.stop();
+        const set = log.filter((x) => x[0] === 'setView');
+        const fly = log.filter((x) => x[0] === 'fly');
+        if (c.exact) {
+            assert.equal(set.length, 1, `${JSON.stringify(c.cam)}: set exactly`);
+            assert.deepEqual(set[0][1], c.cam);
+            assert.equal(fly.length, 0, 'no fly-to (it clamps to 150 R and knows no map)');
+        } else {
+            assert.equal(set.length, 0);
+            assert.deepEqual(fly.map((x) => x[1]), [8], 'a globe pose flies back');
+        }
+        assert.equal(h.store.get().view.mode, c.view.mode);
+        assert.equal(h.store.get().view.vantage, c.view.vantage ?? 'none');
+    }
 });

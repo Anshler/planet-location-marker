@@ -29,6 +29,7 @@ import { createSnapshot, computeSnapshot } from '../astro/snapshot.js';
 import { tonight as tonightReport } from '../astro/almanac.js';
 import { localSolarEclipseAt } from '../astro/events.js';
 import { AE } from '../astro/ae.js';
+import { GLOBE_MAX_R } from '../astro/orrery.js';
 import { fmtTime, compassWord } from '../core/format.js';
 import { isTourId, tourById } from '../core/tour-catalog.js';
 import { telescopeFov } from './actions.js';
@@ -721,10 +722,16 @@ export function createTourRunner(deps) {
         }, 'tour');
         if ((store.get().view.track ?? 'none') !== 'none') setView({ track: 'none' });
         const cam = saved.cam;
+        // The flat map (its pan and zoom), the system zoom (past 150 R) and a vantage's way back are
+        // set exactly, as deep links are (a cut): a fly-to knows only globe poses up to 150 R. Before
+        // the view below, so its mode switch finds the rig there and a vantage leaves from there.
+        const exact = !!cam && cam.mode !== 'sky'
+            && (cam.mode === 'map' || (saved.view.vantage ?? 'none') !== 'none' || cam.distance > GLOBE_MAX_R);
         let aimed = false;
         if (rig && cam && reason !== 'input') {
             try {
                 if (cam.mode === 'sky') settle(rig.setMode?.('sky', { animate, look: { azDeg: cam.azDeg, altDeg: cam.altDeg, fovDeg: cam.fovDeg } }));
+                else if (exact) rig.setView?.(cam);
                 else settle(rig.flyToLatLon?.(cam.latDeg, cam.lonDeg, { distance: cam.distance, animate }));
                 aimed = true;
             } catch { /* the view mode below still returns */ }

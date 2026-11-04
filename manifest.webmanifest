@@ -21,9 +21,9 @@
   ],
   "screenshots": [
     { "src": "assets/screenshots/globe-wide.jpg", "sizes": "1280x800", "type": "image/jpeg", "form_factor": "wide",
-      "label": "The Earth at night over Ho Chi Minh City, a beam to each world, the Sky dome and tonight's chart" },
+      "label": "The Earth at night over Ho Chi Minh City, a beam to each world, and the list of what is up now" },
     { "src": "assets/screenshots/globe-narrow.jpg", "sizes": "780x1688", "type": "image/jpeg", "form_factor": "narrow",
-      "label": "On a phone: the night side of the Earth, beams to the Moon and the planets, and the time bar" }
+      "label": "On a phone: the night side of the Earth, beams to the Moon and the planets, the time bar and the tab bar" }
   ],
   "shortcuts": [
     { "name": "Sky view", "short_name": "Sky", "description": "Stand where you are and look up at the sky", "url": "./#view=sky",

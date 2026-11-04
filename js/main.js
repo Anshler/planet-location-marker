@@ -1173,7 +1173,9 @@ function bindRenderState({ store, bus, clock, rc, rig, loop, snap, astro, m, lab
     });
     // The ruler turned off: its arc and label go.
     store.subscribe((s) => !!s.ui.ruler, (on) => {
-        if (!on && R.mods.ruler) loop.callModule(R.mods.ruler, 'clear');
+        if (on || !R.mods.ruler) return;
+        loop.callModule(R.mods.ruler, 'clear');
+        labelsFeed?.markDirty();
     });
     store.subscribe((s) => s.status.reducedMotion, (v) => {
         for (const mod of [R.mods.sky, R.mods.beams, R.mods.pin]) if (mod) loop.callModule(mod, 'setReducedMotion', v || (mod === R.mods.sky && exposing()));

@@ -111,6 +111,9 @@ export class AccumPass extends Pass {
         this._copyQuad = new FullScreenQuad(this._copyMat);
     }
 
+    /** Its materials, both drawn into targets (render/context.js compile). */
+    get materials() { return [this._stackMat, this._copyMat]; }
+
     /** Starts a fresh stack: the next frame shows the scene alone. */
     reset() {
         this._fresh = true;

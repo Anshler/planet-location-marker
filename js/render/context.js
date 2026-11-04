@@ -246,12 +246,32 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
      * @param {object|string} next TierCfg or tier name
      */
     function setTier(next) {
-        const gl = renderer.getContext();
-        const bw = gl.drawingBufferWidth, bh = gl.drawingBufferHeight;
+        prepareTier(next);
+        commitTier();
+    }
+
+    /**
+     * A staged switch's first half (main.js, app/tier-switch.js): the tier's post chain (composer
+     * on or off, MSAA, bloom, final pass, supersampling) at the current size. Nothing is resized or
+     * presented, so compile() can warm the chain's variants before any frame draws them.
+     * @param {object|string} next TierCfg or tier name
+     */
+    function prepareTier(next) {
+        compileGen++;
         cfg = resolveTier(next);
         const chain = ensurePostFx();
         postfx?.setTier(chain);
         postfx?.setSupersample(ssWanted(chain));
+        invalidate();
+    }
+
+    /**
+     * Its second half: the tier's DPR and the composer sized to it. A resize clears the drawing
+     * buffer, so the canvas is redrawn before the task ends (presentIfCleared).
+     */
+    function commitTier() {
+        const gl = renderer.getContext();
+        const bw = gl.drawingBufferWidth, bh = gl.drawingBufferHeight;
         forceResize = true; // re-apply sizes to a freshly built composer
         resize();
         presentIfCleared(bw, bh);
@@ -551,32 +571,120 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
         frames++;
     }
 
+    /** Stand-in for a full-screen quad, to compile the post chain's pass materials (never drawn). */
+    let quad = null;
+    /** Bumped by each paced compile and each staged tier: a paced compile still running stops. */
+    let compileGen = 0;
+    function passQuad() {
+        if (!quad) {
+            const mesh = new THREE.Mesh(new THREE.BufferGeometry());
+            quad = { mesh, basic: mesh.material, camera: new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1) };
+        }
+        return quad;
+    }
+
     /**
-     * Compiles every material in the scene for the variant actually used
-     * (composer target vs. canvas), including objects that are currently
-     * hidden, so entering sky view or toggling a layer does not hitch.
+     * What compile() covers, as [root, camera, scene, toCanvas, …]: the scene (and the overlay) drawn
+     * into the post chain's input target (the canvas on the direct path), then each pass material
+     * (postfx passMaterials) on the stand-in quad, which is the root and the scene in one.
+     * @param {boolean} perObject one entry per object with a material instead of one per scene
+     */
+    function compileUnits(perObject) {
+        const units = [];
+        const toCanvas = !postfx?.inputTarget;
+        const scenes = overlay ? [[scene, camera], [overlay.scene, overlay.camera]] : [[scene, camera]];
+        for (const [sc, cam] of scenes) {
+            if (!perObject) units.push(sc, cam, sc, toCanvas);
+            else sc.traverse((o) => { if (o.material) units.push(o, cam, sc, toCanvas); });
+        }
+        const pass = postfx?.passMaterials?.() ?? [];
+        for (let i = 0; i < pass.length; i += 2) units.push(pass[i], null, null, pass[i + 1]);
+        return units;
+    }
+
+    /** renderer.compile for one unit at its target; a material unit compiles on the stand-in quad. */
+    function compileUnit(units, i, run) {
+        const prev = renderer.getRenderTarget();
+        const q = units[i + 1] ? null : passQuad();
+        try {
+            renderer.setRenderTarget(units[i + 3] ? null : postfx?.inputTarget ?? null);
+            if (q) {
+                q.mesh.material = units[i];
+                return run(q.mesh, q.camera, q.mesh);
+            }
+            return run(units[i], units[i + 1], units[i + 2]);
+        } catch {
+            return null; // compile errors surface at first render
+        } finally {
+            if (q) q.mesh.material = q.basic;
+            renderer.setRenderTarget(prev);
+        }
+    }
+
+    /**
+     * Compiles every material for the variant actually drawn (composer target vs. canvas),
+     * including objects that are currently hidden, so entering sky view or toggling a layer does not
+     * hitch, and the post chain's pass materials (bloom, supersampling, stacking, the final pass).
+     * With KHR_parallel_shader_compile everything compiles at once off the main thread. Without it
+     * the programs link on first use, in the first frame (boot), or with `paced` (tier switches)
+     * here, one new program per task: each is issued alone and linked before the next, so the
+     * main thread waits for one link at a time instead of for the whole batch at once.
+     * Resolves early when the context is lost.
+     * @param {{paced?:boolean}} [opts]
      * @returns {Promise<void>} never rejects
      */
-    async function compile() {
+    async function compile({ paced = false } = {}) {
         if (lost || disposed) return;
-        const hidden = [];
-        const scenes = overlay ? [[scene, camera], [overlay.scene, overlay.camera]] : [[scene, camera]];
-        for (const [sc] of scenes) sc.traverse((o) => { if (o.visible === false) { hidden.push(o); o.visible = true; } });
-        const prevTarget = renderer.getRenderTarget();
-        let pending = null;
+        const parallel = !!renderer.extensions?.has?.('KHR_parallel_shader_compile');
+        let offLost = null;
+        const lostP = new Promise((resolve) => { offLost = onContextLost(() => resolve()); });
         try {
-            if (postfx?.inputTarget) renderer.setRenderTarget(postfx.inputTarget);
-            pending = Promise.all(scenes.map(([sc, cam]) => (typeof renderer.compileAsync === 'function'
-                ? renderer.compileAsync(sc, cam)
-                : (renderer.compile(sc, cam), null))));
-        } catch {
-            pending = null;
+            await Promise.race([lostP, paced && !parallel ? compilePaced() : compileAll(parallel)]);
+        } catch { /* compile errors surface at first render */ }
+        offLost();
+        invalidate();
+    }
+
+    function compileAll(parallel) {
+        const hidden = [];
+        const scenes = overlay ? [scene, overlay.scene] : [scene];
+        for (const sc of scenes) sc.traverse((o) => { if (o.visible === false) { hidden.push(o); o.visible = true; } });
+        const run = (root, cam, sc) => (parallel && typeof renderer.compileAsync === 'function'
+            ? renderer.compileAsync(root, cam, sc)
+            : (renderer.compile(root, cam, sc), null));
+        const pending = [];
+        try {
+            const units = compileUnits(false);
+            for (let i = 0; i < units.length; i += 4) pending.push(compileUnit(units, i, run));
         } finally {
-            renderer.setRenderTarget(prevTarget);
             for (const o of hidden) o.visible = false;
         }
-        try { await pending; } catch { /* compile errors surface at first render */ }
-        invalidate();
+        return Promise.all(pending);
+    }
+
+    async function compilePaced() {
+        const gl = renderer.getContext();
+        const programs = renderer.info.programs;
+        const run = (root, cam, sc) => renderer.compile(root, cam, sc);
+        const gen = ++compileGen;
+        const nextTask = () => new Promise((resolve) => setTimeout(resolve, 0));
+        // Not in the task that asked for the tier (a click, a governor step): it has staged it.
+        await nextTask();
+        const units = compileUnits(true);
+        let t0 = performance.now();
+        for (let i = 0; i < units.length; i += 4) {
+            // Lost, or a newer tier staged meanwhile (its chain may have disposed these materials).
+            if (lost || disposed || gen !== compileGen) return;
+            const n0 = programs ? programs.length : 0;
+            compileUnit(units, i, run);
+            const fresh = programs ? programs.length > n0 : false;
+            // Wait for this link alone (nothing else is queued), then let the main thread breathe.
+            if (fresh) for (let k = n0; k < programs.length; k++) gl.getProgramParameter(programs[k].program, gl.LINK_STATUS);
+            if (fresh || performance.now() - t0 > 8) {
+                await nextTask();
+                t0 = performance.now();
+            }
+        }
     }
 
     function onContextLost(cb) {
@@ -614,6 +722,8 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
         for (const c of cleanups) { try { c(); } catch { /* ignore */ } }
         postfx?.dispose();
         postfx = null;
+        quad?.mesh.geometry.dispose();
+        quad?.basic.dispose();
         renderer.dispose();
         disposed = true;
     }
@@ -699,6 +809,8 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
         endCapture,
         onInvalidate,
         setTier,
+        prepareTier,
+        commitTier,
         setDprCap,
         setExposure,
         setVision,

@@ -250,6 +250,11 @@ function sanitizeBloomInput(pass) {
     m.needsUpdate = true;
 }
 
+/** The bloom mips' resolution relative to the drawing buffer (TierCfg bloom.scale, 0.1…1). */
+function bloomScale(b) {
+    return Number.isFinite(b?.scale) ? Math.max(0.1, Math.min(1, b.scale)) : 0.5;
+}
+
 function bloomEquals(a, b) {
     if (!a || !b) return a === b;
     return a.strength === b.strength && a.radius === b.radius && a.threshold === b.threshold && a.scale === b.scale;
@@ -330,16 +335,18 @@ export function createPostFx(renderer, scene, camera, cfg, size) {
     }
 
     function makeBloom(b) {
-        const scale = Number.isFinite(b.scale) ? Math.max(0.1, Math.min(1, b.scale)) : 0.5;
+        const scale = bloomScale(b);
         const pass = new UnrealBloomPass(new THREE.Vector2(w * dpr * scale, h * dpr * scale), b.strength, b.radius, b.threshold);
+        /** The mips' resolution relative to the drawing buffer (setTier changes it in place). */
+        pass.pcScale = scale;
         // Soft knee above the threshold. The stock 0.01 makes the bright-pass nearly binary,
         // and at half resolution its boundary shows as 2-px stair steps along beam glows.
         if (pass.highPassUniforms?.smoothWidth) pass.highPassUniforms.smoothWidth.value = 0.5;
         sanitizeBloomInput(pass);
         roundBloomKernels(pass);
-        // The composer hands passes full drawing-buffer sizes; run the bloom mips at `scale`.
+        // The composer hands passes full drawing-buffer sizes; run the bloom mips at `pcScale`.
         const baseSetSize = pass.setSize.bind(pass);
-        pass.setSize = (pw, ph) => baseSetSize(Math.max(2, Math.round(pw * scale)), Math.max(2, Math.round(ph * scale)));
+        pass.setSize = (pw, ph) => baseSetSize(Math.max(2, Math.round(pw * pass.pcScale)), Math.max(2, Math.round(ph * pass.pcScale)));
         pass.needsSwap = false;
         return pass;
     }
@@ -497,10 +504,13 @@ export function createPostFx(renderer, scene, camera, cfg, size) {
                 composer.reset(makeTarget(msaa));
             }
             if (!bloomEquals(bloomCfg, nextBloom)) {
-                if (bloomPass && nextBloom && bloomCfg && bloomCfg.scale === nextBloom.scale) {
+                if (bloomPass && nextBloom) {
+                    // In place, the mips re-sized by rebuildPasses(): a new pass would compile its
+                    // eight programs again (the old one's die with it).
                     bloomPass.strength = nextBloom.strength;
                     bloomPass.radius = nextBloom.radius;
                     bloomPass.threshold = nextBloom.threshold;
+                    bloomPass.pcScale = bloomScale(nextBloom);
                 } else {
                     bloomPass?.dispose();
                     bloomPass = nextBloom ? makeBloom(nextBloom) : null;
@@ -526,6 +536,23 @@ export function createPostFx(renderer, scene, camera, cfg, size) {
             renderPass?.dispose?.();
             composer?.dispose();
             composer = null;
+        },
+        /**
+         * The passes' own materials for render/context.js compile(), as [material, toCanvas, …]:
+         * stacking, supersampling and bloom draw into targets, the final pass into the canvas. An
+         * OutputPass picks its defines at render time and is left out.
+         * @returns {Array<THREE.Material|boolean>}
+         */
+        passMaterials() {
+            const out = [];
+            for (const m of accumPass?.materials ?? []) out.push(m, false);
+            for (const m of ssPass?.materials ?? []) out.push(m, false);
+            if (bloomPass) {
+                for (const m of [bloomPass.materialHighPassFilter, ...bloomPass.separableBlurMaterials,
+                    bloomPass.compositeMaterial, bloomPass.blendMaterial]) if (m) out.push(m, false);
+            }
+            if (useFinal && finalPass?.material) out.push(finalPass.material, true);
+            return out;
         },
         /** The HDR target the scene is rendered into (used to compile matching shader variants). */
         get inputTarget() { return composer ? composer.readBuffer : null; },

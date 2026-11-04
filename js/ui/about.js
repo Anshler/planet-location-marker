@@ -1,6 +1,7 @@
 /**
- * About tab: what the app is, the accuracy statement, credits, licence links
- * and a privacy note. (This file and js/geo/geocode.js are the only places
+ * About tab: what the app is, the accuracy statement, credits, licence links,
+ * a privacy note and 'Report a problem' (ui/report.js: Copy diagnostics and a
+ * new issue on REPO_URL). (This file and js/geo/geocode.js are the only places
  * allowed to hold external https URLs — credit links.)
  *
  * @module ui/about
@@ -10,6 +11,7 @@ import { APP_NAME, VERSION, REPO_URL } from '../version.js';
 import { h, on } from './dom.js';
 import { icon } from './icons.js';
 import { brandMark } from './topbar.js';
+import { mountReport } from './report.js';
 
 /** Third-party credits: [name, version/role, licence, url]. */
 export const CREDITS = [
@@ -43,6 +45,9 @@ export function mountAbout(root, ctx) {
 
     const keysBtn = h('button', { class: 'btn btn--soft', type: 'button' }, icon('keyboard', { size: 16 }), 'Keyboard shortcuts');
     offs.push(on(keysBtn, 'click', () => ui.toggleHelp(true)));
+    // Copy diagnostics and the prefilled issue link (ui/report.js).
+    const report = mountReport(ctx);
+    offs.push(report.destroy);
 
     root.append(
         h('div', { class: 'about-hero' },
@@ -73,6 +78,7 @@ export function mountAbout(root, ctx) {
             h('h3', { class: 'group-title' }, 'Privacy'),
             h('p', { class: 'prose' }, 'Everything is computed on this device and nothing is tracked. A place search is sent to the online geocoders only '
                 + 'when you type in the search box; “Use my location” is used only on this device.')),
+        report.el,
         h('div', { class: 'btn-row btn-row--wrap' },
             link(REPO_URL, 'Source code', 'btn btn--soft'),
             h('a', { class: 'btn btn--soft', href: 'THIRD_PARTY_NOTICES.md', target: '_blank', rel: 'noopener' }, 'Third-party notices'),

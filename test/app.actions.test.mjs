@@ -295,3 +295,21 @@ test('expose: stopping a preset gives back the clock it found; a clock taken ove
     assert.equal(d.clock.tMs, T, 'the start time');
     assert.equal(d.clock.playing, false);
 });
+
+test('copyDiagnostics: the report as JSON on the clipboard, and the text either way', async () => {
+    const copied = [];
+    const report = { app: { version: '2.0.0' }, hash: { q: 'high' } };
+    const nav = { clipboard: { writeText: async (t) => { copied.push(t); } } };
+    const { actions } = makeActions({ diagnostics: () => report, nav, doc: null });
+    assert.deepEqual(actions.diagnostics(), report);
+    const r = await actions.copyDiagnostics();
+    assert.deepEqual(r, { ok: true, text: JSON.stringify(report, null, 2) });
+    assert.deepEqual(copied, [r.text]);
+    // Clipboard blocked and no document for the textarea fallback: not copied, the text is still handed back.
+    const blocked = makeActions({ diagnostics: () => report, nav: { clipboard: { writeText: async () => { throw new Error('denied'); } } }, doc: null });
+    assert.deepEqual(await blocked.actions.copyDiagnostics(), { ok: false, text: r.text });
+    // A host without a report (or one that throws) copies an empty object.
+    const none = makeActions({ diagnostics: () => { throw new Error('x'); }, nav, doc: null });
+    assert.equal(none.actions.diagnostics(), null);
+    assert.equal((await none.actions.copyDiagnostics()).text, '{}');
+});

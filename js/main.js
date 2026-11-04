@@ -50,6 +50,7 @@ import { photoLayers } from './app/expose.js';
 import { playIntro, INTRO_TIMING } from './app/intro.js';
 import { showFallback, showContextLost, hideContextLost, showFatal } from './app/fallback.js';
 import { recordLoss, retryRecord, lossRecord, capTier } from './core/context-loss.js';
+import { buildDiagnostics } from './core/diagnostics.js';
 import { sessionLoad, sessionSave } from './app/session.js';
 
 // ---------------------------------------------------------------------------------------------
@@ -110,7 +111,10 @@ const R = {
     /** @type {any} */ horizon: null,
     /** WebGL renderer string: the key of the governor's learned tier. */
     rendererString: '',
-    /** Tier changes made for the app (context-loss step-downs), newest last; at most 20. */
+    /** The device probe and detectTier's decision (the diagnostics report). */
+    /** @type {any} */ env: null,
+    /** @type {any} */ decision: null,
+    /** Tier changes made for the app (governor steps, context-loss step-downs), newest last; at most 20. */
     /** @type {any[]} */ tierLog: [],
     /** @type {any} */ catalog: null,
     /** @type {any} */ snapFull: null,
@@ -449,6 +453,7 @@ async function importRenderStack() {
 
 async function boot() {
     const env = readEnv();
+    R.env = env;
     loader.progress(0.1, 'Computing the sky');
     // Earlier context losses in this tab (iOS reloads instead of restoring): the 3D view may have
     // given up, or the session is held at a lower tier.
@@ -492,6 +497,7 @@ async function boot() {
     } catch (err) {
         console.error('[main] tier detection failed', err);
     }
+    R.decision = decision;
     // Auto starts where the governor last settled on this GPU (if it dropped a tier recently), so
     // a device that cannot hold its detected tier does not pay the switch hitch on every visit.
     R.rendererString = env.rendererString;
@@ -628,6 +634,7 @@ async function boot() {
         getSnap: () => snap,
         runIntro: (opts) => runIntro(opts),
         toggleDebug: () => toggleDebug(),
+        diagnostics: () => diagnostics(),
         tours: {
             start: (id) => startTour(id),
             stop: () => R.tours?.stop(),
@@ -1700,6 +1707,24 @@ function logTier(entry) {
 }
 
 /**
+ * The 'Copy diagnostics' report (core/diagnostics.js): version, tier decision and setting, GPU,
+ * governor and tier log, module strikes, context losses, recent errors, stats and the hash
+ * without the place.
+ */
+function diagnostics() {
+    const env = R.env ?? {};
+    const st = R.store?.get();
+    const ls = R.loop?.stats?.() ?? {};
+    return buildDiagnostics({
+        version: VERSION, nowMs: Date.now(), decision: R.decision, quality: st?.quality, renderer: env.rendererString,
+        maxTex: R.rc?.renderer?.capabilities?.maxTextureSize ?? env.maxTextureSize, dpr: window.devicePixelRatio, renderDpr: R.rc?.dpr,
+        viewport: [window.innerWidth, window.innerHeight], coarse: env.coarse, userAgent: navigator.userAgent, webgl: st?.status.webgl,
+        governor: R.governor, tierLog: R.tierLog, disabled: ls.disabled, strikes: ls.strikes, losses: sessionLoad(LOSS_KEY),
+        errors: window.__pcErrors, stats: app.stats(), hash: location.hash,
+    });
+}
+
+/**
  * Keeps the globe centred in the part of the screen the interface leaves free: left of the
  * desktop side panel and above the time bar, or above the mobile bottom sheet. Measured from
  * G7's layout (`#ui-root[data-layout]`, `.panel`, `.timebar`, `.sheet`) whenever it changes.
@@ -2052,6 +2077,7 @@ function applyGovernorStep() {
     const store = R.store;
     if (!gov || !store) return;
     const q = store.get().quality;
+    if (gov.lastStep) logTier({ ...gov.lastStep, cause: 'governor' });
     if (q.active !== gov.tier) {
         store.set({ quality: { ...q, active: gov.tier } }, 'governor');
         // A tier drop is remembered for this GPU; the next visit starts there (autoStartTier).

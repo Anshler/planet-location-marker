@@ -1079,6 +1079,8 @@ export function createLoop(deps) {
                 cadenceMs: governor?.cadenceMs ?? null,
                 rendering: rc !== null && !renderPaused && !renderFailed,
                 disabled: [...disabled].map(nameOf),
+                /** Failures per module so far ({name: count}; three disable it). */
+                strikes: Object.fromEntries([...strikes].map(([m, n]) => [nameOf(m), n])),
             };
         },
         dispose() {

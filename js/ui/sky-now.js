@@ -4,8 +4,9 @@
  * ("rises in 3 h 36 min"), "Rises 21:14" / "Sets 05:02", magnitude, an Up / Down badge and a
  * 24-h altitude sparkline (tonight's noon-to-noon series, ui/tonight.js). Bodies above
  * the horizon come first by altitude, then the rest by next rise. Clicking a row
- * selects the body (fly in orbit view, aim in sky view) and opens Details. The Tonight card
- * (ui/tonight.js: the dusk-to-dawn chart) sits at the top.
+ * selects the body (fly in orbit view, aim in sky view) and opens Details. The Sky dome
+ * (ui/sky-dome.js: the all-sky chart) and the Tonight card (ui/tonight.js: the dusk-to-dawn chart)
+ * sit at the top.
  *
  * This list is also the text alternative to the 3D view (and the main content
  * of text mode), so every row carries a full spoken label.
@@ -27,6 +28,7 @@ import { compareSight } from '../astro/parallax.js';
 import { h, s, on, setText, setAttr } from './dom.js';
 import { icon } from './icons.js';
 import { mountTonight, drawSparkline } from './tonight.js';
+import { mountSkyDome } from './sky-dome.js';
 
 const TWILIGHT_LABEL = {
     day: 'Daytime', civil: 'Civil twilight', nautical: 'Nautical twilight', astronomical: 'Astronomical twilight', night: 'Night',
@@ -132,10 +134,11 @@ export function mountSkyNow(root, ctx) {
     offs.push(on(cmpRemove, 'click', () => ui.act('setObserver2', null)));
     const sight = { sepDeg: 0, baselineKm: 0, perpKm: 0, distKm: NaN };
 
+    const dome = mountSkyDome(ctx);
     const tonightCard = mountTonight(ctx);
     root.append(
         h('div', { class: 'section-head' }, h('h2', { class: 'panel-title' }, 'Sky now'), status),
-        summary, tonightCard.el, compare, empty, list,
+        summary, dome.el, tonightCard.el, compare, empty, list,
         h('p', { class: 'note' }, 'Tip: press ', h('kbd', { class: 'kbd' }, '1'), '–', h('kbd', { class: 'kbd' }, '9'),
             ' to select a body, ', h('kbd', { class: 'kbd' }, 'V'), ' to stand on the ground and look up.'));
 
@@ -235,6 +238,7 @@ export function mountSkyNow(root, ctx) {
         status.dataset.tw = tw || '';
         setText(summary, summaryText(snap));
         updateCompare(snap);
+        dome.update(snap);
         tonightCard.update(snap);
     }
 
@@ -343,7 +347,7 @@ export function mountSkyNow(root, ctx) {
 
     return {
         update,
-        destroy() { offs.forEach((off) => off()); tonightCard.destroy(); root.textContent = ''; },
+        destroy() { offs.forEach((off) => off()); dome.destroy(); tonightCard.destroy(); root.textContent = ''; },
     };
 }
 

@@ -1,5 +1,5 @@
 /**
- * Tonight (ROADMAP tonight-planner): a dusk-to-dawn chart, a collapsible card at the top of Sky
+ * Tonight (ROADMAP tonight-planner): a dusk-to-dawn chart, a collapsible card near the top of Sky
  * now. The columns are the sky's colour by the Sun's altitude (ui/sky-palette.js, the time bar's
  * palette). Each body, the Moon and the planets, has a lane whose ribbon shows when it is up in
  * its colour token, more opaque the higher it stands and faint by day; a dot marks its best moment
@@ -142,8 +142,8 @@ export function drawSparkline(c, w, hgt, dpr, s, row, nowMs, color) {
 }
 
 /**
- * Mounts the Tonight card. The caller places `el` (Sky now puts it at the top) and forwards its
- * 4 Hz `update(snap)`.
+ * Mounts the Tonight card. The caller places `el` (Sky now puts it under the Sky dome) and
+ * forwards its 4 Hz `update(snap)`.
  * @param {any} ctx UiCtx
  * @returns {{el: HTMLElement, update(snap:any): void, destroy(): void}}
  */

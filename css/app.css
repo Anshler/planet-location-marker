@@ -1148,20 +1148,27 @@ body.no-webgl .vb-ruler, body.no-webgl .vb-point { display: none; }
 .skynow__summary:empty { display: none; }
 
 /* Tonight (js/ui/tonight.js): the dusk-to-dawn chart, a collapsible card at the top of Sky now. */
-.tonight { margin: 0 0 12px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255, 255, 255, .035); }
+/* Sky now's collapsible cards: the Sky dome (ui/sky-dome.js) and Tonight (ui/tonight.js). */
+.tonight, .dome { margin: 0 0 12px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255, 255, 255, .035); }
 .tonight[hidden] { display: none; }
-.tonight__head {
+.tonight__head, .dome__head {
     display: flex; align-items: center; gap: 8px; width: 100%; padding: 9px 12px;
     border: 0; border-radius: 12px; background: transparent; color: var(--text); text-align: left; cursor: pointer;
 }
-.tonight__head:hover { background: rgba(255, 255, 255, .04); }
-.tonight__head:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
-.tonight__title { font-size: 13px; font-weight: 750; }
-.tonight__meta { flex: 1; min-width: 0; overflow: hidden; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
-.tonight__chev { display: grid; color: var(--muted); transition: transform var(--t1) var(--ease); }
-.tonight.is-open .tonight__chev { transform: rotate(180deg); }
-.tonight__body { padding: 0 10px 10px; }
-.tonight__body[hidden] { display: none; }
+.tonight__head:hover, .dome__head:hover { background: rgba(255, 255, 255, .04); }
+.tonight__head:focus-visible, .dome__head:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.tonight__title, .dome__title { font-size: 13px; font-weight: 750; }
+.tonight__meta, .dome__meta { flex: 1; min-width: 0; overflow: hidden; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
+.tonight__chev, .dome__chev { display: grid; color: var(--muted); transition: transform var(--t1) var(--ease); }
+.tonight.is-open .tonight__chev, .dome.is-open .dome__chev { transform: rotate(180deg); }
+.tonight__body, .dome__body { padding: 0 10px 10px; }
+.tonight__body[hidden], .dome__body[hidden] { display: none; }
+.dome__wrap { width: min(100%, var(--dome-max, 270px)); aspect-ratio: 1; margin: 0 auto; }
+.dome__cv { display: block; width: 100%; height: 100%; touch-action: manipulation; }
+.dome__foot { display: flex; flex-direction: column; align-items: center; gap: 6px; margin-top: 4px; }
+.dome__seg .seg__btn { height: 26px; padding: 0 11px; font-size: 12px; }
+.dome__hint { margin: 0 2px; color: var(--muted); font-size: 11px; line-height: 1.4; text-align: center; }
+.ui[data-layout="text"] .dome { --dome-max: 440px; }
 .tonight__cv { display: block; width: 100%; height: 143px; cursor: ew-resize; touch-action: pan-y; }
 .tonight__cv.is-dragging { cursor: grabbing; }
 .tonight__note, .tonight__legend { margin: 6px 2px 0; color: var(--muted); font-size: 11px; line-height: 1.4; }

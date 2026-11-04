@@ -290,3 +290,30 @@ test('medallions: orbit-view planet labels carry the medallion footprint and a m
     const safe = buildAnchors(state(), SUNSET, null, null, { mode: 'orbit', medallion: () => { throw new Error('x'); } });
     assert.equal(safe.find((a) => a.id === 'mars').med, undefined);
 });
+
+test("'system' mode: bodies sit on the orrery's points, an Earth label replaces the observer's, no cardinals", () => {
+    const snap = snapAt('2027-02-19T15:00:00Z', PARIS);
+    const pts = { earth: new Float64Array([1.2, 0, 0]), mars: new Float64Array([5000, 0, 0]), sun: new Float64Array([NaN, NaN, NaN]) };
+    const offs = { earth: new Float64Array([6, -6]), mars: new Float64Array([9, -9]) };
+    const st = state({ selection: 'mars' });
+    const list = buildAnchors(st, snap, CATALOG, null, {
+        mode: 'system',
+        systemPoint: (id) => pts[id] ?? null,
+        systemOffset: (id) => offs[id] ?? null,
+        live: { bodyOrbit: [], pinHead: new Float64Array(3), cardinal: [], rim: [] },
+        rimCardinals: true,
+    });
+    const ids = list.map((a) => a.id);
+    assert.ok(ids.includes('earth') && !ids.includes('observer'), 'Earth, not the observer');
+    assert.ok(!ids.some((id) => id.startsWith('card:')), 'no cardinals');
+    assert.ok(!ids.includes('jupiter'), 'a body without a point is left out');
+    const mars = list.find((a) => a.id === 'mars');
+    assert.equal(mars.posS, pts.mars, 'live point');
+    assert.equal(mars.offsetPx, offs.mars, 'live offset');
+    assert.equal(mars.below, false, 'no horizon out there');
+    assert.equal(mars.priority, 100, 'selected');
+    const earth = list.find((a) => a.id === 'earth');
+    assert.equal(earth.posS, pts.earth);
+    assert.ok(earth.priority > list.find((a) => a.id === 'sun').priority, 'the Earth wins over the Sun and Moon');
+    assert.ok(ids.includes('star:32349') || list.some((a) => a.kind === 'star'), 'star names stay');
+});

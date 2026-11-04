@@ -159,6 +159,8 @@ export function createSnapshot() {
             twilight: 'day',
         },
         bodies: BODIES.map(makeBodyState),
+        // Heliocentric positions, AU, scene axes, Sun at the origin (the solar-system zoom).
+        helio: { earthS: new Float64Array([1, 0, 0]), posS: new Float64Array(3 * N_BODIES) },
         eclipse: { solar: false, lunar: false, obscurationAtObserver: 0, moonLitFraction: 1, beads: createBeads() },
         galilean: createGalilean(),
         libration: { elonDeg: 0, elatDeg: 0 },
@@ -426,6 +428,21 @@ export function computeSnapshot(tMs, observer, out, opts) {
     setSceneUnit(mst.poleS, MOON_R3[2], MOON_R3[5], MOON_R3[8]);
     setSceneUnit(mst.primeS, MOON_R3[0], MOON_R3[3], MOON_R3[6]);
     mst.spinDeg = wrap360(ax.spin);
+
+    // Heliocentric positions (the solar-system zoom, astro/orrery.js), both details: the Earth's
+    // geometric AE.HelioVector, and every other body at the Earth plus its geocentric vector, so
+    // the orrery's Earth→body line is exactly the body's geocentric direction (the Sun stays at
+    // the origin, 20″ of aberration from it). AU, scene axes.
+    const he = AE.HelioVector('Earth', time);
+    const hl = out.helio;
+    hl.earthS[0] = he.x; hl.earthS[1] = he.z; hl.earthS[2] = -he.y;
+    const hp = hl.posS;
+    hp[0] = hp[1] = hp[2] = 0;
+    for (let i = 1; i < N_BODIES; i++) {
+        hp[i * 3] = he.x + GEO[i * 3];
+        hp[i * 3 + 1] = he.z + GEO[i * 3 + 2];
+        hp[i * 3 + 2] = -(he.y + GEO[i * 3 + 1]);
+    }
 
     // Jupiter's moons follow Jupiter's light time (moons.js); the libration only feeds the panels.
     computeGalilean(time, out.bodies[JUPITER], out.galilean);

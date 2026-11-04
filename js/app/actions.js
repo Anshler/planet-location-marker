@@ -660,6 +660,33 @@ export function createActions(deps) {
         return true;
     }
 
+    /**
+     * The solar-system zoom ('powers of ten', the rig's setSystem): true flies out from the globe
+     * (or sky view, or a vantage point) until the beams become lines across the solar system, false
+     * flies back to the globe over the observer. Needs the 3D view; ends a shadow chase. The rig
+     * reports the zoom back through view.system (main.js), so this only starts the flight.
+     * @param {boolean} on
+     * @returns {boolean} started
+     */
+    function setSystem(on) {
+        const r = rig();
+        if (!has3d() || !r || typeof r.setSystem !== 'function') {
+            if (on) toast('The solar system view needs the 3D view.', 'info');
+            return false;
+        }
+        const st = store.get();
+        if (st.status.introPlaying) return false;
+        if (on) {
+            chase.stop();
+            if (st.view.mode !== 'orbit' || (st.view.vantage ?? 'none') !== 'none') {
+                store.set({ view: { ...st.view, mode: 'orbit', vantage: 'none' } }, 'actions');
+            }
+        }
+        settle(r.setSystem(!!on, { animate: !reducedMotion() }));
+        say(on ? 'Solar system: distances to scale, planets enlarged' : 'Back to the globe');
+        return true;
+    }
+
     function cycleView() {
         setViewMode(store.get().view.mode === 'orbit' ? 'sky' : 'orbit');
     }
@@ -1341,8 +1368,8 @@ export function createActions(deps) {
     return {
         setObserver, undoObserver, locateMe,
         select, flyToBody, setViewMode, cycleView, setEarthLock, setTracking, cycleTracking, telescope, setVantage,
-        // Phase 5: the flat world map and a second place to compare with.
-        toggleMap, setObserver2, compareWith, frameObservers,
+        // Phase 5: the flat world map, a second place to compare with, the solar-system zoom.
+        toggleMap, setObserver2, compareWith, frameObservers, setSystem,
         toggleLayer, setQuality, setTzMode, setSkyDark, setAuroraActivity, share,
         toggleFullscreen, toggleCinema, resetCamera, replayIntro, jumpToEvent,
         // Extensions beyond SPEC §C.9 (used by shortcuts / the shell when present).

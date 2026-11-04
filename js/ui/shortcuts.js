@@ -61,6 +61,7 @@ export function bindShortcuts(ctx) {
         if (st.ui?.ruler) { act('setRuler', false); flash('Ruler off'); e.preventDefault(); return; }
         if (st.ui?.aim) { act('pointAtSky', false); e.preventDefault(); return; }
         if (st.view?.mode === 'map') { act('setViewMode', 'orbit'); flash('Back to the globe'); e.preventDefault(); return; }
+        if (st.view?.system && st.view?.mode === 'orbit') { act('setSystem', false); flash('Back to the globe'); e.preventDefault(); return; }
         if (st.selection) { act('select', null); e.preventDefault(); }
     }
 

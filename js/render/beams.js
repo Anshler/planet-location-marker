@@ -213,6 +213,9 @@ export function createBeams(rc, deps = {}) {
     const layers = { beams: true, ghostBeams: true, sunMoonBeams: true };
     let selected = -1;
     let skyBlend = 0;
+    // The solar-system zoom's crossfade (FrameInfo.systemBlend): the beams give way to the orrery's lines.
+    let systemBlend = 0;
+    const fadeNow = () => (1 - smoothstep(0.2, 0.5, skyBlend)) * (1 - systemBlend);
     let glowPx = 12;
     let pulsesTarget = 0;
     let launching = false;
@@ -243,7 +246,7 @@ export function createBeams(rc, deps = {}) {
     }
 
     function updateVisibility() {
-        group.visible = layers.beams && skyBlend < 0.5 && present;
+        group.visible = layers.beams && skyBlend < 0.5 && systemBlend < 0.999 && present;
         meshB.visible = layers.ghostBeams;
     }
 
@@ -322,7 +325,8 @@ export function createBeams(rc, deps = {}) {
         const dtMs = fi && Number.isFinite(fi.dtMs) ? fi.dtMs : Math.min(100, Math.max(0, t - lastNow));
         lastNow = t;
         if (fi && Number.isFinite(fi.skyBlend)) skyBlend = fi.skyBlend;
-        uniforms.uFade.value = 1 - smoothstep(0.2, 0.5, skyBlend);
+        systemBlend = fi && Number.isFinite(fi.systemBlend) ? fi.systemBlend : 0;
+        uniforms.uFade.value = fadeNow();
         updateVisibility();
 
         const cam = (fi && fi.camera) || rc?.camera;
@@ -679,7 +683,7 @@ export function createBeams(rc, deps = {}) {
         },
         setViewMode(mode, sb) {
             skyBlend = Number.isFinite(sb) ? sb : mode === 'sky' ? 1 : 0;
-            uniforms.uFade.value = 1 - smoothstep(0.2, 0.5, skyBlend);
+            uniforms.uFade.value = fadeNow();
             updateVisibility();
             invalidate();
         },

@@ -190,6 +190,54 @@ Libration falls out of this for free. The shader lights the Moon with Lommel–S
 from the true Sun direction. The phase you see is therefore correct by construction, not drawn from
 `MoonPhase`, with faint earthshine on the night side.
 
+### The solar system to scale (`js/astro/orrery.js`, the 'powers of ten' zoom)
+
+Zoomed out past 150 Earth radii the globe view goes on into the solar system (`render/orrery.js`).
+Every snapshot, at both details, carries heliocentric positions in AU, scene axes, Sun at the
+origin:
+
+```
+helio.earthS = S · AE.HelioVector('Earth', t)                 // geometric
+helio.posS[i] = helio.earthS + S · GEO_i                       // GEO_i = GeoVector(body, t, true) / GeoMoon
+helio.posS[Sun] = 0
+```
+
+So the line the orrery draws from the Earth to a body is exactly the body's geocentric direction
+(`geoDirS`), and within the beam's topocentric parallax (≤ 25″ for planets, ≤ 1° for the Moon) of
+the beam itself. A body is drawn where its light left it (light-time), at most 2 × 10⁻⁴ AU (Jupiter)
+off its geometric orbit: far below a pixel.
+
+**One linear scale.** The globe scene maps into the orrery by x_AU = earthS + x_R / AU_ER, and the
+orrery camera is the globe camera mapped across the same way. A uniform scale keeps every direction,
+so the beams, the orrery's lines and the stars at infinity agree at every zoom: distances are to
+scale, only the bodies are enlarged (sprites with a minimum size; the Earth and the Moon at true
+size while that is larger). Compressing heliocentric distance (a log scale) was rejected: it bends
+the Earth→planet lines away from the planets' true directions, so Mars would no longer be "in Leo"
+on the orrery while its beam says it is. Bodies off the screen get an arrow where their line leaves
+it, labelled like a beam.
+
+**Orbits.** One sidereal period (`AE.PlanetOrbitalPeriod`) of each planet's `HelioVector`, centred on
+the current time, 256 samples, and one sidereal month of `GeoMoon` (128) around the moving Earth,
+from the worker (`orbitPolylines`); re-sampled only when sim time moves a century away (perihelion
+precession is ~0.3° a century, sub-pixel).
+
+**The camera.** Distance D from a pivot that slides from the Earth (150 R) to the Sun (4 AU) as
+w = 2u² − u⁴, u = D / 4 AU (0.1 R off the Earth at 150 R; the Earth stays within about two thirds
+of the half-frame); the view direction is fixed in J2000 ecliptic coordinates (not the turning
+Earth), lifted to at least 35° above the ecliptic while zooming out through 3000 R–1.5 AU, with the
+camera's up turning from celestial to ecliptic north between 1000 R and 0.5 AU. The crossfade from
+the globe runs over 80 → 150 R, smooth in log distance.
+
+**The retrograde figure.** For a selected planet the orrery keeps its last 24 sight lines at fixed
+sim-time steps of a 110th of the synodic period (Mars 7.1 d, Jupiter 3.6 d, Mercury 1.05 d), each
+from the Earth's heliocentric position through the planet's (both `HelioVector` at t_k = ⌊t / step⌋ ·
+step − k · step, so the set does not depend on the frame rate), extended to a backdrop 2.5 × the
+largest Earth–planet distance of the set. That is the textbook figure: as the Earth overtakes an
+outer planet (or an inner one overtakes the Earth) the lines' ends on the backdrop turn back and
+fold into a loop. The fold needs the backdrop farther than v⊕ / ω_retro (≈ 2.5 AU for Mars at
+opposition), hence the 2.5 ×. The true loop on the sky is the trails layer's path at infinity, which
+the extended lines point into.
+
 ### Planet discs, Jupiter's moons and the libration (`js/astro/disc.js`, `js/astro/moons.js`)
 
 The globe's planet medallions (`render/planets.js`) and the Details card's eyepiece portrait
@@ -811,6 +859,7 @@ and AE's contacts to 0.1 s; the shapes are illustrative.
 | Hand units ('fists') | ±20 % | Hands and arms differ; the wording says 'about'. |
 | Illustrative landscape | up to 0.5° (ridge), 1.2° (trees, roofs) | Invented per place. Bodies set behind it minutes before the almanac's (mathematical-horizon) times; the layer can be turned off. |
 | Float32 on the GPU | ≈ 0.01″ | Unit vectors in single precision. |
+| Solar-system zoom: Earth→body line against the beam | ≤ 25″ (planets), ≤ 1° (Moon) | Geocentric against topocentric direction; distances to scale, bodies enlarged (§4). In AU on the GPU the orrery's points are good to ~10⁻⁷ AU (≈ 15 km) near the Earth. |
 | Sub-points, footprint | geocentric | The footprint is the hemisphere where the body's geocentric direction is above the horizon. Parallax and refraction are not applied. It is a guide, not a contact time. |
 | World map twilight lines | ≲ 1° of solar altitude | Geocentric and unrefracted, from the sphere's normal (§6c); the panels use the topocentric, refracted Sun. |
 | Parallax distance (two places) | ≲ 1 % | Small-angle triangulation over the pins' chord (§6c). |
@@ -824,6 +873,9 @@ and AE's contacts to 0.1 s; the shapes are illustrative.
 - `Constellation(5.919 h, 7.407°)` is Ori;
 - the next global solar eclipse after 2026-10-11 is annular, on 2027-02-06;
 - the Mars opposition of 2025-01-16 and its retrograde from about 7 Dec 2024 to 24 Feb 2025;
+- the orrery's lines along each body's geocentric direction (to 1e-6 rad), its orbits at the right
+  radii with the snapshot's Earth on its own, and Mars's sight lines turning back at the 2027
+  opposition;
 - `discVisibleFraction` against numerical integration;
 - 200 random alt/az cases against `AE.Horizon`, within 30″;
 - second and third contacts of the snapshot's obscuration and drawn discs within 1 s of

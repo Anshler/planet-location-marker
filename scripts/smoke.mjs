@@ -38,6 +38,8 @@
 //   --browser=chrome|edge|<path>   browser executable (default: first Chrome/Edge found)
 //   --root=dir               serve this directory instead of the repo (e.g. the staged Pages artifact)
 //   --chrome-args=a,b        extra browser command-line switches (e.g. --force_low_power_gpu)
+//   --throttle=rtt,kbps      emulate a slow network: round-trip latency (ms) and download speed
+//                            (kbit/s), e.g. --throttle=150,9000 (CDP Network.emulateNetworkConditions)
 //
 // Exit codes: 0 pass · 1 errors or failed assertions · 2 infrastructure problem.
 
@@ -55,7 +57,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const KNOWN_FLAGS = new Set(['url', 'out', 'wait', 'width', 'height', 'dpr', 'mobile', 'eval', 'block', 'offline',
     'expect-ready', 'assert', 'format', 'quality', 'tz', 'reduced-motion', 'subpath', 'json', 'verbose', 'help',
-    'at', 'fail', 'no-webgl', 'init', 'gpu', 'angle', 'headed', 'browser', 'root', 'chrome-args']);
+    'at', 'fail', 'no-webgl', 'init', 'gpu', 'angle', 'headed', 'browser', 'root', 'chrome-args', 'throttle']);
 const GEOCODER_HOSTS = new Set(['geocoding-api.open-meteo.com', 'photon.komoot.io', 'nominatim.openstreetmap.org']);
 const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
@@ -100,6 +102,7 @@ const OPT = {
     browser: args.browser && args.browser !== 'true' ? args.browser : null,
     root: args.root && args.root !== 'true' ? path.resolve(args.root) : ROOT,
     chromeArgs: (args['chrome-args'] ?? '').split(',').map((s) => s.trim()).filter((s) => s && s !== 'true'),
+    throttle: /^\d+,\d+$/.test(args.throttle ?? '') ? args.throttle.split(',').map(Number) : null,
 };
 for (const k of ['wait', 'width', 'height', 'dpr']) {
     if (!(OPT[k] > 0)) {
@@ -249,6 +252,12 @@ async function openPage(exe) {
     // Emulation must be in place before navigation.
     for (const d of ['Page', 'Runtime', 'Network', 'Log']) await page(`${d}.enable`);
     await page('Network.setCacheDisabled', { cacheDisabled: true });
+    if (OPT.throttle) {
+        const [latency, kbps] = OPT.throttle;
+        await page('Network.emulateNetworkConditions', {
+            offline: false, latency, downloadThroughput: (kbps * 1000) / 8, uploadThroughput: (kbps * 1000) / 8,
+        });
+    }
     await page('Emulation.setDeviceMetricsOverride', { width: OPT.width, height: OPT.height, deviceScaleFactor: OPT.dpr, mobile: MOBILE });
     if (MOBILE) {
         await page('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
@@ -283,6 +292,7 @@ function describeRun(target, exe) {
     if (OPT.reducedMotion) bits.push('reduced motion');
     if (OPT.noWebgl) bits.push('no WebGL');
     if (OPT.fail.length) bits.push(`404 for ${OPT.fail.join(',')}`);
+    if (OPT.throttle) bits.push(`throttled to ${OPT.throttle[0]} ms RTT, ${OPT.throttle[1]} kbit/s`);
     console.log(`smoke: ${target}\n       ${bits.join(', ')}; ${exe.split(/[\\/]/).pop()}`);
 }
 

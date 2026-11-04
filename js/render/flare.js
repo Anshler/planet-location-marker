@@ -105,7 +105,10 @@ export function createFlare(rc, deps = {}) {
     mesh.name = 'flare';
     mesh.frustumCulled = false;
     mesh.renderOrder = 50;
-    mesh.visible = false;
+    // Hidden through the material, never `visible`: three uploads a geometry the first time it
+    // projects the object, and a flare first shown mid-run (the Sun rising over the limb in a
+    // time-lapse) would upload its quads then.
+    material.visible = false;
     group.add(mesh);
 
     const sunDir = new THREE.Vector3(1, 0, 0);
@@ -161,7 +164,7 @@ export function createFlare(rc, deps = {}) {
         const handover = fi && Number.isFinite(fi.systemBlend) ? sunHandover(fi.systemBlend) : 0;
         const enabled = !!cfg && !!cfg.flare && haveSnap && handover < 1;
         const cam = fi && (fi.camera || (rc && rc.camera));
-        if (!enabled || !cam) { mesh.visible = false; vis = 0; return; }
+        if (!enabled || !cam) { material.visible = false; vis = 0; return; }
         const skyBlend = Number.isFinite(fi.skyBlend) ? clamp(fi.skyBlend, 0, 1) : 0;
         const r = rc && rc.renderer;
         let w = 1, h = 1, dpr = 1;
@@ -244,8 +247,8 @@ export function createFlare(rc, deps = {}) {
         if (Math.abs(target - vis) < 0.002) vis = target;
         else queueMicrotask(invalidateSoon);
 
-        mesh.visible = vis > 0.003;
-        if (!mesh.visible) return;
+        material.visible = vis > 0.003;
+        if (!material.visible) return;
         uniforms.uSunNdc.value.set(nx, ny);
         uniforms.uViewport.value.set(w, h);
         uniforms.uDpr.value = dpr * (0.5 + 0.5 * vis);

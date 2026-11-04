@@ -14,7 +14,9 @@
  *
  * A RenderModule (main.js adds it) plus `pick(tapDir, radPerPx)`: the visible object under a tap,
  * large objects (the LMC, M31) pickable anywhere inside their outline. Buffers are built once from
- * the provider's list; nothing is allocated per frame.
+ * the provider's list; nothing is allocated per frame. The sprites come and go with the sky's
+ * darkness through their material, never `visible` (render/satellites.js: an object hidden until
+ * the first dusk of a time-lapse would upload its geometry then).
  *
  * @module render/dso
  */
@@ -292,7 +294,7 @@ export function createDsoLayer(rc, deps = {}) {
             uniforms.uRefrK.value = Math.max(0, Math.min(1, skyBlend));
             uniforms.uDisplay.value = skyViewExposure(sunAltDeg, skyBlend, obscuration);
             uniforms.uMagLimit.value = magLimit;
-            mesh.visible = layers.deepSky === true && layers.stars !== false && geom.instanceCount > 0 && exposure > 0.01;
+            material.visible = layers.deepSky === true && layers.stars !== false && geom.instanceCount > 0 && exposure > 0.01;
         },
         setLayers(l) { if (l) layers = { deepSky: l.deepSky === true, stars: l.stars !== false }; },
         setSelection(id) { selection = id || null; },
@@ -310,7 +312,7 @@ export function createDsoLayer(rc, deps = {}) {
          * @returns {string|null}
          */
         pick(tap, radPerPx) {
-            if (!tap || !(radPerPx > 0) || !mesh.visible) return null;
+            if (!tap || !(radPerPx > 0) || !material.visible) return null;
             const lim = limitNow();
             let best = null, bestScore = Infinity;
             for (let i = 0; i < list.length; i++) {

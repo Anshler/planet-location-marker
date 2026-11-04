@@ -10,7 +10,9 @@
  * - Brightness follows the comet's magnitude and the sky: the coma like a planet (exposure.planets),
  *   the tails like the faint sky (exposure.stars). Illustrative in length and glow (ASTRONOMY.md).
  *
- * Buffers are allocated once (R5) for up to MAX comets and refilled in apply().
+ * Buffers are allocated once (R5) for up to MAX comets and refilled in apply(). Both hide through
+ * their materials and stay in the scene graph: three uploads a geometry the first time it projects
+ * the object, so one hidden until a comet's apparition came round in a time-lapse would upload then.
  *
  * @module render/comets
  */
@@ -222,9 +224,11 @@ export function createComets(rc, { extras } = {}) {
             }
             any = true;
         }
-        posA.needsUpdate = perpA.needsUpdate = wA.needsUpdate = gainA.needsUpdate = true;
-        cPosA.needsUpdate = cRadA.needsUpdate = cGainA.needsUpdate = true;
-        tails.visible = comae.visible = any;
+        if (any) {
+            posA.needsUpdate = perpA.needsUpdate = wA.needsUpdate = gainA.needsUpdate = true;
+            cPosA.needsUpdate = cRadA.needsUpdate = cGainA.needsUpdate = true;
+        }
+        tailMat.visible = comaMat.visible = any;
     }
 
     return {

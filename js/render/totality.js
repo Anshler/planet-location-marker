@@ -70,7 +70,9 @@ export function createTotality(rc) {
     mesh.name = 'totality.beads';
     mesh.frustumCulled = false;
     mesh.renderOrder = -57;
-    mesh.visible = false;
+    // Hidden through the material, never `visible` (render/satellites.js: an object hidden until
+    // the beads of a time-lapse through totality would upload its geometry then).
+    material.visible = false;
     group.add(mesh);
 
     const tmpSize = new THREE.Vector2();
@@ -113,7 +115,7 @@ export function createTotality(rc) {
     function update(fi) {
         const skyBlend = fi && Number.isFinite(fi.skyBlend) ? clamp(fi.skyBlend, 0, 1) : 0;
         const cam = fi && (fi.camera || (rc && rc.camera));
-        if (count === 0 || skyBlend <= 0.001 || !cam) { mesh.visible = false; return; }
+        if (count === 0 || skyBlend <= 0.001 || !cam) { material.visible = false; return; }
         uniforms.uRefrK.value = skyBlend;
         const r = rc && rc.renderer;
         let w = 1, h = 1, dpr = 1;
@@ -141,7 +143,7 @@ export function createTotality(rc) {
             p[i * 4 + 3] = 1;
         }
         iParams.needsUpdate = true;
-        mesh.visible = k > 0;
+        material.visible = k > 0;
     }
 
     function setQuality(c) {

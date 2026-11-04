@@ -42,7 +42,8 @@ test('dso layer: one instance per object, picks a visible object inside its outl
     layer.apply(snapAt('2026-10-15T05:30:00Z'));
     const cam = new THREE.PerspectiveCamera(60, 1.6, 0.1, 100);
     layer.update({ skyBlend: 1, exposure: { stars: 1 }, camera: cam });
-    assert.equal(mesh.visible, true);
+    assert.equal(mesh.material.visible, true);
+    assert.equal(mesh.visible, true, 'it hides through its material: never out of the scene graph');
     const m31 = p.byId.get('dso:m31');
     const radPerPx = (60 * Math.PI / 180) / 900;
     assert.equal(layer.pick(m31.dirS, radPerPx), 'dso:m31', 'the centre');
@@ -58,10 +59,11 @@ test('dso layer: one instance per object, picks a visible object inside its outl
     assert.equal(layer.pick(m57.dirS, (1 * Math.PI / 180) / 900), 'dso:m57');
     // Daylight: nothing.
     layer.update({ skyBlend: 1, exposure: { stars: 0 }, camera: cam });
-    assert.equal(mesh.visible, false);
+    assert.equal(mesh.material.visible, false);
+    assert.equal(mesh.visible, true);
     layer.setLayers({ deepSky: false });
     layer.update({ skyBlend: 1, exposure: { stars: 1 }, camera: cam });
-    assert.equal(mesh.visible, false, 'the layer toggle');
+    assert.equal(mesh.material.visible, false, 'the layer toggle');
     layer.dispose();
 });
 

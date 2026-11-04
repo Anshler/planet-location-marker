@@ -6,6 +6,10 @@
  * Earth and Moon occlude it through the depth test. Two grids move: the alt-az grid is re-oriented
  * every snapshot from the observer's ENU basis, and the equatorial grid is turned to the true
  * equator and equinox of date (S·PN·Sᵀ), so its pole stays on the pole the sky turns around.
+ *
+ * The star field and the Milky Way come and go with the sky's darkness, so they hide through their
+ * materials and stay in the scene graph: three uploads a geometry the first time it projects the
+ * object, and an object hidden until the first dusk of a time-lapse would upload its buffers then.
  */
 import * as THREE from 'three';
 import { AE } from '../astro/ae.js';
@@ -592,7 +596,7 @@ export function createSky(rc, deps = {}) {
      * @returns {{hip:number, mag:number}|null}
      */
     function pickStar(tap, radPerPx, maxPx = 14) {
-        if (!layers.stars || !stars.visible || !tap || !(radPerPx > 0)) return null;
+        if (!layers.stars || !starMaterial.visible || !tap || !(radPerPx > 0)) return null;
         const e = Math.max(0, Math.min(1, exposure.stars));
         if (e < 0.05) return null;
         const cosMax = Math.cos(maxPx * radPerPx);
@@ -704,10 +708,11 @@ export function createSky(rc, deps = {}) {
         mwUniforms.uZodi.value = zodi ? ZODI_GAIN : 0;
         if (rc && rc.setVision) rc.setVision(VISION_GAIN * (Number.isFinite(fi.exposure?.vision) ? fi.exposure.vision : 0));
 
-        stars.visible = layers.stars && starExp > 0.001 && starGeometry.drawRange.count > 0;
+        // Through the materials, not `visible` (see the module notes).
+        starMaterial.visible = layers.stars && starExp > 0.001 && starGeometry.drawRange.count > 0;
         // In sky view a bright enough sky (a city's) hides the band everywhere.
         const mwSky = 1 - skyBlend * (1 - sgMilkyWay);
-        milkyWay.visible = layers.milkyWay && exposure.milkyWay > 0.001
+        mwMaterial.visible = layers.milkyWay && exposure.milkyWay > 0.001
             && ((mwReady && mwSky > 0.001) || zodi);
         const e = Math.max(0, Math.min(1, starExp));
         // No figure floats on a blue daytime sky.

@@ -3,8 +3,9 @@
  * the reticle around a selected one. A render module (RenderModule contract) plus `pickCandidates`.
  *
  * - glyph 'star' (guest stars): a point set drawn with the star field's own material
- *   (render/sky.js `starMaterial`), so a supernova twinkles, reddens, streaks and fades into the
- *   twilight exactly like the catalogue stars; its magnitude is refilled from snap.extras.
+ *   (render/sky.js `starMaterial`; a copy on the same uniforms and program), so a supernova
+ *   twinkles, reddens, streaks and fades into the twilight exactly like the catalogue stars; its
+ *   magnitude is refilled from snap.extras.
  * - glyph 'marker' (spacecraft): a small hollow diamond in the object's colour: things far too
  *   faint to see still need a place on the sky.
  * - glyph 'coma' (comets) is drawn by render/comets.js; 'none' (a catalogue star) by its own layer.
@@ -12,6 +13,9 @@
  *
  * A meta `layer` (e.g. 'stars', 'spacecraft') must be on for a glyph to be drawn or picked.
  * Fixed buffers, allocated once (R5); the slot tables are rebuilt only when the registry changes.
+ * Both point sets hide through their own materials and stay in the scene graph: three uploads a
+ * geometry the first time it projects the object, so one hidden until a guest star's outburst
+ * (or a spacecraft's launch) came round in a time-lapse would upload its buffers then.
  *
  * @module render/extras
  */
@@ -98,7 +102,11 @@ export function createExtrasLayer(rc, { extras, sky = null } = {}) {
     gGeom.setAttribute('aColor', new THREE.BufferAttribute(gCol, 3));
     gGeom.setDrawRange(0, 0);
     const starMat = sky && sky.starMaterial ? sky.starMaterial : null;
-    const guests = starMat ? new THREE.Points(gGeom, starMat) : null;
+    // Its own copy of the star material, on the same uniform objects (and so the same program), so
+    // that it can hide through its material without hiding the star field.
+    const guestMat = starMat ? starMat.clone() : null;
+    if (guestMat) guestMat.uniforms = starMat.uniforms;
+    const guests = guestMat ? new THREE.Points(gGeom, guestMat) : null;
     if (guests) {
         guests.name = 'extras.guests';
         guests.frustumCulled = false;
@@ -200,17 +208,22 @@ export function createExtrasLayer(rc, { extras, sky = null } = {}) {
             mSize[nm] = RETICLE_PX;
             nm++;
         }
+        // Hidden sets are still projected every frame: re-upload only what is drawn.
         gGeom.setDrawRange(0, ng);
-        gPosAttr.needsUpdate = true;
-        gMagAttr.needsUpdate = true;
-        gGeom.attributes.aColor.needsUpdate = true;
+        if (ng > 0) {
+            gPosAttr.needsUpdate = true;
+            gMagAttr.needsUpdate = true;
+            gGeom.attributes.aColor.needsUpdate = true;
+        }
         mGeom.setDrawRange(0, nm);
-        mPosAttr.needsUpdate = true;
-        mColAttr.needsUpdate = true;
-        mSizeAttr.needsUpdate = true;
-        mStyleAttr.needsUpdate = true;
-        if (guests) guests.visible = ng > 0;
-        marks.visible = nm > 0;
+        if (nm > 0) {
+            mPosAttr.needsUpdate = true;
+            mColAttr.needsUpdate = true;
+            mSizeAttr.needsUpdate = true;
+            mStyleAttr.needsUpdate = true;
+        }
+        if (guestMat) guestMat.visible = ng > 0;
+        mMat.visible = nm > 0;
     }
 
     return {
@@ -250,6 +263,7 @@ export function createExtrasLayer(rc, { extras, sky = null } = {}) {
             gGeom.dispose();
             mGeom.dispose();
             mMat.dispose();
+            guestMat?.dispose();
         },
     };
 }

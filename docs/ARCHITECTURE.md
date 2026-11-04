@@ -956,6 +956,20 @@ A module may draw nothing at all: `long-exposure.js` has an empty group and is a
 `update(fi)`, which runs right before `rc.render()` on every rendered frame (it is created after
 the rig, which it reads).
 
+**What simulated time shows and hides goes through the material, not `visible`.** three uploads a
+geometry the first time it projects the object, and `visible = false` keeps an object out of
+projection. A part hidden until time brings it (a satellite rising, the first dusk, a comet's
+apparition, a shower's radiant, Baily's beads, the Sun over the Earth's limb) would upload its buffers in the
+middle of a run, which the smoke test's 'memory stable' check sees as a new geometry. Such parts
+keep `visible` and set `material.visible` (out of the render list but still projected, so the first
+frame uploads them) or draw zero instances (`instanceCount = 0`: three issues no draw call), and
+mark their attributes for upload only while something is drawn. `visible` stays for what a user's
+choice hides (layers, views, vantage points). A material shared with another module cannot hide
+this way, so the guest stars and the satellites in sky view draw with a copy of the star material
+on the same uniform objects (one program). `test/render.first-use.test.mjs` covers the modules that
+do this: the star field and the Milky Way, the deep-sky sprites, satellites, extras, comets,
+meteors, totality's beads and the flare.
+
 The render order is fixed in SPEC §E.1. From back to front:
 
 - −100: Preetham dome

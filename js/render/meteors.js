@@ -100,8 +100,11 @@ export function createMeteors(rc, deps = {}) {
         halfWidthPx: 0.7, renderOrder: -58, refraction: refr,
     });
     group.add(streaks.mesh, marks.mesh);
-    streaks.mesh.visible = false;
-    marks.mesh.visible = false;
+    // Hidden through their materials, never `visible`: three uploads a geometry the first time it
+    // projects the object, and a layer hidden until a shower's first radiant or meteor of a time-lapse
+    // would upload its buffers then.
+    streaks.mesh.material.visible = false;
+    marks.mesh.material.visible = false;
 
     // Sources: the showers and the sporadic background (index NS).
     const src = Array.from({ length: NS + 1 }, (_, i) => ({
@@ -409,7 +412,7 @@ export function createMeteors(rc, deps = {}) {
         const sky = layerOn && skyBlend > 0.5;
         const dark = sunAltDeg < SUN_MAX_DEG;
         const stars = fi.exposure && Number.isFinite(fi.exposure.stars) ? clamp01(fi.exposure.stars * 1.5) : 1;
-        marks.mesh.visible = sky && !exposing && markKey !== '' && sunAltDeg < -4;
+        marks.mesh.material.visible = sky && !exposing && markKey !== '' && sunAltDeg < -4;
         marks.uniforms.uAlpha.value = 0.5 * clamp01((skyBlend - 0.5) / 0.3);
         streaks.uniforms.uAlpha.value = stars;
 
@@ -432,7 +435,7 @@ export function createMeteors(rc, deps = {}) {
             const n = drawLive(nowS);
             streaks.setCount(n);
             if (n) streaks.commit();
-            streaks.mesh.visible = n > 0;
+            streaks.mesh.material.visible = n > 0;
             if (n) invalidate();
             return;
         }
@@ -446,10 +449,10 @@ export function createMeteors(rc, deps = {}) {
                 simNowMs = simMs;
                 buildComposite();
             }
-            streaks.mesh.visible = compositeCount > 0;
+            streaks.mesh.material.visible = compositeCount > 0;
         } else {
             if (compositeCount) clearStreaks();
-            streaks.mesh.visible = false;
+            streaks.mesh.material.visible = false;
         }
     }
 

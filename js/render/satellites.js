@@ -19,6 +19,13 @@
  *
  * Fixed buffers (R5); colours and ids are re-read only when the registry changes.
  *
+ * Every part stays in the scene graph (`visible` is never cleared): three uploads a geometry the
+ * first time it projects the object, so a part hidden until a satellite first rose during a
+ * time-lapse would upload its buffers then (a new geometry mid-run, in the middle of a frame).
+ * The beams hide by drawing no instance (three issues no draw call for zero instances), the other
+ * parts through their own materials (an invisible material keeps an object out of the render list
+ * but not out of projection, so its buffers are uploaded with the first frame).
+ *
  * @module render/satellites
  */
 import * as THREE from 'three';
@@ -170,7 +177,11 @@ export function createSatellites(rc, { extras, sky = null } = {}) {
     // --- the sky view: star-material points and the selection ring at infinity ------------------
     const skyPts = pointsGeometry(CAP, [['aMag', 1], ['aColor', 3]]);
     const starMat = sky && sky.starMaterial ? sky.starMaterial : null;
-    const skyPoints = starMat ? new THREE.Points(skyPts.g, starMat) : null;
+    // Its own copy of the star material, on the same uniform objects (and so the same program), so
+    // that it can hide through its material like the other parts.
+    const skyMat = starMat ? starMat.clone() : null;
+    if (skyMat) skyMat.uniforms = starMat.uniforms;
+    const skyPoints = skyMat ? new THREE.Points(skyPts.g, skyMat) : null;
     if (skyPoints) { skyPoints.name = 'satellites.sky'; skyPoints.renderOrder = -68; }
     const satRgb = bvToRgb(SAT_BV, [1, 1, 1]);
     const ring = pointsGeometry(1, [['aColor', 3], ['aSize', 1], ['aStyle', 1]]);
@@ -389,21 +400,22 @@ export function createSatellites(rc, { extras, sky = null } = {}) {
             ring.attrs.aStyle.array[0] = 1;
             nr = 1;
         }
+        // Hidden parts are still projected every frame: re-upload only what is drawn.
         dots.g.setDrawRange(0, nd);
-        for (let j = 0; j < dots.list.length; j++) dots.list[j].needsUpdate = true;
+        if (nd > 0) for (let j = 0; j < dots.list.length; j++) dots.list[j].needsUpdate = true;
         skyPts.g.setDrawRange(0, ns);
-        for (let j = 0; j < skyPts.list.length; j++) skyPts.list[j].needsUpdate = true;
+        if (ns > 0) for (let j = 0; j < skyPts.list.length; j++) skyPts.list[j].needsUpdate = true;
         ring.g.setDrawRange(0, nr);
-        for (let j = 0; j < ring.list.length; j++) ring.list[j].needsUpdate = true;
+        if (nr > 0) for (let j = 0; j < ring.list.length; j++) ring.list[j].needsUpdate = true;
         strip.instanceCount = nb;
-        for (let j = 0; j < bList.length; j++) bList[j].needsUpdate = true;
+        if (nb > 0) for (let j = 0; j < bList.length; j++) bList[j].needsUpdate = true;
         beamUniforms.uSelActive.value = selSt && nb > 0 ? 1 : 0;
-        dotPoints.visible = nd > 0;
-        if (skyPoints) skyPoints.visible = ns > 0;
-        ringPoints.visible = nr > 0;
-        beams.visible = nb > 0;
-        track.visible = globe && trackGeom.drawRange.count > 0;
-        if (track.visible && Number.isFinite(fi?.tMs)) trackUniforms.uNow.value = (fi.tMs - trackT0) / 60000;
+        // Shown and hidden without leaving the scene graph (see the module notes).
+        dotMat.visible = nd > 0;
+        if (skyMat) skyMat.visible = ns > 0;
+        ringMat.visible = nr > 0;
+        trackMat.visible = globe && trackGeom.drawRange.count > 0;
+        if (trackMat.visible && Number.isFinite(fi?.tMs)) trackUniforms.uNow.value = (fi.tMs - trackT0) / 60000;
     }
 
     return {
@@ -422,7 +434,7 @@ export function createSatellites(rc, { extras, sky = null } = {}) {
             trackUniforms.uAlpha.value = fade;
             dotUniforms.uAlpha.value = fade;
             draw(fi);
-            if (beams.visible) {
+            if (strip.instanceCount > 0) {
                 const cam = fi.camera || rc?.camera;
                 if (cam) beamUniforms.uNear.value = cam.near;
                 const r = rc?.renderer;
@@ -482,7 +494,7 @@ export function createSatellites(rc, { extras, sky = null } = {}) {
         dispose() {
             offChange?.();
             for (const g of [dots.g, skyPts.g, ring.g, strip, trackGeom]) g.dispose();
-            for (const m of [dotMat, ringMat, beamMat, trackMat]) m.dispose();
+            for (const m of [dotMat, ringMat, beamMat, trackMat, skyMat]) m?.dispose();
         },
     };
 }

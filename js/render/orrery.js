@@ -42,7 +42,7 @@
  */
 import * as THREE from 'three';
 import { BODIES, BODY_INDEX, AU_ER, AU_KM } from '../astro/bodies.js';
-import { ORBIT_IDS, SIGHT_COUNT, MOON_ORBIT_REFRESH_MS, sightStepMs, sightAt, edgeExit } from '../astro/orrery.js';
+import { ORBIT_IDS, SIGHT_COUNT, MOON_ORBIT_REFRESH_MS, sightStepMs, sightAt, edgeExit, sunHandover } from '../astro/orrery.js';
 import { DISC_FRAG } from './shaders/bodies.glsl.js';
 import { SPRITE_VERT, SPRITE_FRAG, SUN_VERT, ARROW_VERT, ARROW_FRAG } from './shaders/orrery.glsl.js';
 
@@ -617,6 +617,8 @@ export function createOrrery(rc, deps = {}) {
         lineMat.opacity = k;
         fanMat.opacity = k;
         const kDot = smooth(0.35, 1, k);
+        // The Sun as the globe's Sun and flare hand it over (render/bodies.js, flare.js).
+        const kSun = sunHandover(k);
         const kArrow = smooth(0.5, 1, k);
 
         // The screen and the free area for the edge arrows (CSS px → NDC).
@@ -659,7 +661,7 @@ export function createOrrery(rc, deps = {}) {
             }
             const slot = isEarth ? EARTH : i;
             sz[slot] = px;
-            const kBody = isEarth || i === MOON ? kDot : k;
+            const kBody = isEarth || i === MOON ? kDot : i === SUN ? kSun : k;
             al[slot] = i === SUN && !lowTier ? 0 : kBody;
             if (i === SUN && lowTier) sz[slot] = Math.max(px, MIN_PX[SUN]);
             const off = labelOffs[i];
@@ -757,9 +759,9 @@ export function createOrrery(rc, deps = {}) {
             sunUniforms.uCoreR.value = core;
             sunUniforms.uEdge.value = dpr;
             sunUniforms.uGlowScale.value = SUN_GLOW_RAD * pxDev * reach;
-            sunUniforms.uGlowGain.value = 1.5 * k * near;
+            sunUniforms.uGlowGain.value = 1.5 * kSun * near;
             sunUniforms.uViewport.value.set(W, H);
-            const c = SUN_HDR * k;
+            const c = SUN_HDR * kSun;
             sunUniforms.uCoreColor.value.setRGB(SUN_CORE[0] * c, SUN_CORE[1] * c, SUN_CORE[2] * c);
             sunUniforms.uGlowColor.value.setRGB(SUN_GLOW[0], SUN_GLOW[1], SUN_GLOW[2]);
         }

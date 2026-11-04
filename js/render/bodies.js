@@ -30,6 +30,7 @@ import { discVisibleFraction } from '../astro/shadow.js';
 import { liftByRefraction, refractionDeg } from '../astro/photometry.js';
 import { clearanceDeg } from '../geo/horizon.js';
 import { scopeBlend, eqAngRadius, RING_OUTER } from '../astro/disc.js';
+import { sunHandover } from '../astro/orrery.js';
 import {
     coronaParams, createCoronaParams, coronaVisibility, coronaStretch, chromosphereFlash, photosphereAdapt,
 } from '../astro/totality.js';
@@ -626,7 +627,9 @@ export function createBodies(rc, deps = {}) {
         // Totality (obscuration is exactly 1 only between second and third contact): no photosphere
         // is left. Without this the disc's anti-aliased rim, and its 3 px minimum size in a wide
         // view, kept a ring of HDR sunlight around the Moon for the whole of totality.
-        const photo = (obscuration >= 1 ? 1 - skyBlend : 1) * adapt;
+        // Out in the solar-system zoom the orrery's Sun takes over, faded across (sunHandover).
+        const keep = 1 - sunHandover(fi && Number.isFinite(fi.systemBlend) ? fi.systemBlend : 0);
+        const photo = (obscuration >= 1 ? 1 - skyBlend : 1) * adapt * keep;
         const core = SUN_INTENSITY * photo * (1 - thin);
         sunUniforms.uCoreColor.value.setRGB(
             SUN_CORE[0] * core * tr * limbT[0],
@@ -644,7 +647,7 @@ export function createBodies(rc, deps = {}) {
         const cg = SUN_CORONA_GAIN * corona;
         const gain = glare + cg;
         const cw = Math.max(1 - limbT[1], gain > 1e-6 ? cg / gain : 0);
-        sunUniforms.uGlowGain.value = gain;
+        sunUniforms.uGlowGain.value = gain * keep;
         sunUniforms.uGlowScale.value = SUN_GLOW_SCALE + (SUN_CORONA_SCALE - SUN_GLOW_SCALE) * cw;
         sunUniforms.uGlowColor.value.setRGB(
             (SUN_GLOW[0] + (SUN_CORONA[0] - SUN_GLOW[0]) * cw) * tr,
@@ -653,7 +656,7 @@ export function createBodies(rc, deps = {}) {
         // Out in the solar-system zoom the orrery draws the Sun and planets where they are, not at
         // infinity (render/orrery.js); the Moon stays, a real mesh 60 R out.
         const atInfinity = !(fi.systemBlend >= 0.5);
-        sun.visible = haveSnap && atInfinity;
+        sun.visible = haveSnap && keep > 0;
 
         // Planets: colour × extinction in sky view.
         const col = iColor.array;

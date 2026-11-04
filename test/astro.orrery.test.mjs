@@ -61,6 +61,17 @@ test('the crossfade and the pivot: 0 inside 80 R, 1 from 150 R; the pivot leaves
     }
 });
 
+test('sunHandover: the globe Sun hands over to the orrery Sun smoothly across the crossfade middle', () => {
+    assert.equal(O.sunHandover(0), 0);
+    assert.equal(O.sunHandover(O.SUN_HANDOVER[0]), 0);
+    assert.equal(O.sunHandover(O.SUN_HANDOVER[1]), 1);
+    assert.equal(O.sunHandover(1), 1);
+    near(O.sunHandover(0.5), 0.5, 1e-12, 'half at the middle');
+    // No step: neighbouring blends (one wheel step through 0.5) give neighbouring shares.
+    assert.ok(Math.abs(O.sunHandover(0.51) - O.sunHandover(0.492)) < 0.1);
+    assert.equal(O.sunHandover(NaN), 0);
+});
+
 test('systemPose: on the Earth at 150 R the camera is the orbit pose; far out it orbits the Sun with ecliptic north up', () => {
     const earth = [0.3, 0.1, -0.95];
     const p = O.createSystemPose();

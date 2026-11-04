@@ -18,6 +18,7 @@ import { clearanceDeg } from '../geo/horizon.js';
 import { MOON_RADIUS_ER, SUN_ANG_RADIUS_1AU_RAD, sunAngularRadius } from '../astro/bodies.js';
 import { FLARE_VERT, FLARE_FRAG } from './shaders/bodies.glsl.js';
 import { extinctionRGB, limbTransmittance } from './bodies.js';
+import { sunHandover } from '../astro/orrery.js';
 
 // [kind (0 starburst, 1 ghost), size (CSS px), axis distance (<0: at the Sun; 0.5 = screen
 // centre, 1 = mirrored through it), ghost hue]. Real ghosts keep converging on the centre as the
@@ -155,8 +156,10 @@ export function createFlare(rc, deps = {}) {
     }
 
     function update(fi) {
-        // Not out in the solar-system zoom: the orrery's Sun is not at infinity.
-        const enabled = !!cfg && !!cfg.flare && haveSnap && !(fi && fi.systemBlend >= 0.5);
+        // Not out in the solar-system zoom: the orrery's Sun is not at infinity. It fades out as the
+        // orrery's Sun fades in (sunHandover), so the Sun's brightness holds through the crossfade.
+        const handover = fi && Number.isFinite(fi.systemBlend) ? sunHandover(fi.systemBlend) : 0;
+        const enabled = !!cfg && !!cfg.flare && haveSnap && handover < 1;
         const cam = fi && (fi.camera || (rc && rc.camera));
         if (!enabled || !cam) { mesh.visible = false; vis = 0; return; }
         const skyBlend = Number.isFinite(fi.skyBlend) ? clamp(fi.skyBlend, 0, 1) : 0;
@@ -234,6 +237,7 @@ export function createFlare(rc, deps = {}) {
         }
         const o = 1 - skyBlend;
         target *= 1 + (Math.sqrt(limb[1]) - 1) * o;
+        target *= 1 - handover;
         const dt = fi && Number.isFinite(fi.dtMs) ? fi.dtMs : 16;
         const k = 1 - Math.exp(-dt / FADE_TAU_MS);
         vis += (target - vis) * k;

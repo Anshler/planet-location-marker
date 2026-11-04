@@ -98,6 +98,20 @@ export function systemBlend(distR, fromR = SYSTEM_FADE_R[0]) {
     return smooth(clamp((Math.log(distR) - Math.log(fromR)) / (Math.log(b) - Math.log(fromR)), 0, 1));
 }
 
+/** The crossfade's middle, where the globe's Sun (at infinity, its flare) hands over to the orrery's. */
+export const SUN_HANDOVER = Object.freeze([0.35, 0.65]);
+
+/**
+ * The orrery Sun's share of the Sun at crossfade `blend` (the globe's Sun and its flare take 1 −
+ * this): a smooth swap over SUN_HANDOVER, so the Sun's brightness holds through it.
+ * @param {number} blend systemBlend, 0…1
+ * @returns {number} 0…1
+ */
+export function sunHandover(blend) {
+    if (!(blend > 0)) return 0;
+    return smooth(clamp((blend - SUN_HANDOVER[0]) / (SUN_HANDOVER[1] - SUN_HANDOVER[0]), 0, 1));
+}
+
 /**
  * How far the pivot has slid from the Earth to the Sun at camera distance D (from the pivot):
  * 2u² − u⁴ with u = D / PIVOT_FULL_R. Quadratic at first (0.1 R off the Earth at 150 R, under a

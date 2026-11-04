@@ -112,12 +112,12 @@ Globe photorealism.
 
 | Status | ID | Item | Impact | Effort | Notes |
 |---|---|---|---|---|---|
-| todo | `lighten-stacking-exposure` | Long-exposure 'lighten' stacking: star trails and a real analemma photo ★ | 4 | M |  |
-| todo | `sky-postcard` | Sky Postcard: share the current view as a designed image, not just a link ★ | 4 | M |  |
-| todo | `guided-tours` | Guided tours: "Tonight from here", "A year in a minute", the 2027 eclipse, and an ambient mode ★ | 4 | L |  |
-| todo | `earthrise-vantage` | Vantage points: Earthrise from the Moon, and the DSCOVR view from L1 ★ | 4 | L |  |
+| done | `lighten-stacking-exposure` | Long-exposure 'lighten' stacking: star trails and a real analemma photo ★ | 4 | M | 1515699 (Expose: Star trails / Analemma / Free presets, AccumPass, clock strideMs, Save image). |
+| done | `sky-postcard` | Sky Postcard: share the current view as a designed image, not just a link ★ | 4 | M | 1515699 (Share → Postcard: 1080×1350 / 1200×630 / 1080×1920 rendered at size, typographic band, navigator.share). |
+| done | `guided-tours` | Guided tours: "Tonight from here", "A year in a minute", the 2027 eclipse, and an ambient mode ★ | 4 | L | 93b54eb (Tonight from here, A year in a minute, Eclipse 2027, Ambient; #tour=; restores state; text mode). |
+| done | `earthrise-vantage` | Vantage points: Earthrise from the Moon, and the DSCOVR view from L1 ★ | 4 | L | b57fde1 (View from L1 with the eclipse shadow on the disc; Earthrise from 150 km lunar orbit; vt= in URL). |
 | todo | `ar-sky-pointing` | Point your phone at the sky: compass-driven Sky view, off-screen pointers and wake lock ★ | 4 | L |  |
-| todo | `intro-preroll-matchcut` | Intro: let the opening breathe, and match-cut from the loader's globe | 2 | S |  |
+| done | `intro-preroll-matchcut` | Intro: let the opening breathe, and match-cut from the loader's globe | 2 | S | 93b54eb (pre-roll done; loader match-cut partial). |
 | todo | `fast-time-star-streaks` | Velocity streaks to stop star strobing in fast time | 2 | M |  |
 | todo | `timelapse-video-export` | Record a time-lapse: deterministic 1080p or vertical video with labels and a date stamp burned in | 3 | L |  |
 | todo | `globe-to-map-morph` | Unroll the globe: an animated globe-to-world-map morph with the terminator, twilight bands, sub-body points and tides ★ | 3 | L |  |
@@ -212,3 +212,6 @@ Use the 1000–3000 range and the unused Astronomy Engine APIs.
   code (high tier is at its 6 MB ceiling), starting with lighten-stacking-exposure, sky-postcard and guided-tours.
 - 2026-11-05: Owner raised the high tier's limit to 8 MB (budget and hard line); low and medium keep their budgets and the
   6 MB line. Shared JS still counts on every tier, so new code raises low/medium budgets deliberately per feature.
+- 2026-11-05: Phase 5 batch 1 merged at b57fde1 (capture, tours, vantage); npm test (647), size, smoke, smoke:mobile, text
+  mode pass. Budgets low 4.0 / medium 4.76 MB (high 5.92 of 8). main.js now has one drawnLayers(state) for both the vantage
+  and long-exposure layer rules.

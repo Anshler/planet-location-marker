@@ -31,6 +31,23 @@ test('guest stars: five supernovae at their remnants, dated as recorded', () => 
     assert.equal(new Date(k.peakMs).toISOString().slice(0, 10), '1604-10-28', 'after 1582: Gregorian as recorded');
 });
 
+test('guest-star cards: the first-recorded date as recorded, and whole days since it', () => {
+    const reg = createExtras();
+    reg.register(createGuestProvider());
+    const snap = createSnapshot();
+    // 1054-07-20T12:00Z is 14 July (Julian) in Kaifeng: day 10 after the record of 4 July.
+    computeSnapshot(Date.UTC(1054, 6, 20, 12), { latDeg: 34.7972, lonDeg: 114.3076, elevM: 0 }, snap, { detail: 'full' });
+    reg.fill(snap);
+    const card = reg.card('guest:sn1054', snap);
+    assert.match(card.lines[0], /^Day 10 since it was first recorded \(4 Jul 1054\)/);
+    for (const [id, when] of [['guest:sn1006', '30 Apr 1006'], ['guest:tycho1572', '6 Nov 1572'], ['guest:kepler1604', '9 Oct 1604']]) {
+        const g = guestById(id);
+        computeSnapshot(g.peakMs, { latDeg: 45, lonDeg: 0, elevM: 0 }, snap, { detail: 'full' });
+        reg.fill(snap);
+        assert.ok(reg.card(id, snap).lines[0].includes(`first recorded (${when})`), `${id}: ${reg.card(id, snap).lines[0]}`);
+    }
+});
+
 test('light curves: unseen before the record, at the peak on the day, fading past the eye near the last record', () => {
     for (const g of GUEST_STARS) {
         assert.ok(Number.isNaN(guestMagnitude(g, g.firstMs - DAY)), `${g.id} before`);

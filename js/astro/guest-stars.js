@@ -75,15 +75,16 @@ const TABLE = [
 
 /**
  * @typedef {{ id:string, key:string, name:string, long:string, raH:number, decDeg:number, distLy:number,
- *   firstMs:number, peakMs:number, lastMs:number, peakMag:number, type:'Ia'|'II', tail:number,
+ *   firstMs:number, firstRecMs:number, peakMs:number, lastMs:number, peakMag:number, type:'Ia'|'II', tail:number,
  *   record:string, caveat:string, sources:string[], dirS:Float64Array }} GuestStar
  */
 
 /** @type {ReadonlyArray<GuestStar>} */
 export const GUEST_STARS = Object.freeze(TABLE.map((g) => Object.freeze({
     id: `guest:${g.key}`, key: g.key, name: g.name, long: g.long, raH: g.ra, decDeg: g.dec, distLy: g.distLy,
-    // A record names a local day: the first sighting counts from the start of that day anywhere (UTC+12).
-    firstMs: dateMs(...g.first) - DAY_MS, peakMs: dateMs(...g.peak), lastMs: dateMs(...g.last),
+    // A record names a local day: the first sighting counts from the start of that day anywhere
+    // (UTC+12) for visibility; `firstRecMs` is the recorded day itself (noon UT), for the card.
+    firstMs: dateMs(...g.first) - DAY_MS, firstRecMs: dateMs(...g.first), peakMs: dateMs(...g.peak), lastMs: dateMs(...g.last),
     peakMag: g.peakMag, type: /** @type {'Ia'|'II'} */ (g.type), tail: g.tail,
     record: g.record, caveat: g.caveat, sources: Object.freeze([...g.sources]),
     dirS: raDecToScene(g.ra * 15, g.dec),
@@ -187,10 +188,12 @@ export function createGuestProvider(opts = {}) {
             const g = BY_ID.get(id);
             if (!g) return null;
             const t = snap?.tMs ?? NaN;
-            const days = Math.round((t - g.firstMs) / DAY_MS);
+            const o = snap?.observer;
+            // Whole days from the recorded day to the observer's local (mean) day.
+            const lonMs = o && Number.isFinite(o.lonDeg) ? o.lonDeg / 15 * 3600e3 : 0;
+            const days = Math.floor((t + lonMs) / DAY_MS) - Math.floor(g.firstRecMs / DAY_MS);
             const bright = st.mag <= -4 ? 'bright enough to see in daylight' : st.mag <= 1 ? 'one of the brightest points in the sky'
                 : st.mag <= 6 ? 'visible to the naked eye' : 'fading below the naked-eye limit';
-            const o = snap?.observer;
             if (o && Number.isFinite(t)) {
                 // The local day, near enough: from local mean midnight.
                 const day0 = Math.floor((t + o.lonDeg / 15 * 3600e3) / DAY_MS) * DAY_MS - o.lonDeg / 15 * 3600e3;
@@ -204,7 +207,7 @@ export function createGuestProvider(opts = {}) {
                 rts,
                 kindLabel: 'Guest star · a supernova',
                 lines: [
-                    `${days <= 0 ? 'First recorded today' : `Day ${days} since it was first recorded (${fmt(g.firstMs)})`}: ${bright}.`,
+                    `${days === 0 ? 'First recorded today' : days < 0 ? `First recorded on ${fmt(g.firstRecMs)}` : `Day ${days} since it was first recorded (${fmt(g.firstRecMs)})`}: ${bright}.`,
                     g.record,
                     `The star exploded about ${lyText(g.distLy)} away: its light took that long to arrive.`,
                 ],

@@ -1472,6 +1472,14 @@ body.no-webgl .vb-ruler, body.no-webgl .vb-point { display: none; }
 .ev__meta { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
 .ev__detail { color: var(--text-2); font-size: 12px; line-height: 1.35; }
 .ev-none { padding: 16px 4px; color: var(--muted); font-size: 13px; }
+/* The event's glyph (ui/event-glyphs.js), Jump and 'Add to calendar' (ui/ics.js). */
+.evg { display: block; }
+.ev__acts { display: flex; align-items: center; gap: 5px; }
+.ev__acts--next { flex-direction: column; align-items: stretch; }
+.ev__cal { width: 30px; padding: 0; color: var(--text-2); }
+.ev__acts--next .ev__cal { width: auto; }
+.ev-bundle { margin: 12px 0 2px; }
+.ev-bundle[hidden] { display: none; }
 
 /* 14 ─ Layers, settings, about ------------------------------------------------------------ */
 .group .switch-row { margin: 0 -10px; width: calc(100% + 20px); }

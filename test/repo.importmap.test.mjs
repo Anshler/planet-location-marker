@@ -81,7 +81,8 @@ test('three.js and the previews are preloaded only when the 3D view can run (tex
     const staticPreloads = DOC.links.filter((l) => /modulepreload/i.test(l.rel ?? '')).map((l) => norm(l.href));
     assert.ok(!staticPreloads.some((h) => h.startsWith('vendor/three/')), 'no static three.js modulepreload');
     const detect = DOC.scripts.find((s) => s.inline.includes('w.__pcEnv = env'))?.inline ?? '';
-    const guard = detect.indexOf('if (env.webgl2 && env.importmap) {');
+    // Also behind the context-loss record: a tab whose 3D view gave up boots in text mode (main.js).
+    const guard = detect.indexOf('if (env.webgl2 && env.importmap && !unstable) {');
     assert.ok(guard > detect.indexOf('w.__pcEnv = env'), 'after the probe, behind its result');
     const block = detect.slice(guard);
     assert.ok(block.indexOf("'vendor/three/three.module.min.js'") > 0);

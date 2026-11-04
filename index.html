@@ -77,6 +77,8 @@
 <link rel="modulepreload" href="js/app/expose.js">
 <link rel="modulepreload" href="js/app/intro.js">
 <link rel="modulepreload" href="js/app/fallback.js">
+<link rel="modulepreload" href="js/core/context-loss.js">
+<link rel="modulepreload" href="js/app/session.js">
 <link rel="modulepreload" href="js/ui/dom.js">
 <link rel="modulepreload" href="js/ui/shell.js">
 <link rel="modulepreload" href="js/ui/toast.js">
@@ -384,8 +386,11 @@ body.is-intro-out #ui-root{animation:pc-ui-in .9s cubic-bezier(.2,.7,.2,1) both}
 
   // The 3D view: its 512 px Earth previews (main.js fetches them with the same mode and credentials,
   // which reuses these requests) and its modules, three.js and the render stack, start now, in
-  // parallel with main.js. Text mode downloads none of them.
-  if (env.webgl2 && env.importmap) {
+  // parallel with main.js. Text mode downloads none of them, nor does a tab whose 3D view gave up
+  // after repeated GPU context losses (main.js, js/core/context-loss.js: it boots in text mode).
+  var unstable = false;
+  try { unstable = JSON.parse(w.sessionStorage.getItem('pc2.contextLoss') || '{}').text === true; } catch (e) { /* no storage */ }
+  if (env.webgl2 && env.importmap && !unstable) {
     var preload = function (rel, href, as) {
       var l = d.createElement('link');
       l.rel = rel;

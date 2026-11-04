@@ -49,6 +49,8 @@ import { createCapture } from './app/capture.js';
 import { photoLayers } from './app/expose.js';
 import { playIntro, INTRO_TIMING } from './app/intro.js';
 import { showFallback, showContextLost, hideContextLost, showFatal } from './app/fallback.js';
+import { recordLoss, retryRecord, lossRecord, capTier } from './core/context-loss.js';
+import { sessionLoad, sessionSave } from './app/session.js';
 
 // ---------------------------------------------------------------------------------------------
 // Constants
@@ -68,6 +70,8 @@ const DOUBLE_CLICK_MS = 380;
 const DOUBLE_CLICK_PX = 12;
 /** Trail (apparent path) parameters per body. */
 const TRAIL_SPAN = { moon: { halfSpanDays: 14, stepHours: 2, refreshDays: 3 }, default: { halfSpanDays: 180, stepHours: 24, refreshDays: 45 } };
+/** sessionStorage key of this tab's context-loss record (core/context-loss.js). */
+const LOSS_KEY = 'contextLoss';
 
 const startedAt = typeof performance !== 'undefined' ? performance.now() : 0;
 const noop = () => {};
@@ -106,6 +110,8 @@ const R = {
     /** @type {any} */ horizon: null,
     /** WebGL renderer string: the key of the governor's learned tier. */
     rendererString: '',
+    /** Tier changes made for the app (context-loss step-downs), newest last; at most 20. */
+    /** @type {any[]} */ tierLog: [],
     /** @type {any} */ catalog: null,
     /** @type {any} */ snapFull: null,
     /** @type {any} */ bus: null,
@@ -444,6 +450,11 @@ async function importRenderStack() {
 async function boot() {
     const env = readEnv();
     loader.progress(0.1, 'Computing the sky');
+    // Earlier context losses in this tab (iOS reloads instead of restoring): the 3D view may have
+    // given up, or the session is held at a lower tier.
+    const losses = lossRecord(sessionLoad(LOSS_KEY));
+    const unstable = env.can3d && losses.text;
+    if (unstable) env.can3d = false;
 
     // Start everything that does not depend on state right away.
     const uiModP = import('./ui/index.js');
@@ -493,6 +504,7 @@ async function boot() {
     const qualitySetting = [hash.quality, savedQuality].find((q) => QUALITY_SETTINGS.includes(q)) ?? 'auto';
     let active = governor.pin(qualitySetting === 'auto' ? null : qualitySetting);
     if (window.__pcSlow && qualitySetting === 'auto') active = governor.pin('low');
+    if (capTier(active, losses.cap) !== active) active = governor.pin(capTier(active, losses.cap));
     // The tier's Earth maps start now, in parallel with the UI and the render stack (the previews
     // are already on their way: index.html preloads them, and these fetches reuse that).
     let texPrefetch = null;
@@ -698,7 +710,7 @@ async function boot() {
 
     // ---- 4–9. The 3D view -------------------------------------------------------------------
     if (!env.can3d) {
-        enterTextMode(env.webgl2 ? 'no-importmap' : 'no-webgl2');
+        enterTextMode(unstable ? 'context-unstable' : env.webgl2 ? 'no-importmap' : 'no-webgl2');
     } else {
         try {
             await bootRender({ env, hash, store, bus, clock, actions, render, loop, snap, governor, renderModsP, skyJsonP, astro, cities, texPrefetch });
@@ -864,7 +876,9 @@ let textMode = false;
 
 /**
  * Switches to text mode: banner, no canvas, panels stay live (the loop keeps publishing readouts).
- * @param {'no-webgl2'|'no-importmap'|'context-failed'} reason
+ * 'context-unstable' (the GPU context lost three times within a minute) offers Retry: a reload
+ * that starts the 3D view again, held at low for the session.
+ * @param {'no-webgl2'|'no-importmap'|'context-failed'|'context-unstable'} reason
  * @param {unknown} [err]
  */
 function enterTextMode(reason, err) {
@@ -874,7 +888,13 @@ function enterTextMode(reason, err) {
     try {
         R.loop?.setRenderPaused(true);
     } catch { /* already headless */ }
-    showFallback(reason);
+    hideContextLost();
+    showFallback(reason, {
+        onRetry: () => {
+            sessionSave(LOSS_KEY, retryRecord(sessionLoad(LOSS_KEY)));
+            location.reload();
+        },
+    });
     const store = R.store;
     if (store) {
         const st = store.get().status;
@@ -1618,10 +1638,19 @@ function bindRenderState({ store, bus, clock, rc, rig, loop, snap, astro, m, lab
         }
     });
 
-    // GPU context loss. Drawing resumes once the maps are back on the GPU.
+    // GPU context loss (context-loss-backoff-and-diagnostics). Losses are counted in a sliding
+    // window kept for the tab's session: a second within a minute holds the session one tier
+    // lower, a third gives up on the 3D view. Drawing resumes once the maps are back on the GPU.
     rc.onContextLost?.(() => {
         loop.setRenderPaused(true);
+        const { record, action } = recordLoss(sessionLoad(LOSS_KEY), Date.now(), store.get().quality.active);
+        sessionSave(LOSS_KEY, record);
+        if (action === 'text') {
+            enterTextMode('context-unstable');
+            return;
+        }
         showContextLost();
+        if (action === 'step-down') holdTier(record.cap, 'context-loss');
     });
     rc.onContextRestored?.(() => {
         if (textMode) return undefined;
@@ -1645,6 +1674,29 @@ function bindRenderState({ store, bus, clock, rc, rig, loop, snap, astro, m, lab
         // rc draws nothing until it settles: a frame would upload a map whose decoded copy was closed.
         return restored;
     });
+}
+
+/**
+ * Holds the session at `cap` or below (a context lost twice within a minute): the governor is
+ * pinned there and the tier switches as for a governor step. Saved preferences are untouched.
+ * @param {string|null} cap
+ * @param {string} cause
+ */
+function holdTier(cap, cause) {
+    const gov = R.governor, store = R.store;
+    if (!gov || !store) return;
+    const q = store.get().quality;
+    const to = capTier(q.active, cap);
+    if (to === q.active) return;
+    logTier({ from: q.active, to, cause });
+    store.set({ quality: { ...q, active: gov.pin(to) } }, 'context-loss');
+    R.bus?.emit('toast', { message: 'Reduced graphics detail to keep things stable', kind: 'info' });
+}
+
+/** Adds a tier change to the diagnostics log (at most 20; `atS`: seconds since boot). */
+function logTier(entry) {
+    R.tierLog.push({ atS: Math.round((performance.now() - startedAt) / 100) / 10, ...entry });
+    if (R.tierLog.length > 20) R.tierLog.shift();
 }
 
 /**

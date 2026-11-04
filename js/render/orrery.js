@@ -25,9 +25,11 @@
  *    sim-time steps (astro/orrery.js sightAt), fading with age, with the Earth's and the planet's
  *    positions at each step, run on to a backdrop and joined there: the curve folds back while
  *    the planet is retrograde (docs/ASTRONOMY.md §4).
- *  - Edge arrows: a body off the free area gets a chevron where its sight line leaves that area
- *    (astro/orrery.js edgeExit), pointing along it; its label sits there (labelPoint), as a
- *    beam's label sits where the beam leaves the screen.
+ *  - Edge arrows: a body off the screen (the canvas less the UI's insets) gets a chevron where its
+ *    sight line leaves the free area, that less EDGE_PAD (astro/orrery.js edgeExit, the line from
+ *    the Earth clipped to it, wherever the Earth is), pointing along it; its label sits there
+ *    (labelPoint), as a beam's label sits where the beam leaves the screen. A line that never
+ *    crosses the free area gets no arrow.
  *
  * Labels: `labelPoint(id)` (a body, or 'earth') is a live point in the globe scene (Earth radii)
  * that the globe camera projects onto the body's sprite, or its arrow; NaN while hidden.
@@ -81,10 +83,19 @@ const SUN_QUAD_RAD = 6 * DEG;
 const SUN_MIN_PX = 3;
 const SUN_KM = BODIES[SUN].radiusKm;
 /**
- * Edge arrows sit this far inside the free area (CSS px): clear of the top bar, and room on the right
- * for the label, which runs right of its dot.
+ * Edge arrows sit this far inside the free area (CSS px): clear of the top bar and the view caption
+ * under it (both layouts: its bottom is at 112–116 px), of the floating view toolbar above the
+ * desktop's time bar (56 px over the bottom inset), and room on the right for the label, which runs
+ * right of its dot (and, on a phone, for the view toolbar's column). Only where arrows go: a body
+ * inside the pad is still on screen, with its label and pick on its sprite.
  */
-const EDGE_PAD = Object.freeze({ left: 26, right: 96, top: 80, bottom: 34 });
+const EDGE_PAD = Object.freeze({ left: 26, right: 96, top: 124, bottom: 70 });
+/**
+ * A line that never crosses that area (the Earth itself in the label room, as on a phone, where the
+ * Earth often sits near the right edge) gets its arrow in this wider one instead, still clear of the
+ * view toolbar's column on a phone (its label then fits where the label pool can place it).
+ */
+const EDGE_PAD_TIGHT = Object.freeze({ left: 14, right: 58, top: 124, bottom: 70 });
 const PICK_PX = 14;
 /** The Moon's label goes while its dot is this close to the Earth's on screen (CSS px). */
 const MOON_LABEL_SEP_PX = 16;
@@ -502,7 +513,10 @@ export function createOrrery(rc, deps = {}) {
     const scr = new Float64Array((N + 1) * 3);
     const _size = new THREE.Vector2();
     const _v = new THREE.Vector3();
-    const rect = { x0: -1, x1: 1, y0: -1, y1: 1, cx: 0, cy: 0, aspect: 1 };
+    const rect = { x0: -1, x1: 1, y0: -1, y1: 1, aspect: 1 };
+    const rectTight = { x0: -1, x1: 1, y0: -1, y1: 1, aspect: 1 };
+    // The screen: the canvas less the UI's insets (a body outside it is off screen).
+    const vis = { x0: -1, x1: 1, y0: -1, y1: 1 };
     const edge = { x: 0, y: 0, angle: 0 };
     let cssW = 1, cssH = 1;
 
@@ -605,22 +619,30 @@ export function createOrrery(rc, deps = {}) {
         const kDot = smooth(0.35, 1, k);
         const kArrow = smooth(0.5, 1, k);
 
-        // The free area (CSS px → NDC) for the edge arrows.
+        // The screen and the free area for the edge arrows (CSS px → NDC).
         const ins = rc?.size?.insets ?? { left: 0, right: 0, top: 0, bottom: 0 };
-        rect.x0 = -1 + 2 * (ins.left + EDGE_PAD.left) / cssW;
-        rect.x1 = 1 - 2 * (ins.right + EDGE_PAD.right) / cssW;
-        rect.y0 = -1 + 2 * (ins.bottom + EDGE_PAD.bottom) / cssH;
-        rect.y1 = 1 - 2 * (ins.top + EDGE_PAD.top) / cssH;
-        rect.cx = (-1 + 2 * ins.left / cssW + 1 - 2 * ins.right / cssW) / 2;
-        rect.cy = (-1 + 2 * ins.bottom / cssH + 1 - 2 * ins.top / cssH) / 2;
+        vis.x0 = -1 + 2 * ins.left / cssW;
+        vis.x1 = 1 - 2 * ins.right / cssW;
+        vis.y0 = -1 + 2 * ins.bottom / cssH;
+        vis.y1 = 1 - 2 * ins.top / cssH;
+        rect.x0 = vis.x0 + 2 * EDGE_PAD.left / cssW;
+        rect.x1 = vis.x1 - 2 * EDGE_PAD.right / cssW;
+        rect.y0 = vis.y0 + 2 * EDGE_PAD.bottom / cssH;
+        rect.y1 = vis.y1 - 2 * EDGE_PAD.top / cssH;
         rect.aspect = cssW / cssH;
+        rectTight.x0 = vis.x0 + 2 * EDGE_PAD_TIGHT.left / cssW;
+        rectTight.x1 = vis.x1 - 2 * EDGE_PAD_TIGHT.right / cssW;
+        rectTight.y0 = vis.y0 + 2 * EDGE_PAD_TIGHT.bottom / cssH;
+        rectTight.y1 = vis.y1 - 2 * EDGE_PAD_TIGHT.top / cssH;
+        rectTight.aspect = rect.aspect;
 
         const sz = sSize.array, al = sAlpha.array;
         const ap = aPos.array, aa = aAng.array, aal = aAlp.array;
         const cx = camera.position.x, cy = camera.position.y, cz = camera.position.z;
         // The Earth on screen: where every sight line starts.
         project(earthS[0], earthS[1], earthS[2]);
-        const eW = clip.W > 1e-12 ? clip.W : 1e-12;
+        const earthFront = clip.W > 1e-12;
+        const eW = earthFront ? clip.W : 1e-12;
         const eX = clip.X / eW, eY = clip.Y / eW;
         const camE = Math.hypot(earthS[0] - cx, earthS[1] - cy, earthS[2] - cz);
         for (let i = 0; i <= N; i++) {
@@ -645,16 +667,24 @@ export function createOrrery(rc, deps = {}) {
             off[1] = -(px + 3);
             // Screen place: on the sprite, or (off the free area) the arrow where its line leaves.
             project(x, y, z);
+            const bFront = clip.W > 1e-12;
             const nx = clip.X / clip.W, ny = clip.Y / clip.W;
-            const out = !(clip.W > 1e-12 && nx >= rect.x0 && nx <= rect.x1 && ny >= rect.y0 && ny <= rect.y1);
+            const out = !(bFront && nx >= vis.x0 && nx <= vis.x1 && ny >= vis.y0 && ny <= vis.y1);
             const lp = labelPts[i];
             let exits = false;
-            if (out && !isEarth && kArrow > 0) {
-                // The line's direction on screen at the Earth: a point a little way along it.
-                const dl = Math.hypot(x - earthS[0], y - earthS[1], z - earthS[2]) || 1;
-                const f = Math.min(1, 0.02 * camE / dl);
-                project(earthS[0] + (x - earthS[0]) * f, earthS[1] + (y - earthS[1]) * f, earthS[2] + (z - earthS[2]) * f);
-                exits = clip.W > 1e-12 && edgeExit(eX, eY, clip.X / clip.W - eX, clip.Y / clip.W - eY, rect, edge);
+            if (out && !isEarth && kArrow > 0 && earthFront) {
+                // The line on screen, from the Earth to the body; behind the camera, its direction at
+                // the Earth (a point a little way along it), on out.
+                let dx = nx - eX, dy = ny - eY, tMax = 1;
+                if (!bFront) {
+                    const dl = Math.hypot(x - earthS[0], y - earthS[1], z - earthS[2]) || 1;
+                    const f = Math.min(1, 0.02 * camE / dl);
+                    project(earthS[0] + (x - earthS[0]) * f, earthS[1] + (y - earthS[1]) * f, earthS[2] + (z - earthS[2]) * f);
+                    dx = clip.W > 1e-12 ? clip.X / clip.W - eX : NaN;
+                    dy = clip.W > 1e-12 ? clip.Y / clip.W - eY : NaN;
+                    tMax = Infinity;
+                }
+                exits = edgeExit(eX, eY, dx, dy, rect, edge, tMax) || edgeExit(eX, eY, dx, dy, rectTight, edge, tMax);
             }
             if (exits) {
                 ap[i * 3] = edge.x; ap[i * 3 + 1] = edge.y; ap[i * 3 + 2] = 0;

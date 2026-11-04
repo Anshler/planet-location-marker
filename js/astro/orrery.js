@@ -315,33 +315,42 @@ export function sightLines(aeName, tMs, count, out) {
 }
 
 /**
- * Where a sight line leaves the free area: from (ox, oy), the Earth on screen (NDC; the area's
- * centre when the Earth is outside it), along the line's screen direction (dx, dy), to the first
- * side of the rectangle [x0, x1] × [y0, y1]. An off-screen body's edge arrow and label go there,
- * so they sit on its line, as a beam's label sits where the beam leaves the screen.
+ * Where a sight line leaves the free area: the line on screen (NDC) from (ox, oy), the Earth, by
+ * (dx, dy) — to the body itself (tMax 1) or, for a body behind the camera, on along its direction
+ * (tMax Infinity) — clipped to the rectangle [x0, x1] × [y0, y1] (Liang–Barsky); `out` is its last
+ * point inside. The Earth may itself lie outside the area: the line then enters it on the way.
+ * An off-screen body's edge arrow and label go there, so they sit on its line, as a beam's label
+ * sits where the beam leaves the screen.
  * @param {number} ox
  * @param {number} oy
  * @param {number} dx
  * @param {number} dy
- * @param {{x0:number, x1:number, y0:number, y1:number, cx:number, cy:number, aspect?:number}} rect
+ * @param {{x0:number, x1:number, y0:number, y1:number, aspect?:number}} rect
  *   aspect: width / height, so `angle` is the arrow's direction on screen
  * @param {{x:number, y:number, angle:number}} out angle: radians from screen +x, up positive
- * @returns {boolean} false when the direction is degenerate (out unchanged)
+ * @param {number} [tMax] where the line ends, in units of (dx, dy)
+ * @returns {boolean} false when the direction is degenerate or the line never crosses the area
+ *   (out unchanged)
  */
-export function edgeExit(ox, oy, dx, dy, rect, out) {
+export function edgeExit(ox, oy, dx, dy, rect, out, tMax = Infinity) {
     if (!(Math.abs(dx) + Math.abs(dy) > 1e-12) || !Number.isFinite(dx) || !Number.isFinite(dy)) return false;
-    if (!(ox >= rect.x0 && ox <= rect.x1 && oy >= rect.y0 && oy <= rect.y1)) {
-        ox = rect.cx;
-        oy = rect.cy;
+    if (!Number.isFinite(ox) || !Number.isFinite(oy) || !(tMax > 0)) return false;
+    let t0 = 0, t1 = tMax;
+    // Each side: p·t ≤ q keeps the point inside.
+    for (let k = 0; k < 4; k++) {
+        const p = k === 0 ? -dx : k === 1 ? dx : k === 2 ? -dy : dy;
+        const q = k === 0 ? ox - rect.x0 : k === 1 ? rect.x1 - ox : k === 2 ? oy - rect.y0 : rect.y1 - oy;
+        if (p === 0) {
+            if (q < 0) return false;
+        } else if (p < 0) {
+            t0 = Math.max(t0, q / p);
+        } else {
+            t1 = Math.min(t1, q / p);
+        }
     }
-    let s = Infinity;
-    if (dx > 0) s = Math.min(s, (rect.x1 - ox) / dx);
-    else if (dx < 0) s = Math.min(s, (rect.x0 - ox) / dx);
-    if (dy > 0) s = Math.min(s, (rect.y1 - oy) / dy);
-    else if (dy < 0) s = Math.min(s, (rect.y0 - oy) / dy);
-    if (!Number.isFinite(s)) return false;
-    out.x = ox + dx * s;
-    out.y = oy + dy * s;
+    if (!(t0 <= t1) || !Number.isFinite(t1)) return false;
+    out.x = ox + dx * t1;
+    out.y = oy + dy * t1;
     out.angle = Math.atan2(dy, dx * (rect.aspect || 1));
     return true;
 }

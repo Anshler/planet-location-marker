@@ -188,8 +188,8 @@ test('sight lines: Mars turns back around its 2027 opposition (the retrograde fi
     assert.ok(l1 < l0, 'retrograde at opposition');
 });
 
-test('edgeExit: from the Earth along the line to the free area\'s edge; outside, from its centre', () => {
-    const rect = { x0: -0.9, x1: 0.8, y0: -0.7, y1: 0.9, cx: -0.05, cy: 0.1, aspect: 1.6 };
+test('edgeExit: the line from the Earth clipped to the free area, wherever the Earth is', () => {
+    const rect = { x0: -0.9, x1: 0.8, y0: -0.7, y1: 0.9, aspect: 1.6 };
     const out = { x: 0, y: 0, angle: 0 };
     assert.equal(O.edgeExit(0, 0, 1, 0, rect, out), true);
     near(out.x, 0.8, 1e-12, 'right side');
@@ -199,10 +199,18 @@ test('edgeExit: from the Earth along the line to the free area\'s edge; outside,
     near(out.y, -0.7, 1e-12, 'bottom first');
     near(out.x, 0.2 - 0.8, 1e-12, 'along the diagonal');
     near(out.angle, Math.atan2(-1, -1.6), 1e-12, 'screen angle uses the aspect');
-    // An Earth off the area: the ray starts from the area's centre.
-    O.edgeExit(5, 5, 0, 1, rect, out);
-    near(out.x, -0.05, 1e-12, 'centre x');
-    near(out.y, 0.9, 1e-12, 'top');
+    // The segment to the body (tMax 1) ends where it leaves the area, short of the body.
+    assert.equal(O.edgeExit(0, 0, 2, 0, rect, out, 1), true);
+    near(out.x, 0.8, 1e-12, 'segment: right side');
+    // An Earth off the area (a phone's right-hand strip): the line enters the area, and the arrow
+    // goes where it leaves again on the way to the body, on the line, not from the area's centre.
+    assert.equal(O.edgeExit(0.9, 0.2, -2.2, 0.2, rect, out, 1), true);
+    near(out.x, -0.9, 1e-12, 'left side');
+    near(out.y, 0.2 + 0.2 * (1.8 / 2.2), 1e-12, 'on the line');
+    // A line that never crosses the area (the body off the same side as the Earth): no arrow.
+    assert.equal(O.edgeExit(0.9, 0.2, 0.5, 0.1, rect, out, 1), false, 'away from the area');
+    assert.equal(O.edgeExit(0.9, 1.2, -0.05, 0.3, rect, out, 1), false, 'past a corner');
+    assert.equal(O.edgeExit(5, 5, 0, 1, rect, out), false, 'parallel, outside');
     assert.equal(O.edgeExit(0, 0, 0, 0, rect, out), false, 'no direction');
     assert.equal(O.edgeExit(0, 0, NaN, 1, rect, out), false, 'NaN');
 });

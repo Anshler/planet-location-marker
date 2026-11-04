@@ -4,7 +4,9 @@
  * including partial solar eclipses visible from the observer — equinoxes and
  * solstices; star occultations, Venus at greatest brilliancy, transits, the
  * Moon's perigee and apogee extremes, Saturn's ring-plane crossings and meteor
- * showers), grouped by month, each with a Jump button. A "Next up" card leads.
+ * showers), grouped by month, each with a Jump button. A "Next up" card leads. The satellites'
+ * visible passes over the next 10 days (ui.passes, ui/sat-passes.js) join them: the bright ones
+ * under 'All', every one under 'Satellites'; their button watches the pass (actions.watchPass).
  * Above them, the guided tours (core/tour-catalog.js; actions.startTour). Below them, history
  * (ROADMAP historic-skies): the Moments library and the Famous comets (core/moments.js, links that
  * set the URL hash, so the app flies there like any shared link), and 'The sky you were born under'
@@ -22,6 +24,7 @@ import { MOMENTS, FAMOUS_COMETS } from '../core/moments.js';
 import { skyCaption } from '../astro/sky-caption.js';
 import { h, on, setText } from './dom.js';
 import { icon } from './icons.js';
+import { passEvent, isBrightPass } from './sat-passes.js';
 
 const DAY = 86400e3;
 
@@ -34,6 +37,7 @@ export const FILTERS = [
     { id: 'planets', label: 'Planets', test: (e) => PLANET_KINDS.has(e.kind) },
     { id: 'eclipses', label: 'Eclipses', test: (e) => e.kind.includes('eclipse') || e.kind === 'transit' },
     { id: 'meteors', label: 'Meteors', test: (e) => e.kind === 'meteor-shower' },
+    { id: 'sats', label: 'Satellites', test: (e) => e.kind === 'sat-pass' },
     { id: 'seasons', label: 'Seasons', test: (e) => e.kind === 'equinox' || e.kind === 'solstice' },
 ];
 
@@ -41,7 +45,7 @@ export const KIND_ICON = {
     'moon-phase': 'moon-phase', opposition: 'opposition', conjunction: 'conjunction', 'max-elongation': 'elongation',
     'lunar-eclipse': 'eclipse', 'solar-eclipse': 'eclipse', 'local-solar-eclipse': 'eclipse', equinox: 'season', solstice: 'season',
     occultation: 'occultation', brilliancy: 'brilliancy', transit: 'transit', 'lunar-apsis': 'apsis', 'ring-plane': 'rings',
-    'meteor-shower': 'meteor',
+    'meteor-shower': 'meteor', 'sat-pass': 'satellite',
 };
 
 /** CSS colour for an event's icon. */
@@ -52,6 +56,7 @@ function eventColor(ev) {
         case 'solar-eclipse': case 'local-solar-eclipse': case 'transit': return 'var(--warn)';
         case 'equinox': case 'solstice': return 'var(--accent)';
         case 'meteor-shower': return '#9fd4ff';
+        case 'sat-pass': return ev.color || 'var(--accent)';
         default: return ev.bodyId && ev.bodyId in BODY_INDEX ? `var(--body-${ev.bodyId})` : 'var(--muted)';
     }
 }
@@ -166,7 +171,7 @@ export function mountEventsPanel(root, ctx) {
         const b = /** @type {HTMLElement} */ (e.target).closest('[data-ev]');
         if (!b) return;
         const ev = shownEvents[Number(b.dataset.ev)];
-        if (ev) ui.act('jumpToEvent', ev);
+        if (ev) ui.act(ev.kind === 'sat-pass' ? 'watchPass' : 'jumpToEvent', ev.kind === 'sat-pass' ? ev.pass : ev);
     }));
 
     /** @type {any[]} */
@@ -180,7 +185,7 @@ export function mountEventsPanel(root, ctx) {
 
     function render(force = false) {
         const t = simNow();
-        const all = ui.events?.list;
+        const all = withPasses(ui.events?.list, t);
         if (!all) {
             empty.hidden = false;
             if (!ctx.services?.astro) setText(empty, 'Upcoming events are unavailable on this device.');
@@ -206,8 +211,8 @@ export function mountEventsPanel(root, ctx) {
                     h('span', { class: 'ev__icon ev__icon--lg', style: { '--c': eventColor(first) }, 'aria-hidden': 'true' }, icon(KIND_ICON[first.kind] || 'events', { size: 22 })),
                     h('div', { class: 'ev__main' }, h('span', { class: 'ev-next__title' }, first.title), meta,
                         first.detail ? h('span', { class: 'ev__detail' }, first.detail) : null),
-                    h('button', { class: 'btn btn--primary btn--sm', type: 'button', 'data-ev': '0', 'aria-label': `Jump to ${first.title}` },
-                        icon('arrow-right', { size: 16 }), 'Jump')));
+                    h('button', { class: 'btn btn--primary btn--sm', type: 'button', 'data-ev': '0', 'aria-label': `${first.kind === 'sat-pass' ? 'Watch' : 'Jump to'} ${first.title}` },
+                        icon('arrow-right', { size: 16 }), first.kind === 'sat-pass' ? 'Watch' : 'Jump')));
             next.hidden = false;
         } else next.hidden = true;
 
@@ -226,14 +231,28 @@ export function mountEventsPanel(root, ctx) {
                     h('span', { class: 'ev__title' }, ev.title),
                     meta,
                     ev.detail ? h('span', { class: 'ev__detail' }, ev.detail) : null),
-                h('button', { class: 'btn btn--soft btn--sm ev__jump', type: 'button', 'data-ev': String(i), 'aria-label': `Jump to ${ev.title}, ${ui.fmtSpoken(ev.tMs)}` },
-                    'Jump')));
+                h('button', { class: 'btn btn--soft btn--sm ev__jump', type: 'button', 'data-ev': String(i), 'aria-label': `${ev.kind === 'sat-pass' ? 'Watch' : 'Jump to'} ${ev.title}, ${ui.fmtSpoken(ev.tMs)}` },
+                    ev.kind === 'sat-pass' ? 'Watch' : 'Jump')));
         });
         if (!upcoming.length) {
             items.push(h('li', { class: 'ev-none' }, filter === 'all' ? 'No events in the next 12 months.' : 'No events of this kind in the next 12 months.'));
         }
         list.replaceChildren(...items);
         refreshRelative(t, true);
+    }
+
+    /** The year's events plus the satellite passes this filter shows (cached per pass list). */
+    let passCache = { list: null, filter: '', tz: '', evs: [] };
+    function withPasses(list, t) {
+        if (!list) return list;
+        const pl = ui.passes?.list;
+        if (!Array.isArray(pl) || !pl.length) return list;
+        const tz = ui.displayTz();
+        if (passCache.list !== pl || passCache.filter !== filter || passCache.tz !== tz) {
+            passCache = { list: pl, filter, tz, evs: pl.filter((p) => filter === 'sats' || isBrightPass(p)).map((p) => passEvent(p, ui)) };
+        }
+        const evs = passCache.evs.filter((e) => e.pass.endMs >= t - 60e3);
+        return evs.length ? list.concat(evs).sort((a, b) => a.tMs - b.tMs) : list;
     }
 
     function refreshRelative(t, force = false) {
@@ -248,6 +267,7 @@ export function mountEventsPanel(root, ctx) {
     }
 
     offs.push(ui.on('events', () => render(true)));
+    offs.push(ui.on('passes', () => render(true)));
     offs.push(ui.on('display', () => render(true)));
     offs.push(ctx.store.subscribe((s) => s.observer, () => { lastKey = ''; }));
     render(true);

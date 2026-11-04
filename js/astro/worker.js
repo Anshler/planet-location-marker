@@ -22,6 +22,7 @@ import { eclipsePath, citiesInPath } from './eclipse-path.js';
 import { orbitPolylines, moonOrbitPolyline } from './orrery.js';
 import { visibilityYear } from './planner.js';
 import { sunFigures } from './sunpath.js';
+import { allPasses } from './satellites.js';
 import { BODY_IDS } from './bodies.js';
 
 function riseSetAll({ bodyIds, observer, fromMs, toMs }) {
@@ -71,6 +72,8 @@ function eclipsePathOp({ peakMs, stepS, cities, nCities }) {
  *              the Moon's month alone, re-sampled far more often; transferred)
  *  - almanac   {observer, dayStartMs, dayEndMs?, nearMs?, sunFromMs?, sunToMs?, n?, tz?, hour12?}
  *              → {riseSet, twilight, tonight, sunSeries:{fromMs, toMs, values}} in one round trip
+ *  - satPasses {tle, observer, fromMs, days?}            → SatPass[] (satellites.js allPasses: the next visible
+ *              passes of every satellite in data/tle.json, `tle`, over `days` (10), by start time)
  *  - ping      {}                                        → 'pong'
  * @type {Readonly<Record<string, (args:object) => unknown>>}
  */
@@ -102,6 +105,7 @@ export const OPS = Object.freeze({
             sunSeries: { fromMs: sunFromMs, toMs: sunToMs, values: sunAltitudeSeries(observer, sunFromMs, sunToMs, args.n ?? 96) },
         };
     },
+    satPasses: ({ tle, observer, fromMs, days }) => allPasses(tle, observer, fromMs, days ?? 10),
     ping: () => 'pong',
 });
 

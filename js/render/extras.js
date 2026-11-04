@@ -172,6 +172,8 @@ export function createExtrasLayer(rc, { extras, sky = null } = {}) {
             const s = slots[i];
             const st = xs[i];
             if (!st || st.id !== s.id) continue;
+            // A satellite ('sat') is drawn, ringed and picked by render/satellites.js, frame by frame.
+            if (s.glyph === 'sat') continue;
             const shown = st.present && layerOn(s);
             if (s.id === selection && st.present) sel = i;
             if (!shown) continue;
@@ -233,7 +235,7 @@ export function createExtrasLayer(rc, { extras, sky = null } = {}) {
             for (let i = 0; i < slots.length && i < xs.length && pickList.length < CAP; i++) {
                 const s = slots[i];
                 const st = xs[i];
-                if (!st || !st.present || st.id !== s.id) continue;
+                if (!st || !st.present || st.id !== s.id || s.glyph === 'sat') continue;
                 if (!(s.id === selection || (s.glyph !== 'none' && layerOn(s)))) continue;
                 const c = pickPool[pickList.length];
                 c.id = s.id;

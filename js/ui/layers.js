@@ -49,6 +49,7 @@ export const LAYER_GROUPS = [
         title: 'Overlays',
         items: [
             ['trails', 'Path of selected body', ['T'], 'Six months either side, with retrograde loops'],
+            ['satellites', 'Satellites', null, 'The ISS, Tiangong, Hubble and bright rocket bodies moving in real time, with their next visible passes'],
             ['spacecraft', 'Spacecraft', null, 'Faint radio beams to Voyager 1 and 2, New Horizons and JWST, with the one-way radio time'],
             ['labels', 'Labels', null, null],
         ],

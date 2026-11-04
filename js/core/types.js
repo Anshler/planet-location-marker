@@ -17,14 +17,15 @@
  *   constellationNames:boolean, starNames:boolean, milkyWay:boolean, clouds:boolean, atmosphere:boolean, ecliptic:boolean,
  *   eqGrid:boolean, altAzGrid:boolean, horizon:boolean, footprint:boolean, subpoints:boolean, trails:boolean, labels:boolean,
  *   landscape:boolean, spacecraft:boolean, deepSky:boolean, precession:boolean, sunPath:boolean,
- *   meteors:boolean}} Layers `landscape`: the sky view's illustrative landscape (geo/horizon.js);
+ *   meteors:boolean, satellites:boolean}} Layers `landscape`: the sky view's illustrative landscape (geo/horizon.js);
  *   `spacecraft`: the radio beams to Voyager 1 and 2, New Horizons and JWST (astro/craft.js), off by default;
  *   `deepSky`: the Messier objects and showpieces (astro/dso.js, render/dso.js), on by default; `precession`: the
  *   pole's precession circle, the pole of date and the equinox points (render/precession.js), off by default;
  *   `sunPath`: Sun paths, the noon analemma and the subsolar figure-8 (render/sunpath.js), off by default; `meteors`:
- *   shower radiants and illustrative meteors in sky view (render/meteors.js), on by default */
+ *   shower radiants and illustrative meteors in sky view (render/meteors.js), on by default; `satellites`: the ISS,
+ *   Tiangong, Hubble and bright rocket bodies from data/tle.json (astro/satellites.js, render/satellites.js), on by default */
 /** A selection (core/selection.js): one of the nine BodyIds, or an extra object's namespaced id
- * `<kind>:<key>` with kind star | dso | comet | craft | guest (e.g. 'comet:halley', 'craft:voyager1'),
+ * `<kind>:<key>` with kind star | dso | comet | craft | guest | sat (e.g. 'comet:halley', 'craft:voyager1'),
  * resolved by the extras registry (astro/extras.js). BODY_IDS stays the contract for the nine.
  * @typedef {BodyId|string} SelectionId */
 /** The solar eclipse in focus: set by actions.jumpToEvent for a solar eclipse event, cleared by any
@@ -102,9 +103,9 @@
  *   starMagLimit:number, flare:boolean, labelCap:number, twinkle:boolean, beamGlowPx:number, finalPass:boolean,
  *   moonTex?:'moon'|'moon4k', anisotropy?:number, cloudShadowTaps?:number, supersample?:number, streakPx?:number }} TierCfg
  * supersample: idle supersampling's sample cap (0 = off); streakPx: the fast-time streak cap (device px, 0 = off). */
-/** @typedef {{ dtMs:number, timeS:number, camera:any, viewMode:'orbit'|'sky', skyBlend:number, snap:Snapshot,
+/** @typedef {{ dtMs:number, timeS:number, tMs:number, camera:any, viewMode:'orbit'|'sky', skyBlend:number, snap:Snapshot,
  *   pulsesActive:boolean, simRate:number, exposure:{stars:number, planets:number, milkyWay:number, vision:number},
- *   moonFront:boolean, mapK:number, map:object|null, systemBlend:number }} FrameInfo `moonFront`: the camera is in lunar orbit (or flying there), so the Moon
+ *   moonFront:boolean, mapK:number, map:object|null, systemBlend:number }} FrameInfo `tMs`: the frame's sim time (UTC ms; snap.tMs lags it by up to 0.5 s). `moonFront`: the camera is in lunar orbit (or flying there), so the Moon
  *   draws in front of everything and the near plane ignores it (camera/rig.js, astro/vantage.js). `mapK`: the globe → flat
  *   map morph, 0 … 1 (rig.mapK); `map`: the map plane's frame (geo/mapview.js createMapFrame) while mapK > 0, else null.
  *   `systemBlend` (0…1): the globe → orrery crossfade of the solar-system zoom (rig.systemBlend; the camera 80 → 150 R out). */

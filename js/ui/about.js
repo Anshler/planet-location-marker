@@ -19,6 +19,7 @@ export const CREDITS = [
     ['Hipparcos, the New Reduction (van Leeuwen 2007, ESA) via NASA HEASARC', 'star distances (parallaxes) and proper motions', 'Public data', 'https://heasarc.gsfc.nasa.gov/W3Browse/star-catalog/hipnewcat.html'],
     ['GeoNames', 'offline city list', 'CC BY 4.0', 'https://www.geonames.org/'],
     ['JPL Horizons (NASA/JPL-Caltech)', 'Voyager, New Horizons and JWST trajectories; Halley’s Comet orbits per apparition (after Yeomans & Kiang 1981)', 'Public data', 'https://ssd.jpl.nasa.gov/horizons/'],
+    ['CelesTrak (T. S. Kelso)', 'orbital elements of the ISS, Tiangong, Hubble and bright rocket bodies (refreshed with each deploy; SGP4 after Vallado et al. 2006)', 'Public data', 'https://celestrak.org/'],
     ['Stephenson & Green, Historical Supernovae and their Remnants (2002)', 'the guest stars of 1006, 1054, 1181, 1572 and 1604: dates and brightness from the records', 'Facts cited', 'https://global.oup.com/academic/product/historical-supernovae-and-their-remnants-9780198507666'],
     ['Solar System Scope', 'Earth day, night and cloud maps (via three.js examples); 8K Earth and 4K Moon maps on Max quality', 'CC BY 4.0', 'https://www.solarsystemscope.com/textures/'],
     ['NASA Visible Earth', 'Moon imagery via three.js examples', 'Public domain', 'https://visibleearth.nasa.gov/'],

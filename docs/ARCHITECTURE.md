@@ -104,6 +104,8 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/astro/extras.js` | The extra-object registry (`createExtras`): providers per kind, `fill(snap)` → `snap.extras`, `state`, `meta`, `card`, `onChange`; `topocentricScene`, `extraAltAz`, `extraSky` (§4, Extra objects). |
 | | `js/astro/guest-stars.js` | The five naked-eye supernovae of 1006–1604 (`GUEST_STARS`, remnant positions, records), `guestMagnitude` (light-curve templates), `guestRiseSet` (AE `DefineStar` on `Star8`), the 'guest' provider. |
 | | `js/astro/comets.js` | Halley's Comet at its 1066, 1456, 1910, 1986 and 2061 apparitions: Kepler solvers (elliptic, hyperbolic, Barker), `elementsB1950ToJ2000`, light-time geocentric positions, the magnitude law, tail geometry (`fillTails`), the 'comet' provider. |
+| | `js/astro/sgp4.js` | Near-Earth SGP4 (Vallado 2006, WGS-72): `parseTle`, `sgp4init`, `sgp4`, `gstime`, `temeToEf`. |
+| | `js/astro/satellites.js` | The ISS, Tiangong, Hubble and three Zenit stages from `data/tle.json`: `decodeTle`, `lookAt` (alt/az, range, Earth shadow, magnitude), `groundTrack`, the 'sat' provider (`fill` + per-frame `advance`), `satellitePasses`/`allPasses` (worker). |
 | | `js/astro/craft.js` | Voyager 1 and 2, New Horizons, JWST from `data/craft.json`: `decodeCraft`, Hermite `craftStateAt` (straight-line 'projected' past the data), `radioTimeS`, `dsnInView`, the 'craft' provider. |
 | | `js/astro/stars.js`, `lighttime.js` | Catalogue stars as extras (`star:<hip>`; one registry slot, for the star being looked at: `track(id)`): designations, Hipparcos distance, colour and luminosity words (`starKind`), distance from the pole of date; 'the light you see left …' (`parallaxDistance`, `departureLine` rounded to the distance's error, `HISTORY`, `lyWords`). |
 | | `js/astro/dso.js` | Deep-sky objects from `data/dso.json`: `decodeDso`, `DSO_TYPES`, `dsoEffMag`/`dsoVisibility` (shared with the sprites), the 'dso' provider (glyph 'none', layer `deepSky`, labels for the naked-eye ones, `data.fovDeg` for the telescope). |
@@ -132,9 +134,11 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/render/dso.js` | Deep-sky objects as faint, true-size procedural sprites (one instanced quad each, per-type profiles, structure only at zoom; `deepSky` layer) and `pick(tapDir, radPerPx)` inside an object's outline. |
 | | `js/render/precession.js` | The `precession` layer: the pole's circle (illustrative), its 1000–3000 track with century ticks, live crosses on the pole and equinoxes of date; `anchors()` for the label feed (`getSkyMarks`). |
 | | `js/render/comets.js` | A comet's coma (true angular size, 5 px floor) and its ion and dust tails, billboards at infinity through the tail samples. |
+| | `js/render/satellites.js` | Satellites: globe dots, beams from the pin, the featured ground track; star-material points and a ring in sky view; `moving()` (the loop's liveMotion), `pickCandidates()`. |
 | | `js/render/craft.js` | The spacecraft's radio beams: a small instanced set on the beams' shaders under `#define RADIO` (fine dashes, faint), from the pin, with the `spacecraft` layer. |
 | Camera | `js/camera/rig.js`, `picking.js` | Orbit and sky-view camera, Earth-lock, fly-to tweens, `follow()` (the shadow chase), sidereal tracking, `setVantage()` (View from L1, Earthrise), the flat map (`setMode('map')`, `mapK`, `mapFrame`), the system zoom past 150 R (`setSystem`, `system`, `systemBlend`, `onSystemChange`), `frameSpan()` (the Earth–Moon framing), `setAiming()`/`setSkyAim()` (the phone steers the look); analytic globe, map (`pickMap`), glyph and map-point (`pickPoint`) picking. |
 | | `js/camera/aim.js` | 'Point at the sky' (loaded on first use, no three.js): device orientation → the rear camera's direction and the screen's up in ENU (`deviceVectors`), a level look (`lookOf`), an adaptive vector low-pass (`aimFilterStep`), and `createAim` (sensor events, iOS compass learning, deadband, Align offset, idle and hidden stops, wake lock). |
+| Data | `data/tle.json` | Two-line element sets of the six satellites (`scripts/fetch-tle.mjs`, CelesTrak); rewritten in the staged site by every deploy (daily), network-first in `sw.js`. |
 | Data | `data/craft.json` | Spacecraft knots (TDB JD, 1e-6 AU, 1e-8 AU/day), built by `scripts/build-craft.mjs` from JPL Horizons; fetched after boot, precached by `sw.js`. |
 | | `data/dso.json` | 140 deep-sky objects (`scripts/build-dso.mjs`; Messier from d3-celestial, the rest hand-entered); fetched after boot, precached. |
 | | `data/starinfo.json` | Parallaxes and designations of the base stars (`scripts/build-sky.mjs` from `data/raw/hip2.json` and starnames); fetched on the first star selection, precached. |
@@ -487,8 +491,8 @@ critical CSS read them.
 The nine `BODIES` stay a contract (their order, `Snapshot.bodies`, the beam instances, the 1–9 keys,
 `BODY_IDS`). Everything else that can be selected, labelled, picked and shown in the body card is
 an **extra object** with a namespaced id (`core/selection.js`): `<kind>:<key>`, kind one of
-`star`, `dso`, `comet`, `craft`, `guest`, key `[a-z0-9][a-z0-9._+-]{0,31}` (e.g. `comet:halley`,
-`craft:voyager1`, `guest:sn1054`, `star:27989`, `dso:m31`).
+`star`, `dso`, `comet`, `craft`, `guest`, `sat`, key `[a-z0-9][a-z0-9._+-]{0,31}` (e.g. `comet:halley`,
+`craft:voyager1`, `guest:sn1054`, `star:27989`, `dso:m31`, `sat:iss`).
 
 - **State and URL.** `store.selection` is a BodyId, an extra id or null (`isSelectionId`).
   `actions.select(id)` accepts both; `sel=` round-trips both (`normalizeSelectionId`; a well-formed
@@ -497,12 +501,13 @@ an **extra object** with a namespaced id (`core/selection.js`): `<kind>:<key>`, 
 - **Registry** (`astro/extras.js`, `createExtras()`; one per app: `R.extras`, `__app.extras`). A
   module registers a **provider** per kind: `extras.register({kind, kindLabel, ids(), meta(id),
   fill(snap, id, st), card?(id, st, snap)})` → an unregister function. `meta(id)` returns
-  `{name, color, glyph:'star'|'marker'|'coma'|'none', label:'always'|'selected'|'never', layer?,
-  short?}`: `glyph` says who draws it ('star' and 'marker' by `render/extras.js`, 'coma' by its own
-  module, 'none' by an existing layer, e.g. a catalogue star: only the selection ring), `layer` a
+  `{name, color, glyph:'star'|'marker'|'coma'|'none'|'sat', label:'always'|'selected'|'never', layer?,
+  short?}`: `glyph` says who draws it ('star' and 'marker' by `render/extras.js`, 'coma' and 'sat' by
+  their own modules, 'none' by an existing layer, e.g. a catalogue star: only the selection ring), `layer` a
   `Layers` key that must be on. `registry.refresh()` re-reads a provider's `ids()`; `onChange(fn)`
   fires on every registration change (the loop recomputes both snapshots, the labels feed rebuilds,
-  the body card completes).
+  the body card completes). `registry.provider(kind)` returns a provider for its own API (the
+  satellites' `elements()`, `sat(id)`, `validDays`).
 - **Per snapshot.** The loop calls `extras.fill(snap)` right after `computeSnapshot` (frame and
   full detail; with the skyglow and aurora fills). It keeps `snap.extras`, an array of
   **ExtraState** in registry order (`snap.extrasVersion` = `extras.version`), created once per id
@@ -514,11 +519,21 @@ an **extra object** with a namespaced id (`core/selection.js`): `<kind>:<key>`, 
   vector); the registry adds alt/az from the snapshot's observer frame. Helpers:
   `topocentricScene(gx, gy, gz, snap, out)` (geocentric AU → topocentric unit vector, distance),
   `extraSky(st)` (J2000 RA/Dec and constellation, for cards). `registry.state(snap, id)` finds one.
+- **Per frame: fast movers.** A provider may also implement `advance(snap, id, st, tMs)`. The loop
+  calls `extras.advance(snap, t)` on every rendered frame whose sim time differs from the
+  snapshot's (before the rig, so tracking follows), and the registry refills those states (and
+  their alt/az) for the frame's own instant; everything else keeps its snapshot state. Satellites
+  use it: the ISS crosses a sky view at ~1°/s, which 0.5 s snapshots would draw as 0.5° jumps
+  (SGP4 costs ~0.3 µs; six satellites ~5 µs a frame). `FrameInfo.tMs` carries that instant.
 - **Consumers, generically.** Labels (`labels-feed.js`): an anchor per labelled extra at its live
-  `dirS` (orbit view: a spacecraft's label rides its beam), `gate` = present, `below` per frame,
+  `dirS` (orbit view: a spacecraft's label rides its beam, a satellite's sits on its dot, `data.posS`;
+  sky view: a satellite is named only while bright enough to see, its magnitude gating it like a
+  star name), `gate` = present, `below` per frame,
   priority 78 (100 when selected; meta `priority` overrides), `skyOnly` (sky view only unless
   selected), `nightMag` (gated by the drawn sky like a star name). Picking (`main.js`): after the
-  bodies, `R.mods.extras.pickCandidates()` (drawn, refraction-lifted directions, 16 px); then, on
+  bodies, `R.mods.satellites.pickCandidates(skyView, camera)` (sky view: lifted directions; globe:
+  the dots the camera can see, `picking.pickPoint`), then `R.mods.extras.pickCandidates()` (drawn,
+  refraction-lifted directions, 16 px); then, on
   the sphere at the tap's true direction (`picking.skyTapDir`: the drawn refraction taken off),
   `R.mods.dso.pick` (inside a visible object's outline) and `R.mods.sky.pickStar` (the drawn
   stars within 14 px, nudged toward the brighter). Body card (`ui/body-card.js`): the provider's
@@ -531,7 +546,9 @@ an **extra object** with a namespaced id (`core/selection.js`): `<kind>:<key>`, 
 - **Providers today.** `guest` (`astro/guest-stars.js`, 'stars' layer), `comet` (`astro/comets.js`),
   `craft` (`astro/craft.js`, the `spacecraft` layer, off by default; registered when
   `data/craft.json` has loaded), `dso` (`astro/dso.js`, the `deepSky` layer, on by default;
-  140 ids, registered when `data/dso.json` has loaded; drawn by `render/dso.js`) and `star`
+  140 ids, registered when `data/dso.json` has loaded; drawn by `render/dso.js`), `sat`
+  (`astro/satellites.js`, the `satellites` layer, on by default; six ids, registered when
+  `data/tle.json` has loaded, the module imported only then; see Satellites below) and `star`
   (`astro/stars.js`, 'stars' layer; registered once `sky.json` is decoded). The star provider
   lists **one** id, the selected star's: `R.starExtras.sync(selection)` (a store subscription, and
   `pickSkyObject` before the selection lands) calls `track(id)` and `extras.refresh()`, so
@@ -551,6 +568,49 @@ an **extra object** with a namespaced id (`core/selection.js`): `<kind>:<key>`, 
   mag-2.5 look), so the telescope reveals them.
 - **Readout after a registry change.** The loop keeps a `fullStale` flag: a registry change (or a
   new observer) inside the 4 Hz interval still recomputes the full snapshot, even paused.
+
+### Satellites: the ISS, Tiangong, Hubble and bright rocket bodies
+
+- **Data.** `data/tle.json` (≈ 2 KB): two-line element sets for the six objects in `SAT_INFO`
+  (`astro/satellites.js`: NORAD numbers, names, colours, standard magnitudes), written by
+  `scripts/fetch-tle.mjs` from CelesTrak. The page never contacts CelesTrak (R4). The committed
+  file is refreshed by hand; the Pages deploy (`.github/workflows/pages.yml`, now also on a daily
+  `schedule`, which first checks that CI passed on that commit) writes a fresh copy into the
+  **staged** site only — nothing is committed daily. The script validates every set (checksums,
+  catalogue number, SGP4 accepts it, < 30 days old) and keeps the previous one for any that fails;
+  a CelesTrak outage leaves the committed file (the step is `continue-on-error`). `sw.js` serves
+  this one file **network-first** (3 s, then the cache) instead of cache-first per VERSION, so a
+  returning visitor gets the day's elements without a VERSION bump; it is precached too. No test
+  depends on the date, so CI stays green however old the committed file gets.
+- **Propagation** (`astro/sgp4.js`, pure): near-Earth SGP4 (Vallado et al. 2006, WGS-72), TEME →
+  Earth-fixed by GMST (`temeToEf`); deep-space orbits (≥ 225 min) are rejected. Verified against
+  Vallado's published vectors (`test/fixtures/sgp4-vallado.json`: 158 rows, within 1 mm).
+- **Provider** (kind 'sat', glyph 'sat', layer `satellites`): `fill`/`advance` place the satellite
+  Earth-fixed (km) against the WGS-84 observer, then in the scene through the snapshot's
+  `earthMatrix` (`data.posS`: Earth radii, on the drawn globe; `dirS`: topocentric), with the
+  sunlit fraction, magnitude, sub-point and speed in `data.look`. **Staleness:** `present` only
+  within `TLE_VALID_DAYS` (14) of the elements' epoch, `approx` after 3 days; the card states the
+  age and the window. `card()` adds height, speed, period, sunlit or in the shadow, the sub-point,
+  and the elements' date and age.
+- **Render** (`render/satellites.js`, in `space`): globe dots (depth-tested, grey in the shadow),
+  short beams from the pin to those above the horizon (the beam shaders, no pulses), and the
+  featured satellite's ground track ±1 orbit (the selected one, else the ISS; one 241-point line in
+  an Earth-frame group, re-centred every 6 sim-minutes, brighter ahead than behind); in sky view
+  star-material points at their magnitude (nothing in the shadow) and a ring for the selection.
+  `update(fi)` refills the buffers from the advanced states. `moving(skyBlend)` (sky view, a
+  satellite up and bright enough to see, or the selected one) is the loop's `liveMotion`
+  (`attach`): while the clock runs it keeps frames coming, so at 1× the ISS glides. Vantage points
+  hide the layer (`VANTAGE_LAYERS_OFF`).
+- **Passes.** The worker op `satPasses {tle, observer, fromMs, days}` (`allPasses`: 60 s steps for
+  rise and set, 5 s inside a pass, bisection to 0.5 s, a golden-section peak) returns the visible
+  passes (≥ 10° up, at least half the Sun's disc on it, the Sun ≤ −6°, ≥ 60 s long) with start,
+  peak and end alt/az, the brightest magnitude and how each begins and ends (rises or sets, out of
+  or into the shadow, twilight). The UI hub keeps `ui.passes` for the next 10 days of sim time
+  (`checkAlmanac`, emits `'passes'`; input `actions.satelliteElements()`). The Events tab merges
+  them (bright ones under 'All', every one under 'Satellites'); the satellite's card lists its next
+  six (`ui/sat-passes.js`) with a countdown to sim time and **Watch this pass**
+  (`actions.watchPass`: the clock cut — not swept, so tracking never loses it below the horizon —
+  to 30 s before it appears, playing at 1×, the satellite selected and, in sky view, tracked).
 
 ### History: the Julian calendar, Moments and 'born under'
 
@@ -577,8 +637,10 @@ frame(now):  dt = min(now − last, 100)
       module.apply(snap) for every module
   if now − lastFull ≥ 250 ms and something changed:
       computeSnapshot(t, obs, snapFull, 'full');  computeSkyglow(…);  bus.emit('readout', snapFull)
+  extras.advance(snap, t) if t ≠ snap.tMs          // fast movers (satellites) at this frame's instant
   moving = rig.update(dt, snap)
   motion = moving || rig.tweening || clock.isAnimating() || introPlaying || pointer held
+           || (clock running && liveMotion(skyBlend))  // attach's liveMotion: a satellite up in sky view
   twinkleDue = twinkle tier && sky view && stars visible && ≥ 29 ms since the last frame   // ~30 Hz
   held = governor.probe()                        // before a step with no fresh cadence: frames off to measure it
   ssIdle = supersampling tier && !motion && !dirty && !twinkleDue && history below the cap
@@ -586,7 +648,7 @@ frame(now):  dt = min(now − last, 100)
       rc.render({jitter, weight})                // an extra sample only: no updates, labels or governor
   else if !held && (dirty || motion || twinkleDue):
       dirty = false                              // cleared first: invalidate() during update requests the next frame
-      module.update(fi) for every module         // fi: dt, time, camera, viewMode, skyBlend, snap, pulses, simRate, exposure, mapK, map, systemBlend
+      module.update(fi) for every module         // fi: dt, time, tMs, camera, viewMode, skyBlend, snap, pulses, simRate, exposure, mapK, map, systemBlend
       rc.render(ss);  labelsFeed.sync(camera, mode, view);  labels.update(camera, viewport, {cap, skyLum})
                                                  // ss: null (motion), a fresh history, or a drift/twinkle sample
                                                  // mode: labelMode(skyBlend, mapK, systemBlend) → orbit | sky | map | system
@@ -900,7 +962,7 @@ change.
   side-by-side card). They are links only, never saved.
 - `sel` selects a body or an extra object (`comet:halley`, `guest:sn1054`, `craft:voyager1`; §4) and
   opens its card (the Details tab), as a click on it would.
-- `ly` letter `v` is the `spacecraft` layer (off by default), `x` the deep-sky objects (`deepSky`,
+- `ly` letter `i` is the `satellites` layer (on by default), `v` the `spacecraft` layer (off by default), `x` the deep-sky objects (`deepSky`,
   on by default, so the default code is `bgoscCnmkazhldx`; older links without it turn it off) and
   `r` the `precession` layer (off by default). `sel=` takes `star:<hip>` and `dso:<id>` too
   (`sel=dso:M31` is lower-cased).

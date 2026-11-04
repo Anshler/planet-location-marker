@@ -4,7 +4,7 @@
  * The nine bodies keep their contract (BODIES order, Snapshot.bodies, the 1–9 keys, the beam
  * instances). Everything else that can be selected, labelled, picked and shown in the body card
  * registers here as a *provider* for one kind of namespaced id (core/selection.js):
- * `star:<hip>`, `dso:<id>`, `comet:<id>`, `craft:<id>`, `guest:<id>`.
+ * `star:<hip>`, `dso:<id>`, `comet:<id>`, `craft:<id>`, `guest:<id>`, `sat:<id>`.
  *
  * Data flow, the same for every kind:
  *
@@ -18,6 +18,9 @@
  *   snap.extras[slot]             the states, one per registered id, in registry order;
  *                                 registry.state(snap, id) finds one by id.
  *   provider.card(id, st, snap)   the body card's content (4 Hz, UI only).
+ *   provider.advance(snap, id, st, tMs)   optional, for fast movers (satellites cross the sky in
+ *                                 minutes): registry.advance(snap, tMs), which the loop calls every
+ *                                 rendered frame, refills their states for the frame's instant.
  *
  * Providers that are not registered yet (data still loading) simply have no slots; a selection of
  * their id stays in the store and resolves once they register (`onChange`).
@@ -36,7 +39,7 @@ import { isExtraId, parseSelectionId } from '../core/selection.js';
 const RAD2DEG = 180 / Math.PI;
 
 /**
- * @typedef {'star'|'dso'|'comet'|'craft'|'guest'} ExtraKind
+ * @typedef {'star'|'dso'|'comet'|'craft'|'guest'|'sat'} ExtraKind
  *
  * One extra object's state in one snapshot. Vectors are in the SCENE frame.
  * @typedef {{ id:string, kind:ExtraKind,
@@ -54,13 +57,14 @@ const RAD2DEG = 180 / Math.PI;
  * How an object is drawn and labelled (render/extras.js, app/labels-feed.js):
  * `glyph` 'star' (a point like a star, sized by `mag`), 'marker' (a small hollow diamond: things
  * too faint to see, e.g. spacecraft), 'coma' (drawn by its own module, render/comets.js), 'none'
- * (already drawn by another layer, e.g. a catalogue star: only the reticle). `label` 'always',
+ * (already drawn by another layer, e.g. a catalogue star: only the reticle), 'sat' (a satellite:
+ * drawn, picked and ringed by render/satellites.js, which follows it every frame). `label` 'always',
  * 'selected' (only while selected) or 'never'. `layer`: a Layers key that must be on for it to be
  * drawn and labelled (e.g. 'stars', 'spacecraft'); absent = always. Label refinements (app/labels-feed.js):
  * `skyOnly` labels it only in sky view (unless selected), `nightMag` gates the label like a star name
  * of that magnitude (gone by day and under a bright sky; deep-sky objects), `priority` replaces the
  * extras' 78 in the declutter.
- * @typedef {{ name:string, color:string, glyph:'star'|'marker'|'coma'|'none', label:'always'|'selected'|'never',
+ * @typedef {{ name:string, color:string, glyph:'star'|'marker'|'coma'|'none'|'sat', label:'always'|'selected'|'never',
  *   layer?:string, short?:string, skyOnly?:boolean, nightMag?:number, priority?:number }} ExtraMeta
  *
  * The body card's content for an extra (ui/body-card.js). `lines`: sentences under the title
@@ -165,7 +169,8 @@ export function extraSky(st) {
  * @returns {{
  *   register(provider:ExtraProvider):()=>void, refresh():void,
  *   has(id:string):boolean, meta(id:string):(ExtraMeta & {id:string, kind:string, kindLabel:string})|null,
- *   ids(kind?:string):string[], fill(snap:any):void, state(snap:any, id:string):ExtraState|null,
+ *   ids(kind?:string):string[], fill(snap:any):void, advance(snap:any, tMs:number):number,
+ *   provider(kind:string):any, state(snap:any, id:string):ExtraState|null,
  *   card(id:string, snap:any):ExtraCard|null, onChange(fn:()=>void):()=>void, readonly version:number,
  *   readonly lastError:unknown }}
  */
@@ -176,13 +181,15 @@ export function createExtras() {
     let slots = [];
     /** @type {Map<string, number>} */
     let slotOf = new Map();
+    /** Slots whose provider can `advance` (fast movers: satellites), by index. */
+    let movers = [];
     let version = 0;
     let lastError = null;
     const listeners = new Set();
 
     function rebuild() {
         const next = [];
-        for (const kind of ['guest', 'comet', 'craft', 'dso', 'star']) {
+        for (const kind of ['guest', 'comet', 'craft', 'sat', 'dso', 'star']) {
             const p = providers.get(kind);
             if (!p) continue;
             let ids = [];
@@ -198,6 +205,8 @@ export function createExtras() {
         }
         slots = next;
         slotOf = new Map(next.map((s, i) => [s.id, i]));
+        movers = [];
+        for (let i = 0; i < next.length; i++) if (typeof next[i].provider.advance === 'function') movers.push(i);
         version += 1;
         for (const fn of listeners) {
             try { fn(); } catch (err) { lastError = err; }
@@ -251,6 +260,33 @@ export function createExtras() {
                 if (st.present) extraAltAz(snap, st);
             }
         },
+        /**
+         * Moves the fast movers' states (providers with `advance`: satellites) in `snap` to `tMs`,
+         * the frame's own instant, between two snapshots. The loop calls it every rendered frame;
+         * slow objects keep their snapshot state. No allocation.
+         * @param {any} snap
+         * @param {number} tMs
+         * @returns {number} how many states moved
+         */
+        advance(snap, tMs) {
+            if (!snap || !movers.length || snap.extrasVersion !== version || !snap.extras) return 0;
+            const list = snap.extras;
+            for (let k = 0; k < movers.length; k++) {
+                const i = movers[k];
+                const s = slots[i];
+                const st = list[i];
+                try {
+                    s.provider.advance(snap, s.id, st, tMs);
+                } catch (err) {
+                    lastError = err;
+                    st.present = false;
+                }
+                if (st.present) extraAltAz(snap, st);
+            }
+            return movers.length;
+        },
+        /** The registered provider of one kind (its own API beyond ExtraProvider), or null. */
+        provider(kind) { return providers.get(kind) ?? null; },
         state(snap, id) {
             if (!snap || !isExtraId(id)) return null;
             const i = slotOf.get(id);

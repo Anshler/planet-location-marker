@@ -1,7 +1,7 @@
 // Deep links in the URL hash (SPEC §C.3, §F.4).
 //
 //   #loc=21.0285,105.8542&n=Hanoi&cc=VN&tz=Asia/Ho_Chi_Minh&el=15&t=2027-08-02T10:07:00Z&r=3600&p=1
-//    &view=orbit&lock=1&sel=moon&ly=bgoscCnmkazhldxw&q=auto&sky=auto&cam=o:21.0,105.8,3.2|s:142.3,25.0,60&intro=0&debug=1
+//    &view=orbit&lock=1&sel=moon&ly=bgoscCnmkazhldxwi&q=auto&sky=auto&cam=o:21.0,105.8,3.2|s:142.3,25.0,60&intro=0&debug=1
 //
 // `sky` is the Sky darkness setting: auto (light pollution estimated from nearby cities), pristine,
 // or a Bortle class 1–9. `au` is the Aurora activity setting: quiet, typical (default) or storm.
@@ -35,7 +35,7 @@ export const LAYER_CODES = Object.freeze([
     ['C', 'constellationNames'], ['n', 'starNames'], ['m', 'milkyWay'], ['k', 'clouds'], ['a', 'atmosphere'],
     ['e', 'ecliptic'], ['q', 'eqGrid'], ['z', 'altAzGrid'], ['h', 'horizon'], ['f', 'footprint'],
     ['p', 'subpoints'], ['t', 'trails'], ['l', 'labels'], ['d', 'landscape'], ['v', 'spacecraft'], ['x', 'deepSky'],
-    ['r', 'precession'], ['y', 'sunPath'], ['w', 'meteors'],
+    ['r', 'precession'], ['y', 'sunPath'], ['w', 'meteors'], ['i', 'satellites'],
 ].map((pair) => Object.freeze(pair)));
 const LAYER_BY_CODE = new Map(LAYER_CODES);
 const KNOWN_KEYS = new Set(['loc', 'n', 'cc', 'tz', 'el', 't', 'r', 'p', 'view', 'lock', 'sel', 'ly', 'q', 'sky', 'au', 'cam', 'trk', 'vt', 'intro', 'debug', 'tour',
@@ -51,7 +51,7 @@ const TRACK_CODES = Object.freeze({ b: 'body', s: 'stars' });
 const NUM_RE = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d{1,3})?$/;
 const ISO_RE = /^(\d{4})(?:-(\d{2})(?:-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?)?)?)?(Z|[+-]\d{2}(?::?\d{2})?)?$/i;
 
-/** The `ly` value for DEFAULT_STATE.layers ('bgoscCnmkazhldxw'). */
+/** The `ly` value for DEFAULT_STATE.layers ('bgoscCnmkazhldxwi'). */
 export const DEFAULT_LAYER_CODE = layersToCode(DEFAULT_STATE.layers);
 
 /** @param {string} s */

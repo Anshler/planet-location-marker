@@ -115,6 +115,9 @@ const ICONS = {
     // Phase 6 event kinds: a meteor and its train; a star at the Moon's limb; a planet's dot on the
     // Sun; the Moon near and far; Saturn's rings edge-on; a brilliant crescent with rays.
     meteor: [['path', { d: 'M4 20L14.6 9.4' }], ['path', { d: 'M8 20l4.4-4.4M4 16l4.4-4.4', opacity: 0.55 }], ['circle', { cx: 16.6, cy: 7.4, r: 2.6, ...F }]],
+    // A satellite: the body between two solar panels, crossing a dashed arc of sky.
+    satellite: [['rect', { x: 10, y: 10, width: 4, height: 4, rx: 0.8, ...F }], ['path', { d: 'M3.5 9.5l5 2.5-5 2.5zM20.5 9.5l-5 2.5 5 2.5z' }],
+        ['path', { d: 'M4 20c3.5-2.2 12.5-2.2 16 0', 'stroke-dasharray': '1.4 2' }]],
     occultation: [['circle', { cx: 10.4, cy: 12, r: 7 }], ['path', { d: 'M18.8 9.4l.8 1.8 1.8.8-1.8.8-.8 1.8-.8-1.8-1.8-.8 1.8-.8z', ...F }]],
     transit: [['circle', { cx: 12, cy: 12, r: 8.4 }], ['circle', { cx: 9.2, cy: 10.4, r: 1.6, ...F }], ['path', { d: 'M5 13.6l14-3.8', 'stroke-dasharray': '1.2 1.8' }]],
     apsis: [['circle', { cx: 6.4, cy: 12, r: 3.6, ...F }], ['circle', { cx: 18.4, cy: 12, r: 1.8 }], ['path', { d: 'M10.6 12h5.4', 'stroke-dasharray': '1.2 1.6' }]],

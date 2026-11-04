@@ -7,9 +7,11 @@
 //         diurnal motion is pixels, and in lunar orbit) → snap.skyglow (the night sky at the site)
 //         and snap.aurora (the auroral ovals for the activity setting) → every module.apply(snap)
 //     readout ('full' detail) at most every 250 ms when sim time or the observer changed → bus 'readout'
+//     extras.advance(snap, t): the fast movers (satellites) refilled for this frame's own instant
 //     moving = rig.update(dt, snap)
 //     render when something is dirty or in motion (camera motion, tweens, time-lapse, intro,
-//     pointer held, running time in a telescope-narrow sky view): module.update(fi) → rc.render() → labels
+//     pointer held, running time in a telescope-narrow sky view, running time with a satellite up
+//     in sky view: attach's liveMotion): module.update(fi) → rc.render() → labels
 //     star twinkle alone (sky view, stars actually visible) renders at most at ~30 Hz
 //     idle supersampling (tiers with `supersample`, core/sampling.js): once nothing moves, extra
 //     frames each jittered by a Halton sub-pixel offset blend into a running mean until the cap,
@@ -110,6 +112,7 @@ const FEATURE_NAMES = Object.freeze({
     flare: 'The lens flare',
     orrery: 'The solar-system view',
     longExposure: 'Long exposure',
+    satellites: 'The satellites',
     labels: 'Sky labels',
     rig: 'Camera motion',
     debug: 'The debug overlay',
@@ -171,6 +174,10 @@ export function createLoop(deps) {
     // Given up front, the governor already learns the display cadence from the headless boot ticks.
     let governor = deps.governor ?? null;
     let getTierCfg = () => null;
+    // True while something drawn moves at 1× by itself (render/satellites.js: a satellite up in sky view).
+    let liveMotion = null;
+    // The sim time the fast movers (extras.advance) were last moved to.
+    let advancedT = NaN;
     let debug = null;
     const hooks = {
         onApply: deps.onApply ?? null,
@@ -230,7 +237,7 @@ export function createLoop(deps) {
     let expLimit = NaN;
     /** @type {FrameInfo} */
     const fi = {
-        dtMs: 0, timeS: 0, camera: null, viewMode: 'orbit', skyBlend: 0, snap,
+        dtMs: 0, timeS: 0, tMs: 0, camera: null, viewMode: 'orbit', skyBlend: 0, snap,
         pulsesActive: false, simRate: 0, exposure, moonFront: false, mapK: 0, map: null, systemBlend: 0,
     };
     // upS is the snapshot's live zenith: the label pool derives is-below for direction anchors from it,
@@ -477,6 +484,8 @@ export function createLoop(deps) {
         jumped = false;
 
         if (rendering) {
+            // 2b. Fast movers (satellites) at this frame's instant: tracking, labels and their module follow.
+            advanceMovers(t);
             // 3. Camera.
             let moving = false;
             let mode = 'orbit';
@@ -517,8 +526,9 @@ export function createLoop(deps) {
             const cfg = getTierCfg();
             updateExposure(snap.observer.sunAltDeg, skyBlend, snap.eclipse.obscurationAtObserver,
                 cfg && Number.isFinite(cfg.starMagLimit) ? cfg.starMagLimit : 6, snap.skyglow);
+            const running = clock.playing && clock.rate !== 0;
             const motion = moving || !!(rig && rig.tweening) || clock.isAnimating() || introPlaying
-                || pointers.size > 0 || (fine && clock.playing && clock.rate !== 0);
+                || pointers.size > 0 || (fine && running) || (running && liveNow(skyBlend));
             // Idle supersampling: once motion stops, one more full frame starts the history.
             const ss = supersampling(cfg);
             if (ss && ssSettle && !motion) {
@@ -558,6 +568,7 @@ export function createLoop(deps) {
                 dirty = false;
                 fi.dtMs = dt;
                 fi.timeS = now / 1000;
+                fi.tMs = t;
                 fi.camera = camera;
                 fi.viewMode = mode;
                 fi.skyBlend = skyBlend;
@@ -711,6 +722,7 @@ export function createLoop(deps) {
         }
         observerDirty = false;
         jumped = false;
+        advanceMovers(t);
         let mode = 'orbit';
         let skyBlend = 0;
         let mapK = 0;
@@ -742,6 +754,7 @@ export function createLoop(deps) {
         const camera = (rig && rig.camera) || rc.camera;
         fi.dtMs = dt;
         fi.timeS = now / 1000;
+        fi.tMs = t;
         fi.camera = camera;
         fi.viewMode = mode;
         fi.skyBlend = skyBlend;
@@ -798,6 +811,33 @@ export function createLoop(deps) {
      * True when star twinkle needs frames: the tier twinkles, sky view, no reduced motion, the star
      * layer on, and stars actually visible (the sky module's own exposure, totality included).
      */
+    /**
+     * Moves the extras registry's fast movers (satellites) to sim time `t` between snapshots (a
+     * fresh snapshot has already filled them at its own instant). No allocation.
+     */
+    function advanceMovers(t) {
+        if (!extras || !snapValid || typeof extras.advance !== 'function' || t === advancedT) return;
+        advancedT = t;
+        if (t === snap.tMs) return;
+        try {
+            extras.advance(snap, t);
+        } catch (err) {
+            reportOnce('extras.advance', err);
+        }
+    }
+
+    /** attach's liveMotion, guarded: a throwing predicate is dropped instead of keeping the loop awake. */
+    function liveNow(skyBlend) {
+        if (liveMotion === null) return false;
+        try {
+            return liveMotion(skyBlend) === true;
+        } catch (err) {
+            reportOnce('liveMotion', err);
+            liveMotion = null;
+            return false;
+        }
+    }
+
     function twinkling(cfg, skyBlend) {
         if (!(cfg && cfg.twinkle) || skyBlend <= 0.5 || reducedMotion) return false;
         if (!store.get().layers?.stars) return false;
@@ -863,6 +903,7 @@ export function createLoop(deps) {
         lastMapHide = false;
         governor = r.governor ?? null;
         if (typeof r.getTierCfg === 'function') getTierCfg = r.getTierCfg;
+        liveMotion = typeof r.liveMotion === 'function' ? r.liveMotion : null;
         if (canvas) {
             canvas.removeEventListener('pointerdown', onPointerDown);
             canvas.removeEventListener('wheel', onWheel);

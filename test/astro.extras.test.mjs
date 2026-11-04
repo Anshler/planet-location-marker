@@ -15,7 +15,7 @@ import { AU_ER } from '../js/astro/bodies.js';
 const PARIS = { latDeg: 48.8566, lonDeg: 2.3522, elevM: 35 };
 
 test('selection ids: the nine bodies and namespaced extras', () => {
-    assert.deepEqual([...EXTRA_KINDS], ['star', 'dso', 'comet', 'craft', 'guest']);
+    assert.deepEqual([...EXTRA_KINDS], ['star', 'dso', 'comet', 'craft', 'guest', 'sat']);
     for (const id of ['mars', 'sun', 'comet:halley', 'craft:voyager1', 'guest:sn1054', 'star:32349', 'dso:m31', 'dso:ngc7000']) {
         assert.ok(isSelectionId(id), id);
     }

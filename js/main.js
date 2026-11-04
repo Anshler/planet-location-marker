@@ -404,6 +404,7 @@ async function importRenderStack() {
         precession: import('./render/precession.js'),
         comets: import('./render/comets.js'),
         craft: import('./render/craft.js'),
+        satellites: import('./render/satellites.js'),
         orrery: import('./render/orrery.js'),
         longExposure: import('./render/long-exposure.js'),
         ruler: import('./render/ruler.js'),
@@ -993,6 +994,8 @@ async function bootRender(ctx) {
     create('extras', m.extras && (() => m.extras.createExtrasLayer(rc, { extras: R.extras, sky })), space);
     create('comets', m.comets && (() => m.comets.createComets(rc, { extras: R.extras })), space);
     create('craft', m.craft && (() => m.craft.createCraftBeams(rc, { extras: R.extras, reducedMotion: rm })), furnitureSpace);
+    // Satellites (astro/satellites.js): dots, ground track and beams on the globe, star-like points in sky view.
+    create('satellites', m.satellites && (() => m.satellites.createSatellites(rc, { extras: R.extras, sky })), space);
     // The angle ruler (sky view): its reading goes to ui.ruler and, as a label, to the feed.
     create('ruler', m.ruler && (() => m.ruler.createRuler(rc, { onChange: (r) => onRulerChange(r) })));
     // The solar-system zoom's orrery: its own scene and camera, drawn over the main scene.
@@ -1125,6 +1128,8 @@ async function bootRender(ctx) {
     loop.attach({
         rc, rig, modules, moduleNames: names, labels, labelsFeed, governor: env.webdriver ? null : governor,
         getTierCfg: () => currentCfg, horizon, mapHidden: [space, furnitureSpace],
+        // A satellite up in sky view moves visibly at 1×: keep drawing (render/satellites.js).
+        liveMotion: (blend) => !!R.mods.satellites && !loop.isDisabled(R.mods.satellites) && R.mods.satellites.moving(blend),
     });
     bindRenderState({ store, bus, clock, rc, rig, loop, snap, astro, m, labels, labelsFeed, textures });
 
@@ -1278,7 +1283,7 @@ function wantIntro(env, hash, store) {
  * the ecliptic, the visibility footprint and sub-points) while a vantage point shows the Earth as a
  * camera out there would. The store keeps the user's choices.
  */
-const VANTAGE_LAYERS_OFF = Object.freeze({ constellations: false, eqGrid: false, ecliptic: false, altAzGrid: false, footprint: false, subpoints: false, precession: false });
+const VANTAGE_LAYERS_OFF = Object.freeze({ constellations: false, eqGrid: false, ecliptic: false, altAzGrid: false, footprint: false, subpoints: false, precession: false, satellites: false });
 /**
  * The flat map (view.mode 'map') is a map, not a sky: no star chart behind it, and the sub-points
  * (where each body stands overhead) always on, since they are what the map is for.
@@ -1598,6 +1603,18 @@ function handleSceneClick({ store, rc, rig, snap, pick, ndc, dbl }) {
         id = pick?.pickDir?.(ndc, camera, cands, rc.size, 18) ?? null;
     } catch (err) {
         console.error('[main] body picking failed', err);
+    }
+    if (!id) {
+        // Satellites (render/satellites.js): their dots on the globe, their points in sky view.
+        try {
+            const sv = (rig.skyBlend ?? 0) >= 0.5;
+            const cands = R.mods.satellites?.pickCandidates?.(sv, camera) ?? null;
+            if (cands && cands.length) {
+                id = (sv ? pick?.pickDir?.(ndc, camera, cands, rc.size, 16) : pick?.pickPoint?.(ndc, camera, cands, rc.size, 16)) ?? null;
+            }
+        } catch (err) {
+            console.error('[main] satellite picking failed', err);
+        }
     }
     if (!id) {
         // Extra objects (render/extras.js: guest stars, comets, spacecraft), at their drawn places.

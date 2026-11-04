@@ -13,8 +13,9 @@
  * the seasonal day-length instead, because a day/night pattern cannot be resolved there. Up to
  * ±3 d, a thin band along the bottom marks when the Moon is up (brighter the fuller it is) and
  * one along the top when the selected planet is (its colour; worker `altSeries`). Event ticks
- * come from the event list, with gold bars over an eclipse's span. Dragging scrubs relative to the window captured at drag start; release
- * re-centres smoothly. Keyboard: ←/→ = window/48, PageUp/PageDown = window/8.
+ * come from the event list, with gold bars over an eclipse's span. Dragging scrubs relative to
+ * the window captured at drag start; release re-centres smoothly. Keyboard: ←/→ = window/48,
+ * PageUp/PageDown = window/8.
  *
  * Drawing runs on requestAnimationFrame only while time is animating, the user
  * is dragging, or the re-centre tween runs; otherwise it redraws on demand.

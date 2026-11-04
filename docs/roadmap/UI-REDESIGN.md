@@ -1,6 +1,6 @@
 # UI redesign: a calm skeleton
 
-Status: **approved spec**, ready to implement in four chunks (§13). Branch `p7/redesign`, base `40131ce`. Chunks 1, 2 and 3 are implemented; their deviations are in §15.
+Status: **approved spec**, ready to implement in four chunks (§13). Branch `p7/redesign`, base `40131ce`. All four chunks are implemented; their deviations are in §15.
 
 The owner asked for this: "We've added quite a bit so the UI is getting quite dense and complex. Complex is fine but it has to be intuitive — see if we can improve that."
 
@@ -1763,3 +1763,112 @@ the right thing and records it here.
     selector was carried over);
   - the text-mode golden and the manifest screenshots.
 
+### Chunk 4 (content, sky search and the visual system)
+
+- **Up now.**
+  - The Moon shares the second line with sunset and sunrise ("Sunset 16:58 · Sunrise 07:28 · New
+    Moon, 0% lit"), and the third holds the light pollution alone with Change. The mock-up's third
+    line, Moon and sky together, wrapped to two lines in a 380-px panel.
+  - The sky's class is `BORTLE_NAMES`' own, so Greenwich (Bortle 9) reads "Inner-city sky: stars
+    to magnitude 3.6 (Bortle 9)". §13's "City sky" is Bortle 8's name. As before, the magnitude
+    shows only once the Sun is 15° down; until then the line is "Inner-city sky (Bortle 9)".
+  - During a solar eclipse the badge reads "Solar eclipse" (or "Total solar eclipse"). The second
+    line then says how much of the Sun the Moon covers, instead of its phase. Without full darkness
+    the first line is "No full darkness tonight".
+  - On Mars the three lines are the site and its clock, Ls and the season, and the light time.
+    "Rise and set times are not computed on Mars yet" moved into ⓘ. Charts shows the dome alone
+    there, with its segment hidden, because Tonight has no Martian data.
+  - The orientation hint reads "Mirrored: east on the right, as on a map of the ground." §4.7's
+    "as printed sky maps often show it" is backwards: printed star charts, held overhead, put east
+    on the left, as 'Looking up' does.
+  - The Charts card's default follows the layout events until the user toggles it, so a desktop
+    window resized past 800 px later does not reopen it.
+- **Details.**
+  - **More is the ⋯ glyph alone** (R4's universal glyph), with the name and tooltip "More
+    actions". With a "More" label, Sky view's four buttons wrapped to two rows in the 380-px panel
+    and on a 390-px phone; now they fit on one row, ending 169 px (desktop) and 177 px (phone half)
+    into the tab.
+  - **The Constellation fact is gone.** The position sentence names the constellation above and
+    below the horizon, and R5 asks for it once, so "Leo (Leo)" went with the fact. The kind line
+    is "Planet".
+  - **Compare hides for extra objects** (§4.8's table gives them "Compare…"). The Two places card
+    shows one of the nine, else the Moon, so for a comet or a star it would compare the Moon.
+    Compare also hides on Mars, as before.
+  - **Path shows for the planets and the Moon.** The worker's `path` takes the nine only, so no
+    extra object has a path today. The Moon gains the switch: its path was always drawn by T.
+  - "Where it's up on Earth" shows on the globe and the map only. In the solar-system view the
+    Earth is a dot, and Sky view has no globe.
+  - When More has nothing left (an extra object in Sky view), the button hides, which leaves three.
+  - "Look at it" carries no icon. It is the one soft-accent button; the toggles keep theirs, which
+    become a ✓ while pressed.
+  - What these numbers mean also explains Find it, which was the old `title=` on that line.
+  - The year ahead for the Sun is the same closed disclosure, holding the solstice sentence. Its
+    "The Layers tab draws them…" went, because the Sun paths switch now sits just above it.
+  - The card's name is an `h3` under the pane's hidden `h2`; its groups are `h4` eyebrows.
+- **Search.**
+  - The star provider lists only the selected star (`astro/stars.js ids()`), so the index skips the
+    registry's stars. It takes the named stars from `services.catalog()` instead, brightest first.
+    They are fetched on the first search, in text mode too, and the open search re-runs when they
+    arrive. Mars's moons are listed only on Mars, and the satellites only on the Earth.
+  - Every row says where its object is now: the nine bodies and extras from the readout, a star from
+    its catalogue direction against the observer's ENU (unrefracted, for a list).
+  - The empty state's example chips are "Tokyo, Jupiter, Sirius, ISS, Halley" plus "48.86, 2.35",
+    since the old "type coordinates" prompt went with the placeholder.
+  - "Online results" shows only while online search is available and has not failed. "No online
+    results for…" after Enter stays.
+  - The chip's ⌕ and `/` are `aria-hidden`; its name says "Search places and the sky".
+- **Eclipse HUD.**
+  - An annular eclipse names its contacts "Annularity" and "Annularity ends", and its jump "Jump to
+    just before annularity". When the central phase begins before sunrise, `jumpToEvent` goes to
+    C3 − 20 s, so the button says "Jump to just before totality ends" (or annularity).
+  - "Maximum in" is "Peak in", and a partial's "% at maximum" is "% at the peak". A penumbral
+    eclipse reads Begins / Peak / Ends (P1, P4). Peak carries no code.
+  - Each contact's long phrase ("Totality begins (C2) at 13:01:55") is a visually hidden span in
+    its `li`, not an `aria-label`, which screen readers ignore on a list item.
+- **Visual system.**
+  - `font-size` has 7 values: the 5 tokens, the phone's 18-px clock and the globe's 10-px
+    constellation names. `font-weight` has the 3 tokens. `border-radius` has the 4 tokens plus
+    50 % (and 0). `--r-1` and `--r-2` are gone, fully migrated.
+  - **Spacing is only partly tokenised.** New and rewritten rules use `--sp-*`. About 450 px
+    literals remain in `gap`, `padding` and `margin`, and two-thirds of them are off the
+    4/8/12/16/24 scale (10, 6, 14, 2, 9 px…). A full sweep would move most layouts by 1–4 px and
+    cost about 3 KB raw, so it is left for a follow-up. Letter-spacing likewise stays on the
+    globe's labels (cardinals, constellations) and the intro's place line.
+  - `.badge` took over `.pill`, `.live-pill` (`.badge--live` with `.badge__pulse`), `.status-dot`
+    (`.badge--dot`) and the provider badges (tones by provider). `.badge--up` and `.badge--down`
+    went with the rows' badges. `.chip--quick` is `.chip`. `.icon-btn--glass` went with the top bar's
+    search button.
+  - The second cue for a checked filter chip is a ✓ (`::before`), for a pressed toggle the ✓ icon,
+    and for a checked segment `--fw-3` plus the inset `--line-2` ring.
+  - **Display is compact but still over 1.6 screens.** Each layer row is one line; its description
+    sits behind the group's ⓘ ("What the layers show") and stays the row's `aria-describedby`. At
+    1440×900 that gives 2.2 screens in globe view and 2.0 in Sky view (chunk 3: 2.8 and 2.5).
+    §14's 1.6 is not met: the globe view's 21 layer switches alone are about 800 px. Getting under
+    it means another disclosure over some layers, which is the owner's call.
+  - **Phone half.** Its minimum is the head plus 192 px, so the content is at least 190 px (§14).
+    It measures 190 px at 390×664.
+  - The coarse block covers `.link`, `.pal-opt`, `.loc-chip`, the toolbar buttons and the date
+    button as well. The summary's ⓘ and Change take negative block margins, so the 44-px targets
+    do not spread the lines. Audit (`targets.cjs`, every tab with its disclosures open, the
+    menus, the Time popover and the palette): 0 visible controls under 44 × 44 px at 390×664 and
+    at 1180×820 coarse. During the Luxor eclipse the HUD's buttons are 44 px tall.
+- **Not done here.**
+  - **The text-mode golden.** `test/golden/` is not in the repository yet: CI's "Render goldens" run
+    makes it with the pinned Chrome. That run picks up the new structure; there is nothing to
+    re-render locally.
+- **Bytes.** The chunk is +11.8 KB raw (estimate about −0.5), so the redesign stands at +11.4 KB
+  against `40131ce` (medium 5,840,848 B, low 5,083,948 B). That is under the +15 KB ceiling and over
+  the −3 KB target. Where the bytes went:
+
+  | File | Δ raw (KB) | Why |
+  |---|---:|---|
+  | `sky-now.js` | +5.3 | The summary and its ⓘ sentences, the Charts host and its migration |
+  | `location.js` | +3.8 | In the sky: the index, `rankSky` and the rows |
+  | `eclipse-hud.js` | +2.1 | Contact names and phrases, the fold |
+  | `css/app.css` | +2.0 | Tokens are longer than literals; the summary, Charts, toggle and coarse rules |
+  | `body-card.js` | +1.1 | The action row, More, switches and disclosures |
+  | `sky-dome.js`, `tonight.js`, `year-planner.js` | −2.9 | Their heads, metas and legends |
+
+  Cut 1 (JSDoc) was already applied by the rewrites. Cuts 2–4 (the time bar's legend, Explore's
+  "Show all", the what-moved toast) were not taken, because they remove things users see and the
+  net is within the ceiling. They stay the order to cut in if a later change needs the room.

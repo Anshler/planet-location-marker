@@ -11,7 +11,8 @@
  * Owns the share UX (SPEC F.4): the Share button opens a two-option popover. 'Share link' is
  * `actions.share()` → 'shared' (system sheet, no toast) | 'copied' ("Link copied") | 'failed' (a
  * dialog with a selectable link and a Copy button); the S shortcut goes straight there. 'Postcard'
- * opens the postcard dialog (ui/postcard.js), which also saves long exposures. Under reduced
+ * opens the postcard dialog (ui/postcard.js), which also saves long exposures; 'Video' (3D view
+ * only) the time-lapse recorder's dialog (ui/video.js). Under reduced
  * motion, view and place changes are cuts, so a 200 ms fade overlay softens them.
  *
  * @module ui/view-switch
@@ -20,6 +21,7 @@
 import { h, on, setAttr, trapFocus, openPopover } from './dom.js';
 import { icon, swapIcon } from './icons.js';
 import { mountPostcard } from './postcard.js';
+import { mountVideo } from './video.js';
 import { mountExpose } from './expose.js';
 
 /** The vantage menu: [kind, name, detail]. */
@@ -256,12 +258,17 @@ export function mountViewSwitch(root, ctx) {
         h('span', { class: 'share-opt__text' }, h('span', { class: 'share-opt__title' }, title), h('span', { class: 'share-opt__desc' }, desc)));
     const linkOpt = shareOpt('link', 'Share link', 'Opens exactly this view: place, time, camera and layers.');
     const cardOpt = shareOpt('postcard', 'Postcard', 'A designed image of this view, ready to post.');
-    const sharePop = h('div', { class: 'popover pop-share', role: 'dialog', 'aria-label': 'Share', hidden: true }, linkOpt, cardOpt);
+    const videoOpt = shareOpt('video', 'Video', 'A time-lapse clip: a day here, a night of star trails or the 2027 eclipse.');
+    const sharePop = h('div', { class: 'popover pop-share', role: 'dialog', 'aria-label': 'Share', hidden: true }, linkOpt, cardOpt, videoOpt);
+    const videoDlg = mountVideo(host, ctx);
+    ui.openVideo = () => videoDlg.open();
     host.appendChild(sharePop);
     let sharePopCtl = null;
     const closeSharePop = () => { sharePopCtl?.close(); sharePopCtl = null; };
     offs.push(on(shareBtn, 'click', () => {
         if (sharePopCtl) { closeSharePop(); return; }
+        // Videos render the 3D view.
+        videoOpt.hidden = store.get().status?.webgl === false;
         sharePopCtl = openPopover(shareBtn, sharePop, {
             placement: ui.layout === 'mobile' ? 'bottom' : 'top', onClose: () => { sharePopCtl = null; },
         });
@@ -269,6 +276,7 @@ export function mountViewSwitch(root, ctx) {
     // Both run inside the tap, so the system share sheet keeps its user activation.
     offs.push(on(linkOpt, 'click', () => { closeSharePop(); share(); }));
     offs.push(on(cardOpt, 'click', () => { closeSharePop(); postcard.open(); }));
+    offs.push(on(videoOpt, 'click', () => { closeSharePop(); videoDlg.open(); }));
     const expose = mountExpose(exposeBtn, host, ctx, { savePhoto: (caption) => postcard.open({ mode: 'photo', caption }) });
 
     return {
@@ -277,6 +285,7 @@ export function mountViewSwitch(root, ctx) {
             closeSharePop();
             sharePop.remove();
             postcard.destroy();
+            videoDlg.destroy();
             expose.destroy();
             clearTimeout(fadeTimer);
             release?.();

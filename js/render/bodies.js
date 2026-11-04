@@ -24,6 +24,7 @@ import {
     DISC_VERT, DISC_FRAG, GLYPH_VERT, GLYPH_FRAG, RETICLE_VERT, RETICLE_FRAG, MOON_VERT, MOON_FRAG,
 } from './shaders/bodies.glsl.js';
 import { skyViewExposure } from './sky.js';
+import { STREAK_UNIFORMS } from './streaks.js';
 import { moonKeyFor } from './textures.js';
 import { discVisibleFraction } from '../astro/shadow.js';
 import { liftByRefraction, refractionDeg } from '../astro/photometry.js';
@@ -279,6 +280,7 @@ export function createBodies(rc, deps = {}) {
         uDpr: { value: 1 },
         uExposure: { value: 1 },
         ...refr,
+        ...STREAK_UNIFORMS,
     };
     const glyphMaterial = new THREE.ShaderMaterial({
         name: 'bodies.glyphs', uniforms: glyphUniforms, vertexShader: GLYPH_VERT, fragmentShader: GLYPH_FRAG,

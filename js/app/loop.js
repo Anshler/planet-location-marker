@@ -11,12 +11,20 @@
 //     render when something is dirty or in motion (camera motion, tweens, time-lapse, intro,
 //     pointer held, running time in a telescope-narrow sky view): module.update(fi) → rc.render() → labels
 //     star twinkle alone (sky view, stars actually visible) renders at most at ~30 Hz
+//     idle supersampling (tiers with `supersample`, core/sampling.js): once nothing moves, extra
+//     frames each jittered by a Halton sub-pixel offset blend into a running mean until the cap,
+//     then the loop idles again; a frame that only moved sim time a sub-pixel (Live 1Ã—) keeps the
+//     history, motion bypasses it, any other change starts a new one. Extra frames skip the module
+//     updates, the labels and the governor (nothing changed but the jitter)
 //     governor.sample(dt) on consecutive rendered frames only; consecutive idle ticks feed
 //     governor.idle(dt), its estimate of the display's own frame interval; while governor.probe()
 //     says so (before a step, when that estimate is missing or stale) the tick draws nothing
 //
 // Live 1× therefore redraws about twice a second; a paused, idle app draws nothing. The loop stops
 // on visibilitychange:hidden and resumes dirty.
+//
+// `step(now, dt, io)` runs one whole frame synchronously, whatever is dirty, for a video
+// session (app/recorder.js): the caller supplies the (virtual) time base and brackets the draw.
 //
 // Robustness: every module call is guarded. A module that throws three times is switched off
 // (object3d hidden, one toast) instead of taking the frame down. A renderer that keeps throwing
@@ -33,6 +41,7 @@ import { createSnapshot, computeSnapshot } from '../astro/snapshot.js';
 import { exposureFor, skyBrightness } from '../astro/photometry.js';
 import { computeSkyglow } from '../astro/skyglow.js';
 import { computeAurora } from '../astro/geomag.js';
+import { createSupersampler, viewMotionPx } from '../core/sampling.js';
 
 /** Recompute the 'frame' snapshot when simulated time has moved this far (ms). */
 export const SNAP_STALE_MS = 500;
@@ -205,6 +214,15 @@ export function createLoop(deps) {
     // the landscape profile.
     const labelView = { starExposure: 1, magLimit: 6, viewportH: 0, horizon: null };
 
+    // Idle supersampling: the policy, its output and the camera pose of the last accumulated frame.
+    const sampler = createSupersampler();
+    const ssOut = { x: 0, y: 0, weight: 1 };
+    const ssPoseW = new Float64Array(16);
+    const ssPoseP = new Float64Array(16);
+    let ssCount = 0;
+    // The last drawn frame moved (no accumulation): the first still tick redraws and starts one.
+    let ssSettle = false;
+
     const offs = [];
     offs.push(store.subscribe((s) => s.observer, () => { observerDirty = true; dirty = true; }));
     offs.push(store.subscribe((s) => s.status.introPlaying, (v) => { introPlaying = !!v; dirty = true; }));
@@ -299,11 +317,44 @@ export function createLoop(deps) {
         if (s.aurora) computeAurora(s, auroraActivity, s.aurora);
     }
 
+    /** True when this tier and chain supersample idle frames (and keeps the sampler's cap in step). */
+    function supersampling(cfg) {
+        const k = cfg && cfg.supersample > 1 && rc && rc.supersampling === true ? cfg.supersample : 0;
+        if (k !== sampler.samples) sampler.samples = k;
+        return k > 1;
+    }
+
+    /**
+     * The supersampling decision for the frame about to be drawn (null: draw it plainly). Remembers
+     * the pose of an accumulated frame, so the next one can tell drift from motion.
+     */
+    function ssFor(kind, camera, skyBlend) {
+        let moved = Infinity;
+        const W = camera && camera.matrixWorld ? camera.matrixWorld.elements : null;
+        const P = camera && camera.projectionMatrix ? camera.projectionMatrix.elements : null;
+        if (kind !== 'motion' && kind !== 'fresh' && W && P && sampler.count > 0) {
+            moved = viewMotionPx(ssPoseW, W, {
+                prevP: ssPoseP, curP: P, heightPx: (rc.size?.h || 1) * (rc.dpr || 1), sky: skyBlend >= 1,
+            });
+        }
+        const ss = sampler.next(W && P ? kind : 'motion', moved, ssOut);
+        if (ss) {
+            for (let i = 0; i < 16; i++) {
+                ssPoseW[i] = W[i];
+                ssPoseP[i] = P[i];
+            }
+            ssCount++;
+        }
+        return ss;
+    }
+
     function frame(now) {
         handle = 0;
         if (!running) return;
         const dt = last > 0 ? Math.min(Math.max(now - last, 0), MAX_DT_MS) : 1000 / 60;
         last = now;
+        // What was dirty before this frame's own snapshot step (supersampling: drift vs a change).
+        const dirtyIn = dirty || observerDirty || jumped || !snapValid;
 
         let t;
         try {
@@ -373,11 +424,13 @@ export function createLoop(deps) {
                 mode = rig.mode === 'sky' ? 'sky' : 'orbit';
                 skyBlend = Number.isFinite(rig.skyBlend) ? rig.skyBlend : (mode === 'sky' ? 1 : 0);
             }
+            let viewChanged = false;
             if (mode !== lastMode || skyBlend !== lastSkyBlend) {
                 lastMode = mode;
                 lastSkyBlend = skyBlend;
                 for (let i = 0; i < modules.length; i++) callModule(modules[i], 'setViewMode', mode, skyBlend);
                 dirty = true;
+                viewChanged = true;
             }
 
             const cfg = getTierCfg();
@@ -385,16 +438,43 @@ export function createLoop(deps) {
                 cfg && Number.isFinite(cfg.starMagLimit) ? cfg.starMagLimit : 6, snap.skyglow);
             const motion = moving || !!(rig && rig.tweening) || clock.isAnimating() || introPlaying
                 || pointers.size > 0 || (fine && clock.playing && clock.rate !== 0);
+            // Idle supersampling: once motion stops, one more full frame starts the history.
+            const ss = supersampling(cfg);
+            if (ss && ssSettle && !motion) {
+                ssSettle = false;
+                dirty = true;
+            }
             // Twinkle alone: only while stars are actually shown, and at most ~30 Hz.
             const twinkleDue = !motion && !dirty && now - lastRenderAt >= TWINKLE_FRAME_MS && twinkling(cfg, skyBlend);
             // Before a step with no fresh cadence, the governor holds a few frames back to measure it.
             const held = governor !== null && probeCadence();
+            // Another jittered frame while the history wants one.
+            const ssIdle = ss && !motion && !dirty && !twinkleDue && sampler.wants;
 
-            if (!held && (dirty || motion || twinkleDue)) {
+            if (!held && (dirty || motion || twinkleDue || ssIdle)) {
+                const camera = (rig && rig.camera) || rc.camera;
+                if (ssIdle) {
+                    // Nothing changed but the jitter: no module updates, labels or governor sample.
+                    try {
+                        rc.render(ssFor('idle', camera, skyBlend));
+                        renderStrikes = 0;
+                    } catch (err) {
+                        renderStrikes++;
+                        console.error(`[loop] render failed (${renderStrikes}/${STRIKES_TO_DISABLE})`, err);
+                    }
+                    frames++;
+                    fpsWindowFrames++;
+                    renderedLastFrame = false;
+                    idleLastFrame = false;
+                    lastRenderAt = now;
+                    handle = raf(frame);
+                    return;
+                }
+                // Only sim time moved (the frame snapshot), the camera held: drift, not a change.
+                const drift = !dirtyIn && !viewChanged;
                 // Cleared before the updates so a module that calls rc.invalidate() while animating
                 // (texture swap, launch tween, reticle) gets the next frame too.
                 dirty = false;
-                const camera = (rig && rig.camera) || rc.camera;
                 fi.dtMs = dt;
                 fi.timeS = now / 1000;
                 fi.camera = camera;
@@ -407,9 +487,13 @@ export function createLoop(deps) {
 
                 for (let i = 0; i < modules.length; i++) callModule(modules[i], 'update', fi);
 
+                // Twinkle frames keep a short history (scintillation must stay visible).
+                const ssKind = motion ? 'motion' : !drift && !twinkleDue ? 'fresh'
+                    : twinkling(cfg, skyBlend) ? 'twinkle' : 'drift';
+                if (ss && motion) ssSettle = true;
                 const r0 = performance.now();
                 try {
-                    rc.render();
+                    rc.render(ss ? ssFor(ssKind, camera, skyBlend) : null);
                     renderStrikes = 0;
                 } catch (err) {
                     renderStrikes++;
@@ -425,18 +509,7 @@ export function createLoop(deps) {
 
                 if (labels && !disabled.has(labels)) {
                     try {
-                        const obsc = snap.eclipse ? snap.eclipse.obscurationAtObserver : 0;
-                        if (labelsFeed) {
-                            labelView.starExposure = exposure.stars;
-                            labelView.magLimit = cfg && Number.isFinite(cfg.starMagLimit) ? cfg.starMagLimit : 6;
-                            labelView.viewportH = rc.size && rc.size.h > 0 ? rc.size.h : 0;
-                            labelsFeed.sync(camera, skyBlend >= 0.5 ? 'sky' : 'orbit', labelView);
-                        }
-                        const tierCap = cfg && Number.isFinite(cfg.labelCap) ? cfg.labelCap : 24;
-                        labelOpts.cap = skyBlend >= 0.5 ? tierCap : Math.min(tierCap, ORBIT_LABEL_CAP);
-                        labelOpts.horizon = skyBlend >= 0.5;
-                        labelOpts.refrK = skyBlend;
-                        labelOpts.skyLum = skyBrightness(snap.observer.sunAltDeg, obsc, skyBlend);
+                        syncLabels(camera, cfg, skyBlend);
                         labels.update(camera, rc.size, labelOpts);
                     } catch (err) {
                         strike(labels, 'update', err);
@@ -481,6 +554,116 @@ export function createLoop(deps) {
         }
 
         handle = raf(frame);
+    }
+
+    /** The label feed's live points and the label pool's options for this frame's camera and view. */
+    function syncLabels(camera, cfg, skyBlend) {
+        if (labelsFeed) {
+            labelView.starExposure = exposure.stars;
+            labelView.magLimit = cfg && Number.isFinite(cfg.starMagLimit) ? cfg.starMagLimit : 6;
+            labelView.viewportH = rc.size && rc.size.h > 0 ? rc.size.h : 0;
+            labelsFeed.sync(camera, skyBlend >= 0.5 ? 'sky' : 'orbit', labelView);
+        }
+        const obsc = snap.eclipse ? snap.eclipse.obscurationAtObserver : 0;
+        const tierCap = cfg && Number.isFinite(cfg.labelCap) ? cfg.labelCap : 24;
+        labelOpts.cap = skyBlend >= 0.5 ? tierCap : Math.min(tierCap, ORBIT_LABEL_CAP);
+        labelOpts.horizon = skyBlend >= 0.5;
+        labelOpts.refrK = skyBlend;
+        labelOpts.skyLum = skyBrightness(snap.observer.sunAltDeg, obsc, skyBlend);
+    }
+
+    /**
+     * One whole frame now, for a video session (app/recorder.js), whatever is dirty: the clock ticks
+     * at `now` (the session's virtual time base), the frame snapshot and the 4 Hz readout follow,
+     * the rig advances by `dtMs`, then `io.before()` (the capture projection), every module's
+     * x (the
+     * read). No DOM labels, governor or supersampling. The caller keeps the rAF loop stopped.
+     * @param {number} now ms on the session's time base
+     * @param {number} dtMs frame interval (ms)
+     * @param {{before?:()=>void, after?:(camera:any)=>void}} [io]
+     * @returns {boolean} false when nothing can be drawn
+     */
+    function step(now, dtMs, io) {
+        if (rc === null || renderPaused || renderFailed) return false;
+        const dt = Math.min(Math.max(Number(dtMs) || 0, 0), 1000);
+        last = now;
+        let t;
+        try {
+            t = clock.tick(now);
+        } catch (err) {
+            reportOnce('clock.tick', err);
+            t = clock.tMs;
+        }
+        const obs = store.get().observer;
+        if (observerDirty || jumped || !snapValid || t !== snap.tMs) {
+            try {
+                computeSnapshot(t, obs, snap, OPT_FRAME);
+                fillSkyglow(snap);
+                snapValid = true;
+                for (let i = 0; i < modules.length; i++) callModule(modules[i], 'apply', snap);
+                if (hooks.onApply) hooks.onApply(snap);
+            } catch (err) {
+                reportOnce('computeSnapshot(frame)', err);
+            }
+        }
+        if (now - lastFull >= FULL_INTERVAL_MS || observerDirty) {
+            try {
+                computeSnapshot(t, obs, snapFull, OPT_FULL);
+                fillSkyglow(snapFull);
+                fullValid = true;
+                fullT = t;
+                lastFull = now;
+                bus.emit('readout', snapFull);
+            } catch (err) {
+                reportOnce('computeSnapshot(full)', err);
+                lastFull = now;
+            }
+        }
+        observerDirty = false;
+        jumped = false;
+        let mode = 'orbit';
+        let skyBlend = 0;
+        if (rig && !disabled.has(rig)) {
+            try {
+                rig.update(dt, snap);
+            } catch (err) {
+                strike(rig, 'update', err);
+            }
+            mode = rig.mode === 'sky' ? 'sky' : 'orbit';
+            skyBlend = Number.isFinite(rig.skyBlend) ? rig.skyBlend : (mode === 'sky' ? 1 : 0);
+        }
+        if (mode !== lastMode || skyBlend !== lastSkyBlend) {
+            lastMode = mode;
+            lastSkyBlend = skyBlend;
+            for (let i = 0; i < modules.length; i++) callModule(modules[i], 'setViewMode', mode, skyBlend);
+        }
+        const cfg = getTierCfg();
+        updateExposure(snap.observer.sunAltDeg, skyBlend, snap.eclipse.obscurationAtObserver,
+            cfg && Number.isFinite(cfg.starMagLimit) ? cfg.starMagLimit : 6, snap.skyglow);
+        io?.before?.();
+        const camera = (rig && rig.camera) || rc.camera;
+        fi.dtMs = dt;
+        fi.timeS = now / 1000;
+        fi.camera = camera;
+        fi.viewMode = mode;
+        fi.skyBlend = skyBlend;
+        fi.snap = snap;
+        fi.pulsesActive = clock.playing && Math.abs(clock.rate) > 1;
+        fi.simRate = clock.playing && Number.isFinite(clock.rate) ? clock.rate : 0;
+        fi.moonFront = !!(rig && rig.moonFront);
+        for (let i = 0; i < modules.length; i++) callModule(modules[i], 'update', fi);
+        if (labels && !disabled.has(labels)) {
+            try {
+                syncLabels(camera, cfg, skyBlend);
+            } catch (err) {
+                reportOnce('labelsFeed.sync(step)', err);
+            }
+        }
+        rc.render();
+        frames++;
+        io?.after?.(camera);
+        dirty = true;
+        return true;
     }
 
     /**
@@ -643,6 +826,9 @@ export function createLoop(deps) {
          * upS/northS/eastS and the landscape. Captures reproject the label feed with them.
          */
         get labelOptions() { return labelOpts; },
+        step,
+        /** Accumulated supersampling frames so far, and the current history's sample count. */
+        get supersample() { return { frames: ssCount, samples: sampler.count, cap: sampler.samples }; },
         attach,
         broadcast,
         callModule,

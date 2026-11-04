@@ -10,17 +10,19 @@ test('TIERS holds the exact E.6 values', () => {
     assert.deepEqual(TIERS.low, {
         name: 'low', dprCap: 1.0, composer: false, msaa: 0, bloom: null, earthSegments: [64, 32], dayTex: 'day2k', oceanMask: 'roughness2k',
         clouds: 'none', cloudShadows: false, bump: false, atmosphere: 'analytic', atmoSteps: 0, starMagLimit: 5.0, flare: false,
-        labelCap: 12, twinkle: false, beamGlowPx: 8, finalPass: false,
+        labelCap: 12, twinkle: false, beamGlowPx: 8, finalPass: false, supersample: 0, streakPx: 0,
     });
     assert.deepEqual(TIERS.medium, {
         name: 'medium', dprCap: 1.5, composer: true, msaa: 4, bloom: { strength: 0.55, radius: 0.4, threshold: 0.9, scale: 0.5 },
         earthSegments: [96, 48], dayTex: 'day4k', oceanMask: 'roughness2k', clouds: 'clouds2k', cloudShadows: false, bump: false,
         atmosphere: 'analytic', atmoSteps: 0, starMagLimit: 6.0, flare: true, labelCap: 24, twinkle: false, beamGlowPx: 12, finalPass: true,
+        supersample: 8, streakPx: 14,
     });
     assert.deepEqual(TIERS.high, {
         name: 'high', dprCap: 2.0, composer: true, msaa: 4, bloom: { strength: 0.6, radius: 0.45, threshold: 0.9, scale: 1.0 },
         earthSegments: [128, 64], dayTex: 'day4k', oceanMask: 'roughness', clouds: 'brc4k', cloudShadows: true, bump: true,
         atmosphere: 'raymarch', atmoSteps: 8, starMagLimit: 6.5, flare: true, labelCap: 40, twinkle: true, beamGlowPx: 14, finalPass: true,
+        supersample: 16, streakPx: 24,
     });
     assert.ok(Object.isFrozen(TIERS.high.bloom) && Object.isFrozen(TIERS.high.earthSegments));
     assert.deepEqual([...TIER_ORDER], ['low', 'medium', 'high']);
@@ -33,10 +35,10 @@ test('max: every knob at or past high, manual only', () => {
         name: 'max', dprCap: Infinity, composer: true, msaa: 16, bloom: { strength: 0.6, radius: 0.45, threshold: 0.9, scale: 1.0 },
         earthSegments: [256, 128], dayTex: 'day8k', oceanMask: 'roughness', clouds: 'clouds8k', cloudShadows: true, bump: true,
         atmosphere: 'raymarch', atmoSteps: 32, starMagLimit: 6.5, flare: true, labelCap: 80, twinkle: true, beamGlowPx: 14,
-        finalPass: true, moonTex: 'moon4k', anisotropy: 16, cloudShadowTaps: 5,
+        finalPass: true, moonTex: 'moon4k', anisotropy: 16, cloudShadowTaps: 5, supersample: 16, streakPx: 32,
     });
     const hi = TIERS.high, mx = TIERS.max;
-    for (const k of ['dprCap', 'msaa', 'atmoSteps', 'starMagLimit', 'labelCap', 'beamGlowPx']) assert.ok(mx[k] >= hi[k], k);
+    for (const k of ['dprCap', 'msaa', 'atmoSteps', 'starMagLimit', 'labelCap', 'beamGlowPx', 'supersample', 'streakPx']) assert.ok(mx[k] >= hi[k], k);
     assert.ok(mx.earthSegments[0] > hi.earthSegments[0] && mx.bloom.scale >= hi.bloom.scale);
     assert.deepEqual([...ALL_TIERS], ['low', 'medium', 'high', 'max']);
     assert.equal(isTier('max'), true);

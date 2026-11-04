@@ -125,8 +125,8 @@ export function cardWords(ctx) {
     return { stamp, place, up: upNowText(up), sentence };
 }
 
-/** The brand mark (topbar.js brandMark) drawn at (x, y), `size` px square. */
-function drawMark(ctx, x, y, size) {
+/** The brand mark (topbar.js brandMark) drawn at (x, y), `size` px square (also the video's stamp). */
+export function drawMark(ctx, x, y, size) {
     const k = size / 24;
     ctx.save();
     ctx.translate(x, y);
@@ -311,8 +311,8 @@ function toBlob(canvas) {
     });
 }
 
-/** "paranal-2026-11-10-0100" from the place and the local time. */
-function fileStem(ctx, t) {
+/** "paranal-2026-11-10-0100" from the place and the local time (also the video's file name). */
+export function fileStem(ctx, t) {
     const z = ctx.ui.zoned(t);
     const pad2 = (n) => String(n).padStart(2, '0');
     const place = ctx.ui.placeShort(ctx.store.get().observer).toLowerCase().normalize('NFKD')

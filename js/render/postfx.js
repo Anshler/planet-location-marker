@@ -4,6 +4,9 @@
  * (FXAA when the target has no MSAA + ACES tone mapping + sRGB + vignette + blue-noise dither)
  * or OutputPass. While Expose (long-exposure stacking) is on, an AccumPass (render/accum.js) sits
  * between the scene and the bloom: `setAccumulation(on)`, `accum` (its flags and frame count).
+ * Otherwise, on tiers that supersample when idle, a SupersamplePass (render/supersample.js) sits
+ * there: `setSupersample(on)`, and `render(ss)` with ss = {weight} blends the frame into its running
+ * mean (ss = null skips the pass). Once a few samples are in, FXAA steps aside (uFxaa).
  *
  * The bloom input and the final pass scrub NaN/Inf (`pcFinite`), so one bad scene pixel stays
  * one pixel instead of being blurred into a screen-sized black block.
@@ -22,6 +25,10 @@ import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { FINITE_CHUNK } from './shaders/common.glsl.js';
 import { AccumPass } from './accum.js';
+import { SupersamplePass } from './supersample.js';
+
+/** Accumulated samples after which the final pass's FXAA steps aside (the mean is already smooth). */
+const SS_NO_FXAA_SAMPLES = 4;
 
 /**
  * Brightest value a scene pixel may feed into the bloom (the Sun core peaks near 30). With
@@ -64,6 +71,7 @@ const FXAA_CHUNK = /* glsl */ `
 #define FXAA_REDUCE_MIN 0.0078125
 #define FXAA_SPAN_MAX 8.0
 uniform sampler2D tDepth;
+uniform float uFxaa;
 bool fxaaSilhouette(vec2 uv, vec2 px) {
     float a = 1.0 - texture2D(tDepth, uv + vec2(-1.0, -1.0) * px).r;
     float b = 1.0 - texture2D(tDepth, uv + vec2(1.0, -1.0) * px).r;
@@ -131,7 +139,7 @@ float ign(vec2 p) {
 void main() {
     vec3 c = pcFinite(texture2D(tDiffuse, vUv).rgb);
     #ifdef PC_FXAA
-    c = pcFxaa(c, vUv, 1.0 / max(uResolution, vec2(1.0)));
+    if (uFxaa > 0.5) c = pcFxaa(c, vUv, 1.0 / max(uResolution, vec2(1.0)));
     #endif
     if (uScotopic > 0.0) {
         float s = uScotopic * (1.0 - smoothstep(0.03, 0.4, dot(c, vec3(0.2126, 0.7152, 0.0722))));
@@ -171,6 +179,7 @@ function createFinalPass(fxaa) {
         uniforms: {
             tDiffuse: { value: null },
             tDepth: { value: null },
+            uFxaa: { value: 1 },
             uResolution: { value: new THREE.Vector2(1, 1) },
             uVignette: { value: 0.12 },
             uDither: { value: 1 / 255 },
@@ -273,6 +282,8 @@ export function createPostFx(renderer, scene, camera, cfg, size) {
     let finalPass = null;
     /** @type {AccumPass|null} */
     let accumPass = null;
+    /** @type {SupersamplePass|null} */
+    let ssPass = null;
 
     function makeTarget(samples) {
         const s = Math.min(samples, maxSamples);
@@ -320,7 +331,9 @@ export function createPostFx(renderer, scene, camera, cfg, size) {
     function rebuildPasses() {
         composer.passes.length = 0;
         composer.addPass(renderPass);
+        // One or the other: a long exposure stacks, otherwise idle frames may supersample.
         if (accumPass) composer.addPass(accumPass);
+        else if (ssPass) composer.addPass(ssPass);
         if (bloomPass) composer.addPass(bloomPass);
         composer.addPass(finalPass);
         // The scene renders into readBuffer (needsSwap is false everywhere); its depth, if any.
@@ -349,8 +362,18 @@ export function createPostFx(renderer, scene, camera, cfg, size) {
     build(cfg);
 
     return {
-        /** Renders the scene through the chain to the canvas. */
-        render() {
+        /**
+         * Renders the scene through the chain to the canvas. `ss` ({weight}) blends this frame into
+         * the supersampling history; null or absent skips that pass.
+         * @param {{weight:number}|null} [ss]
+         */
+        render(ss) {
+            const fxaa = finalPass?.uniforms?.uFxaa;
+            if (ssPass) {
+                ssPass.enabled = !!ss && !accumPass;
+                if (ssPass.enabled) ssPass.weight = ss.weight;
+            }
+            if (fxaa) fxaa.value = ssPass?.enabled && ssPass.samples + 1 >= SS_NO_FXAA_SAMPLES ? 0 : 1;
             composer.render(0);
         },
         /**
@@ -388,12 +411,32 @@ export function createPostFx(renderer, scene, camera, cfg, size) {
             rebuildPasses();
         },
         /**
-         * A one-off capture at another size (render/context.js capture): `true` bypasses the stack
-         * and freezes it at its size, `false` brings it back. The caller resizes around it.
+         * Idle supersampling available or not (the tier's `supersample`): creates the pass (its target
+         * is allocated by the first accumulated frame) or disposes it. Called on tier changes only.
          * @param {boolean} on
          */
-        setCapture(on) {
-            if (!accumPass) return;
+        setSupersample(on) {
+            if (!!on === !!ssPass) return;
+            if (on) ssPass = new SupersamplePass(hdr ? THREE.HalfFloatType : THREE.UnsignedByteType);
+            else {
+                ssPass.dispose();
+                ssPass = null;
+            }
+            rebuildPasses();
+        },
+        /** The supersampling pass (`samples` in its history), or null. */
+        get supersample() { return ssPass; },
+        /**
+         * A one-off capture at another size (render/context.js capture): `true` bypasses the stack
+         * and freezes it at its size, `false` brings it back. The caller resizes around it. A video
+         * session's `stack` option keeps the long exposure running at the capture's size instead (a
+         * star-trail time-lapse: it restarts there, and again back on screen).
+         * @param {boolean} on
+         * @param {{stack?:boolean}} [opts]
+         */
+        setCapture(on, opts) {
+            if (ssPass) ssPass.frozen = !!on;
+            if (!accumPass || (on && opts?.stack)) return;
             if (on) {
                 accumPass.frozen = true;
                 accumPass.enabled = false;
@@ -436,6 +479,8 @@ export function createPostFx(renderer, scene, camera, cfg, size) {
         dispose() {
             accumPass?.dispose();
             accumPass = null;
+            ssPass?.dispose();
+            ssPass = null;
             bloomPass?.dispose();
             finalPass?.dispose();
             renderPass?.dispose?.();

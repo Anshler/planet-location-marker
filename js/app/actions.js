@@ -1140,6 +1140,34 @@ export function createActions(deps) {
         return render.capture?.frame?.(opts) ?? null;
     }
 
+    /** The recorder module (loaded on the first recording) and the recording in progress. */
+    let recorderP = null;
+    let recording = null;
+    /**
+     * Records a time-lapse video (app/recorder.js, loaded on the first call): 'day' | 'night' |
+     * 'eclipse' at 'landscape' (1920×1080) or 'vertical' (1080×1920), with labels and the caller's
+     * `paint` (the date stamp) burned in. A shadow chase or a tour on screen ends first. Resolves
+     * {blob, name, mime, …} or {error} ('no-3d', 'unsupported', 'busy', 'no-night', 'no-path',
+     * 'cancelled', 'changed', 'failed').
+     * @param {object} opts see recorder.js recordVideo
+     * @returns {Promise<object>}
+     */
+    function recordVideo(opts = {}) {
+        if (!has3d() || !render.video) return Promise.resolve({ error: 'no-3d' });
+        if (recording) return Promise.resolve({ error: 'busy' });
+        if (chase.active) chase.stop();
+        if (store.get().ui.tour) deps.tours?.stop?.();
+        recorderP ??= import('./recorder.js');
+        recording = recorderP.then((m) => m.recordVideo({ store, clock, render, eclipsePath: eclipsePathFor }, opts))
+            .catch((err) => {
+                recorderP = null;
+                console.error('[actions] the recorder could not run', err);
+                return { error: 'failed' };
+            })
+            .finally(() => { recording = null; });
+        return recording;
+    }
+
     /**
      * Guided tours (js/app/tours.js, which main.js loads on demand; ids in core/tour-catalog.js).
      * `deps.tours` is {start(id), stop(), next(), resume()}; without it (tests, a failed load) the
@@ -1166,7 +1194,9 @@ export function createActions(deps) {
         // Eclipse 2027 (ROADMAP Phase 1): the shared path request and 'Stand in the path'.
         eclipsePath: eclipsePathFor, standInPath, playEclipse,
         // Phase 5: long exposures and the capture path (postcards, Save image).
-        expose, exposeStatus, capture,
+        expose, exposeStatus, capture, recordVideo,
+        /** True while a time-lapse video records. */
+        get recording() { return recording !== null; },
         /**
          * Rides the Moon's shadow: the camera follows the umbra from low orbit while the clock runs
          * the path of the central eclipse near `target` (a time or an event) in about 40 s.

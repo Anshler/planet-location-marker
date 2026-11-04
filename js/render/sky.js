@@ -11,6 +11,7 @@ import * as THREE from 'three';
 import { AE } from '../astro/ae.js';
 import { STAR_VERT, STAR_FRAG, MW_VERT, MW_FRAG, LINE_VERT, LINE_FRAG } from './shaders/sky.glsl.js';
 import { createSkyglowUniforms, applySkyglow } from './skyglow.js';
+import { STREAK_UNIFORMS, streakState } from './streaks.js';
 
 const DEG = Math.PI / 180;
 const OBLIQUITY_DEG = 23.4392911;
@@ -342,6 +343,7 @@ export function createSky(rc, deps = {}) {
         uSaturation: { value: 0.85 },
         uDisplay: { value: 1 },
         ...refr,
+        ...STREAK_UNIFORMS,
     };
     const starMaterial = new THREE.ShaderMaterial({
         name: 'sky.stars', uniforms: starUniforms,
@@ -603,7 +605,9 @@ export function createSky(rc, deps = {}) {
         starUniforms.uTime.value = Number.isFinite(fi.timeS) ? fi.timeS % 1000 : 0;
         mwUniforms.uExposure.value = exposure.milkyWay;
         mwUniforms.uDpr.value = Math.max(0.5, dpr);
-        mwUniforms.uGain.value = MW_GAIN_ORBIT + (MW_GAIN_SKY - MW_GAIN_ORBIT) * skyBlend;
+        // Fast time: a band jumping degrees a frame strobes; it fades instead (render/streaks.js).
+        const strobe = streakState.dim;
+        mwUniforms.uGain.value = (MW_GAIN_ORBIT + (MW_GAIN_SKY - MW_GAIN_ORBIT) * skyBlend) * strobe;
         mwUniforms.uSkyBlend.value = skyBlend;
         // Zodiacal light (sky view, medium and up): only under a dark sky, which MW_FRAG checks per
         // direction; skipped outright when even the darkest part of this site's sky is too bright.
@@ -621,7 +625,7 @@ export function createSky(rc, deps = {}) {
         const consE = Math.max(e, CONS_FLOOR * smooth(0.02, 0.1, e));
         const camDist = cam && cam.position ? cam.position.length() : CONS_ORBIT_REF;
         const orbitA = CONS_ALPHA_ORBIT * Math.min(1, Math.max(CONS_ORBIT_MIN, CONS_ORBIT_REF / Math.max(camDist, 1e-6)));
-        cons.uniforms.uAlpha.value = (orbitA + (CONS_ALPHA_SKY - orbitA) * skyBlend) * consE;
+        cons.uniforms.uAlpha.value = (orbitA + (CONS_ALPHA_SKY - orbitA) * skyBlend) * consE * strobe;
         cons.uniforms.uHighlightAlpha.value = CONS_ALPHA_SKY * consE;
         cons.mesh.visible = layers.constellations && consCount > 0;
         eqGrid.uniforms.uAlpha.value = 0.18 * (0.5 + 0.5 * e);

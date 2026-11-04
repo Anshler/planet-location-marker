@@ -1,7 +1,8 @@
 // Frame capture (ROADMAP sky-postcard; lighten-stacking-exposure 'Save image'): the scene rendered
 // once at a requested size into a 2D canvas, with the label feed's labels drawn on top.
 //
-//   createCapture({getRc, getLoop, getFeed, doc}) → { frame(opts) → HTMLCanvasElement|null }
+//   createCapture({getRc, getLoop, getFeed, doc}) → { frame(opts) → HTMLCanvasElement|null,
+//                                                     session(opts) → {canvas, frame(now, dt), end()}|null }
 //   projectLabels(anchors, view, opts, measure) → placed labels   (pure, unit-tested)
 //
 // The render context does the one-task resize-render-read-restore (render/context.js capture), the
@@ -11,6 +12,10 @@
 // reprojected with the capture camera, culled as the label pool culls them (behind the camera,
 // behind the Earth, star and constellation names under the horizon or the landscape), decluttered
 // greedily in priority order and painted with the label CSS's type styles.
+//
+// A session (the time-lapse video, app/recorder.js) keeps the capture's size for many frames
+// (rc.beginCapture … endCapture): each frame is one loop.step() on the caller's time base with the
+// capture projection bracketing its draw, composited with its labels into one reused 2D canvas.
 //
 // js/app may touch the DOM (canvas, fonts); it never imports three: the camera is read through its
 // plain `elements` arrays.
@@ -263,6 +268,41 @@ export function paintLabels(ctx, placed, { daySky = false } = {}) {
  */
 export function createCapture({ getRc, getLoop, getFeed, doc = typeof document !== 'undefined' ? document : null }) {
     /**
+     * Paints the label feed's labels for `camera` over a capture (device px canvas, CSS px layout).
+     * @param {CanvasRenderingContext2D} ctx
+     * @param {any} cam the capture camera (its projection as drawn)
+     * @param {number} scale capture pixel ratio
+     * @param {number} insetBottom CSS px kept for a caption
+     */
+    function drawLabels(ctx, cam, scale, insetBottom) {
+        const feed = getFeed?.();
+        const loop = getLoop?.();
+        if (!feed?.anchors?.length || !cam) return;
+        const o = loop?.labelOptions ?? {};
+        const canvas = ctx.canvas;
+        cam.updateMatrixWorld?.();
+        const V = {
+            mv: cam.matrixWorldInverse.elements, pm: cam.projectionMatrix.elements,
+            pos: [cam.position.x, cam.position.y, cam.position.z],
+            w: canvas.width / scale, h: canvas.height / scale,
+        };
+        const measure = (a) => {
+            const st = LABEL_STYLES[a.kind] ?? LABEL_STYLES.body;
+            ctx.font = fontFor(st, a.selected === true || a.priority >= 100);
+            if ('letterSpacing' in ctx) ctx.letterSpacing = `${st.track}em`;
+            return ctx.measureText(labelText(a)).width;
+        };
+        const placed = projectLabels(feed.anchors, V, {
+            cap: o.cap, refrK: o.refrK, upS: o.upS, horizon: o.horizon, landscape: o.landscape, northS: o.northS, eastS: o.eastS,
+            insetBottom,
+        }, measure);
+        ctx.save();
+        ctx.setTransform(scale, 0, 0, scale, 0, 0);
+        paintLabels(ctx, placed, { daySky: (o.skyLum ?? 0) >= 0.6 });
+        ctx.restore();
+    }
+
+    /**
      * Renders the scene once into a new canvas.
      * @param {{width?:number, height?:number, scale?:number, labels?:boolean, insetBottom?:number}} [opts]
      *   width × height in device px (default: the screen's drawing buffer, which is then the screen
@@ -289,31 +329,7 @@ export function createCapture({ getRc, getLoop, getFeed, doc = typeof document !
                 if (!ctx) return;
                 ctx.drawImage(src, 0, 0);
                 ok = true;
-                const feed = labels ? getFeed?.() : null;
-                if (!feed?.anchors?.length) return;
-                const o = loop.labelOptions ?? {};
-                const cam = info.camera;
-                cam.updateMatrixWorld?.();
-                const V = {
-                    mv: cam.matrixWorldInverse.elements, pm: cam.projectionMatrix.elements,
-                    pos: [cam.position.x, cam.position.y, cam.position.z],
-                    w: canvas.width / info.scale, h: canvas.height / info.scale,
-                };
-                const measureCtx = ctx;
-                const measure = (a) => {
-                    const st = LABEL_STYLES[a.kind] ?? LABEL_STYLES.body;
-                    measureCtx.font = fontFor(st, a.selected === true || a.priority >= 100);
-                    if ('letterSpacing' in measureCtx) measureCtx.letterSpacing = `${st.track}em`;
-                    return measureCtx.measureText(labelText(a)).width;
-                };
-                const placed = projectLabels(feed.anchors, V, {
-                    cap: o.cap, refrK: o.refrK, upS: o.upS, horizon: o.horizon, landscape: o.landscape, northS: o.northS, eastS: o.eastS,
-                    insetBottom,
-                }, measure);
-                ctx.save();
-                ctx.setTransform(info.scale, 0, 0, info.scale, 0, 0);
-                paintLabels(ctx, placed, { daySky: (o.skyLum ?? 0) >= 0.6 });
-                ctx.restore();
+                if (labels) drawLabels(ctx, info.camera, info.scale, insetBottom);
             }, { insetBottom });
         } catch (err) {
             console.error('[capture] frame failed', err);
@@ -322,5 +338,58 @@ export function createCapture({ getRc, getLoop, getFeed, doc = typeof document !
         return ok ? canvas : null;
     }
 
-    return { frame };
+    /**
+     * Starts a video session at width × height device px (rc.beginCapture). Null without a 3D view,
+     * when the context is lost or a session already runs.
+     * @param {{width:number, height:number, scale?:number, labels?:boolean, insetBottom?:number, stack?:boolean}} opts
+     *   stack: a long exposure keeps stacking at this size
+     * @returns {{canvas:HTMLCanvasElement, frame(now:number, dtMs:number):HTMLCanvasElement|null, end():void}|null}
+     */
+    function session({ width, height, scale = 1, labels = true, insetBottom = 0, stack = false }) {
+        const rc = getRc?.();
+        const loop = getLoop?.();
+        if (!rc || !loop || !doc || typeof rc.beginCapture !== 'function' || typeof loop.step !== 'function') return null;
+        const s = Number.isFinite(scale) && scale > 0 ? scale : 1;
+        if (!rc.beginCapture(width, height, s, { insetBottom, stack })) return null;
+        const canvas = doc.createElement('canvas');
+        let ctx = null;
+        let ended = false;
+        return {
+            canvas,
+            /** Draws the frame at `now` (the session's time base) and composites it; null on failure. */
+            frame(now, dtMs) {
+                if (ended || rc.lost) return null;
+                let ok = false;
+                try {
+                    loop.step(now, dtMs, {
+                        before: () => rc.captureCamera(),
+                        after: (camera) => {
+                            const src = rc.renderer.domElement;
+                            if (canvas.width !== src.width || canvas.height !== src.height) {
+                                canvas.width = src.width;
+                                canvas.height = src.height;
+                                ctx = null;
+                            }
+                            ctx ??= canvas.getContext('2d');
+                            if (!ctx) return;
+                            ctx.drawImage(src, 0, 0);
+                            ok = true;
+                            if (labels) drawLabels(ctx, camera, s, insetBottom);
+                        },
+                    });
+                } finally {
+                    rc.releaseCamera();
+                }
+                return ok ? canvas : null;
+            },
+            /** Gives the screen its size back (the loop redraws on its next frame). */
+            end() {
+                if (ended) return;
+                ended = true;
+                rc.endCapture();
+            },
+        };
+    }
+
+    return { frame, session };
 }

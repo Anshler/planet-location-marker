@@ -1453,11 +1453,11 @@ About's 'Install app' (`ui/install.js`); the browser's own install UI is left al
   `golden-renders` artifact shows what moved) and after raising `CHROME_VERSION`. Locally,
   `--update` (and `--only=a,b`, `--dir=`) writes goldens for your own Chrome, which is useful to
   compare two versions of a change; CI skips such goldens unless they come from the pinned build.
-- **`npm run size`** enforces the per-tier transfer budgets (low 3.76 MB, medium 4.52 MB, high
-  8 MB raw, re-baselined from the spec's estimate to the measured unminified module graph; low and
-  medium stay under 6 MB, high under 8 MB) and the 32 MB deploy limit. Max (≈ 20.8 MB) is reported but has no budget;
-  its 8192 px maps (≈ 15.2 MB) are why the deploy limit went from 12 to 32 MB (the staged site is
-  ≈ 21.6 MB; GitHub Pages allows 1 GB).
+- **`npm run size`** enforces the per-tier transfer budgets (low 5.2 MB, medium 5.975 MB, high
+  8 MB raw, re-baselined from the spec's estimate to the measured unminified module graph, last
+  when the Phase 7 lanes merged; low and medium stay under 6 MB, high under 8 MB) and the 32 MB
+  deploy limit. Max (≈ 22.3 MB) is reported but has no budget; its 8192 px maps (≈ 15.2 MB) are why
+  the deploy limit went from 12 to 32 MB (the staged site is ≈ 24.7 MB; GitHub Pages allows 1 GB).
 - **`npm run preload`** (`node scripts/lib/modgraph.mjs --write`, `--check` to verify) regenerates
   index.html's boot modulepreload lists (§3 'Early downloads').
 - **`npm run textures`** (`scripts/build-textures.mjs`) re-encodes the derived textures in headless

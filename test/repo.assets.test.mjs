@@ -41,6 +41,43 @@ test('manifest.webmanifest is valid and its icons exist', () => {
     for (const i of m.icons) assert.ok(exists(i.src), `${i.src} exists`);
 });
 
+/** Width and height of a baseline or progressive JPEG (its SOF segment). */
+function jpegSize(rel) {
+    const b = fs.readFileSync(path.join(ROOT, rel));
+    assert.equal(b.readUInt16BE(0), 0xffd8, `${rel} is a JPEG`);
+    for (let i = 2; i + 9 < b.length;) {
+        const marker = b.readUInt16BE(i);
+        const len = b.readUInt16BE(i + 2);
+        if (marker >= 0xffc0 && marker <= 0xffcf && ![0xffc4, 0xffc8, 0xffcc].includes(marker)) return [b.readUInt16BE(i + 7), b.readUInt16BE(i + 5)];
+        i += 2 + len;
+    }
+    throw new Error(`${rel}: no SOF segment`);
+}
+
+test('manifest: install screenshots, shortcuts and launch handling (Chrome\'s richer install UI)', () => {
+    const m = JSON.parse(read('manifest.webmanifest'));
+    const forms = new Set();
+    for (const s of m.screenshots) {
+        assert.ok(exists(s.src) && !/^(\/|[a-z]+:)/i.test(s.src), `${s.src}: a relative URL that exists`);
+        assert.equal(s.type, 'image/jpeg');
+        const [w, hgt] = jpegSize(s.src);
+        assert.equal(s.sizes, `${w}x${hgt}`, `${s.src}: sizes matches the image`);
+        // Chrome: 320–3840 px per side, the long side at most 2.3× the short one; wide is landscape.
+        assert.ok(Math.min(w, hgt) >= 320 && Math.max(w, hgt) <= 3840, `${s.src}: 320–3840 px`);
+        assert.ok(Math.max(w, hgt) / Math.min(w, hgt) <= 2.3, `${s.src}: aspect ≤ 2.3`);
+        assert.equal(s.form_factor, w > hgt ? 'wide' : 'narrow', `${s.src}: form factor`);
+        assert.ok(s.label, `${s.src}: label`);
+        forms.add(s.form_factor);
+    }
+    assert.deepEqual([...forms].sort(), ['narrow', 'wide']);
+    assert.deepEqual(m.launch_handler, { client_mode: 'focus-existing' });
+    assert.deepEqual(m.shortcuts.map((s) => s.url), ['./#view=sky', './#tab=events']);
+    for (const s of m.shortcuts) {
+        assert.ok(s.name && s.short_name, 'named');
+        for (const i of s.icons) assert.ok(exists(i.src), `${i.src} exists`);
+    }
+});
+
 test('icons are the right sizes', () => {
     const dims = (rel) => {
         const b = fs.readFileSync(path.join(ROOT, rel));

@@ -166,7 +166,7 @@
 /** Result of `parseHash`. Every key is optional; `invalid` lists keys that were present but rejected or clamped.
  * @typedef {{ observer?:Observer&{cc:string}, observer2?:Observer&{cc:string}, tMs?:number, live?:boolean, rate?:number, playing?:boolean,
  *   view?:'orbit'|'sky'|'map', earthLock?:boolean, selection?:SelectionId|null, layers?:Layers,
- *   quality?:'auto'|'low'|'medium'|'high'|'max', skyDark?:string, aurora?:'quiet'|'typical'|'storm', cam?:CamView, track?:'body'|'stars', vantage?:'l1'|'moon', host?:{id:'mars', latDeg:number, lonDeg:number}, intro?:boolean, debug?:boolean, tour?:string, invalid?:string[] }} HashState */
+ *   quality?:'auto'|'low'|'medium'|'high'|'max', skyDark?:string, aurora?:'quiet'|'typical'|'storm', cam?:CamView, track?:'body'|'stars', vantage?:'l1'|'moon', host?:{id:'mars', latDeg:number, lonDeg:number}, intro?:boolean, debug?:boolean, tour?:string, panel?:string, invalid?:string[] }} HashState */
 
 /** Device probe for `detectTier` (js/core/quality.js).
  * @typedef {{webgl2:boolean, rendererString?:string, maxTextureSize?:number, dpr?:number, deviceMemory?:number, cores?:number,

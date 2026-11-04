@@ -291,6 +291,9 @@ body.is-intro-out #ui-root{animation:pc-ui-in .9s cubic-bezier(.2,.7,.2,1) both}
     }
   } catch (e) { /* no WebGL2: text mode */ }
   w.__pcEnv = env;
+  // The browser's install offer can come before the UI loads: keep it for About's 'Install app' (ui/install.js).
+  w.addEventListener('beforeinstallprompt', function (e) { w.__pcInstall = e; });
+  w.addEventListener('appinstalled', function () { w.__pcInstall = null; });
 
   var reduced = mq('(prefers-reduced-motion: reduce)');
   var coarse = mq('(pointer: coarse)');

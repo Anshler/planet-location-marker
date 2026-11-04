@@ -16,7 +16,9 @@
 // centre and the camera's distance from the plane). `loc2` (with `n2`, `tz2`) is a second place to
 // compare with (two-observers): its own pin and dashed beams on the globe, side by side in Sky now.
 // `host=mars` stands on Mars (stand-on-mars: the sky view from an areographic site); `hloc` is that
-// site, planetocentric °N,°E, written only when it is not Jezero Crater (the default).
+// site, planetocentric °N,°E, written only when it is not Jezero Crater (the default). `tab` opens a
+// panel tab (store PANELS, e.g. the install shortcut's `tab=events`); like `tour`, it is read, never
+// written.
 //
 // parseHash never throws: values are validated, clamped (time, elevation, camera) or dropped, and
 // every key that was present but not usable as written is listed in `invalid` (for the
@@ -25,7 +27,7 @@
 // short; `t` is omitted while Live.
 
 import { MIN_MS, MAX_MS, snapRate } from './clock.js';
-import { DEFAULT_STATE, SKY_DARK_SETTINGS, AURORA_SETTINGS, VANTAGE_SETTINGS, VIEW_MODES, HOST_DEFAULT } from './store.js';
+import { DEFAULT_STATE, SKY_DARK_SETTINGS, AURORA_SETTINGS, VANTAGE_SETTINGS, VIEW_MODES, HOST_DEFAULT, PANELS } from './store.js';
 import { canonTz, daysInMonth } from './tz.js';
 import { isTourId } from './tour-catalog.js';
 import { normalizeSelectionId, isSelectionId } from './selection.js';
@@ -40,7 +42,7 @@ export const LAYER_CODES = Object.freeze([
     ['r', 'precession'], ['y', 'sunPath'], ['w', 'meteors'], ['i', 'satellites'],
 ].map((pair) => Object.freeze(pair)));
 const LAYER_BY_CODE = new Map(LAYER_CODES);
-const KNOWN_KEYS = new Set(['loc', 'n', 'cc', 'tz', 'el', 't', 'r', 'p', 'view', 'lock', 'sel', 'ly', 'q', 'sky', 'au', 'cam', 'trk', 'vt', 'intro', 'debug', 'tour',
+const KNOWN_KEYS = new Set(['loc', 'n', 'cc', 'tz', 'el', 't', 'r', 'p', 'view', 'lock', 'sel', 'ly', 'q', 'sky', 'au', 'cam', 'trk', 'vt', 'intro', 'debug', 'tour', 'tab',
     'loc2', 'n2', 'tz2', 'host', 'hloc']);
 const MAX_HASH_LEN = 4096;
 const NAME_MAX = 80;
@@ -367,7 +369,7 @@ function parseFlag(v, emptyMeans) {
     return undefined;
 }
 
-/** view, lock, sel, ly, q, sky, au, cam, trk, vt, intro, debug, tour. */
+/** view, lock, sel, ly, q, sky, au, cam, trk, vt, intro, debug, tour, tab. */
 function parseViewKeys(params, out, invalid) {
     if (params.has('view')) {
         const v = params.get('view').trim().toLowerCase();
@@ -455,6 +457,11 @@ function parseViewKeys(params, out, invalid) {
         const v = params.get('tour').trim().toLowerCase();
         if (isTourId(v)) out.tour = v;
         else if (v !== '') invalid.push('tour');
+    }
+    if (params.has('tab')) {
+        const v = params.get('tab').trim().toLowerCase();
+        if (PANELS.includes(v)) out.panel = v;
+        else if (v !== '') invalid.push('tab');
     }
 }
 

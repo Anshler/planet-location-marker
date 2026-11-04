@@ -28,6 +28,7 @@ import { mountShell } from './shell.js';
 import { mountToasts, mountFlash } from './toast.js';
 import { mountAnnouncer } from './announcer.js';
 import { bindShortcuts } from './shortcuts.js';
+import { mountInstallHint } from './install.js';
 import { toCalendar, fromCalendar } from '../core/tz.js';
 import { isExtraId } from '../core/selection.js';
 
@@ -72,6 +73,7 @@ export function mountUI(rootEl, ctx) {
 
     const narrator = startNarrator(uctx);
     const summary = startSceneSummary(uctx);
+    const installHint = mountInstallHint(uctx);
 
     // ---- data from the app ------------------------------------------------
     offs.push(ctx.bus.on('readout', (snap) => update(snap)));
@@ -101,6 +103,7 @@ export function mountUI(rootEl, ctx) {
             offs.forEach((off) => off());
             narrator();
             summary();
+            installHint();
             ui.dispose();
             toasts.destroy();
             flash.destroy();

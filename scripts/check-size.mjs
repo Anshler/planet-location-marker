@@ -91,6 +91,9 @@ export const FILE_BUDGETS = {
     // The max tier's deeper stars (scripts/build-stars.mjs; fetched on max only, outside every tier budget).
     'data/stars8.json': 1300 * KB,
     'assets/og.jpg': 250 * KB,
+    // The install dialog's screenshots (manifest.webmanifest; fetched by the browser, never by the app).
+    'assets/screenshots/globe-wide.jpg': 150 * KB,
+    'assets/screenshots/globe-narrow.jpg': 150 * KB,
     'assets/icons/favicon.svg': 12 * KB,
     'assets/icons/icon-192.png': 60 * KB,
     'assets/icons/icon-512.png': 150 * KB,

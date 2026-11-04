@@ -436,6 +436,8 @@ async function importRenderStack() {
 
 async function boot() {
     const env = readEnv();
+    // The launch URL, before bindUrl rewrites the hash (bindLaunchQueue skips this page's own launch).
+    const bootHref = location.href;
     loader.progress(0.1, 'Computing the sky');
 
     // Start everything that does not depend on state right away.
@@ -528,6 +530,8 @@ async function boot() {
             ...loadSavedDisplay(), ...(hash.skyDark ? { skyDark: hash.skyDark } : {}), ...(hash.aurora ? { aurora: hash.aurora } : {}),
         },
         quality: { setting: qualitySetting, active, ceiling: decision.ceiling },
+        // tab= (the install shortcut to Events): that tab, the phone's sheet raised to show it.
+        ...(hash.panel ? { ui: { panel: hash.panel, sheet: 'half' } } : {}),
         status: {
             phase: 'loading', progress: 0.1, webgl: env.can3d, onlineSearch: 'unknown',
             reducedMotion: env.reducedMotion, coarse: env.coarse, introPlaying: false,
@@ -655,6 +659,7 @@ async function boot() {
         suspended: () => !!store.get().ui.tour,
     });
     reportHashProblems(hash, bus);
+    bindLaunchQueue(bootHref);
     // A Mars link without the 3D view opens on the Earth: say why (as actions.standOnMars does).
     if (hash.host?.id === 'mars' && !env.can3d) bus.emit('toast', { message: 'Standing on Mars needs the 3D view.', kind: 'info' });
 
@@ -2058,8 +2063,35 @@ function applyHash(p) {
     // After the view and camera: a vantage keeps `cam` as its way back (absent: back to the globe).
     actions.setVantage?.(p.view === 'sky' || p.view === 'map' ? 'none' : p.vantage ?? 'none');
     if (typeof p.debug === 'boolean') settle(setDebug(p.debug));
+    if (p.panel) {
+        const ui = store.get().ui;
+        store.set({ ui: { ...ui, panel: p.panel, sheet: ui.sheet === 'peek' ? 'half' : ui.sheet } }, 'url');
+    }
     if (R.bus) reportHashProblems(p, R.bus);
     if (p.tour) settle(startTour(p.tour));
+}
+
+/**
+ * The installed app's launches (manifest.webmanifest launch_handler 'focus-existing'): a shortcut
+ * (Sky view, Events) or link opened while the app runs focuses this window instead of a new one,
+ * and its URL arrives here; its hash is applied like a hand-edited one. The first launch is this
+ * page's own (already applied at boot) and is skipped.
+ * @param {string} bootHref
+ */
+function bindLaunchQueue(bootHref) {
+    const q = /** @type {any} */ (window).launchQueue;
+    if (!q || typeof q.setConsumer !== 'function') return;
+    let first = true;
+    try {
+        q.setConsumer((params) => {
+            const url = String(params?.targetURL || '');
+            const own = first && url === bootHref;
+            first = false;
+            let hash = '';
+            try { hash = url && !own ? new URL(url).hash : ''; } catch { hash = ''; }
+            if (hash.length > 1) applyHash(parseHash(hash));
+        });
+    } catch { /* launch handling is a courtesy */ }
 }
 
 // ---------------------------------------------------------------------------------------------

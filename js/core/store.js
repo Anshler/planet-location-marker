@@ -59,6 +59,12 @@ export const VANTAGE_SETTINGS = Object.freeze(['none', 'l1', 'moon']);
 export const VIEW_MODES = Object.freeze(['orbit', 'sky', 'map']);
 
 /**
+ * ui.panel choices: the panel's tabs (ui/shell.js TABS, in display order). `tab=` in the URL opens
+ * one (the install shortcut to Events); it is read, never written.
+ */
+export const PANELS = Object.freeze(['sky', 'details', 'events', 'layers', 'settings', 'about']);
+
+/**
  * host: the world the observer stands on (ROADMAP stand-on-mars, `host=mars` + `hloc=` in the URL).
  * 'earth' is the observer's place; 'mars' is the sky view from an areographic site (planetocentric
  * °N/°E; astro/host-mars.js), Jezero Crater by default. The site is kept while on Earth, so 'Stand on

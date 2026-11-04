@@ -78,6 +78,7 @@ const FEATURE_NAMES = Object.freeze({
     planets: 'The planet medallions',
     pin: 'The location pin',
     flare: 'The lens flare',
+    longExposure: 'Long exposure',
     labels: 'Sky labels',
     rig: 'Camera motion',
     debug: 'The debug overlay',
@@ -100,7 +101,7 @@ const FEATURE_NAMES = Object.freeze({
  *          win?:Window, doc?:Document}} deps
  *   `rc`…`getTierCfg` may be omitted here and supplied later through `attach()`. A `governor` given
  *   here is fed idle ticks (display cadence) while the loop runs headless.
- * @returns {{start():void, stop():void, invalidate():void, snap:Snapshot, snapFull:Snapshot,
+ * @returns {{start():void, stop():void, invalidate():void, redraw():boolean, readonly labelOptions:object, snap:Snapshot, snapFull:Snapshot,
  *            attach(renderDeps:object):void, broadcast(method:string, a?:any, b?:any):void,
  *            callModule(m:RenderModule, method:string, a?:any, b?:any, c?:any):boolean, isDisabled(m:RenderModule):boolean,
  *            replaceModule(prev:RenderModule|null, next:RenderModule, name?:string):void,
@@ -609,6 +610,35 @@ export function createLoop(deps) {
         invalidate() {
             dirty = true;
         },
+        /**
+         * Draws one frame now, outside the frame cadence (rc.capture: postcards, Save image): the
+         * label feed's live points, every module's update() with the current camera and the last
+         * FrameInfo (dt 0), then rc.render(). The DOM labels, stats and the governor are left alone.
+         * @returns {boolean} false when nothing can be drawn (no render stack, paused, failed)
+         */
+        redraw() {
+            if (rc === null || renderPaused || renderFailed) return false;
+            const camera = (rig && rig.camera) || rc.camera;
+            fi.dtMs = 0;
+            fi.camera = camera;
+            fi.snap = snap;
+            for (let i = 0; i < modules.length; i++) callModule(modules[i], 'update', fi);
+            if (labelsFeed && labels && !disabled.has(labels)) {
+                try {
+                    labelView.viewportH = rc.size && rc.size.h > 0 ? rc.size.h : 0;
+                    labelsFeed.sync(camera, fi.skyBlend >= 0.5 ? 'sky' : 'orbit', labelView);
+                } catch (err) {
+                    reportOnce('labelsFeed.sync(redraw)', err);
+                }
+            }
+            rc.render();
+            return true;
+        },
+        /**
+         * The label pool's per-frame options as last drawn (read-only): cap, horizon, refrK, skyLum,
+         * upS/northS/eastS and the landscape. Captures reproject the label feed with them.
+         */
+        get labelOptions() { return labelOpts; },
         attach,
         broadcast,
         callModule,

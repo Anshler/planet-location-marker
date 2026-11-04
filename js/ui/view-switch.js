@@ -1,18 +1,22 @@
 /**
  * View switch cluster: the `Globe | Sky` segmented control, Earth-lock (Globe
- * only), tracking (Sky only: off → the selected body → the stars, K), Share, Fullscreen and Help. On mobile it becomes a floating column
- * (Globe/Sky, lock, share).
+ * only), tracking (Sky only: off → the selected body → the stars, K), Expose (Sky only: long
+ * exposures, ui/expose.js), Share, Fullscreen and Help. On mobile it becomes a floating column
+ * (Globe/Sky, lock, tracking, expose, share).
  *
- * Owns the share UX (SPEC F.4): `actions.share()` → 'shared' (system sheet, no
- * toast) | 'copied' ("Link copied") | 'failed' (a dialog with a selectable link
- * and a Copy button). Under reduced motion, view and place changes are cuts, so
- * a 200 ms fade overlay softens them.
+ * Owns the share UX (SPEC F.4): the Share button opens a two-option popover. 'Share link' is
+ * `actions.share()` → 'shared' (system sheet, no toast) | 'copied' ("Link copied") | 'failed' (a
+ * dialog with a selectable link and a Copy button); the S shortcut goes straight there. 'Postcard'
+ * opens the postcard dialog (ui/postcard.js), which also saves long exposures. Under reduced
+ * motion, view and place changes are cuts, so a 200 ms fade overlay softens them.
  *
  * @module ui/view-switch
  */
 
-import { h, on, setAttr, trapFocus } from './dom.js';
+import { h, on, setAttr, trapFocus, openPopover } from './dom.js';
 import { icon, swapIcon } from './icons.js';
+import { mountPostcard } from './postcard.js';
+import { mountExpose } from './expose.js';
 
 /**
  * Mounts the view switch.
@@ -32,15 +36,17 @@ export function mountViewSwitch(root, ctx) {
     const seg = h('div', { class: 'seg seg--view glass', role: 'radiogroup', 'aria-label': 'View' }, globeBtn, skyBtn);
     const lockBtn = h('button', { class: 'icon-btn icon-btn--glass glass vb-lock', type: 'button', 'aria-pressed': 'true', 'aria-label': 'Lock view to Earth', 'data-tip': 'Lock view to Earth', 'data-kbd': 'L' },
         icon('lock', { size: 19 }));
-    const shareBtn = h('button', { class: 'icon-btn icon-btn--glass glass vb-share', type: 'button', 'aria-label': 'Share a link to this view', 'data-tip': 'Share link', 'data-kbd': 'S' },
+    const shareBtn = h('button', { class: 'icon-btn icon-btn--glass glass vb-share', type: 'button', 'aria-label': 'Share this view', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'data-tip': 'Share', 'data-kbd': 'S' },
         icon('share', { size: 19 }));
+    const exposeBtn = h('button', { class: 'icon-btn icon-btn--glass glass vb-expose', type: 'button', 'aria-pressed': 'false', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'aria-label': 'Long exposure', 'data-tip': 'Long exposure' },
+        icon('aperture', { size: 19 }));
     const fsBtn = h('button', { class: 'icon-btn icon-btn--glass glass vb-fs', type: 'button', 'aria-pressed': 'false', 'aria-label': 'Fullscreen', 'data-tip': 'Fullscreen', 'data-kbd': 'F' },
         icon('fullscreen', { size: 19 }));
     const helpBtn = h('button', { class: 'icon-btn icon-btn--glass glass vb-help', type: 'button', 'aria-label': 'Keyboard shortcuts and help', 'data-tip': 'Shortcuts', 'data-kbd': '?' },
         icon('help', { size: 19 }));
     const trackBtn = h('button', { class: 'icon-btn icon-btn--glass glass vb-track', type: 'button', 'aria-pressed': 'false', 'aria-label': 'Tracking', 'data-tip': 'Track', 'data-kbd': 'K' },
         icon('crosshair', { size: 19 }));
-    root.append(seg, lockBtn, trackBtn, shareBtn, fsBtn, helpBtn);
+    root.append(seg, lockBtn, trackBtn, exposeBtn, shareBtn, fsBtn, helpBtn);
     root.setAttribute('role', 'toolbar');
     root.setAttribute('aria-label', 'View');
 
@@ -62,7 +68,6 @@ export function mountViewSwitch(root, ctx) {
     offs.push(on(trackBtn, 'click', () => ui.act('cycleTracking')));
     offs.push(on(fsBtn, 'click', () => ui.act('toggleFullscreen')));
     offs.push(on(helpBtn, 'click', () => ui.toggleHelp(true)));
-    offs.push(on(shareBtn, 'click', () => ui.share()));
     if (!document.fullscreenEnabled && !document.webkitFullscreenEnabled) fsBtn.hidden = true;
 
     function syncView() {
@@ -89,6 +94,7 @@ export function mountViewSwitch(root, ctx) {
             : trk === 'body' ? 'Tracking the body — next: lock to the stars' : 'Locked to the stars — next: tracking off';
         trackBtn.dataset.tip = next;
         setAttr(trackBtn, 'aria-label', next);
+        exposeBtn.hidden = !sky || store.get().status?.webgl === false;
     }
     offs.push(store.subscribe((s) => s.view, syncView, { immediate: true }));
     offs.push(store.subscribe((s) => s.selection, syncView));
@@ -173,9 +179,36 @@ export function mountViewSwitch(root, ctx) {
     }
     ui.share = share;
 
+    // ---------------------------------------------------------------- share menu, postcard, expose
+    const host = ui.root || document.body;
+    const postcard = mountPostcard(host, ctx);
+    ui.openPostcard = (opts) => postcard.open(opts);
+    const shareOpt = (iconName, title, desc) => h('button', { class: 'share-opt', type: 'button' }, icon(iconName, { size: 20 }),
+        h('span', { class: 'share-opt__text' }, h('span', { class: 'share-opt__title' }, title), h('span', { class: 'share-opt__desc' }, desc)));
+    const linkOpt = shareOpt('link', 'Share link', 'Opens exactly this view: place, time, camera and layers.');
+    const cardOpt = shareOpt('postcard', 'Postcard', 'A designed image of this view, ready to post.');
+    const sharePop = h('div', { class: 'popover pop-share', role: 'dialog', 'aria-label': 'Share', hidden: true }, linkOpt, cardOpt);
+    host.appendChild(sharePop);
+    let sharePopCtl = null;
+    const closeSharePop = () => { sharePopCtl?.close(); sharePopCtl = null; };
+    offs.push(on(shareBtn, 'click', () => {
+        if (sharePopCtl) { closeSharePop(); return; }
+        sharePopCtl = openPopover(shareBtn, sharePop, {
+            placement: ui.layout === 'mobile' ? 'bottom' : 'top', onClose: () => { sharePopCtl = null; },
+        });
+    }));
+    // Both run inside the tap, so the system share sheet keeps its user activation.
+    offs.push(on(linkOpt, 'click', () => { closeSharePop(); share(); }));
+    offs.push(on(cardOpt, 'click', () => { closeSharePop(); postcard.open(); }));
+    const expose = mountExpose(exposeBtn, host, ctx, { savePhoto: (caption) => postcard.open({ mode: 'photo', caption }) });
+
     return {
         destroy() {
             offs.forEach((off) => off());
+            closeSharePop();
+            sharePop.remove();
+            postcard.destroy();
+            expose.destroy();
             clearTimeout(fadeTimer);
             release?.();
             layer.remove();

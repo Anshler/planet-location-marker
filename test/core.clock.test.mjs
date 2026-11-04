@@ -431,7 +431,7 @@ test('range loop: progress, wrap, effective rate, seek', () => {
     const from = Date.UTC(2026, 0, 1), to = Date.UTC(2026, 0, 11);
     assert.equal(c.setRange({ fromMs: from, toMs: to, durationS: 1, loop: 'loop' }), true);
     assert.deepEqual(ev.types, ['range', 'rate', 'jump']);
-    assert.deepEqual(c.range, { fromMs: from, toMs: to, durationS: 1, loop: 'loop', ease: null });
+    assert.deepEqual(c.range, { fromMs: from, toMs: to, durationS: 1, loop: 'loop', ease: null, strideMs: null });
     assert.equal(c.tMs, from);
     assert.equal(c.progress(), 0);
     assert.equal(c.rate, 10 * 86400, 'effective rate: 10 days per second');
@@ -499,6 +499,41 @@ test('range ease: out decelerates into the end, in leaves the start from rest, s
     const bad = createClock({ now: fakeNow() });
     bad.setRange({ fromMs: from, toMs: to, ease: 'bounce' });
     assert.equal(bad.range.ease, null, 'unknown eases are linear');
+});
+
+test('range stride: whole steps only, at most one per tick (frame-paced), linear', () => {
+    const from = T0, to = T0 + 364 * DAY;
+    // 20 s for 364 days needs ≥ 18.2 fps: at 60 fps the wall clock leads, every value is a whole day.
+    const fast = createClock({ now: fakeNow() });
+    assert.equal(fast.setRange({ fromMs: from, toMs: to, durationS: 20, loop: 'once', strideMs: DAY, ease: 'out' }), true);
+    assert.equal(fast.range.strideMs, DAY);
+    assert.equal(fast.range.ease, null, 'a stride implies a linear range');
+    const seen = new Set();
+    let prev = fast.tMs;
+    const d = driver(fast, 1000 / 60);
+    for (let i = 0; i < 1300 && fast.playing; i++) {
+        d.run(1000 / 60);
+        const k = (fast.tMs - from) / DAY;
+        assert.equal(k, Math.round(k), `whole days only (${k})`);
+        assert.ok(fast.tMs - prev <= DAY, 'never more than one step per tick');
+        prev = fast.tMs;
+        seen.add(k);
+    }
+    assert.equal(fast.tMs, to, 'ends on the last step');
+    assert.equal(seen.size, 365, 'every day 0…364 was shown');
+    // At 5 fps (200 ms ticks) the wall clock would skip ~3 days per tick: the stride holds it to one.
+    const slow = createClock({ now: fakeNow() });
+    slow.setRange({ fromMs: from, toMs: to, durationS: 20, loop: 'once', strideMs: DAY });
+    const ds = driver(slow, 200);
+    ds.run(2000);
+    assert.equal(slow.tMs, from + 10 * DAY, 'ten ticks, ten days');
+    assert.equal(slow.rate, 364 * DAY / 20000, 'the effective rate is still the nominal one');
+    slow.seek(0.5);
+    assert.equal(slow.tMs, from + 182 * DAY, 'seek lands on a step');
+    // A stride that does not fit twice in the span is ignored.
+    const odd = createClock({ now: fakeNow() });
+    odd.setRange({ fromMs: from, toMs: from + DAY, strideMs: DAY });
+    assert.equal(odd.range.strideMs, null);
 });
 
 test('range once pauses at the end; play() replays from the start', () => {

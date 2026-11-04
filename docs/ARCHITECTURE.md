@@ -56,7 +56,9 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/main.js` | Boot sequence, service wiring, store-to-module subscriptions, click picking, tier switching, the intro runner, `window.__app`. |
 | App glue | `js/app/actions.js` | `createActions(deps)`: the only API the UI calls besides `store` and `clock`. Also `normalizeObserver`, `eventFraming` (how a jump frames its event), `eclipseFocusExpired`, `eclipsePlayRange` and `lookSpanning`. |
 | | `js/app/eclipse-chase.js` | `ribbonPlan` (which eclipse the globe's path ribbon shows), `chaseLegs`/`chaseTarget` and `createEclipseChase` (the shadow chase behind `actions.chaseEclipse`). No three.js. |
-| | `js/app/loop.js` | `createLoop(deps)`: the frame loop with render-on-demand, guarded module calls and strikes, governor sampling and the 4 Hz readout. |
+| | `js/app/loop.js` | `createLoop(deps)`: the frame loop with render-on-demand, guarded module calls and strikes, governor sampling and the 4 Hz readout. `redraw()` draws one frame on demand (captures). |
+| | `js/app/capture.js` | `createCapture(deps).frame(opts)`: the scene rendered once at a requested size into a 2D canvas, with the label feed's labels reprojected for that camera (`projectAnchor`, `projectLabels`, `paintLabels`). Postcards and the long exposure's Save image. No three.js. |
+| | `js/app/expose.js` | Long-exposure presets, pure: `photoLayers` (no line art in a stack), `trailsLook`, `nextDarkMs`, `meanNoonMs`, `analemmaPlan`. |
 | | `js/app/labels-feed.js` | `buildAnchors(state, snap, catalog, trails)` and `createLabelsFeed(deps)`: label anchors with live vectors. |
 | | `js/app/intro.js` | `playIntro(opts)`: the first-visit camera flight, pin drop and beam launch. |
 | | `js/app/fallback.js` | Text-mode banner, context-lost overlay, fatal-error hand-off. |
@@ -85,8 +87,9 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/astro/geomag.js` | The IGRF centred dipole (1900–2030, held outside) and the Starkov auroral ovals for an activity setting (quiet / typical / storm = Kp 1 / 3 / 7, never live data); `computeAurora` fills `snap.aurora` (pole, magnetic noon, the 48-float boundary table, the animation phase); `auroraText` for the Sky panel. |
 | | `js/astro/totality.js` | Totality from the ground: Baily's beads (lunar limb profile), corona epoch parameters, contact-time display adaptation, the horizon ring's azimuthal shape. Illustrative in detail (ASTRONOMY.md). |
 | Data | `js/data/catalog.js` | Decodes `data/sky.json` into GPU-ready typed arrays in the scene frame. |
-| Render | `js/render/context.js` | Renderer, scene, camera, tier switching, `invalidate`/`onInvalidate`, context loss, stats. |
-| | `js/render/postfx.js` | Composer with bloom and the final pass (FXAA when the scene target has no MSAA; the night-vision grade, `rc.setVision`). |
+| Render | `js/render/context.js` | Renderer, scene, camera, tier switching, `invalidate`/`onInvalidate`, context loss, stats; `setAccumulation` (long exposures) and `capture` (a one-task render at another size). |
+| | `js/render/postfx.js` | Composer with bloom and the final pass (FXAA when the scene target has no MSAA; the night-vision grade, `rc.setVision`). While Expose is on, `AccumPass` (`accum.js`: two half-float targets, max-stacking, bright-only for the analemma) sits between the scene and the bloom. |
+| | `js/render/long-exposure.js` | The long exposure's controller, a render module for its per-frame hook: turns stacking on in sky view while `ui.expose` is set, resets the stack when the framing changes, gates star trails by daylight, reports `stats()`. |
 | | `js/render/textures.js` | Placeholder-first texture store with byte-weighted progress. |
 | | `js/render/earth.js`, `atmosphere.js` | Earth shader (day, night lights with close-zoom filtering, sun glint and moonglint, moonlight, twilight, sculpted clouds, the face-on aurora, eclipse shadow, footprint) and atmosphere. |
 | | `js/render/aurora.js` | The aurora's limb-curtain shell (High and Max) and the driver of `AURORA_CHUNK` (`shaders/aurora.glsl.js`), whose uniforms the Earth and cloud materials also carry for the face-on oval on every tier. |
@@ -98,7 +101,7 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/render/trails.js`, `flare.js`, `debug.js` | Retrograde paths, procedural lens flare (six-spike starburst, hexagonal aperture ghosts; no textures), `?debug=1` overlay. |
 | | `js/render/eclipse-path.js` | The path of a central solar eclipse on the globe: ribbon, centre line, 30-min ticks, the live umbra marker; reveal modes for the chase. |
 | Camera | `js/camera/rig.js`, `picking.js` | Orbit and sky-view camera, Earth-lock, fly-to tweens, `follow()` (the shadow chase); analytic globe and glyph picking. |
-| UI | `js/ui/index.js` and its modules | Shell, top bar, time bar, Sky Now, body card (with `eyepiece.js`: the 2D-canvas eyepiece portrait, also in text mode), events, Eclipse Companion, layers, settings, about, help, toasts, shortcuts, announcer. |
+| UI | `js/ui/index.js` and its modules | Shell, top bar, time bar, Sky Now, body card (with `eyepiece.js`: the 2D-canvas eyepiece portrait, also in text mode), events, Eclipse Companion, layers, settings, about, help, toasts, shortcuts, announcer; the share menu, `postcard.js` (postcard and Save-image dialog, the typographic band) and `expose.js` (Expose presets and the exposure's status pill). |
 
 ---
 
@@ -218,6 +221,36 @@ critical CSS read them.
   contact track and disc are written from the 4 Hz `readout` only when they change; it announces
   itself once per eclipse. 'Stand in the path' appears outside the
   band of a central eclipse (the global `solar-eclipse` event, or a global focus, says which).
+- **Long exposure** (`ui.expose = 'trails' | 'analemma' | 'free' | null`, not in the URL; sky view
+  only, the globe ends it). `actions.expose(kind)` applies an `app/expose.js` preset: star trails
+  jump to tonight's darkness (Sun below −12°), run at 10 min/s with tracking off and face the
+  visible pole; the analemma is a one-year `once` range at mean solar noon with a one-day
+  `strideMs` (the clock steps whole days, at most one per tick, so a slow frame rate stretches the
+  timelapse instead of skipping days), held on its first day until the look tween has landed.
+  `render/long-exposure.js` (a module, for its per-frame hook) calls `rc.setAccumulation(true)`:
+  postfx adds `AccumPass` (two RGBA16F targets at the drawing-buffer size, allocated then and freed
+  on stop; a lost context drops them with the composer; a low tier booted on the direct path gets
+  the lean chain without bloom meanwhile). Each rendered frame is max-stacked; the stack resets
+  when the rig's local view (`getView`, or the tracking mode while tracking), a rig or clock tween,
+  a drag, a clock jump, the layers, the observer, the size, the pixel ratio or the tier changes,
+  never on the camera's world matrix (it turns with the Earth every frame). Star trails keep, but
+  stop adding to, the stack while the Sun is above −8°; the analemma stacks bright-only (the first
+  frame, then only the Sun's HDR core). While exposing `main.js` gives the renderers
+  `photoLayers` (no constellation figures, grids, ecliptic or paths) and no selection (no reticle),
+  hides the flare and stops twinkle; CSS hides the DOM labels (`body.is-exposing`). The store's
+  layers and selection are untouched. `actions.exposeStatus()` feeds the status pill.
+- **Capture** (postcards, Save image). `actions.capture({width, height, scale, labels,
+  insetBottom})` → `app/capture.js` → `rc.capture`: in one task the renderer, the composer (the
+  stack frozen and bypassed) and the camera (aspect; the shorter side keeps the screen's shorter
+  side's angle, capped at 110°; the view centred above a caption band) are set to the card's own
+  size, `loop.redraw()` runs the module updates, the label-feed sync and `rc.render()`, the canvas is
+  drawn into a 2D canvas, and everything is restored and redrawn before the task yields, so nothing
+  is presented and nothing flashes. Labels are the feed's anchors reprojected with that camera, not
+  DOM rects. With no size it is the screen frame itself (a long exposure's stack included). The UI's
+  `postcard.js` lays out the band first (date and time, place, 'Up now', the selected body's
+  sentence, the brand mark), encodes a JPEG as soon as its dialog opens, and shares it with
+  `navigator.share({files})` straight from the next tap (iOS needs that fresh activation) or
+  downloads it. Text mode draws the band on a drawn night sky.
 - **`bus`** carries transient events. `readout` is the full-detail snapshot at 4 Hz, published
   only when time or the observer changed. The UI requests its own almanac data through
   `services.astro`. `main.js` pushes one almanac and events set at boot as a head start.
@@ -264,6 +297,10 @@ frame(now):  dt = min(now − last, 100)
   hands over to text mode through `onRenderFailure`.
 - **No allocation.** One `FrameInfo` and one exposure object are reused. The option objects are
   frozen constants. Loops are indexed.
+- **Redraw.** `loop.redraw()` draws one frame outside the cadence for `rc.capture`: the module
+  updates with the current camera and the last `FrameInfo` (dt 0), the label feed's sync, then
+  `rc.render()`; no DOM labels, stats or governor. `loop.labelOptions` exposes the label pool's
+  per-frame options so a capture culls labels as the pool does.
 - **Label cap.** Sky view uses the tier's `labelCap`. Orbit view caps at 18 to keep the globe clear.
 - **Sky site.** `main.js` keeps the observer's light pollution (`astro/skyglow.js` `siteFor`: Auto from
   `cities.list`, or the Sky darkness setting) and hands it over with `loop.setSkySite(site)` on every
@@ -318,6 +355,9 @@ To add one:
 3. Add `create('foo', …)` next to the others. The order of that list is the update order.
 
 It then receives layers, selection, tier and view changes, and its failures are contained.
+A module may draw nothing at all: `long-exposure.js` has an empty group and is a module only for
+`update(fi)`, which runs right before `rc.render()` on every rendered frame (it is created after
+the rig, which it reads).
 
 The render order is fixed in SPEC §E.1. From back to front:
 

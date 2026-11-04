@@ -456,10 +456,13 @@ async function boot() {
     if (window.__pcSlow && qualitySetting === 'auto') active = governor.pin('low');
 
     const layers = { ...DEFAULT_STATE.layers, ...(loadSavedLayers() ?? {}), ...(hash.layers ?? {}) };
+    // A vantage point (vt=) is a globe-view pose, and needs the 3D view.
+    const vantage = env.can3d && (hash.vantage === 'l1' || hash.vantage === 'moon') ? hash.vantage : 'none';
     const view = {
-        mode: env.can3d && hash.view === 'sky' ? 'sky' : 'orbit', earthLock: hash.earthLock ?? true,
+        mode: env.can3d && hash.view === 'sky' && vantage === 'none' ? 'sky' : 'orbit', earthLock: hash.earthLock ?? true,
         // Body tracking needs the body: trk=b without sel= tracks nothing.
         track: hash.track === 'stars' || (hash.track === 'body' && isBodyId(hash.selection)) ? hash.track : 'none',
+        vantage,
     };
     const store = createStore({
         observer,
@@ -858,12 +861,18 @@ async function bootRender(ctx) {
     // Modules, each isolated: a failure skips that feature only.
     const names = new Map();
     const modules = [];
-    const create = (name, factory) => {
+    // The observer's furniture (beams, pin, medallions, paths, the eclipse ribbon, the flare) sits in
+    // one group that a vantage point hides: L1 and lunar orbit show the Earth as a camera would.
+    const furniture = new rc.THREE.Group();
+    furniture.name = 'furniture';
+    rc.scene.add(furniture);
+    R.furniture = furniture;
+    const create = (name, factory, parent = rc.scene) => {
         if (!factory) return null;
         try {
             const mod = factory();
             if (!mod || !mod.object3d) throw new Error(`${name}: factory returned no object3d`);
-            rc.scene.add(mod.object3d);
+            parent.add(mod.object3d);
             modules.push(mod);
             names.set(mod, name);
             R.mods[name] = mod;
@@ -885,13 +894,13 @@ async function bootRender(ctx) {
     create('bodies', m.bodies && (() => m.bodies.createBodies(rc, { textures, horizon })));
     create('totality', m.totality && (() => m.totality.createTotality(rc)));
     create('ground', m.ground && (() => m.ground.createGround(rc, { textures, horizon, cities })));
-    const trails = create('trails', m.trails && (() => m.trails.createTrails(rc)));
-    const eclipseRibbon = create('eclipsePath', m.eclipsePath && (() => m.eclipsePath.createEclipsePath(rc)));
-    const beams = create('beams', m.beams && (() => m.beams.createBeams(rc, { reducedMotion: rm })));
+    const trails = create('trails', m.trails && (() => m.trails.createTrails(rc)), furniture);
+    const eclipseRibbon = create('eclipsePath', m.eclipsePath && (() => m.eclipsePath.createEclipsePath(rc)), furniture);
+    const beams = create('beams', m.beams && (() => m.beams.createBeams(rc, { reducedMotion: rm })), furniture);
     // After the beams: the medallions sit on the label anchors the beams compute each frame.
-    create('planets', m.planets && (() => m.planets.createPlanets(rc, { beams, isLabelShown: (id) => R.labels?.isShown?.(id) ?? null })));
-    const pin = create('pin', m.pin && (() => m.pin.createPin(rc)));
-    create('flare', m.flare && (() => m.flare.createFlare(rc, { horizon })));
+    create('planets', m.planets && (() => m.planets.createPlanets(rc, { beams, isLabelShown: (id) => R.labels?.isShown?.(id) ?? null })), furniture);
+    const pin = create('pin', m.pin && (() => m.pin.createPin(rc)), furniture);
+    create('flare', m.flare && (() => m.flare.createFlare(rc, { horizon })), furniture);
 
     // Labels and camera rig.
     let labels = null;
@@ -929,7 +938,7 @@ async function bootRender(ctx) {
     const st0 = store.get();
     for (const mod of modules) {
         loop.callModule(mod, 'setQuality', currentCfg);
-        loop.callModule(mod, 'setLayers', st0.layers);
+        loop.callModule(mod, 'setLayers', drawnLayers(st0));
         loop.callModule(mod, 'setSelection', st0.selection);
         loop.callModule(mod, 'apply', snap);
     }
@@ -967,6 +976,8 @@ async function bootRender(ctx) {
         if (hash.cam) rig.setView?.(hash.cam);
         rig.update?.(0, snap);
         if (!hash.cam && st0.view.mode === 'sky') settle(rig.setMode?.('sky', { animate: false, look: selectionLook(store.get().selection, snap) }));
+        // A vantage point from the link (vt=): cut there; `cam` is the orbit pose it returns to.
+        if (st0.view.vantage !== 'none') settle(rig.setVantage?.(st0.view.vantage, { animate: false }));
     } catch (err) {
         console.error('[main] initial camera placement failed', err);
     }
@@ -992,7 +1003,7 @@ async function bootRender(ctx) {
     // 9. Intro (first visit) or a quick launch.
     if (introWanted) {
         settle(runIntro({ preRoll: true }));
-    } else if (st0.view.mode === 'orbit' && !hash.cam) {
+    } else if (st0.view.mode === 'orbit' && !hash.cam && st0.view.vantage === 'none') {
         try {
             settle(beams?.launch?.({ staggerMs: rm ? 0 : 90 }));
             if (!rm) settle(pin?.drop?.());
@@ -1030,7 +1041,7 @@ function replaceSky(skyMod, rc, catalog, textures, reducedMotion) {
         R.loop.replaceModule(prev, next, 'sky');
         const st = R.store.get();
         R.loop.callModule(next, 'setQuality', currentCfg);
-        R.loop.callModule(next, 'setLayers', st.layers);
+        R.loop.callModule(next, 'setLayers', drawnLayers(st));
         R.loop.callModule(next, 'setSelection', st.selection);
     } catch (err) {
         console.error('[main] sky rebuild failed', err);
@@ -1038,20 +1049,32 @@ function replaceSky(skyMod, rc, catalog, textures, reducedMotion) {
 }
 
 function wantIntro(env, hash, store) {
-    if (env.reducedMotion || hash.intro === false || hash.tour) return false;
+    if (env.reducedMotion || hash.intro === false || hash.tour || store.get().view.vantage !== 'none') return false;
     if (hash.intro === true) return true;
     if (hash.cam || store.get().view.mode !== 'orbit') return false;
     return !prefs.load('introSeen', false);
 }
 
+/**
+ * The layers the renderers draw: the store's, minus the chart overlays (constellation figures, grids,
+ * the ecliptic, the visibility footprint and sub-points) while a vantage point shows the Earth as a
+ * camera out there would. The store keeps the user's choices.
+ */
+const VANTAGE_LAYERS_OFF = Object.freeze({ constellations: false, eqGrid: false, ecliptic: false, altAzGrid: false, footprint: false, subpoints: false });
+function drawnLayers(st) {
+    // Until the flight back has landed, the furniture (main's vantage subscriber) is still away too.
+    const l = st.view.vantage !== 'none' || R.furniture?.visible === false ? { ...st.layers, ...VANTAGE_LAYERS_OFF } : st.layers;
+    // A long exposure (ui.expose) draws the photo layers: no line art.
+    return st.ui.expose ? photoLayers(l) : l;
+}
+
 /** Wires store changes, input and GPU events to the render stack. */
 function bindRenderState({ store, bus, clock, rc, rig, loop, snap, astro, m, labels, labelsFeed, textures }) {
     // Layers / selection / observer → modules. While a long exposure runs (ui.expose) the renderers
-    // get the photo layers (no line art) and no selection (no reticle); the store keeps both.
+    // get the photo layers (no line art, drawnLayers) and no selection (no reticle); the store keeps both.
     const exposing = () => !!store.get().ui.expose;
-    const drawnLayers = (l) => (exposing() ? photoLayers(l) : l);
-    store.subscribe((s) => s.layers, (l) => {
-        loop.broadcast('setLayers', drawnLayers(l));
+    store.subscribe((s) => s.layers, () => {
+        loop.broadcast('setLayers', drawnLayers(store.get()));
         updateTrails({ store, clock, astro, loop, labelsFeed });
     });
     store.subscribe((s) => s.selection, (id) => {
@@ -1060,7 +1083,7 @@ function bindRenderState({ store, bus, clock, rc, rig, loop, snap, astro, m, lab
     });
     store.subscribe((s) => !!s.ui.expose, (on) => {
         const st = store.get();
-        loop.broadcast('setLayers', drawnLayers(st.layers));
+        loop.broadcast('setLayers', drawnLayers(st));
         loop.broadcast('setSelection', on ? null : st.selection);
         // No lens-flare ghosts in the stack, and steady stars (no twinkle beads along the trails).
         const flare = R.mods.flare;
@@ -1100,6 +1123,32 @@ function bindRenderState({ store, bus, clock, rc, rig, loop, snap, astro, m, lab
         } catch (err) {
             console.error('[main] view change failed', err);
         }
+    });
+    // Vantage points (after the view.mode subscriber, so a switch to sky view leads): the rig flies
+    // there and back; the observer's furniture and the labels go as the flight starts and return
+    // once the camera is home. Another camera move ending a vantage clears it here.
+    const showFurniture = (on) => {
+        if (R.furniture) R.furniture.visible = on;
+        document.body.classList.toggle('is-vantage', !on);
+        loop.broadcast('setLayers', drawnLayers(store.get()));
+    };
+    showFurniture(store.get().view.vantage === 'none');
+    store.subscribe((s) => s.view.vantage, (vt) => {
+        if (vt !== 'none') showFurniture(false);
+        let p = null;
+        try {
+            p = rig.setVantage?.(vt, { animate: !store.get().status.reducedMotion });
+        } catch (err) {
+            console.error('[main] vantage change failed', err);
+        }
+        Promise.resolve(p).catch(() => false).then(() => {
+            if (store.get().view.vantage === 'none' && rig.vantage === 'none') showFurniture(true);
+        });
+    });
+    rig.onVantageEnd?.(({ reason }) => {
+        const st = store.get();
+        if (st.view.vantage !== 'none') store.set({ view: { ...st.view, vantage: 'none' } }, 'rig');
+        if (reason === 'failed') bus.emit('toast', { message: "That vantage point couldn't load.", kind: 'warn' });
     });
     store.subscribe((s) => s.status.reducedMotion, (v) => {
         for (const mod of [R.mods.sky, R.mods.beams, R.mods.pin]) if (mod) loop.callModule(mod, 'setReducedMotion', v || (mod === R.mods.sky && exposing()));
@@ -1252,6 +1301,8 @@ function bindViewInsets(rig, store) {
  * double-click on empty sky centres it.
  */
 function handleSceneClick({ store, rc, rig, snap, pick, ndc, dbl }) {
+    // A vantage point is a camera, not a map: nothing to pick from 1.5 million km.
+    if (store.get().view.vantage !== 'none' || (rig.vantage ?? 'none') !== 'none') return;
     const camera = rig.camera ?? rc.camera;
     let id = null;
     try {
@@ -1378,6 +1429,11 @@ async function runIntro({ force = false, preRoll = false } = {}) {
     const rig = R.rig;
     if (!store || !rig || introAbort) return 'busy';
     if (store.get().status.reducedMotion && !force) return 'unavailable';
+    if (store.get().view.vantage !== 'none') {
+        // The intro writes the camera itself: leave a vantage point at once (a cut home).
+        try { settle(rig.setVantage?.('none', { animate: false })); } catch { /* the intro takes over anyway */ }
+        store.set({ view: { ...store.get().view, vantage: 'none' } }, 'intro');
+    }
     if (store.get().view.mode !== 'orbit') {
         store.set({ view: { ...store.get().view, mode: 'orbit' } }, 'intro');
     }
@@ -1483,6 +1539,8 @@ function applyHash(p) {
     if (p.cam && R.rig) {
         try { R.rig.setView?.(p.cam); } catch (err) { console.error('[main] camera from link failed', err); }
     }
+    // After the view and camera: a vantage keeps `cam` as its way back (absent: back to the globe).
+    actions.setVantage?.(p.view === 'sky' ? 'none' : p.vantage ?? 'none');
     if (typeof p.debug === 'boolean') settle(setDebug(p.debug));
     if (R.bus) reportHashProblems(p, R.bus);
     if (p.tour) settle(startTour(p.tour));

@@ -81,6 +81,10 @@ const DISC_BLENDING = {
     blendSrcAlpha: THREE.OneFactor, blendDstAlpha: THREE.OneMinusSrcAlphaFactor,
 };
 const RETICLE_GAP_PX = 7;
+/** Lunar orbit: the Moon's pinned NDC depth + 1 (window depth 1e-5, ~170 steps of a 24-bit buffer). */
+const MOON_FRONT_Z = 2e-5;
+/** Lunar orbit: the surface's brightness relative to the Moon's tuned disc. */
+const MOON_FRONT_GAIN = 0.42;
 const ACQUIRE_S = 0.45;
 const EXT_K = [0.10, 0.17, 0.30];
 
@@ -314,6 +318,13 @@ export function createBodies(rc, deps = {}) {
 
     // --- Moon -------------------------------------------------------------------------------------------
     const moonGeometry = new THREE.SphereGeometry(MOON_RADIUS_ER, 64, 32);
+    // Lunar orbit (FrameInfo.moonFront): depth pinned in front (MOON_VERT uNearZ), the depth pass
+    // painting the disc black so the Earth behind the limb is covered (the colour pass adds the
+    // Moon's light on top), and a finer sphere: from 150 km up the 64-segment limb shows as
+    // facets 6 px deep at 18°; 384 segments leave a quarter pixel. Built on first use.
+    const moonNearZ = { value: 0 };
+    let moonHiGeometry = null;
+    let moonFront = false;
     const moonUniforms = {
         uMap: { value: textures ? textures.get('moon') : null },
         uSunDir: { value: new THREE.Vector3(1, 0, 0) },
@@ -327,6 +338,7 @@ export function createBodies(rc, deps = {}) {
         uUmbraGain: { value: 1 },
         // The Sun's angular radius seen from the Moon (sunAngularRadius; within 0.3 % of Earth's).
         uSunR: { value: SUN_ANG_RADIUS_1AU_RAD },
+        uNearZ: moonNearZ,
         ...refr,
     };
     if (!moonUniforms.uMap.value) {
@@ -339,7 +351,7 @@ export function createBodies(rc, deps = {}) {
     // (solar eclipses) even though its colour is added on top of the sky.
     // (No tonemapping/colorspace includes, unlike every other fragment: colour writes are off.)
     const moonDepthMaterial = new THREE.ShaderMaterial({
-        name: 'bodies.moon.depth', vertexShader: MOON_VERT, uniforms: { ...refr },
+        name: 'bodies.moon.depth', vertexShader: MOON_VERT, uniforms: { ...refr, uNearZ: moonNearZ },
         fragmentShader: 'void main() { gl_FragColor = vec4(0.0); }',
         colorWrite: false, depthWrite: true, depthTest: true,
         polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
@@ -662,10 +674,13 @@ export function createBodies(rc, deps = {}) {
         // Moon: extinction tint, and its direction/size as seen from the camera (parallax matters
         // at 60 Earth radii: from orbit it can sit degrees away from the observer's direction).
         extinctionRGB(sinAlt[MOON], tint);
+        // From lunar orbit the surface fills the frame beside the Earth (albedo 0.12 against 0.3):
+        // the small disc's display gain would wash it out to white.
+        const mg = fi.moonFront ? MOON_FRONT_GAIN * display : display;
         moonUniforms.uTint.value.set(
-            (1 + (tint[0] - 1) * skyBlend) * display,
-            (1 + (tint[1] - 1) * skyBlend) * display,
-            (1 + (tint[2] - 1) * skyBlend) * display);
+            (1 + (tint[0] - 1) * skyBlend) * mg,
+            (1 + (tint[1] - 1) * skyBlend) * mg,
+            (1 + (tint[2] - 1) * skyBlend) * mg);
         let moonAngR = 0.0045;
         if (cam) {
             tmpV.copy(moonDrawPos).sub(cam.position);
@@ -677,6 +692,14 @@ export function createBodies(rc, deps = {}) {
             }
         }
         moon.visible = moonDepth.visible = haveSnap;
+        const front = !!fi.moonFront;
+        if (front !== moonFront) {
+            moonFront = front;
+            moonNearZ.value = front ? MOON_FRONT_Z : 0;
+            moonDepthMaterial.colorWrite = front;
+            if (front && !moonHiGeometry) moonHiGeometry = new THREE.SphereGeometry(MOON_RADIUS_ER, 384, 192);
+            moon.geometry = moonDepth.geometry = front ? moonHiGeometry : moonGeometry;
+        }
 
         // Totality on screen, in the Sun quad's axes (DISC_VERT: screen-aligned, radians at the
         // view centre): the Moon's offset as actually projected, and solar north.
@@ -787,6 +810,7 @@ export function createBodies(rc, deps = {}) {
         quad.dispose();
         glyphGeo.dispose();
         moonGeometry.dispose();
+        moonHiGeometry?.dispose();
         sunMaterial.dispose(); aureoleMaterial.dispose(); glyphMaterial.dispose(); reticleMaterial.dispose();
         moonMaterial.dispose(); moonDepthMaterial.dispose();
     }

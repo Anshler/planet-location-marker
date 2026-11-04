@@ -57,6 +57,7 @@ export function bindShortcuts(ctx) {
         if (st.ui?.help) { ui?.toggleHelp?.(false); e.preventDefault(); return; }
         if (isTyping(e.target)) { /** @type {HTMLElement} */ (e.target).blur(); return; }
         if (st.ui?.cinema) { act('toggleCinema'); e.preventDefault(); return; }
+        if ((st.view?.vantage ?? 'none') !== 'none') { act('setVantage', 'none'); flash('Back to the globe'); e.preventDefault(); return; }
         if (st.selection) { act('select', null); e.preventDefault(); }
     }
 

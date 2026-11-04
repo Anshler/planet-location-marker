@@ -5,7 +5,9 @@
 //
 // `sky` is the Sky darkness setting: auto (light pollution estimated from nearby cities), pristine,
 // or a Bortle class 1–9. `au` is the Aurora activity setting: quiet, typical (default) or storm.
-// `trk` is sky-view tracking: b (the selected body) or s (the stars); absent = none. A sky `cam`
+// `trk` is sky-view tracking: b (the selected body) or s (the stars); absent = none. `vt` is a
+// vantage point of the globe view: l1 (the sunlit Earth from L1) or moon (Earthrise from lunar
+// orbit); it implies the globe view, and its `cam` is the orbit pose it returns to. A sky `cam`
 // keeps its field to 0.2° (the telescope zoom) with three significant digits. `tour` starts a
 // guided tour (core/tour-catalog.js) once the app is ready; it is read, never written back.
 //
@@ -16,7 +18,7 @@
 // short; `t` is omitted while Live.
 
 import { MIN_MS, MAX_MS, snapRate } from './clock.js';
-import { DEFAULT_STATE, SKY_DARK_SETTINGS, AURORA_SETTINGS } from './store.js';
+import { DEFAULT_STATE, SKY_DARK_SETTINGS, AURORA_SETTINGS, VANTAGE_SETTINGS } from './store.js';
 import { canonTz, daysInMonth } from './tz.js';
 import { isTourId } from './tour-catalog.js';
 
@@ -30,7 +32,7 @@ export const LAYER_CODES = Object.freeze([
     ['p', 'subpoints'], ['t', 'trails'], ['l', 'labels'], ['d', 'landscape'],
 ].map((pair) => Object.freeze(pair)));
 const LAYER_BY_CODE = new Map(LAYER_CODES);
-const KNOWN_KEYS = new Set(['loc', 'n', 'cc', 'tz', 'el', 't', 'r', 'p', 'view', 'lock', 'sel', 'ly', 'q', 'sky', 'au', 'cam', 'trk', 'intro', 'debug', 'tour']);
+const KNOWN_KEYS = new Set(['loc', 'n', 'cc', 'tz', 'el', 't', 'r', 'p', 'view', 'lock', 'sel', 'ly', 'q', 'sky', 'au', 'cam', 'trk', 'vt', 'intro', 'debug', 'tour']);
 const MAX_HASH_LEN = 4096;
 const NAME_MAX = 80;
 const ELEV_MIN = -500, ELEV_MAX = 9000;
@@ -322,7 +324,7 @@ function parseFlag(v, emptyMeans) {
     return undefined;
 }
 
-/** view, lock, sel, ly, q, cam, intro, debug, tour. */
+/** view, lock, sel, ly, q, sky, au, cam, trk, vt, intro, debug, tour. */
 function parseViewKeys(params, out, invalid) {
     if (params.has('view')) {
         const v = params.get('view').trim().toLowerCase();
@@ -373,6 +375,11 @@ function parseViewKeys(params, out, invalid) {
         const v = params.get('trk').trim().toLowerCase();
         if (Object.hasOwn(TRACK_CODES, v)) out.track = TRACK_CODES[v];
         else if (v !== '' && v !== '0' && v !== 'none') invalid.push('trk');
+    }
+    if (params.has('vt')) {
+        const v = params.get('vt').trim().toLowerCase();
+        if (v !== 'none' && VANTAGE_SETTINGS.includes(v)) out.vantage = v;
+        else if (v !== '' && v !== '0' && v !== 'none') invalid.push('vt');
     }
     if (params.has('intro')) {
         const f = parseFlag(params.get('intro'), undefined);
@@ -450,6 +457,8 @@ export function serializeHash({ state, clock, cam, extra } = {}) {
         if (s.view?.earthLock === false) parts.push('lock=0');
         const trk = s.view?.track;
         if (trk === 'body' || trk === 'stars') parts.push(`trk=${trk[0]}`);
+        const vt = s.view?.vantage;
+        if (s.view?.mode !== 'sky' && vt !== 'none' && VANTAGE_SETTINGS.includes(vt)) parts.push(`vt=${vt}`);
         if (typeof s.selection === 'string' && BODY_IDS.includes(s.selection)) parts.push(`sel=${s.selection}`);
         const ly = layersToCode(s.layers);
         if (ly !== null && ly !== DEFAULT_LAYER_CODE) parts.push(`ly=${ly}`);

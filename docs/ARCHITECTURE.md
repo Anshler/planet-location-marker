@@ -88,6 +88,7 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/astro/disc.js`, `moons.js` | A body's disc as seen from the observer: the sky-plane frame and pole/prime meridian/Sun in it (`discFrame`, `discView`), shapes, Saturn's ring radii, the moons' log spacing; Jupiter's Galilean moons at Jupiter's light time with transit/occultation/eclipse/shadow flags (`computeGalilean`), the libration's limb feature, Saturn's next edge-on run. Shared by the medallions and the eyepiece card (ASTRONOMY.md §4). |
 | | `js/astro/geomag.js` | The IGRF centred dipole (1900–2030, held outside) and the Starkov auroral ovals for an activity setting (quiet / typical / storm = Kp 1 / 3 / 7, never live data); `computeAurora` fills `snap.aurora` (pole, magnetic noon, the 48-float boundary table, the animation phase); `auroraText` for the Sky panel. |
 | | `js/astro/totality.js` | Totality from the ground: Baily's beads (lunar limb profile), corona epoch parameters, contact-time display adaptation, the horizon ring's azimuthal shape. Illustrative in detail (ASTRONOMY.md). |
+| | `js/astro/vantage.js` | Vantage points (loaded by the rig on first use): the L1 pose (235 R sunward, 4° toward ecliptic north, north up, 0.7°), the Earthrise orbit (`planLunarOrbit`: 150 km up, in the plane through the Earth direction nearest the ecliptic, rising over the sunlit limb; `lunarOrbitPose`: the orbiter's place at any time, looking along its track), `vantageFov`, `vantageNear`, `moonInFront`. |
 | Data | `js/data/catalog.js` | Decodes `data/sky.json` into GPU-ready typed arrays in the scene frame. |
 | Render | `js/render/context.js` | Renderer, scene, camera, tier switching, `invalidate`/`onInvalidate`, context loss, stats; `setAccumulation` (long exposures) and `capture` (a one-task render at another size). |
 | | `js/render/postfx.js` | Composer with bloom and the final pass (FXAA when the scene target has no MSAA; the night-vision grade, `rc.setVision`). While Expose is on, `AccumPass` (`accum.js`: two half-float targets, max-stacking, bright-only for the analemma) sits between the scene and the bloom. |
@@ -102,8 +103,8 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/render/beams.js`, `pin.js`, `labels.js` | Signature beams, observer pin and horizon disc, DOM label pool. |
 | | `js/render/trails.js`, `flare.js`, `debug.js` | Retrograde paths, procedural lens flare (six-spike starburst, hexagonal aperture ghosts; no textures), `?debug=1` overlay. |
 | | `js/render/eclipse-path.js` | The path of a central solar eclipse on the globe: ribbon, centre line, 30-min ticks, the live umbra marker; reveal modes for the chase. |
-| Camera | `js/camera/rig.js`, `picking.js` | Orbit and sky-view camera, Earth-lock, fly-to tweens, `follow()` (the shadow chase); analytic globe and glyph picking. |
-| UI | `js/ui/index.js` and its modules | Shell, top bar, time bar, Sky Now, body card (with `eyepiece.js`: the 2D-canvas eyepiece portrait, also in text mode), events (with the guided tours), Eclipse Companion, the tour's lower third (`tour-bar.js`), layers, settings, about, help, toasts, shortcuts, announcer; the share menu, `postcard.js` (postcard and Save-image dialog, the typographic band) and `expose.js` (Expose presets and the exposure's status pill). |
+| Camera | `js/camera/rig.js`, `picking.js` | Orbit and sky-view camera, Earth-lock, fly-to tweens, `follow()` (the shadow chase), sidereal tracking, `setVantage()` (View from L1, Earthrise); analytic globe and glyph picking. |
+| UI | `js/ui/index.js` and its modules | Shell, top bar, time bar, Sky Now, body card (with `eyepiece.js`: the 2D-canvas eyepiece portrait, also in text mode), events (with the guided tours), Eclipse Companion, the tour's lower third (`tour-bar.js`), layers, settings, about, help, toasts, shortcuts, announcer; the share menu, `postcard.js` (postcard and Save-image dialog, the typographic band) and `expose.js` (Expose presets and the exposure's status pill).; the vantage menu and its caption pill (`view-switch.js`). |
 
 ---
 
@@ -270,6 +271,20 @@ critical CSS read them.
   observer (keys the tour added are cleared), selection, view, layers, cinema, sheet, the eclipse
   in focus, the clock and, unless input ended it, the camera. Text mode plays captions and time
   jumps; reduced motion lands sweeps on their last day. A link opened during a tour ends it first.
+- **Vantage points** (`view.vantage`: `'none' | 'l1' | 'moon'`, url `vt=l1|moon`; the menu by the
+  Globe/Sky switch, 'Earthrise' on the Moon's card). `actions.setVantage(kind)` sets the globe view
+  with it; 'Globe', 'Sky' and Esc clear it. `main.js` hands it to `rig.setVantage`, which loads
+  `astro/vantage.js` and flies there in 4 s (a cut with reduced motion or from a link), the pose
+  then recomputed from every frame snapshot: L1 looks back from 235 R sunward at 0.7°; the
+  Earthrise orbiter keeps orbiting with sim time from the orbit planned at entry (the Earth 2.2°
+  over the limb, rising ~2.9° a minute), so time-lapse makes the Earth rise and set. Controls,
+  picking and input are off; `getView()` (the url `cam`) reports the orbit pose it returns to. The
+  furniture group (beams, pin, medallions, trails, the eclipse ribbon, the flare), the labels
+  (`body.is-vantage`) and the chart layers (constellation figures, grids, ecliptic, footprint,
+  sub-points: `drawnLayers`) go when the flight starts and come back when the flight home has
+  landed; the store keeps the user's layers. Any other camera move (a fly-to, sky view, the intro,
+  the chase, a sky-view event) ends the vantage, and `rig.onVantageEnd` clears the store. A
+  globe-view event jump keeps it: from L1 the eclipse shadow crosses the disc.
 - **`bus`** carries transient events. `readout` is the full-detail snapshot at 4 Hz, published
   only when time or the observer changed. The UI requests its own almanac data through
   `services.astro`. `main.js` pushes one almanac and events set at boot as a head start.
@@ -371,7 +386,9 @@ To add one:
 
 1. Write `js/render/foo.js` and follow R5 and R6.
 2. Add `foo: import('./render/foo.js')` to `importRenderStack()` in `main.js`.
-3. Add `create('foo', …)` next to the others. The order of that list is the update order.
+3. Add `create('foo', …)` next to the others. The order of that list is the update order. Pass
+   `furniture` as the third argument for observer furniture that a vantage point hides (beams,
+   pin, medallions, trails, the eclipse ribbon, the flare live there).
 
 It then receives layers, selection, tier and view changes, and its failures are contained.
 A module may draw nothing at all: `long-exposure.js` has an empty group and is a module only for
@@ -407,6 +424,19 @@ the Sun, and JS uses `astro/photometry.js liftByRefraction` wherever a direction
 position or a horizon test (labels, picking, the flare).
 
 **Planet medallions.** `render/planets.js` is created after the beams, so it reads the label anchors `beams.update` has just placed. It reports each medallion's footprint with `beams.setFootprint(id, halfW, halfH)`, and the labels feed passes it to the label pool as `med` (the label's dot becomes the medallion's eyepiece ring and is measured with the label). Beam labels therefore de-overlap with the medallion included, and a medallion fades with its label (`labels.isShown`). The impostor is one fragment function, `planetShade` in `PLANET_CHUNK`, in the frame of `astro/disc.js`; a true-scale consumer (a sky-view telescope zoom) fills the same per-instance pole/prime/light with `writeDiscInstance(st, cameraUp, …)` and the moon uniforms with `writeJupiterMoons(snap, frame, uniforms, false)`. The Details card's eyepiece (`ui/eyepiece.js`) ports the same shading to a 2D canvas (`js/ui` never imports `js/render`), redrawn only when its key changes.
+
+**Depth far from the Earth (vantage points).** From 60 or 235 R a near plane of ≤ 0.05 leaves a
+24-bit depth buffer 0.004–0.07 R coarse, worse than the 0.006 R cloud gap. In a vantage (and its
+flights) the rig sets the near plane to 0.8 of the distance to the nearest drawn surface
+(`vantageNear`: the 1.06 R aurora shell, or the Moon), keeping the Earth's shells 10⁻⁵ R apart.
+Close to the Moon (`moonInFront`: within 8 R and nearer than half the Earth's distance) the Moon
+is left out of that: `FrameInfo.moonFront` tells `render/bodies.js` to pin the Moon's clip depth
+just past the near plane (`MOON_VERT uNearZ`: clipped at the eye, in front of everything), paint
+its depth pass black so the Earth behind the limb is covered, swap in a 384-segment sphere (the
+64-segment limb shows facets from 150 km up), dim the surface (`MOON_FRONT_GAIN`) and add a
+procedural close-up relief (`moonRelief`: albedo mottle and a derivative bump). One pass, so the
+low tier's direct path works too. The loop treats lunar orbit like a telescope-narrow sky view:
+the frame snapshot follows every change of sim time and frames keep flowing while the clock runs.
 
 **One horizon.** `main.js` creates a single `geo/horizon.js` profile and hands it to the ground
 (which builds it once per observer change, from the city list and the ocean mask read back
@@ -573,6 +603,10 @@ change.
 - `au` is the Aurora activity setting (`display.aurora`): `quiet`, `typical` (omitted) or `storm`.
 - `tour` starts a guided tour (`tonight`, `year`, `eclipse-2027`, `ambient`) once the app is ready,
   instead of the intro. It is read, never written: the hash shows the restored state afterwards.
+- `trk` is sky-view tracking: `b` (the selected body) or `s` (the stars).
+- `vt` is a vantage point: `l1` or `moon` (globe view only; `cam` is then the orbit pose it returns
+  to). A link opens straight there; the Earthrise orbit is planned at the link's time, so the Earth
+  stands just over the limb.
 
 `bindUrl` writes the hash at most every 500 ms and leaves a fresh visit's URL clean. Hand edits
 are applied live through `onExternalChange`. It writes nothing while a tour plays.

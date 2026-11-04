@@ -11,7 +11,19 @@
  *     nudge(dxDeg, dyDeg), zoom(factor), zoomAt(factor, ndcX, ndcY), setViewInsets({left, right, top, bottom}),
  *     follow(targetFn, {altitude, backDeg, tiltDeg, approachMs}) → Promise, stopFollow(), following,
  *     setTracking('none'|'body'|'stars', id), tracking, telescope(fovDeg), onTrackEnd(cb) → off,
+ *     setVantage('none'|'l1'|'moon', {animate}) → Promise, vantage, moonFront, onVantageEnd(cb) → off,
  *     setReducedMotion(on), dispose() }
+ *
+ * Vantage points (globe view): 'l1' looks back at the sunlit Earth from 1.5 million km sunward
+ * (DSCOVR/EPIC), 'moon' rides a low lunar orbit with the Earth rising over the limb. The pose is
+ * recomputed every frame from the snapshot (astro/vantage.js, loaded on first use), so time-lapse
+ * moves it; the orbit controls are off, input does nothing, and the near plane follows the
+ * distance (vantageNear) so the depth buffer still separates the Earth's shells. `moonFront` tells
+ * the Moon to draw in front of everything while the camera is close to it. Entry and exit are
+ * 4 s flights (log-distance over the Earth or, to and from lunar orbit, over the Moon, with the
+ * field narrowing so the Earth keeps its size on screen); exit returns to the orbit pose the
+ * vantage was entered from. Any other camera command takes over from a vantage, which then ends
+ * and onVantageEnd listeners hear {reason, kind}.
  *
  * Sidereal tracking (sky view): 'body' re-aims at the body's refracted direction every frame
  * (zenith up), 'stars' holds a scene direction with the J2000 pole up, so the sky stands still and
@@ -51,6 +63,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { liftByRefraction } from '../astro/photometry.js';
+import { MOON_RADIUS_ER } from '../astro/bodies.js';
 
 const DEG = Math.PI / 180;
 const ORBIT_FOV = 45;
@@ -103,6 +116,11 @@ export const TRACK_SET_ALT = -8;
 const TRACK_SET_SIN = Math.sin(TRACK_SET_ALT * Math.PI / 180);
 const TRACK_ZOOM_MS = 200;
 const TRACK_OFF_MAX = 60;
+// Vantage flights (setVantage): duration; to and from lunar orbit the direction around the Moon
+// leads the distance by this share of the flight (and trails it on the way back), so a camera that
+// starts behind the Earth swings clear of it before closing in.
+const VANTAGE_MS = 4000;
+const VANTAGE_LEAD = 0.15;
 
 const Y = new THREE.Vector3(0, 1, 0);
 const FWD = new THREE.Vector3(0, 0, -1);
@@ -350,6 +368,21 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
     };
     const trackEndCbs = new Set();
 
+    // Vantage points (setVantage). `kind` is the vantage shown or being flown to ('none' while
+    // flying back); `ret` the orbit pose to return to (Earth-local while Earth-lock is on);
+    // `front` the Moon-in-front flag for the renderers. vlib is astro/vantage.js once loaded.
+    const vant = {
+        kind: 'none', plan: null, front: false,
+        ret: new THREE.Vector3(), retLocal: true, hasRet: false,
+        pending: null,
+    };
+    const vantEndCbs = new Set();
+    let vlib = null;
+    let vlibP = null;
+    let vpose = null;
+    let vantReq = 0;
+    let curSnap = null;
+
     // ---- helpers: frames ----------------------------------------------------------------------
 
     function toLocal(vW, out) { return out.copy(vW).applyQuaternion(qEInv); }
@@ -549,6 +582,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
             // A deep link applies its sky view before the camera was ever placed in orbit: then
             // there is no pose to return to, and 'Globe' homes over the observer (startToOrbit).
             if (mode === 'orbit' && initialized) rememberOrbitPose();
+            dropVantage('view');
             mode = 'sky';
             skyBlend = 1;
             anchor.on = false;
@@ -567,7 +601,9 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
     }
 
     function rememberOrbitPose() {
-        toLocal(camera.position, orbitReturnL);
+        // From a vantage, 'Globe' later returns to the orbit pose the vantage was entered from.
+        if (vantageOwns() && vant.hasRet) toLocal(vantageReturn(_v4), orbitReturnL);
+        else toLocal(camera.position, orbitReturnL);
         hasOrbitReturn = true;
     }
 
@@ -587,7 +623,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
 
     /** The follow → orbit hand-back: the old orientation as a decaying offset on the new one. */
     function applyRelease(tNow) {
-        if (mode !== 'orbit' || (tween && tween.kind === 'follow')) {
+        if (mode !== 'orbit' || (tween && tween.kind === 'follow') || vantageOwns()) {
             release.on = false;
             return false;
         }
@@ -616,6 +652,8 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
     }
 
     function startTween(t) {
+        // Any other camera move takes over from a vantage (and from a flight to or from one).
+        if (t.kind !== 'vantage' && vantageOwns()) dropVantage('camera');
         if (tween) finishTween(false);
         anchor.on = false;
         // A tracked view takes over again, blended, once the flight or transition is done.
@@ -641,11 +679,13 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         const dur = !animate || reduced ? 0 : Number.isFinite(durationMs) ? Math.max(0, durationMs) : 600 + 900 * arc / Math.PI;
         mode = 'orbit';
         setControlsEnabled(false);
-        return startTween({ kind: 'fly', cancellable: true, earthFixed, d0, d1, r0, r1, arc, dur });
+        return startTween({ kind: 'fly', cancellable: true, earthFixed, d0, d1, r0, r1, arc, dur, fov0: camera.fov });
     }
 
     function stepFly(t, u) {
         const e = easeInOutCubic(u);
+        // From a vantage's narrow field (0.7° at L1) back to the orbit field, in log space.
+        if (t.fov0 !== ORBIT_FOV) setFov(Math.exp(Math.log(t.fov0) + (Math.log(ORBIT_FOV) - Math.log(t.fov0)) * e));
         slerpDir(t.d0, t.d1, e, _v2);
         // Log-altitude interpolation glides smoothly to and from the surface; the lift
         // arcs long flights outward so the globe stays in view.
@@ -934,6 +974,231 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         skyBlend = 0;
     }
 
+    // ---- vantage points ------------------------------------------------------------------------
+
+    /** True while a vantage holds the camera: shown, or flown to or from. */
+    function vantageOwns() {
+        return vant.kind !== 'none' || (!!tween && tween.kind === 'vantage');
+    }
+
+    /** The world position of the orbit pose a vantage returns to. */
+    function vantageReturn(out) {
+        return vant.retLocal ? toWorld(vant.ret, out) : out.copy(vant.ret);
+    }
+
+    /** Remembers the current orbit pose as the vantage's way back. */
+    function rememberVantageReturn() {
+        vant.retLocal = earthLock;
+        if (earthLock) toLocal(camera.position, vant.ret);
+        else vant.ret.copy(camera.position);
+        vant.hasRet = true;
+    }
+
+    /** Ends a vantage without a flight of its own (another camera move took over); listeners hear why. */
+    function dropVantage(reason) {
+        const kind = vant.kind;
+        vant.kind = 'none';
+        vant.front = false;
+        vant.hasRet = false;
+        vant.pending = null;
+        if (kind === 'none') return;
+        const info = { reason, kind };
+        for (const cb of vantEndCbs) {
+            try { cb(info); } catch (err) { setTimeout(() => { throw err; }); }
+        }
+    }
+
+    function loadVantageLib() {
+        if (vlib) return Promise.resolve(vlib);
+        vlibP ??= import('../astro/vantage.js').then((m) => {
+            vlib = m;
+            vpose = m.createPose();
+            return m;
+        });
+        return vlibP;
+    }
+
+    /** The vantage pose of `kind` for the snapshot, into vpose (world frame). */
+    function vantagePoseNow(kind, snap) {
+        const aspect = camera.aspect > 0 ? camera.aspect : 16 / 9;
+        return kind === 'l1' ? vlib.l1Pose(snap, aspect, vpose) : vlib.lunarOrbitPose(vant.plan, snap, aspect, vpose);
+    }
+
+    /** Near plane (and the Moon-in-front flag) for the camera far out: see astro/vantage.js. */
+    function setVantageNear(snap) {
+        const r = camera.position.length();
+        const m = snap && snap.moonPosS;
+        const dm = m ? Math.hypot(camera.position.x - m[0], camera.position.y - m[1], camera.position.z - m[2]) : Infinity;
+        vant.front = vlib.moonInFront(r, dm);
+        const near = vlib.vantageNear(r, dm, vant.front);
+        if (Math.abs(camera.near - near) > near * 0.01) {
+            camera.near = near;
+            camera.updateProjectionMatrix();
+        }
+    }
+
+    /** Places the camera on a vantage pose. */
+    function applyVantagePose(p, snap) {
+        camera.position.set(p.pos[0], p.pos[1], p.pos[2]);
+        _v1.set(p.fwd[0], p.fwd[1], p.fwd[2]);
+        _v2.set(p.up[0], p.up[1], p.up[2]);
+        basisQuat(_v1, _v2, camera.quaternion);
+        camera.up.copy(_v2);
+        setFov(p.fovDeg);
+        setVantageNear(snap);
+        skyBlend = 0;
+    }
+
+    /** A vantage held (no flight): this frame's pose. @returns {boolean} moved */
+    function stepVantage(snap) {
+        _v3.copy(camera.position);
+        _q1.copy(camera.quaternion);
+        const f0 = camera.fov;
+        applyVantagePose(vantagePoseNow(vant.kind, snap), snap);
+        return camera.position.distanceToSquared(_v3) > 1e-14 || Math.abs(camera.fov - f0) > 1e-9
+            || 1 - Math.abs(_q1.dot(camera.quaternion)) > 1e-15;
+    }
+
+    /**
+     * Starts the flight to vantage `to` ('none': back to the remembered orbit pose). Flights to or
+     * from lunar orbit are measured from the Moon, all others from the Earth.
+     */
+    function startVantage(to, animate) {
+        const from = vant.kind;
+        if (to !== 'none' && from === 'none' && !(tween && tween.kind === 'vantage')) rememberVantageReturn();
+        if (to === 'moon') vant.plan = vlib.planLunarOrbit(curSnap, vant.plan ?? undefined);
+        const moon = to === 'moon' || from === 'moon' || (!!tween && tween.kind === 'vantage' && tween.moon);
+        vant.kind = to;
+        mode = 'orbit';
+        skyBlend = 0;
+        zoomTarget = null;
+        setControlsEnabled(false);
+        return startTween({
+            kind: 'vantage', cancellable: false, to, moon,
+            p0: camera.position.clone(), q0: camera.quaternion.clone(), fov0: camera.fov,
+            dur: !animate || reduced ? 0 : VANTAGE_MS,
+        });
+    }
+
+    function stepVantageTween(t, u, snap) {
+        // Destination: the vantage pose (it moves with time), or the orbit pose to return to.
+        let fov1 = ORBIT_FOV;
+        if (t.to === 'none') {
+            vantageReturn(_flC);
+            _flD.copy(_flC).negate();
+            _flU.copy(Y);
+        } else {
+            const p = vantagePoseNow(t.to, snap);
+            _flC.set(p.pos[0], p.pos[1], p.pos[2]);
+            _flD.set(p.fwd[0], p.fwd[1], p.fwd[2]);
+            _flU.set(p.up[0], p.up[1], p.up[2]);
+            fov1 = p.fovDeg;
+        }
+        // Log-altitude over the centre body along a slerped direction (stepFly's glide). Around the
+        // Moon the direction leads on the way out (clearing the Earth first) and trails coming back.
+        const m = snap.moonPosS;
+        const rc = t.moon ? MOON_RADIUS_ER : 1;
+        if (t.moon) _flR.set(m[0], m[1], m[2]);
+        else _flR.set(0, 0, 0);
+        const lead = t.moon ? VANTAGE_LEAD : 0;
+        const out = t.to === 'moon';
+        const eD = easeInOutCubic(clamp(out ? u / (1 - lead) : (u - lead) / (1 - lead), 0, 1));
+        const eR = easeInOutCubic(clamp(out ? (u - lead) / (1 - lead) : u / (1 - lead), 0, 1));
+        _v1.copy(t.p0).sub(_flR);
+        const rho0 = _v1.length() || 1;
+        _v1.multiplyScalar(1 / rho0);
+        _v2.copy(_flC).sub(_flR);
+        const rho1 = _v2.length() || 1;
+        _v2.multiplyScalar(1 / rho1);
+        slerpDir(_v1, _v2, eD, _v3);
+        const a0 = Math.max(rho0 - rc, 1e-4), a1 = Math.max(rho1 - rc, 1e-4);
+        camera.position.copy(_v3).multiplyScalar(rc + Math.exp(Math.log(a0) + (Math.log(a1) - Math.log(a0)) * eR)).add(_flR);
+        // Orientation: from the start pose to looking at the Earth's centre (north up, the orbit
+        // controls' own pose), then into the destination's attitude (the lunar orbiter's).
+        const e = easeInOutCubic(u);
+        _v4.copy(camera.position).negate();
+        basisQuat(_v4, Y, _q1);
+        if (e < 0.5) camera.quaternion.copy(t.q0).slerp(_q1, smoothstep(0, 0.35, e));
+        else {
+            basisQuat(_flD, _flU, _q2);
+            camera.quaternion.copy(_q1).slerp(_q2, smoothstep(0.65, 1, e));
+        }
+        camera.up.copy(Y);
+        // Field of view: the Earth's share of the frame eases from start to end, so a flight out to
+        // L1 reads as a dolly zoom (the stars narrow 60× while the globe keeps its size).
+        const tanE = (rr) => Math.tan(Math.asin(Math.min(1, 1 / Math.max(rr, 1))));
+        const fr0 = tanE(t.p0.length()) / Math.tan(t.fov0 * DEG / 2);
+        const fr1 = tanE(_flC.length()) / Math.tan(fov1 * DEG / 2);
+        const fr = fr0 + (fr1 - fr0) * e;
+        const fov = 2 * Math.atan(tanE(camera.position.length()) / Math.max(fr, 1e-6)) / DEG;
+        setFov(clamp(fov, Math.min(t.fov0, fov1), Math.max(t.fov0, fov1)));
+        setVantageNear(snap);
+        skyBlend = 0;
+        if (u >= 1) {
+            if (t.to === 'none') {
+                // Home: the orbit pose, the orbit field, the controls back.
+                vant.front = false;
+                vant.hasRet = false;
+                camera.position.copy(_flC);
+                orbitQuat(camera.position, camera.quaternion);
+                camera.fov = ORBIT_FOV;
+                camera.updateProjectionMatrix();
+                setNearFor(camera.position.length());
+                setControlsEnabled(true);
+                syncControls();
+            } else {
+                applyVantagePose(vantagePoseNow(t.to, snap), snap);
+            }
+        }
+    }
+
+    /** Leaves a vantage (or a flight to or from one) by cutting to the orbit pose it returns to. */
+    function cutVantageHome() {
+        if (tween && tween.kind === 'vantage') finishTween(false);
+        if (vant.hasRet) vantageReturn(camera.position);
+        else toWorld(homePosL(_v2), camera.position);
+        orbitQuat(camera.position, camera.quaternion);
+        camera.up.copy(Y);
+        camera.fov = ORBIT_FOV;
+        camera.updateProjectionMatrix();
+        setNearFor(camera.position.length());
+        vant.kind = 'none';
+        vant.front = false;
+        vant.hasRet = false;
+        vant.pending = null;
+        mode = 'orbit';
+        skyBlend = 0;
+        setControlsEnabled(true);
+        syncControls();
+        rc.invalidate?.();
+    }
+
+    /** setVantage once astro/vantage.js is loaded and any globe/sky transition is over. */
+    function setVantageNow(kind, { animate = true } = {}) {
+        const k = kind === 'l1' || kind === 'moon' ? kind : 'none';
+        if (!curSnap || !hasSnap) {
+            vant.pending = { kind: k, animate };
+            return Promise.resolve(true);
+        }
+        if (k === vant.kind) return Promise.resolve(true);
+        if (k === 'none') {
+            if (!vantageOwns()) return Promise.resolve(true);
+            if (!vant.hasRet) {
+                // Nothing to return to (a vantage from a deep link before the camera had a pose).
+                vant.retLocal = true;
+                homePosL(vant.ret);
+                vant.hasRet = true;
+            }
+            return startVantage('none', animate);
+        }
+        if (mode === 'sky') {
+            // From sky view: back to the globe first, then out to the vantage.
+            const req = vantReq;
+            return startToOrbit({ animate }).then((ok) => (ok && req === vantReq ? setVantageNow(k, { animate }) : false));
+        }
+        return startVantage(k, animate);
+    }
+
     function stepTween(tNow, snap) {
         const t = tween;
         if (t.t0 === null) t.t0 = tNow;
@@ -946,6 +1211,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         else if (t.kind === 'toSky') stepToSky(t, u);
         else if (t.kind === 'toOrbit') stepToOrbit(t, u);
         else if (t.kind === 'look') stepLook(t, u);
+        else if (t.kind === 'vantage') stepVantageTween(t, u, snap);
         if (u >= 1 && t.kind === 'toSky' && Number.isFinite(t.thenFov) && tween === t) {
             // Hand the finished descent over to its zoom; the caller's promise follows the zoom.
             tween = null;
@@ -1197,6 +1463,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         lastT = tNow;
         if (!snap) return !!tween;
         readSnap(snap);
+        curSnap = snap;
 
         // Earth rotation since the last frame (absolute quaternions: no drift).
         let lockApplied = false;
@@ -1231,7 +1498,13 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
             sky.altT = sky.alt;
         }
 
+        if (vant.pending && vlib) {
+            const p = vant.pending;
+            vant.pending = null;
+            setVantageNow(p.kind, { animate: p.animate });
+        }
         if (tween) return stepTween(tNow, snap);
+        if (vant.kind !== 'none') return stepVantage(snap);
 
         if (mode === 'orbit') {
             if (earthLock && dq.w < 1 - 1e-15) {
@@ -1605,6 +1878,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
      * @param {number} dyDeg
      */
     function nudge(dxDeg, dyDeg) {
+        if (vantageOwns()) return;     // a vantage is a fixed point of view
         cancelTween();
         anchor.on = false;
         // Sky view: steps shrink with a narrow field (a 5° step at the 0.2° floor loses the target).
@@ -1627,7 +1901,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
      * @param {number} factor
      */
     function zoom(factor) {
-        if (!(factor > 0)) return;
+        if (!(factor > 0) || vantageOwns()) return;
         cancelTween();
         anchor.on = false;
         if (mode === 'sky') sky.fovT = clamp(sky.fovT * factor, SKY_FOV_MIN, SKY_FOV_MAX);
@@ -1819,6 +2093,55 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
             return () => trackEndCbs.delete(cb);
         },
 
+        /**
+         * Vantage points (globe view): 'l1' (the sunlit Earth from 1.5 million km sunward, DSCOVR's
+         * view), 'moon' (Earthrise from a low lunar orbit) or 'none' (back to the orbit pose the
+         * vantage was entered from). The camera flies there over 4 s (a cut under reduced motion or
+         * with animate: false); from sky view it first returns to the globe. Resolves when the flight
+         * is done (false when another camera move took over, or astro/vantage.js failed to load).
+         * @param {'none'|'l1'|'moon'} kind
+         * @param {{animate?:boolean}} [opts]
+         * @returns {Promise<boolean>}
+         */
+        setVantage(kind, opts = {}) {
+            const k = kind === 'l1' || kind === 'moon' ? kind : 'none';
+            // The latest call wins: one still waiting for the module or a transition is dropped.
+            const req = ++vantReq;
+            if (k === 'none' && !vantageOwns()) {
+                vant.pending = null;
+                return Promise.resolve(true);
+            }
+            if (k === 'none' && (opts?.animate === false || reduced)) {
+                // A cut, now: the intro (which then writes the camera itself) needs it synchronous.
+                cutVantageHome();
+                return Promise.resolve(true);
+            }
+            return loadVantageLib().then(
+                () => afterTransition(() => (req === vantReq ? setVantageNow(k, opts || {}) : false)),
+                (err) => {
+                    console.error('[rig] vantage points unavailable', err);
+                    for (const cb of vantEndCbs) {
+                        try { cb({ reason: 'failed', kind: k }); } catch { /* ignore */ }
+                    }
+                    return false;
+                });
+        },
+
+        /** The vantage shown or being flown to: 'none' | 'l1' | 'moon'. */
+        get vantage() { return vant.kind; },
+
+        /**
+         * True while the camera is so close to the Moon that it must draw in front of everything
+         * (lunar orbit, or a flight there): the near plane then ignores it (FrameInfo.moonFront).
+         */
+        get moonFront() { return vant.front; },
+
+        /** @param {(info:{reason:string, kind:string})=>void} cb @returns {()=>boolean} off */
+        onVantageEnd(cb) {
+            vantEndCbs.add(cb);
+            return () => vantEndCbs.delete(cb);
+        },
+
         update,
 
         /**
@@ -1829,7 +2152,9 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
             if (mode === 'sky') {
                 return { mode: 'sky', azDeg: wrap360(sky.azT), altDeg: sky.altT, fovDeg: sky.fovT };
             }
-            toLocal(camera.position, _v1);
+            // A vantage (url `vt`) reports the orbit pose it returns to.
+            if (vantageOwns() && vant.hasRet) toLocal(vantageReturn(_v1), _v1);
+            else toLocal(camera.position, _v1);
             const r = _v1.length() || 1;
             return {
                 mode: 'orbit',
@@ -1849,6 +2174,15 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
             if (!v) return false;
             if (!hasSnap) {
                 pendingView = v;
+                return true;
+            }
+            if (v.mode === 'orbit' && vantageOwns()) {
+                // A vantage stays; the view becomes the orbit pose it returns to.
+                const p = v.latDeg * DEG, l = v.lonDeg * DEG, cp = Math.cos(p);
+                _v2.set(cp * Math.cos(l), Math.sin(p), -cp * Math.sin(l)).multiplyScalar(v.distance);
+                vant.retLocal = true;
+                vant.ret.copy(_v2);
+                vant.hasRet = true;
                 return true;
             }
             if (tween) finishTween(false);
@@ -1878,7 +2212,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
          * @param {number} ndcY
          */
         zoomAt(factor, ndcX, ndcY) {
-            if (!(factor > 0)) return;
+            if (!(factor > 0) || vantageOwns()) return;
             cancelTween();
             if (mode === 'sky' && !tween && Number.isFinite(ndcX) && Number.isFinite(ndcY)) {
                 zoomSkyAt(sky.fovT * factor, ndcX, ndcY);
@@ -1929,6 +2263,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
             interactCbs.clear();
             clickCbs.clear();
             trackEndCbs.clear();
+            vantEndCbs.clear();
         },
     };
 }

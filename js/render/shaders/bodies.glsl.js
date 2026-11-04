@@ -303,14 +303,24 @@ void main() {
  * Moon (true scale, IAU orientation): standard mesh transform; world normal and position out. In
  * sky view each vertex's direction from the camera is lifted by refraction (REFRACT_CHUNK), which
  * also flattens a low Moon; vPw keeps the true position for the lighting and the umbra.
+ *
+ * uNearZ > 0 (lunar orbit, FrameInfo.moonFront): the camera's near plane sits ~47 R out for the
+ * Earth's sake, so the Moon, a few hundred km away, is pinned to depth uNearZ / 2 instead: clipped
+ * at the eye (z + w = uNearZ·w ≥ 0 ⟺ w ≥ 0) and in front of everything. A convex, back-face-culled
+ * sphere needs no depth order of its own.
  */
 export const MOON_VERT = /* glsl */`
 varying vec2 vUv;
 varying vec3 vNw;
 varying vec3 vPw;
+varying vec3 vPm;
+varying vec3 vPr;
+uniform float uNearZ;
 ${REFRACT_CHUNK}
 void main() {
     vUv = uv;
+    vPm = position;                       // Moon-fixed (the relief's noise)
+    vPr = mat3(modelMatrix) * position;   // world axes about the Moon's centre (its derivatives)
     vNw = normalize(mat3(modelMatrix) * normal);
     vec4 pw = modelMatrix * vec4(position, 1.0);
     vPw = pw.xyz;
@@ -318,6 +328,7 @@ void main() {
     float L = length(rel);
     if (uRefrK > 0.0 && L > 1e-6) pw.xyz = cameraPosition + refractLift(rel / L) * L;
     gl_Position = projectionMatrix * viewMatrix * pw;
+    if (uNearZ > 0.0) gl_Position.z = (uNearZ - 1.0) * gl_Position.w;
 }
 `;
 
@@ -339,9 +350,37 @@ uniform float uEarthshine;
 uniform vec3 uTint;
 uniform float uUmbraGain;
 uniform float uSunR;        // the Sun's true angular radius (astro/bodies.js sunAngularRadius)
+uniform float uNearZ;       // > 0 in lunar orbit: the close-up relief below
 varying vec2 vUv;
 varying vec3 vNw;
 varying vec3 vPw;
+varying vec3 vPm;
+varying vec3 vPr;
+float moonHash(vec3 p) {
+    p = fract(p * 0.3183099 + 0.1);
+    p *= 17.0;
+    return fract(p.x * p.y * p.z * (p.x + p.y + p.z));
+}
+float moonNoise(vec3 x) {
+    vec3 i = floor(x), f = fract(x);
+    f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(mix(moonHash(i), moonHash(i + vec3(1, 0, 0)), f.x), mix(moonHash(i + vec3(0, 1, 0)), moonHash(i + vec3(1, 1, 0)), f.x), f.y),
+               mix(mix(moonHash(i + vec3(0, 0, 1)), moonHash(i + vec3(1, 0, 1)), f.x), mix(moonHash(i + vec3(0, 1, 1)), moonHash(i + vec3(1, 1, 1)), f.x), f.y), f.z);
+}
+// Close-up relief for lunar orbit: the 1024 map is ~11 km a texel, so from 150 km up the foreground
+// is a blur. Rough terrain from 20 km down to 2.5 km (four octaves of value noise on the Moon's own
+// surface, so it does not swim) as an albedo mottle and, through screen-space derivatives, a bump.
+float moonRelief(vec3 pm) {
+    vec3 p = pm * 320.0;
+    float h = 0.0, a = 0.5;
+    for (int k = 0; k < 4; k++) {
+        float n = moonNoise(p);
+        h += a * (1.0 - abs(2.0 * n - 1.0));   // ridged: sharp crests, rounded hollows
+        p = p * 2.03 + 17.1;
+        a *= 0.5;
+    }
+    return h;
+}
 float discVisibleG5(float rs, float ro, float d) {
     if (d >= rs + ro) return 1.0;
     if (d <= abs(ro - rs)) return ro >= rs ? 0.0 : 1.0 - (ro * ro) / (rs * rs);
@@ -355,6 +394,20 @@ void main() {
     vec3 L = normalize(uSunDir);
     vec3 V = normalize(cameraPosition - vPw);
     vec3 albedo = texture2D(uMap, vUv).rgb * uAlbedo;
+    if (uNearZ > 0.0) {
+        float h = moonRelief(vPm);
+        // Faded out toward the limb, where the foreshortened noise would shimmer.
+        float w = smoothstep(0.03, 0.2, dot(N, V));
+        albedo *= 1.0 + w * 0.55 * (h - 0.62);
+        // Bump (Mikkelsen's surface-gradient form): heights in Earth radii, ~1.5 km of relief.
+        // Derivatives of the Moon-centred position: 60 R out, float world positions are 25 m coarse.
+        vec3 dpx = dFdx(vPr), dpy = dFdy(vPr);
+        float hs = h * 2.4e-4 * w;
+        float dhx = dFdx(hs), dhy = dFdy(hs);
+        vec3 r1 = cross(dpy, N), r2 = cross(N, dpx);
+        float det = dot(dpx, r1);
+        if (abs(det) > 1e-30) N = normalize(abs(det) * N - sign(det) * (dhx * r1 + dhy * r2));
+    }
     float mu0 = max(dot(N, L), 0.0);
     float mu = max(dot(N, V), 1e-3);
     float g = acos(clamp(dot(L, V), -1.0, 1.0));

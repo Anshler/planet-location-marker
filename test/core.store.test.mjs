@@ -9,7 +9,7 @@ test('DEFAULT_STATE matches the spec and is deeply frozen', () => {
         tz: 'Europe/London', tzApprox: false, source: 'default',
     });
     assert.equal(DEFAULT_STATE.selection, null);
-    assert.deepEqual(DEFAULT_STATE.view, { mode: 'orbit', earthLock: true, track: 'none' });
+    assert.deepEqual(DEFAULT_STATE.view, { mode: 'orbit', earthLock: true, track: 'none', vantage: 'none' });
     assert.deepEqual(DEFAULT_STATE.layers, {
         beams: true, ghostBeams: true, sunMoonBeams: true, stars: true, constellations: true, constellationNames: true, starNames: true,
         milkyWay: true, clouds: true, atmosphere: true, ecliptic: false, eqGrid: false, altAzGrid: true, horizon: true, footprint: false,

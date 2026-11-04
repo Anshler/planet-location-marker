@@ -477,3 +477,22 @@ test('trk: sky-view tracking round-trips (b = the selected body, s = the stars)'
     assert.equal(serializeHash(view('none')), '#view=sky');
     for (const t of ['body', 'stars']) assert.equal(parseHash(serializeHash(view(t))).track, t);
 });
+
+test('vt: vantage points round-trip in globe view (l1, moon); none and sky view write nothing', () => {
+    assert.equal(parseHash('#vt=l1').vantage, 'l1');
+    assert.equal(parseHash('#vt=MOON').vantage, 'moon');
+    for (const v of ['none', '0', '']) {
+        assert.equal(parseHash(`#vt=${v}`).vantage, undefined);
+        assert.equal(parseHash(`#vt=${v}`).invalid, undefined);
+    }
+    assert.deepEqual(parseHash('#vt=mars').invalid, ['vt']);
+    const st = (mode, vantage) => ({ state: { view: { mode, earthLock: true, track: 'none', vantage } } });
+    assert.equal(serializeHash(st('orbit', 'l1')), '#vt=l1');
+    assert.equal(serializeHash(st('orbit', 'moon')), '#vt=moon');
+    assert.equal(serializeHash(st('orbit', 'none')), '');
+    assert.equal(serializeHash(st('sky', 'moon')), '#view=sky');
+    for (const v of ['l1', 'moon']) assert.equal(parseHash(serializeHash(st('orbit', v))).vantage, v);
+    // The camera key keeps the orbit pose a vantage returns to.
+    const h = serializeHash({ ...st('orbit', 'moon'), cam: { mode: 'orbit', latDeg: 10, lonDeg: 20, distance: 3.4 } });
+    assert.deepEqual(parseHash(h).cam, { mode: 'orbit', latDeg: 10, lonDeg: 20, distance: 3.4 });
+});

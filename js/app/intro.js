@@ -5,7 +5,8 @@
 //   0–4 s  an eased orbital arc over the terminator into daylight (lights → twilight band → glint),
 //          dollying in to 3.4 Earth radii straight above the observer
 //   2.6 s  the pin drops (ripple)
-//   2.9 s  beams launch one by one (120 ms stagger); each body label appears as its beam lands
+//   2.9 s  beams launch one by one (120 ms stagger); each body label appears as its beam lands, and
+//          bus 'intro' 'launch' tells the UI to fade in its title card (ui/intro-caption.js)
 //   ≈4.6 s done
 //
 // The flight path is interpolated in Earth-fixed coordinates and mapped through the live Earth
@@ -113,12 +114,13 @@ export function introStartDir(snap) {
  * no rig). Never rejects.
  *
  * @param {{rig:any, beams?:any, pin?:any, snap:import('../core/types.js').Snapshot, reducedMotion?:boolean,
- *          signal?:AbortSignal, labelsFeed?:any, now?:()=>number, preRollMs?:number,
+ *          signal?:AbortSignal, labelsFeed?:any, now?:()=>number, preRollMs?:number, bus?:{emit(t:string, p:any):void},
  *          raf?:(cb:(t:number)=>void)=>number, caf?:(h:number)=>void}} opts
  *   preRollMs: how long to hold the opening pose first (the loader's fade-out)
+ *   bus: gets 'intro' 'launch' when the beams launch on the timeline (not when a skip jumps there)
  * @returns {Promise<'done'|'skipped'|'unavailable'>}
  */
-export function playIntro({ rig, beams = null, pin = null, snap, reducedMotion = false, signal, labelsFeed = null, preRollMs = 0,
+export function playIntro({ rig, beams = null, pin = null, snap, reducedMotion = false, signal, labelsFeed = null, preRollMs = 0, bus = null,
     now = () => performance.now(), raf = (cb) => requestAnimationFrame(cb), caf = (h) => cancelAnimationFrame(h) }) {
     if (reducedMotion || !rig?.camera || !snap) return Promise.resolve('unavailable');
     if (signal?.aborted) return Promise.resolve('skipped');
@@ -274,7 +276,10 @@ export function playIntro({ rig, beams = null, pin = null, snap, reducedMotion =
 
         function stepChoreography(elapsed) {
             if (elapsed >= T.pinMs) dropPin();
-            if (elapsed >= T.beamsMs) launch(T.staggerMs);
+            if (elapsed >= T.beamsMs && !launched) {
+                launch(T.staggerMs);
+                bus?.emit?.('intro', 'launch');
+            }
             while (revealIdx < BODIES.length && elapsed >= revealAt[revealIdx]) {
                 labelsFeed?.revealBody?.(BODIES[revealIdx].id);
                 revealIdx++;

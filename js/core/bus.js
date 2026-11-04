@@ -6,7 +6,7 @@
 //   'announce' string (screen-reader announcement)
 //   'almanac'  {riseSet, twilight, tonight, sunSeries:{fromMs, toMs, values}}
 //   'events'   AstroEvent[]
-//   'intro'    'start'|'done'
+//   'intro'    'start'|'launch'|'done' ('launch': the intro's beams leave, js/app/intro.js)
 // Other type strings are accepted (so a typo never crashes the app) but are not part of the contract.
 //
 // Handler lists are copy-on-write, so `emit` allocates nothing: the 4 Hz 'readout' stays free.

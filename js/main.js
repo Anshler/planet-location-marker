@@ -1972,7 +1972,7 @@ async function runIntro({ force = false, preRoll = false } = {}) {
         result = await Promise.race([
             playIntro({
                 rig, beams: R.mods.beams, pin: R.mods.pin, snap: R.loop.snap,
-                reducedMotion: false, signal: ac.signal, labelsFeed: R.labelsFeed, preRollMs,
+                reducedMotion: false, signal: ac.signal, labelsFeed: R.labelsFeed, preRollMs, bus,
             }),
             delay(9000 + preRollMs).then(() => 'timeout'),
         ]);

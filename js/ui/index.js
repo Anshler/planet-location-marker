@@ -29,6 +29,7 @@ import { mountToasts, mountFlash } from './toast.js';
 import { mountAnnouncer } from './announcer.js';
 import { bindShortcuts } from './shortcuts.js';
 import { mountInstallHint } from './install.js';
+import { mountIntroCaption } from './intro-caption.js';
 import { toCalendar, fromCalendar } from '../core/tz.js';
 import { isExtraId } from '../core/selection.js';
 
@@ -74,6 +75,7 @@ export function mountUI(rootEl, ctx) {
     const narrator = startNarrator(uctx);
     const summary = startSceneSummary(uctx);
     const installHint = mountInstallHint(uctx);
+    const introCap = mountIntroCaption(uctx);
 
     // ---- data from the app ------------------------------------------------
     offs.push(ctx.bus.on('readout', (snap) => update(snap)));
@@ -104,6 +106,7 @@ export function mountUI(rootEl, ctx) {
             narrator();
             summary();
             installHint();
+            introCap.destroy();
             ui.dispose();
             toasts.destroy();
             flash.destroy();

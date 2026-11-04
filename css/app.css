@@ -2044,6 +2044,38 @@ body.is-map .vb-track, body.is-map .vb-expose { display: none; }
 .fade-overlay.is-on { animation: veil 220ms ease-out both; }
 @keyframes veil { from { opacity: .85; } to { opacity: 0; } }
 
+/* The intro's title card (ui/intro-caption.js): on <body>, outside #ui-root, which the intro hides. */
+.intro-cap {
+    position: fixed;
+    /* Under the pin, clear of the view switch, the time bar and the phone's sheet as the interface fades in. */
+    top: 58%;
+    left: 50%;
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+    width: max-content;
+    max-width: calc(100vw - 32px);
+    padding: 12px 22px 13px;
+    border: 1px solid rgba(255, 255, 255, .1);
+    border-radius: 16px;
+    background: rgba(6, 9, 16, .56);
+    box-shadow: 0 10px 34px rgba(0, 0, 0, .4);
+    color: var(--text);
+    font-family: var(--font);
+    text-align: center;
+    pointer-events: none;
+    opacity: 0;
+    transform: translate(-50%, 8px);
+    transition: opacity .6s ease, transform .9s cubic-bezier(.2, .7, .2, 1);
+    -webkit-backdrop-filter: blur(8px);
+    backdrop-filter: blur(8px);
+}
+.intro-cap.is-on { opacity: 1; transform: translate(-50%, 0); }
+.intro-cap__place { font-size: 13px; font-weight: 700; letter-spacing: .22em; text-transform: uppercase; }
+.intro-cap__line { color: #c2cbda; font-size: 15px; font-weight: 550; font-variant-numeric: tabular-nums; }
+
 /* 18 ─ Mobile: top bar, floating column, bottom sheet --------------------------------------------- */
 .ui[data-layout="mobile"] { --gutter: 12px; }
 .ui[data-layout="mobile"] .topbar {

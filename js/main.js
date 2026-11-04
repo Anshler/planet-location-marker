@@ -114,7 +114,7 @@ const R = {
     /** @type {any} */ tours: null,
     /** 'Point at the sky' (js/camera/aim.js), created on first use. */
     /** @type {any} */ aim: null,
-    /** The screen wake lock (app/wake-lock.js): 'Point at the sky' holds it. */
+    /** The screen wake lock (app/wake-lock.js): night vision, the sky view on touch, the aim. */
     /** @type {any} */ wake: null,
     /** A video session's virtual time base (ms, app/recorder.js), or null: the rig reads real time. */
     /** @type {number|null} */ virtualNow: null,
@@ -336,6 +336,7 @@ function loadSavedDisplay() {
         if (typeof d.hour12 === 'boolean') out.hour12 = d.hour12;
         if (SKY_DARK_SETTINGS.includes(d.skyDark)) out.skyDark = d.skyDark;
         if (AURORA_SETTINGS.includes(d.aurora)) out.aurora = d.aurora;
+        if (typeof d.red === 'boolean') out.red = d.red;
     }
     return out;
 }
@@ -545,7 +546,7 @@ async function boot() {
     bindBodyClasses(store);
     bindPreferences(store);
     bindMedia(store);
-    bindWakeLock();
+    bindNightVision(store);
 
     // ---- 2. Clock and the first snapshot ----------------------------------------------------
     const clockOpts = {};
@@ -824,9 +825,23 @@ function bindPreferences(store) {
     store.subscribe((s) => s.quality.setting, (q) => prefs.save('quality', q));
 }
 
-/** The screen wake lock (app/wake-lock.js), shared by everything that keeps the screen on. */
-function bindWakeLock() {
-    R.wake = createWakeLock();
+/**
+ * Night vision (ROADMAP night-vision-mode, display.red): html.is-red turns the whole page dim red
+ * (css/app.css), the browser's bar goes black, and the screen stays awake. The wake lock is also held
+ * in the sky view on a touch-first device (someone holding a phone up to the sky). index.html sets
+ * the class and the bar colour before the first paint when the saved setting is on.
+ */
+function bindNightVision(store) {
+    const root = document.documentElement;
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta && !meta.dataset.base) meta.dataset.base = meta.content;
+    const wake = (R.wake = createWakeLock());
+    store.subscribe((s) => !!s.display.red, (on) => {
+        root.classList.toggle('is-red', on);
+        if (meta) meta.content = on ? '#000' : meta.dataset.base;
+        wake.hold('red', on);
+    }, { immediate: true });
+    store.subscribe((s) => s.view.mode === 'sky' && !!s.status.coarse, (on) => wake.hold('sky', on), { immediate: true });
 }
 
 function bindMedia(store) {

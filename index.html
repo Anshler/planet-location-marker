@@ -9,6 +9,18 @@
 <meta name="apple-mobile-web-app-title" content="Planet Marker">
 <meta name="theme-color" content="#03060d">
 <meta name="color-scheme" content="dark">
+<script>
+/* Night vision (display.red, saved by js/core/prefs.js as 'pc2.display'): red and a black bar from
+   the first paint, so opening the app outdoors never flashes. main.js bindNightVision takes over. */
+(function () {
+  try {
+    if (JSON.parse(localStorage.getItem('pc2.display') || '{}').red !== true) return;
+    document.documentElement.classList.add('is-red');
+    var m = document.querySelector('meta[name="theme-color"]');
+    if (m) { m.setAttribute('data-base', m.content); m.content = '#000'; }
+  } catch (e) { /* storage blocked: the app applies it once it loads */ }
+})();
+</script>
 <link rel="canonical" href="https://anshler.github.io/planet-location-marker/">
 <link rel="icon" href="assets/icons/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="assets/icons/icon-192.png">

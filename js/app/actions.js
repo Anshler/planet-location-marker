@@ -894,6 +894,22 @@ export function createActions(deps) {
     }
 
     /**
+     * Night vision (display.red): the whole screen dim red, and kept awake (main.js bindNightVision).
+     * A device preference: saved with the display settings, never put in a link.
+     * @param {boolean} [on] omitted → toggle
+     * @returns {boolean} the new state
+     */
+    function setNightVision(on) {
+        const display = store.get().display;
+        const next = on === undefined ? !display.red : !!on;
+        if (!!display.red !== next) {
+            store.set({ display: { ...display, red: next } }, 'actions');
+            say(next ? 'Night vision on: the screen is dim red and stays awake' : 'Night vision off');
+        }
+        return next;
+    }
+
+    /**
      * Aurora activity: the Kp the modelled ovals are drawn for ('quiet' | 'typical' | 'storm';
      * core/store.js AURORA_SETTINGS). A setting, not live space weather.
      * @param {string} v
@@ -1587,7 +1603,7 @@ export function createActions(deps) {
         toggleMap, setObserver2, compareWith, frameObservers, setSystem,
         // Phase 6: stand on Mars (the sky view from an areographic site) and back.
         standOnMars, leaveMars,
-        toggleLayer, setQuality, setTzMode, setSkyDark, setAuroraActivity, share,
+        toggleLayer, setQuality, setTzMode, setSkyDark, setAuroraActivity, setNightVision, share,
         toggleFullscreen, toggleCinema, resetCamera, replayIntro, jumpToEvent,
         // Extensions beyond SPEC §C.9 (used by shortcuts / the shell when present).
         toggleDebug, openPalette, shareUrl, viewFromBody, getView,

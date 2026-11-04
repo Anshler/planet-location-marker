@@ -319,3 +319,25 @@ test('shareUrl({event}): a link to the event\'s sky, paused where a jump lands, 
     assert.equal(h2.tMs, season.tMs);
     assert.equal(store.get().selection, 'mars');
 });
+
+test('setNightVision: toggles display.red, announces, and stays out of shared links', async () => {
+    const { serializeHash } = await import('../js/core/url-state.js');
+    const said = [];
+    const store = createStore({ observer: LUXOR });
+    const actions = createActions({
+        store, clock: { tMs: Date.parse('2027-07-01T00:00:00Z'), playing: true, rate: 1 },
+        bus: { emit: (k, v) => { if (k === 'announce') said.push(v); } },
+        prefs: { load: (_k, d) => d, save() {}, remove() {} }, render: {},
+        win: { location: { origin: 'https://example.test', pathname: '/', search: '' } },
+    });
+    assert.equal(store.get().display.red, false);
+    assert.equal(actions.setNightVision(), true, 'omitted: toggle');
+    assert.equal(store.get().display.red, true);
+    assert.equal(actions.setNightVision(true), true);
+    assert.equal(said.length, 1, 'no announcement without a change');
+    assert.ok(!/red/.test(actions.shareUrl()), 'a device preference, not part of the sky');
+    assert.ok(!/red/.test(serializeHash({ state: store.get(), clock: { tMs: 0, playing: true, rate: 1 } })));
+    assert.equal(actions.setNightVision(false), false);
+    assert.equal(store.get().display.red, false);
+    assert.deepEqual(said, ['Night vision on: the screen is dim red and stays awake', 'Night vision off']);
+});

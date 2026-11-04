@@ -87,7 +87,7 @@ export const DEFAULT_STATE = deepFreeze({
         milkyWay: true, clouds: true, atmosphere: true, ecliptic: false, eqGrid: false, altAzGrid: true, horizon: true, footprint: false,
         subpoints: false, trails: false, labels: true, landscape: true, spacecraft: false, deepSky: true, precession: false, sunPath: false, meteors: true, satellites: true,
     },
-    display: { tzMode: 'observer', hour12: false, skyDark: 'auto', aurora: 'typical' }, quality: { setting: 'auto', active: 'medium', ceiling: 'medium' },
+    display: { tzMode: 'observer', hour12: false, skyDark: 'auto', aurora: 'typical', red: false }, quality: { setting: 'auto', active: 'medium', ceiling: 'medium' },
     ui: { panel: 'sky', sheet: 'peek', cinema: false, help: false, palette: false, eclipse: null, tour: null },
     status: { phase: 'boot', progress: 0, webgl: true, onlineSearch: 'unknown', reducedMotion: false, coarse: false, introPlaying: false },
 });

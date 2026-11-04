@@ -2351,6 +2351,17 @@ body.is-cinema .ui .sheet {
 .ui.is-cinema.is-awake .cinema-exit { opacity: 1; }
 body.is-coarse .ui.is-cinema .cinema-exit { opacity: .85; }
 
+/* Night vision (display.red; actions.setNightVision, main.js bindNightVision, index.html before the
+   first paint): the whole page, scene, labels and panels alike, as dim pure red by luminance. Three
+   colour-matrix functions, which browsers run on the GPU (no SVG filter): brightness(.042) leaves
+   headroom so nothing clips; sepia(1), whose rows are nearly proportional, maps every colour onto
+   one brownish hue at a weighted luminance (.29 R + .57 G + .14 B); saturate(100) drives that hue's
+   green and blue far below zero (clamped to 0) and its red to 62 % of the luminance. Measured in
+   headless Chrome: G = B = 0 and 159 levels, and the cheapest exact chain tried (six functions cost
+   twice as much in software compositing). test/ui.night-vision.test.mjs checks it with the spec's
+   matrices. */
+html.is-red { filter: brightness(.042) sepia(1) saturate(100); }
+
 /* Sky view: a little more contrast for panels over a bright daytime sky. */
 body.is-sky .ui .glass { border-color: rgba(255, 255, 255, .1); }
 

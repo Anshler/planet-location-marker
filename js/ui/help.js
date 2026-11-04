@@ -38,6 +38,7 @@ export const SHORTCUTS = [
         ['+|−', 'Zoom'],
         ['Home', 'Reset camera'],
         ['H', 'Hide the interface'],
+        ['Shift+N', 'Night vision: a dim red screen that stays awake'],
         ['F', 'Fullscreen'],
     ] },
     { title: 'Layers', rows: [

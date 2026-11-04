@@ -4,7 +4,7 @@
  * the sky' (Sky only, ui/sky-tools.js), Expose (Sky only: long exposures, ui/expose.js), Share,
  * Fullscreen and Help. On mobile it becomes a floating column (Globe/Sky, lock, tracking, ruler,
  * point, expose, share, ⋯), where a ⋯ menu stands in for Help and Fullscreen: Gestures and help,
- * Interface tips (ui/coach.js), Hide the interface, Fullscreen.
+ * Interface tips (ui/coach.js), Hide the interface, Night vision, Fullscreen.
  *
  * Vantage points (globe view): a menu button offers 'View from L1' and 'Earthrise'
  * (actions.setVantage), the flat 'World map' (view mode 'map', M) and 'Solar system'
@@ -45,9 +45,12 @@ const VANTAGE_CAPTION = Object.freeze({
 });
 const ITEM_ICON = Object.freeze({ none: 'globe', map: 'map', l1: 'sun', moon: 'moon', system: 'planet' });
 
+const RED_DETAIL = 'A dim red screen for dark-adapted eyes, kept awake';
+
 /**
  * The phone's ⋯ menu (CSS shows its button only in the mobile layout, where Help and Fullscreen
- * are hidden): Gestures and help, Interface tips, Hide the interface, Fullscreen.
+ * are hidden): Gestures and help, Interface tips, Hide the interface, Night vision (a checkbox:
+ * actions.setNightVision), Fullscreen.
  * @param {HTMLElement} host where the menu lives
  * @param {any} ctx UiCtx
  * @returns {{btn: HTMLElement, destroy(): void}}
@@ -62,8 +65,10 @@ function mountMoreMenu(host, ctx) {
         item('help', 'help', 'Gestures and help', 'Drag, pinch and tap: what each one does'),
         item('tips', 'sparkle', 'Interface tips', 'The three tips from the first visit, again'),
         item('cinema', 'eye-off', 'Hide the interface', 'Just the view; tap Show interface to come back'),
+        item('red', 'eye', 'Night vision', RED_DETAIL),
         item('fs', 'fullscreen', 'Fullscreen', 'Use the whole screen'),
     ];
+    items[3].setAttribute('role', 'menuitemcheckbox');
     const menu = h('div', { class: 'popover vmenu', role: 'menu', 'aria-label': 'More', hidden: true }, ...items);
     host.appendChild(menu);
     let pop = null;
@@ -72,7 +77,11 @@ function mountMoreMenu(host, ctx) {
         on(btn, 'click', () => {
             if (pop) { close(); return; }
             items[1].hidden = store.get().status?.webgl === false;
-            items[3].hidden = !document.fullscreenEnabled && !document.webkitFullscreenEnabled;
+            items[4].hidden = !document.fullscreenEnabled && !document.webkitFullscreenEnabled;
+            // Night vision: in red the accent is no cue, so the words say it is on.
+            const red = !!store.get().display?.red;
+            items[3].setAttribute('aria-checked', String(red));
+            items[3].querySelector('.vmenu__detail').textContent = red ? 'On: tap for full colour again' : RED_DETAIL;
             pop = openPopover(btn, menu, { placement: 'bottom', onClose: () => { pop = null; } });
         }),
         on(menu, 'click', (e) => {
@@ -82,6 +91,7 @@ function mountMoreMenu(host, ctx) {
             const a = b.dataset.act;
             if (a === 'help') ui.toggleHelp(true);
             else if (a === 'tips') ui.showTips();
+            else if (a === 'red') ui.act('setNightVision');
             else ui.act(a === 'fs' ? 'toggleFullscreen' : 'toggleCinema');
         }),
         on(menu, 'keydown', (e) => {

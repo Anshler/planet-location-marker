@@ -8,7 +8,7 @@
 // Raw bytes on disk are budgeted (1 MB = 10⁶ B); gzip "wire" sizes are informational
 // (GitHub Pages compresses JS/CSS/JSON/SVG/HTML).
 //
-//   low ≤ 4.55 MB · medium ≤ 5.34 MB · high ≤ 8 MB · staged site ≤ 32 MB
+//   low ≤ 4.67 MB · medium ≤ 5.46 MB · high ≤ 8 MB · staged site ≤ 32 MB
 //   (Phase 6 historic-skies, Halley and the spacecraft add ≈ 140 KB of shared JS: the extras
 //   selection model, Julian calendar, guest stars, comets and craft, raised by that plus 5 %.)
 //   SPEC §E.6 set 3.0 / 3.6 / 4.8 MB from an estimate of ≈ 1.35 MB of JavaScript. The shipped,
@@ -60,7 +60,9 @@ const MB = 1e6, KB = 1e3;
 // Phase 5 (solar-system zoom): the orrery (render/orrery.js + GLSL, astro/orrery.js, the rig's system mode, overlay
 // pass, labels and UI; ≈ 101 KB of JS).
 // Phase 5 batch 2 re-baseline (find it in the real sky, quality, views, solar-system zoom, all four merged): measured low 4.30 / medium 5.06 MB, budgets + ~2.5 %.
-export const TIER_BUDGETS = { low: 4550 * KB, medium: 5340 * KB, high: 8 * MB };
+// Phase 6 (deep sky): catalogue-star picking and cards, deep-sky objects and sprites, proper motion and the precession layer
+// (≈ 95 KB of JS plus 16 KB of proper motions in sky.json, ≈ 110 KB on every tier) raise low and medium by 120 KB (+5 %).
+export const TIER_BUDGETS = { low: 4670 * KB, medium: 5460 * KB, high: 8 * MB };
 /** Tiers that are measured and printed but have no budget (max: a deliberate, manual choice). */
 export const INFO_TIERS = ['max'];
 // The max tier's 8192 px maps (≈ 15.2 MB) ship with the site; 32 MB keeps headroom (Pages allows 1 GB).
@@ -71,6 +73,12 @@ export const FILE_BUDGETS = {
     'data/cities.json': 200 * KB,
     // The spacecraft ephemerides (scripts/build-craft.mjs; fetched after boot, precached by sw.js).
     'data/craft.json': 48 * KB,
+    // The deep-sky showpieces (scripts/build-dso.mjs; fetched after boot, precached by sw.js).
+    'data/dso.json': 16 * KB,
+    // Star designations and parallaxes (scripts/build-sky.mjs; fetched on the first star selection, precached).
+    'data/starinfo.json': 160 * KB,
+    // The max tier's deeper stars (scripts/build-stars.mjs; fetched on max only, outside every tier budget).
+    'data/stars8.json': 1300 * KB,
     'assets/og.jpg': 250 * KB,
     'assets/icons/favicon.svg': 12 * KB,
     'assets/icons/icon-192.png': 60 * KB,

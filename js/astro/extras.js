@@ -56,9 +56,12 @@ const RAD2DEG = 180 / Math.PI;
  * too faint to see, e.g. spacecraft), 'coma' (drawn by its own module, render/comets.js), 'none'
  * (already drawn by another layer, e.g. a catalogue star: only the reticle). `label` 'always',
  * 'selected' (only while selected) or 'never'. `layer`: a Layers key that must be on for it to be
- * drawn and labelled (e.g. 'stars', 'spacecraft'); absent = always.
+ * drawn and labelled (e.g. 'stars', 'spacecraft'); absent = always. Label refinements (app/labels-feed.js):
+ * `skyOnly` labels it only in sky view (unless selected), `nightMag` gates the label like a star name
+ * of that magnitude (gone by day and under a bright sky; deep-sky objects), `priority` replaces the
+ * extras' 78 in the declutter.
  * @typedef {{ name:string, color:string, glyph:'star'|'marker'|'coma'|'none', label:'always'|'selected'|'never',
- *   layer?:string, short?:string }} ExtraMeta
+ *   layer?:string, short?:string, skyOnly?:boolean, nightMag?:number, priority?:number }} ExtraMeta
  *
  * The body card's content for an extra (ui/body-card.js). `lines`: sentences under the title
  * (the light-time or radio-time line goes here); `facts`: label/value pairs for the fact grid;

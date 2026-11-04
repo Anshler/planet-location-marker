@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import { buildSky, serializeSky } from '../scripts/build-sky.mjs';
+import { buildSky, serializeSky, buildStarInfo, serializeStarInfo, readRawInputs } from '../scripts/build-sky.mjs';
 
 const read = (p) => fs.readFileSync(new URL(`../${p}`, import.meta.url), 'utf8');
 const TEXT = read('data/sky.json');
@@ -69,15 +69,40 @@ test('constellations: 89 figures (Serpens in two halves), labels and polylines',
     assert.equal(segs, 743);
 });
 
-test('reproducible: build-sky output from data/raw equals the committed file', () => {
-    const raw = (f) => JSON.parse(read(`data/raw/${f}`));
-    const rebuilt = serializeSky(buildSky({
-        stars: raw('stars.6.json'),
-        starnames: raw('starnames.json'),
-        lines: raw('constellations.lines.json'),
-        cons: raw('constellations.json'),
-    }));
-    assert.ok(rebuilt === TEXT, 'data/sky.json is stale — run node scripts/build-sky.mjs');
+test('reproducible: build-sky output from data/raw equals the committed files (sky.json and starinfo.json)', () => {
+    const raw = readRawInputs((f) => JSON.parse(read(`data/raw/${f}`)));
+    const sky = buildSky(raw);
+    assert.ok(serializeSky(sky) === TEXT, 'data/sky.json is stale — run node scripts/build-sky.mjs');
+    assert.ok(serializeStarInfo(buildStarInfo(sky, raw.starnames, raw.hip2)) === read('data/starinfo.json'), 'data/starinfo.json is stale');
+});
+
+test('pm: the fast movers (≥ 100 mas/yr) in star order, with Arcturus, Sirius and α Centauri', () => {
+    const pm = SKY.pm;
+    assert.ok(pm.i.length > 1000 && pm.i.length < 1400, `${pm.i.length} movers`);
+    assert.equal(pm.ra.length, pm.i.length);
+    assert.equal(pm.de.length, pm.i.length);
+    for (let k = 1; k < pm.i.length; k++) assert.ok(pm.i[k] > pm.i[k - 1]);
+    const at = (hip) => pm.i.indexOf(SKY.stars.hip.indexOf(hip));
+    for (const k of pm.i.keys()) assert.ok(Math.hypot(pm.ra[k], pm.de[k]) >= 99.5);
+    // Hipparcos New Reduction (van Leeuwen 2007): Arcturus −1093.39 / −2000.06, α Cen A −3679.25 / +473.67 mas/yr.
+    assert.deepEqual([pm.ra[at(69673)], pm.de[at(69673)]], [-1093, -2000]);
+    assert.deepEqual([pm.ra[at(71683)], pm.de[at(71683)]], [-3679, 474]);
+    assert.ok(at(32349) >= 0, 'Sirius moves');
+    assert.equal(at(27989), -1, 'Betelgeuse (27.5 mas/yr) does not');
+});
+
+test('starinfo.json: parallax per star in sky.json order, and designations', () => {
+    const info = JSON.parse(read('data/starinfo.json'));
+    assert.equal(info.v, 1);
+    assert.equal(info.n, SKY.stars.n);
+    assert.equal(info.hip0, SKY.stars.hip[0]);
+    const i = SKY.stars.hip.indexOf(27989);
+    assert.equal(info.plx[i], 655, 'Betelgeuse 6.55 mas');
+    assert.equal(info.eplx[i], 83);
+    const row = info.names.find((r) => r[0] === i);
+    assert.deepEqual(row.slice(1), ['Betelgeuse', 'α', '58', '', 'Ori']);
+    assert.ok(info.names.length > 3000);
+    assert.ok(info.names.every((r) => !String(r.slice(1)).includes('undefined')));
 });
 
 test('compact enough for the transfer budget', () => {

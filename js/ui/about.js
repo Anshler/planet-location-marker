@@ -15,7 +15,8 @@ import { brandMark } from './topbar.js';
 export const CREDITS = [
     ['three.js', 'r170 · 3D rendering', 'MIT', 'https://github.com/mrdoob/three.js/blob/dev/LICENSE'],
     ['astronomy-engine', '2.1.19 · positions, rise/set, eclipses', 'MIT', 'https://github.com/cosinekitty/astronomy'],
-    ['d3-celestial', 'star catalogue (Hipparcos), constellations, Milky Way', 'BSD 3-Clause', 'https://github.com/ofrohn/d3-celestial'],
+    ['d3-celestial', 'star catalogue (Hipparcos), star names, constellations, Milky Way, Messier catalogue', 'BSD 3-Clause', 'https://github.com/ofrohn/d3-celestial'],
+    ['Hipparcos, the New Reduction (van Leeuwen 2007, ESA) via NASA HEASARC', 'star distances (parallaxes) and proper motions', 'Public data', 'https://heasarc.gsfc.nasa.gov/W3Browse/star-catalog/hipnewcat.html'],
     ['GeoNames', 'offline city list', 'CC BY 4.0', 'https://www.geonames.org/'],
     ['JPL Horizons (NASA/JPL-Caltech)', 'Voyager, New Horizons and JWST trajectories; Halley’s Comet orbits per apparition (after Yeomans & Kiang 1981)', 'Public data', 'https://ssd.jpl.nasa.gov/horizons/'],
     ['Stephenson & Green, Historical Supernovae and their Remnants (2002)', 'the guest stars of 1006, 1054, 1181, 1572 and 1604: dates and brightness from the records', 'Facts cited', 'https://global.oup.com/academic/product/historical-supernovae-and-their-remnants-9780198507666'],

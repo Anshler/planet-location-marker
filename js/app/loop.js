@@ -184,6 +184,8 @@ export function createLoop(deps) {
     let last = 0;
     let dirty = true;
     let observerDirty = true;
+    /** The 4 Hz readout owes a recompute (observerDirty seen between two readouts). */
+    let fullStale = true;
     let jumped = true;
     let snapValid = false;
     let fullValid = false;
@@ -444,12 +446,16 @@ export function createLoop(deps) {
         }
 
         // 2. Full-detail readout for the panels (4 Hz, only when something moved).
-        if (now - lastFull >= FULL_INTERVAL_MS && (!fullValid || t !== fullT || observerDirty)) {
+        // A change inside the 4 Hz interval (a new observer, an extras registry change) is kept
+        // until the readout catches up, even with the clock paused.
+        if (observerDirty) fullStale = true;
+        if (now - lastFull >= FULL_INTERVAL_MS && (!fullValid || t !== fullT || fullStale)) {
             try {
                 computeSnapshot(t, obs, snapFull, OPT_FULL);
                 fillSkyglow(snapFull);
                 snapFull.second = computeSecond(t, obs2, snapFull2, OPT_FULL);
                 fullValid = true;
+                fullStale = false;
                 fullT = t;
                 lastFull = now;
                 bus.emit('readout', snapFull);

@@ -85,7 +85,8 @@ test('parses the SPEC §F.4 example completely', () => {
     assert.equal(p.view, 'orbit');
     assert.equal(p.earthLock, true);
     assert.equal(p.selection, 'moon');
-    assert.deepEqual(p.layers, DEFAULT_STATE.layers);
+    // The example predates the deep-sky layer ('x', on by default): a link without it turns it off.
+    assert.deepEqual(p.layers, { ...DEFAULT_STATE.layers, deepSky: false });
     assert.equal(p.quality, 'auto');
     assert.deepEqual(p.cam, { mode: 'orbit', latDeg: 21, lonDeg: 105.8, distance: 3.2 }, 'the part matching view');
     assert.equal(p.intro, false);
@@ -95,9 +96,9 @@ test('parses the SPEC §F.4 example completely', () => {
 });
 
 test('the default layer code matches DEFAULT_STATE', () => {
-    assert.equal(DEFAULT_LAYER_CODE, 'bgoscCnmkazhld');
+    assert.equal(DEFAULT_LAYER_CODE, 'bgoscCnmkazhldx');
     assert.equal(LAYER_CODES.length, LAYER_KEYS.length);
-    assert.deepEqual(codeToLayers('bgoscCnmkazhld'), { layers: { ...DEFAULT_STATE.layers }, unknown: false });
+    assert.deepEqual(codeToLayers('bgoscCnmkazhldx'), { layers: { ...DEFAULT_STATE.layers }, unknown: false });
     assert.equal(layersToCode(null), null);
 });
 

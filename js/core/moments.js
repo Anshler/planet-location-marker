@@ -23,7 +23,7 @@ function link({ lat, lon, n, tz, t, view = 'sky', sel = null, cam = null, ly = n
 }
 
 /** The default layers plus the spacecraft (url-state LAYER_CODES 'v'). */
-const LY_CRAFT = 'bgoscCnmkazhldv';
+const LY_CRAFT = 'bgoscCnmkazhldvx';
 
 /** @type {ReadonlyArray<Moment>} */
 export const MOMENTS = Object.freeze([

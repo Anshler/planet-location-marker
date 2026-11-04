@@ -6,6 +6,8 @@ data/raw/geonames/
 data/raw/horizons/
 # 8192 px build inputs of scripts/build-textures.mjs (fetch-vendor cache entries; never shipped)
 data/raw/textures/
+# Hipparcos New Reduction + d3-celestial stars.8 (build inputs of scripts/build-stars.mjs)
+data/raw/cache/
 # outputs of scripts/stage-site.mjs and the CI smoke runs
 _site/
 smoke/

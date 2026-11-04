@@ -11,7 +11,9 @@ those files are recorded, with their source, recipe and hash, in
 |---|---|---|---|
 | [three.js](https://threejs.org/) | 0.170.0 (r170) | MIT | `vendor/three/**` |
 | [Astronomy Engine](https://github.com/cosinekitty/astronomy) | 2.1.19 | MIT | `vendor/astronomy-engine/**` |
-| [d3-celestial](https://github.com/ofrohn/d3-celestial) data (Hipparcos stars, constellation figures, Milky Way outlines) | commit `7e720a3` | BSD-3-Clause | `data/sky.json`, `data/milkyway.png` (derived) |
+| [d3-celestial](https://github.com/ofrohn/d3-celestial) data (Hipparcos stars to V 6 and V 8, star names, constellation figures, Milky Way outlines, Messier catalogue) | commit `7e720a3` | BSD-3-Clause | `data/sky.json`, `data/starinfo.json`, `data/stars8.json`, `data/dso.json`, `data/milkyway.png` (derived) |
+| [Hipparcos, the New Reduction](https://heasarc.gsfc.nasa.gov/W3Browse/star-catalog/hipnewcat.html) (van Leeuwen 2007, A&A 474, 653) via NASA HEASARC: parallaxes and proper motions | HEASARC export 2025-10-24, pinned by SHA-256 | public data, see below | `data/raw/hip2.json`, `data/sky.json` (proper motions), `data/starinfo.json`, `data/stars8.json` (derived) |
+| Deep-sky distances, position angles and the non-Messier showpieces (NGC/IC catalogue values, SEDS, NED, Harris 2010) | — | facts, cited | `data/dso.json` (`scripts/build-dso.mjs`) |
 | [GeoNames](https://www.geonames.org/) gazetteer | dump retrieved 2026-10 | CC BY 4.0 | `data/cities.json` (derived) |
 | Earth textures by [Solar System Scope](https://www.solarsystemscope.com/textures/), via the three.js examples | three.js r170 | CC BY 4.0 | `assets/textures/earth_day_4096.jpg`, `earth_night_4096.jpg`, `earth_bump_roughness_clouds_4096.jpg`; derived: `earth_day_2048.webp`, `earth_night_2048.webp`, `earth_clouds_2048.webp`, `earth_roughness_2048.webp` |
 | Max-quality textures by [Solar System Scope](https://www.solarsystemscope.com/textures/) (8K Earth day, night and cloud maps, 8K Moon) | downloaded 2026-11, pinned by SHA-256 | CC BY 4.0 | `assets/textures/earth_day_8192.jpg`, `earth_night_8192.jpg`; derived: `earth_clouds_8192.webp`, `moon_4096.webp` |
@@ -88,7 +90,8 @@ SOFTWARE.
 ## d3-celestial data — BSD-3-Clause
 
 Source: <https://github.com/ofrohn/d3-celestial> (`data/stars.6.json`,
-`constellations.json`, `constellations.lines.json`, `starnames.json`, `mw.json`). The star
+`constellations.json`, `constellations.lines.json`, `starnames.json`, `mw.json`, `messier.json`;
+the max tier's `stars.8.json` is a gitignored build input of `scripts/build-stars.mjs`). The star
 positions, magnitudes and colour indices originate from the ESA Hipparcos catalogue; proper
 names follow the IAU list as compiled by d3-celestial. `data/sky.json` re-encodes the stars,
 names and constellation figures; `data/milkyway.png` is a raster rendered from the Milky Way
@@ -123,6 +126,24 @@ HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABI
 TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
+
+## Hipparcos, the New Reduction — public data
+
+Parallaxes, their errors and proper motions come from F. van Leeuwen, *Validation of the new
+Hipparcos reduction*, A&A 474, 653 (2007), as distributed by NASA's High Energy Astrophysics
+Science Archive Research Center (HEASARC table `hipnewcat`,
+<https://heasarc.gsfc.nasa.gov/W3Browse/star-catalog/hipnewcat.html>). The table is pinned by
+SHA-256 in `vendor/VENDOR.json` (a gitignored build input); `scripts/build-stars.mjs` extracts
+`data/raw/hip2.json` from it, and `scripts/build-sky.mjs` and `build-stars.mjs` derive the
+shipped files. The Hipparcos mission is ESA's.
+
+## Deep-sky facts
+
+The Messier objects' positions, magnitudes and sizes are d3-celestial's `messier.json` (BSD-3,
+above). Distances, position angles, common names and the 30 other showpieces (the Magellanic
+Clouds, ω Centauri, 47 Tucanae, the Carina Nebula, the Double Cluster, …) are catalogue facts
+hand-entered and rounded in `scripts/build-dso.mjs` from the NGC/IC, SEDS Messier pages, NED and
+Harris (2010) for globular clusters. No OpenNGC (CC BY-SA) data is used.
 
 ## GeoNames — Creative Commons Attribution 4.0
 

@@ -345,8 +345,16 @@ export function viewModeLook(mode, source, selection, snap) {
  * @returns {number|null}
  */
 export function telescopeFov(id, snap, aspect = 16 / 9) {
-    // An extra object has no disc here: a comet gets room for its tails, anything else a finder's field.
-    if (isExtraId(id)) return extraOf(snap, id) ? (id.startsWith('comet:') ? 24 : 6) : null;
+    // An extra object has no disc here: its provider may ask for a field (a deep-sky object's whole
+    // outline, a star's neighbourhood: ExtraState.data.fovDeg), a comet gets room for its tails,
+    // anything else a finder's field.
+    if (isExtraId(id)) {
+        const x = extraOf(snap, id);
+        if (!x) return null;
+        const want = x.data?.fovDeg;
+        if (Number.isFinite(want) && want > 0) return clamp(want / Math.min(1, aspect > 0 ? aspect : 1), TELESCOPE_FOV_MIN, 60);
+        return id.startsWith('comet:') ? 24 : 6;
+    }
     const b = isBodyId(id) ? snap?.bodies?.[BODY_INDEX[id]] : null;
     if (!b || !(b.angDiamArcsec > 0)) return null;
     const r = b.angDiamArcsec / 7200;   // angular radius, degrees

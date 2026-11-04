@@ -35,7 +35,7 @@ test('max: every knob at or past high, manual only', () => {
         name: 'max', dprCap: Infinity, composer: true, msaa: 16, bloom: { strength: 0.6, radius: 0.45, threshold: 0.9, scale: 1.0 },
         earthSegments: [256, 128], dayTex: 'day8k', oceanMask: 'roughness', clouds: 'clouds8k', cloudShadows: true, bump: true,
         atmosphere: 'raymarch', atmoSteps: 32, starMagLimit: 6.5, flare: true, labelCap: 80, twinkle: true, beamGlowPx: 14,
-        finalPass: true, moonTex: 'moon4k', anisotropy: 16, cloudShadowTaps: 5, supersample: 16, streakPx: 32,
+        finalPass: true, moonTex: 'moon4k', anisotropy: 16, cloudShadowTaps: 5, supersample: 16, streakPx: 32, deepStars: true,
     });
     const hi = TIERS.high, mx = TIERS.max;
     for (const k of ['dprCap', 'msaa', 'atmoSteps', 'starMagLimit', 'labelCap', 'beamGlowPx', 'supersample', 'streakPx']) assert.ok(mx[k] >= hi[k], k);

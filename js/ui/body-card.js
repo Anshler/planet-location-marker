@@ -180,13 +180,16 @@ export function mountBodyCard(root, ctx) {
 
     // ---------------------------------------------------------------- rendering
     let shownId = null;
+    let shownExtraName = '';
     let discKey = '';
 
     /** The card for an extra object: what the nine's card has, minus the disc-only parts. */
     function showExtra(id) {
-        if (id === shownId) return;
-        shownId = id;
         const m = ctx.extras?.meta?.(id) ?? null;
+        // Same object, same name (a star's name arrives with data/starinfo.json): nothing to redo.
+        if (id === shownId && (m?.name ?? id) === shownExtraName) return;
+        shownId = id;
+        shownExtraName = m?.name ?? id;
         card.style.setProperty('--c', m?.color ?? 'var(--accent)');
         nameEl.replaceChildren(h('span', { class: 'dot dot--lg', 'aria-hidden': 'true' }), m?.name ?? id);
         drawExtraGlyph(disc, m?.color ?? '#cfe0ff', m?.kind ?? '');
@@ -280,8 +283,10 @@ export function mountBodyCard(root, ctx) {
         }
         if (info?.subtitle) sent = `${info.subtitle}. ${sent}`;
         setText(sentence, sent);
+        // A catalogue star is not its own signpost (guideRefs lists the bright stars by name).
+        const notSelf = (r) => Math.abs(r.altDeg - alt) > 0.3 || Math.abs(((r.azDeg - az + 540) % 360) - 180) * Math.cos(alt * Math.PI / 180) > 0.3;
         const guide = st.above && Number.isFinite(alt) && Number.isFinite(st.mag) && st.mag < 6
-            ? findIt({ azDeg: az, altDeg: alt, mag: st.mag }, guideRefs(snap, null)) : null;
+            ? findIt({ azDeg: az, altDeg: alt, mag: st.mag }, guideRefs(snap, null).filter(notSelf)) : null;
         if (guide) setText(findText, lowerFirst(guide.text));
         findLine.hidden = !guide;
         light.hidden = true;
@@ -566,8 +571,8 @@ export function drawPhaseDisc(cv, { frac, litRight, color, sun = false, moon = f
 }
 
 /**
- * The thumbnail of an extra object: a comet's head and tail, a spacecraft's diamond, or a star's
- * glow with spikes (a guest star).
+ * The thumbnail of an extra object: a comet's head and tail, a spacecraft's diamond, a deep-sky
+ * object's smudge, or a star's glow with spikes (guest and catalogue stars).
  * @param {HTMLCanvasElement} cv
  * @param {string} color
  * @param {string} kind
@@ -596,6 +601,19 @@ export function drawExtraGlyph(cv, color, kind) {
         c.fillStyle = tail;
         c.beginPath(); c.moveTo(44, 18); c.lineTo(4, 50); c.lineTo(10, 60); c.closePath(); c.fill();
         glow(42, 22, 12, 1);
+    } else if (kind === 'dso') {
+        // A deep-sky object: a soft, tilted smudge with a brighter core.
+        c.save();
+        c.translate(32, 32);
+        c.rotate(-0.6);
+        c.scale(1, 0.45);
+        const gr = c.createRadialGradient(0, 0, 0, 0, 0, 27);
+        gr.addColorStop(0, `rgba(255,255,255,0.85)`);
+        gr.addColorStop(0.18, `rgba(${r},${g},${b},0.55)`);
+        gr.addColorStop(1, `rgba(${r},${g},${b},0)`);
+        c.fillStyle = gr;
+        c.beginPath(); c.arc(0, 0, 27, 0, Math.PI * 2); c.fill();
+        c.restore();
     } else if (kind === 'craft') {
         c.strokeStyle = `rgb(${r},${g},${b})`;
         c.lineWidth = 2.5;

@@ -76,10 +76,18 @@ export const MANIFEST = [
     sss8k('8k_earth_nightmap.jpg', 'assets/textures/earth_night_8192.jpg'),
     sss8k('8k_earth_clouds.jpg', 'data/raw/textures/8k_earth_clouds.jpg', true),
     sss8k('8k_moon.jpg', 'data/raw/textures/8k_moon.jpg', true),
-    ...['stars.6.json', 'constellations.lines.json', 'constellations.json', 'starnames.json', 'mw.json'].map((f) => ({
+    ...['stars.6.json', 'constellations.lines.json', 'constellations.json', 'starnames.json', 'mw.json', 'messier.json'].map((f) => ({
         name: D3C.name, version: D3C.version, license: D3C.license, url: `${D3C.base}data/${f}`, path: `data/raw/${f}`,
     })),
     { name: D3C.name, version: D3C.version, license: D3C.license, url: `${D3C.base}LICENSE`, path: 'data/raw/LICENSE-d3-celestial' },
+    // Build inputs of scripts/build-stars.mjs (gitignored data/raw/cache/): the max tier's deeper
+    // stars, and the Hipparcos New Reduction (van Leeuwen 2007) as NASA HEASARC distributes it (its
+    // URL is not versioned, so the sha256 is the pin; HEASARC tables are public).
+    { name: D3C.name, version: D3C.version, license: D3C.license, url: `${D3C.base}data/stars.8.json`, path: 'data/raw/cache/stars.8.json', cache: true },
+    {
+        name: 'hipparcos-new-reduction', version: 'HEASARC hipnewcat (2025-10-24 export)', license: 'Public (ESA/van Leeuwen 2007; NASA HEASARC)',
+        url: 'https://heasarc.gsfc.nasa.gov/FTP/heasarc/dbase/tdat_files/heasarc_hipnewcat.tdat.gz', path: 'data/raw/cache/heasarc_hipnewcat.tdat.gz', cache: true,
+    },
 ];
 
 /** @param {Buffer} buf @returns {string} hex sha256 */

@@ -16,9 +16,20 @@ export const DEFAULT_MAG_LIMIT = 6.5;
 const FALLBACK_BV = 0.6;
 
 /**
- * @typedef {{count:number, dirS:Float32Array, mag:Float32Array, color:Float32Array, hip:Int32Array}} StarArrays
+ * @typedef {{count:number, dirS:Float32Array, mag:Float32Array, color:Float32Array, hip:Int32Array, bv:Float32Array,
+ *   plx?:Float32Array|null, baseCount?:number, pm?:ProperMotions|null}} StarArrays
  *   dirS: 3·count unit vectors (scene frame) · mag: visual magnitude · color: 3·count linear RGB,
- *   max component 1 · hip: Hipparcos number. Sorted by magnitude, brightest first.
+ *   max component 1 · hip: Hipparcos number · bv: B−V. Sorted by magnitude, brightest first.
+ *   After mergeDeepStars (the max tier): the base catalogue's `baseCount` stars come first, then the
+ *   deeper ones, and `plx` holds the deep stars' parallaxes (mas; NaN for the base stars, whose
+ *   parallaxes are in data/starinfo.json).
+ */
+/**
+ * The fast movers (sky.json `pm`): `idx` star indices; `base` their J2000 directions and `vel` their
+ * tangential velocity in the scene frame (rad/yr, 3 per star); `seg` [float offset into
+ * cons.segments, slot] pairs of constellation endpoints that sit on a mover; `names` [starNames
+ * index, slot] pairs; `years` the epoch currently applied (years from J2000.0).
+ * @typedef {{idx:Int32Array, base:Float32Array, vel:Float32Array, seg:Int32Array, names:Int32Array, years:number}} ProperMotions
  */
 /** @typedef {{name:string, hip:number, con:string, dirS:number[], mag:number}} StarName */
 /**
@@ -28,7 +39,10 @@ const FALLBACK_BV = 0.6;
  *   … 3 (faint) · segStart/segCount: this figure's range in cons.segments / segCon.
  */
 /** @typedef {{segments:Float32Array, segCon:Uint16Array, list:ConstellationInfo[]}} Constellations */
-/** @typedef {{stars:StarArrays, starNames:StarName[], cons:Constellations, magLimit:number}} SkyCatalog */
+/**
+ * `srcHip`: sky.json's own star order (HIP per raw index; data/starinfo.json is aligned to it).
+ * @typedef {{stars:StarArrays, starNames:StarName[], cons:Constellations, magLimit:number, srcHip?:number[]}} SkyCatalog
+ */
 
 /**
  * A valid catalog with nothing in it — what render modules get before sky.json arrives.
@@ -36,10 +50,11 @@ const FALLBACK_BV = 0.6;
  */
 export function emptyCatalog() {
     return {
-        stars: { count: 0, dirS: new Float32Array(0), mag: new Float32Array(0), color: new Float32Array(0), hip: new Int32Array(0) },
+        stars: { count: 0, dirS: new Float32Array(0), mag: new Float32Array(0), color: new Float32Array(0), hip: new Int32Array(0), bv: new Float32Array(0), pm: null },
         starNames: [],
         cons: { segments: new Float32Array(0), segCon: new Uint16Array(0), list: [] },
         magLimit: DEFAULT_MAG_LIMIT,
+        srcHip: [],
     };
 }
 
@@ -85,6 +100,8 @@ function decodeStars(src, magLimit) {
         mag: new Float32Array(n),
         color: new Float32Array(3 * n),
         hip: new Int32Array(n),
+        bv: new Float32Array(n),
+        pm: null,
     };
     const newIndex = new Map();
     for (let j = 0; j < n; j++) {
@@ -96,6 +113,7 @@ function decodeStars(src, magLimit) {
         out.dirS[3 * j + 2] = v[2];
         out.mag[j] = src.mag[i] / 100;
         const bv = Number.isFinite(src.bv[i]) ? src.bv[i] / 1000 : FALLBACK_BV;
+        out.bv[j] = bv;
         const rgb = bvToRgb(bv, rgbTmp) || rgbTmp;
         // Renormalise so the brightest channel is exactly 1 (a LUT-interpolated fit can
         // dip a fraction of a percent below it near the blue/red crossover).
@@ -199,12 +217,155 @@ export function decodeSky(json, { magLimit = DEFAULT_MAG_LIMIT } = {}) {
     const doc = typeof json === 'string' ? JSON.parse(json) : json;
     assertSky(doc);
     const { stars, newIndex } = decodeStars(doc.stars, magLimit);
-    return {
-        stars,
-        starNames: decodeNames(doc.names, doc.stars, stars, newIndex),
-        cons: decodeCons(doc.cons),
-        magLimit,
+    const starNames = decodeNames(doc.names, doc.stars, stars, newIndex);
+    const cons = decodeCons(doc.cons);
+    stars.pm = decodePm(doc.pm, stars, newIndex, starNames, cons);
+    return { stars, starNames, cons, magLimit, srcHip: doc.stars.hip };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Proper motion (time-machine sky)
+// ---------------------------------------------------------------------------------------------
+
+const MAS_RAD = Math.PI / (180 * 3600 * 1000);
+/** A constellation endpoint this close to a moving star (cos of 0.03°) is snapped to it. */
+const LINK_COS = Math.cos(0.03 * Math.PI / 180);
+/** Julian year, ms. */
+const YEAR_MS = 365.25 * 86400000;
+/** J2000.0 (2000-01-01T12:00 TT ≈ UTC), ms. */
+const J2000_MS = Date.UTC(2000, 0, 1, 12);
+
+/**
+ * Years from J2000.0 at `tMs` (UTC ms; Julian years).
+ * @param {number} tMs
+ * @returns {number}
+ */
+export function yearsFromJ2000(tMs) {
+    return (tMs - J2000_MS) / YEAR_MS;
+}
+
+/**
+ * Decodes sky.json `pm` ({i, ra, de}: raw star index, μα·cos δ and μδ in mas/yr) into scene-frame
+ * velocities, and links the constellation endpoints and star names that sit on those stars.
+ * @returns {ProperMotions|null}
+ */
+function decodePm(pm, stars, newIndex, starNames, cons) {
+    if (!pm || !Array.isArray(pm.i) || !Array.isArray(pm.ra) || !Array.isArray(pm.de)) return null;
+    const slots = [];
+    for (let k = 0; k < pm.i.length; k++) {
+        const j = newIndex.get(pm.i[k]);
+        if (j !== undefined && Number.isFinite(pm.ra[k]) && Number.isFinite(pm.de[k])) slots.push([j, pm.ra[k], pm.de[k]]);
+    }
+    const n = slots.length;
+    const idx = new Int32Array(n), base = new Float32Array(3 * n), vel = new Float32Array(3 * n);
+    const bySlotHip = new Map();
+    slots.forEach(([j, mra, mde], s) => {
+        idx[s] = j;
+        const x = stars.dirS[3 * j], y = stars.dirS[3 * j + 1], z = stars.dirS[3 * j + 2];
+        base[3 * s] = x; base[3 * s + 1] = y; base[3 * s + 2] = z;
+        // Scene (x, y, z) = EQJ (x, z, −y): α from (x, −z), δ from y. Unit vectors of increasing α and δ.
+        const ra = Math.atan2(-z, x), dec = Math.asin(Math.max(-1, Math.min(1, y)));
+        const ca = Math.cos(ra), sa = Math.sin(ra), cd = Math.cos(dec), sd = Math.sin(dec);
+        const ea = [-sa, 0, -ca];                    // EQJ (−sin α, cos α, 0) in scene axes
+        const ed = [-sd * ca, cd, sd * sa];          // EQJ (−sin δ cos α, −sin δ sin α, cos δ)
+        const a = mra * MAS_RAD, d = mde * MAS_RAD;
+        for (let c = 0; c < 3; c++) vel[3 * s + c] = a * ea[c] + d * ed[c];
+        bySlotHip.set(stars.hip[j], s);
+    });
+    // Constellation endpoints on a moving star (the lines file's own J2000 RA/Dec, to 0.01°).
+    const seg = [];
+    const P = cons.segments;
+    for (let o = 0; o + 2 < P.length; o += 3) {
+        for (let s = 0; s < n; s++) {
+            const dot = P[o] * base[3 * s] + P[o + 1] * base[3 * s + 1] + P[o + 2] * base[3 * s + 2];
+            if (dot > LINK_COS) { seg.push(o, s); break; }
+        }
+    }
+    const names = [];
+    starNames.forEach((nm, k) => {
+        const s = bySlotHip.get(nm.hip);
+        if (s !== undefined) names.push(k, s);
+    });
+    return { idx, base, vel, seg: Int32Array.from(seg), names: Int32Array.from(names), years: 0 };
+}
+
+/**
+ * Moves the fast stars to their place `years` from J2000.0 (linear proper motion in the tangent
+ * plane, renormalised; no radial-velocity foreshortening), in place: the catalogue's directions,
+ * the constellation endpoints on those stars and the star names' label directions. No allocation.
+ * @param {SkyCatalog} catalog
+ * @param {number} years years from J2000.0
+ * @returns {boolean} whether anything moved
+ */
+export function applyProperMotion(catalog, years) {
+    const pm = catalog?.stars?.pm;
+    if (!pm || !Number.isFinite(years) || pm.years === years) return false;
+    pm.years = years;
+    const D = catalog.stars.dirS, P = catalog.cons.segments, N = catalog.starNames;
+    const { idx, base, vel } = pm;
+    for (let s = 0; s < idx.length; s++) {
+        const x = base[3 * s] + vel[3 * s] * years;
+        const y = base[3 * s + 1] + vel[3 * s + 1] * years;
+        const z = base[3 * s + 2] + vel[3 * s + 2] * years;
+        const l = Math.hypot(x, y, z) || 1;
+        const j = 3 * idx[s];
+        D[j] = x / l; D[j + 1] = y / l; D[j + 2] = z / l;
+    }
+    for (let k = 0; k < pm.seg.length; k += 2) {
+        const o = pm.seg[k], j = 3 * idx[pm.seg[k + 1]];
+        P[o] = D[j]; P[o + 1] = D[j + 1]; P[o + 2] = D[j + 2];
+    }
+    for (let k = 0; k < pm.names.length; k += 2) {
+        const d = N[pm.names[k]].dirS, j = 3 * idx[pm.names[k + 1]];
+        d[0] = D[j]; d[1] = D[j + 1]; d[2] = D[j + 2];
+    }
+    return true;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Deeper stars (the max tier)
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Appends data/stars8.json (scripts/build-stars.mjs: V 6.01–8.00, brightest first) to a decoded
+ * catalogue, returning a new catalogue whose first `baseCount` stars are the original ones (same
+ * indices, so proper motions and names keep pointing at them; the arrays are new).
+ * @param {SkyCatalog} catalog
+ * @param {object} json parsed data/stars8.json
+ * @returns {SkyCatalog}
+ */
+export function mergeDeepStars(catalog, json) {
+    const d = json;
+    const ok = d?.v === 1 && Number.isInteger(d.n) && ['hip', 'ra', 'dec', 'mag', 'bv', 'plx'].every((k) => Array.isArray(d[k]) && d[k].length === d.n);
+    if (!ok) throw new TypeError('mergeDeepStars: not a v1 stars8.json document');
+    const b = catalog.stars;
+    const nb = b.baseCount ?? b.count;
+    const n = nb + d.n;
+    const out = {
+        count: n, dirS: new Float32Array(3 * n), mag: new Float32Array(n), color: new Float32Array(3 * n),
+        hip: new Int32Array(n), bv: new Float32Array(n), plx: new Float32Array(n).fill(Number.NaN), baseCount: nb,
+        // Its own epoch bookkeeping (the arrays are shared): each catalogue's dirS moves separately.
+        pm: b.pm ? { ...b.pm } : null,
     };
+    out.dirS.set(b.dirS.subarray(0, 3 * nb));
+    out.mag.set(b.mag.subarray(0, nb));
+    out.color.set(b.color.subarray(0, 3 * nb));
+    out.hip.set(b.hip.subarray(0, nb));
+    if (b.bv) out.bv.set(b.bv.subarray(0, nb));
+    for (let k = 0; k < d.n; k++) {
+        const j = nb + k;
+        const v = raDecToScene(d.ra[k] / 1000, d.dec[k] / 1000, tmp) || tmp;
+        out.dirS[3 * j] = v[0]; out.dirS[3 * j + 1] = v[1]; out.dirS[3 * j + 2] = v[2];
+        out.mag[j] = d.mag[k] / 100;
+        const bv = Number.isFinite(d.bv[k]) ? d.bv[k] / 1000 : FALLBACK_BV;
+        out.bv[j] = bv;
+        const rgb = bvToRgb(bv, rgbTmp) || rgbTmp;
+        const peak = Math.max(rgb[0], rgb[1], rgb[2]) || 1;
+        out.color[3 * j] = rgb[0] / peak; out.color[3 * j + 1] = rgb[1] / peak; out.color[3 * j + 2] = rgb[2] / peak;
+        out.hip[j] = d.hip[k];
+        out.plx[j] = d.plx[k] > 0 ? d.plx[k] / 10 : Number.NaN;
+    }
+    return { ...catalog, stars: out };
 }
 
 /**

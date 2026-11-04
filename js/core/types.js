@@ -16,8 +16,10 @@
 /** @typedef {{beams:boolean, ghostBeams:boolean, sunMoonBeams:boolean, stars:boolean, constellations:boolean,
  *   constellationNames:boolean, starNames:boolean, milkyWay:boolean, clouds:boolean, atmosphere:boolean, ecliptic:boolean,
  *   eqGrid:boolean, altAzGrid:boolean, horizon:boolean, footprint:boolean, subpoints:boolean, trails:boolean, labels:boolean,
- *   landscape:boolean, spacecraft:boolean}} Layers `landscape`: the sky view's illustrative landscape (geo/horizon.js);
- *   `spacecraft`: the radio beams to Voyager 1 and 2, New Horizons and JWST (astro/craft.js), off by default */
+ *   landscape:boolean, spacecraft:boolean, deepSky:boolean, precession:boolean}} Layers `landscape`: the sky view's illustrative landscape (geo/horizon.js);
+ *   `spacecraft`: the radio beams to Voyager 1 and 2, New Horizons and JWST (astro/craft.js), off by default;
+ *   `deepSky`: the Messier objects and showpieces (astro/dso.js, render/dso.js), on by default; `precession`: the
+ *   pole's precession circle, the pole of date and the equinox points (render/precession.js), off by default */
 /** A selection (core/selection.js): one of the nine BodyIds, or an extra object's namespaced id
  * `<kind>:<key>` with kind star | dso | comet | craft | guest (e.g. 'comet:halley', 'craft:voyager1'),
  * resolved by the extras registry (astro/extras.js). BODY_IDS stays the contract for the nine.

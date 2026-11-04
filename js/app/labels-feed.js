@@ -35,6 +35,10 @@
 // Extra objects (astro/extras.js: guest stars, comets, spacecraft, …) are labelled like bodies at
 // their at-infinity direction (`dirS` of their ExtraState in snap.extras), in orbit and sky view, as
 // their meta says ('always' or only while 'selected'); a `gate` hides them while not `present`.
+// Deep-sky objects (meta `skyOnly`, `nightMag`) are named only in sky view and follow the drawn sky
+// like star names; a selected catalogue star is labelled once, as the selection. Guide marks with
+// their own anchors (render/precession.js: century ticks, pole stars, the pole and equinoxes of
+// date) come through `getSkyMarks`.
 //
 // Priorities follow SPEC §C.6: selected 100, Sun/Moon 90, planets 80, extras 78, observer 70,
 // cardinal 60, stars 50 − mag, constellations 20.
@@ -236,6 +240,8 @@ function extraAnchors(out, state, snap, extras, sky, live) {
         if (meta.label === 'never' || (meta.label === 'selected' && !selected)) continue;
         if (meta.layer && layers[meta.layer] === false && !selected) continue;
         if (meta.layer && !Object.hasOwn(layers, meta.layer) && !selected) continue;
+        // Deep-sky labels (astro/dso.js): only in sky view unless selected.
+        if (meta.skyOnly && !sky && !selected) continue;
         // A spacecraft's label rides its radio beam in the globe view (render/craft.js), like a body's.
         let along = null;
         if (!sky && live && meta.glyph === 'marker' && layers.beams !== false) {
@@ -247,7 +253,7 @@ function extraAnchors(out, state, snap, extras, sky, live) {
             id,
             text: meta.name,
             kind: 'body',
-            priority: selected ? PRIORITY.selected : PRIORITY.extra,
+            priority: selected ? PRIORITY.selected : Number.isFinite(meta.priority) ? meta.priority : PRIORITY.extra,
             color: meta.color,
             ariaLabel: `${meta.name} — show details`,
             interactive: true,
@@ -259,6 +265,8 @@ function extraAnchors(out, state, snap, extras, sky, live) {
             below: labelBelow(st, sky),
         };
         if (along) { a.posS = along; a.alongBeam = true; }
+        // `nightMag` (deep-sky objects): the name follows the drawn sky like a star name (syncNames).
+        if (Number.isFinite(meta.nightMag) && !selected) { a.mag = meta.nightMag; a.night = true; a.hidden = false; a.faint = false; }
         out.push(a);
     }
     return true;
@@ -327,10 +335,12 @@ function cardinalAnchors(out, live, rim) {
     });
 }
 
-function starAnchors(out, catalog, sky) {
+function starAnchors(out, catalog, sky, selection = null) {
     const limit = sky ? STAR_NAME_MAG_SKY : STAR_NAME_MAG_ORBIT;
     for (const s of catalog.starNames ?? []) {
         if (!s?.name || !s.dirS || !(s.mag <= limit)) continue;
+        // A selected star is labelled as the selection (extraAnchors, astro/stars.js), not twice.
+        if (selection === `star:${s.hip}`) continue;
         out.push({
             id: `star:${s.hip}`,
             text: s.name,
@@ -509,9 +519,11 @@ export function buildAnchors(state, snap, catalog, trails, opts = {}) {
     }
     if (live && sky) cardinalAnchors(out, live, false);
     if (live && !sky && opts.rimCardinals && layers.horizon !== false && !opts.hideObserver) cardinalAnchors(out, live, true);
-    if (catalog && layers.stars !== false && layers.starNames) starAnchors(out, catalog, sky);
+    if (catalog && layers.stars !== false && layers.starNames) starAnchors(out, catalog, sky, state.selection ?? null);
     if (catalog && layers.constellationNames) constellationAnchors(out, catalog);
     if (layers.trails) trailAnchors(out, trails);
+    // Guide marks on the celestial sphere with their own labels (render/precession.js).
+    for (const m of opts.skyMarks ?? []) trailAnchors(out, m);
     // The angle ruler's reading (render/ruler.js), sky view only.
     if (sky && opts.ruler) trailAnchors(out, opts.ruler);
     return out;
@@ -638,7 +650,7 @@ function syncCardinals(live, snap) {
  *          getPin?:()=>object|null, getPlanets?:()=>object|null, getRuler?:()=>object|null}} deps
  */
 export function createLabelsFeed({ labels, store, snap, getCatalog = () => null, getTrails = () => null, getBeams = () => null,
-    getPin = () => null, getPlanets = () => null, getRuler = () => null, getOrrery = () => null, extras = null }) {
+    getPin = () => null, getPlanets = () => null, getRuler = () => null, getOrrery = () => null, getSkyMarks = () => [], extras = null }) {
     /** @type {LiveVectors} */
     const live = {
         bodyOrbit: BODIES.map(() => new Float64Array(3)),
@@ -710,6 +722,7 @@ export function createLabelsFeed({ labels, store, snap, getCatalog = () => null,
             hideObserver: observerHidden,
             rimCardinals: !!getPin()?.cardinals,
             ruler: getRuler(),
+            skyMarks: getSkyMarks() ?? [],
             parallax,
         };
         anchors = buildAnchors(store.get(), snap, getCatalog(), getTrails(), opts);
@@ -722,6 +735,10 @@ export function createLabelsFeed({ labels, store, snap, getCatalog = () => null,
             if (a.extra === true) {
                 const st = extras?.state?.(snap, a.id);
                 if (st) { extraList.push(a); extraStates.push(st); }
+                if (a.night === true) {
+                    a.hidden = hiddenNames.has(a.id);
+                    nameAnchors.push(a);
+                }
             } else if (a.kind === 'body' && Object.hasOwn(BODY_INDEX, a.id)) {
                 bodyAnchor[BODY_INDEX[a.id]] = a;
                 if (a.selected) selIndex = BODY_INDEX[a.id];
@@ -743,7 +760,7 @@ export function createLabelsFeed({ labels, store, snap, getCatalog = () => null,
         for (let k = 0; k < nameAnchors.length; k++) {
             const a = nameAnchors[k];
             const was = a.hidden === true;
-            if (a.kind === 'star') gateStarName(a, e, lim);
+            if (a.kind === 'star' || a.night === true) gateStarName(a, e, lim);
             else gateConstellationName(a, e);
             if (a.hidden !== was) {
                 if (a.hidden) hiddenNames.add(a.id);

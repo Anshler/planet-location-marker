@@ -32,12 +32,12 @@ import { BODIES, isBodyId, bodyById } from './astro/bodies.js';
 import { createSnapshot, computeSnapshot } from './astro/snapshot.js';
 import { createExtras } from './astro/extras.js';
 import { isSelectionId, isExtraId } from './core/selection.js';
-import { registerExtras } from './app/extras-setup.js';
+import { registerExtras, registerStars } from './app/extras-setup.js';
 import { createAstroClient } from './astro/client.js';
 import { createSite, siteFor, manualSite } from './astro/skyglow.js';
 import { liftByRefraction } from './astro/photometry.js';
 import { guideRefs, separationDeg } from './astro/sky-guide.js';
-import { decodeSky, emptyCatalog } from './data/catalog.js';
+import { decodeSky, emptyCatalog, mergeDeepStars } from './data/catalog.js';
 import { createActions, normalizeObserver, selectionLook, viewModeLook, eclipseFocusExpired } from './app/actions.js';
 import { ribbonPlan } from './app/eclipse-chase.js';
 import { createLoop } from './app/loop.js';
@@ -383,6 +383,8 @@ async function importRenderStack() {
         pin: import('./render/pin.js'),
         flare: import('./render/flare.js'),
         extras: import('./render/extras.js'),
+        dso: import('./render/dso.js'),
+        precession: import('./render/precession.js'),
         comets: import('./render/comets.js'),
         craft: import('./render/craft.js'),
         orrery: import('./render/orrery.js'),
@@ -590,7 +592,11 @@ async function boot() {
     });
 
     // ---- 3. Loop (headless until the renderer exists) and the UI ----------------------------
-    settle(registerExtras(extras, { fetchJson }));
+    settle(registerExtras(extras, {
+        fetchJson,
+        // The deep-sky objects' list goes to their sprites (render/dso.js), whenever both exist.
+        onDso: (p) => { R.dsoProvider = p; R.mods.dso?.setProvider?.(p); R.loop?.invalidate?.(); },
+    }));
     const loop = createLoop({
         clock, store, bus, snap, snapFull, extras,
         governor: env.webdriver ? null : governor,
@@ -942,6 +948,10 @@ async function bootRender(ctx) {
     create('aurora', m.aurora && (() => m.aurora.createAurora(rc, { reducedMotion: rm })));
     create('atmosphere', m.atmosphere && (() => m.atmosphere.createAtmosphere(rc)));
     const sky = create('sky', m.sky && (() => m.sky.createSky(rc, { catalog: catalog ?? emptyCatalog(), textures, reducedMotion: rm })));
+    // Deep-sky objects (astro/dso.js, data/dso.json) as faint true-size sprites; the precession
+    // circle, the pole of date and the equinox points (the 'precession' layer).
+    create('dso', m.dso && (() => m.dso.createDsoLayer(rc, { provider: R.dsoProvider ?? null })));
+    create('precession', m.precession && (() => m.precession.createPrecession(rc)));
     create('bodies', m.bodies && (() => m.bodies.createBodies(rc, { textures, horizon })), space);
     create('totality', m.totality && (() => m.totality.createTotality(rc)), space);
     create('ground', m.ground && (() => m.ground.createGround(rc, { textures, horizon, cities })));
@@ -1007,6 +1017,8 @@ async function bootRender(ctx) {
         getPlanets: () => (R.mods.planets && !R.loop?.isDisabled?.(R.mods.planets) ? R.mods.planets : null),
         getRuler: () => (R.mods.ruler && !R.loop?.isDisabled?.(R.mods.ruler) ? R.mods.ruler : null),
         getOrrery: () => (R.mods.orrery && !R.loop?.isDisabled?.(R.mods.orrery) ? R.mods.orrery : null),
+        // Sky-view guide labels with their own anchors (render/precession.js: years, pole stars, equinoxes).
+        getSkyMarks: () => (R.mods.precession && !R.loop?.isDisabled?.(R.mods.precession) ? [R.mods.precession] : []),
         extras: R.extras,
     }) : null;
     R.labelsFeed = labelsFeed;
@@ -1031,13 +1043,35 @@ async function bootRender(ctx) {
             return;
         }
         R.catalog = cat;
+        R.baseCatalog = cat;
         if (sky && typeof sky.setCatalog === 'function') loop.callModule(sky, 'setCatalog', cat);
         else if (sky && m.sky) replaceSky(m.sky, rc, cat, textures, rm);
         labelsFeed?.markDirty();
         loop.invalidate();
+        afterCatalog();
     };
-    if (catalog) R.catalog = catalog;
-    else catalogP.then(installCatalog);
+    // Catalogue stars become selectable (astro/stars.js) and the max tier's deeper stars load.
+    const afterCatalog = () => {
+        if (!R.starExtras && R.extras) {
+            try {
+                R.starExtras = registerStars(R.extras, {
+                    getCatalog: () => R.catalog,
+                    fetchJson,
+                    onInfo: () => { labelsFeed?.markDirty(); loop.invalidate(); },
+                });
+                R.starExtras.sync(store.get().selection);
+                store.subscribe((s) => s.selection, (sel) => R.starExtras?.sync(sel));
+            } catch (err) {
+                console.error('[main] catalogue stars could not be made selectable', err);
+            }
+        }
+        syncDeepStars(currentCfg);
+    };
+    if (catalog) {
+        R.catalog = catalog;
+        R.baseCatalog = catalog;
+        afterCatalog();
+    } else catalogP.then(installCatalog);
 
     // 5. Critical textures, 6. compile.
     const keys = textures && m.textures.keysForTier ? m.textures.keysForTier(currentCfg) : { critical: [], deferred: [] };
@@ -1105,6 +1139,86 @@ function updateLoaderProgress() {
     const tex = p.total > 0 ? Math.min(1, p.loaded / p.total) : 0;
     const f = 0.45 + 0.4 * tex + (compiled ? 0.1 : 0);
     loader.progress(Math.min(0.98, f), tex < 1 ? 'Loading imagery' : 'Warming up the shaders');
+}
+
+/** The max tier's deeper stars (scripts/build-stars.mjs; ≈ 1.1 MB, fetched only on that tier). */
+const DEEP_STARS_URL = 'data/stars8.json';
+let deepStarsP = null;
+
+/**
+ * The max tier draws the base catalogue plus data/stars8.json (V 6–8, catalog.js mergeDeepStars),
+ * so the telescope's aperture gain has stars to reveal; any other tier goes back to the base
+ * catalogue. Fetched once, the first time max is active (offline only after that first use).
+ * @param {any} cfg the active TierCfg
+ */
+function syncDeepStars(cfg) {
+    const base = R.baseCatalog;
+    const sky = R.mods.sky;
+    if (!base || !sky || typeof sky.setCatalog !== 'function') return;
+    const want = cfg?.deepStars === true;
+    if (!want) {
+        if (R.catalog !== base) {
+            R.catalog = base;
+            R.loop?.callModule(sky, 'setCatalog', base);
+            R.extras?.refresh();
+            R.labelsFeed?.markDirty();
+            R.loop?.invalidate();
+        }
+        return;
+    }
+    if (R.catalog !== base && R.catalog?.stars?.baseCount) return;   // already merged
+    deepStarsP ??= fetchJson(DEEP_STARS_URL, 30000).then((json) => {
+        if (!json) { deepStarsP = null; return null; }
+        try {
+            return mergeDeepStars(R.baseCatalog, json);
+        } catch (err) {
+            console.error('[main] data/stars8.json could not be decoded', err);
+            return null;
+        }
+    });
+    deepStarsP.then((merged) => {
+        if (!merged || currentCfg?.deepStars !== true || R.catalog === merged) return;
+        R.catalog = merged;
+        R.loop?.callModule(R.mods.sky, 'setCatalog', merged);
+        R.extras?.refresh();
+        R.labelsFeed?.markDirty();
+        R.loop?.invalidate();
+    });
+}
+
+/** Scratch: the true direction under a tap (picking.js skyTapDir). */
+const TAP_DIR = new Float64Array(3);
+
+/**
+ * A deep-sky object or catalogue star under a tap (sky view, or orbit view where the tap misses
+ * the globe): render/dso.js pick, then render/sky.js pickStar, both on the sphere at the tap's
+ * true direction. Returns a selection id or null.
+ */
+function pickSkyObject({ store, rc, rig, snap, pick, ndc, camera }) {
+    if (!pick?.skyTapDir || !camera) return null;
+    const sky = store.get().view.mode === 'sky';
+    const k = sky ? Math.max(0, Math.min(1, rig.skyBlend ?? 1)) : 0;
+    if (!sky && (rig.skyBlend ?? 0) < 0.5 && pick.pickEarth?.(ndc, camera, snap.earthMatrix)) return null;
+    if (!pick.skyTapDir(ndc, camera, sky ? snap.observer.upS : null, k, TAP_DIR)) return null;
+    const h = rc.size?.h || 800;
+    const radPerPx = ((camera.fov || 45) * Math.PI / 180) / h;
+    let id = null;
+    try {
+        id = R.mods.dso && !R.loop?.isDisabled?.(R.mods.dso) ? R.mods.dso.pick?.(TAP_DIR, radPerPx) ?? null : null;
+        if (!id) {
+            const s = R.mods.sky?.pickStar?.(TAP_DIR, radPerPx, 14) ?? null;
+            if (s && s.hip > 0) id = `star:${s.hip}`;
+        }
+    } catch (err) {
+        console.error('[main] sky-object picking failed', err);
+        return null;
+    }
+    // A star gets its registry slot before the selection lands, so 'fly' finds it in this snapshot.
+    if (id && id.startsWith('star:') && R.starExtras) {
+        R.starExtras.sync(id);
+        try { R.extras?.fill(snap); } catch { /* the loop fills it next frame */ }
+    }
+    return id;
 }
 
 /** The sky module without setCatalog(): rebuild it with the catalog and swap it in place. */
@@ -1470,6 +1584,8 @@ function handleSceneClick({ store, rc, rig, snap, pick, ndc, dbl }) {
             console.error('[main] extra-object picking failed', err);
         }
     }
+    // Deep-sky objects and catalogue stars, on the sphere.
+    if (!id) id = pickSkyObject({ store, rc, rig, snap, pick, ndc, camera });
     if (id && isSelectionId(id)) {
         R.actions.select(id, { fly: dbl });
         store.set({ ui: { ...store.get().ui, panel: 'details' } }, 'click');
@@ -1633,6 +1749,7 @@ function applyTierCfg(cfg) {
         console.error('[main] tier switch failed', err);
     }
     R.loop.broadcast('setQuality', cfg);
+    syncDeepStars(cfg);
     const t = R.textures;
     if (t && R.texMod?.keysForTier) {
         try {

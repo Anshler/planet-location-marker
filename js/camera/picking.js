@@ -20,6 +20,7 @@
  */
 import { localToLatLon, raySphere } from '../astro/frames.js';
 import { mapRayHit } from '../geo/mapview.js';
+import { liftByRefraction } from '../astro/photometry.js';
 
 const _o = new Float64Array(3);
 const _d = new Float64Array(3);
@@ -74,6 +75,35 @@ export function rayFromNdc(x, y, camera, outO, outD) {
     outD[0] = dx / len;
     outD[1] = dy / len;
     outD[2] = dz / len;
+    return true;
+}
+
+const _lift = new Float64Array(3);
+const _app = new Float64Array(3);
+
+/**
+ * The true direction on the celestial sphere under a tap: the camera ray through it, with the
+ * drawn refraction taken off (sky view lifts directions by `k`·R(altitude), REFRACT_CHUNK), found by
+ * four fixed-point steps as the ruler does. Catalogue stars and deep-sky objects are then compared
+ * with it on the sphere (render/sky.js pickStar, render/dso.js pick). No allocation.
+ * @param {{x:number,y:number}|{ndcX:number,ndcY:number}|number[]} ndc
+ * @param {object} camera
+ * @param {ArrayLike<number>|null} up observer zenith (scene), or null in orbit view
+ * @param {number} k refraction strength (the view blend)
+ * @param {Float64Array} out
+ * @returns {boolean}
+ */
+export function skyTapDir(ndc, camera, up, k, out) {
+    const p = ndcXY(ndc);
+    if (!p || !camera || !rayFromNdc(p[0], p[1], camera, _o, _app)) return false;
+    out[0] = _app[0]; out[1] = _app[1]; out[2] = _app[2];
+    if (!up || !(k > 0)) return true;
+    for (let it = 0; it < 4; it++) {
+        liftByRefraction(out, up, k, _lift);
+        for (let c = 0; c < 3; c++) out[c] += _app[c] - _lift[c];
+        const n = Math.hypot(out[0], out[1], out[2]) || 1;
+        out[0] /= n; out[1] /= n; out[2] /= n;
+    }
     return true;
 }
 

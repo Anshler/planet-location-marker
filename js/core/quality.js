@@ -50,13 +50,15 @@ export const TIERS = deepFreeze({
     // samples as the context allows (postfx clamps to MAX_SAMPLES; FXAA takes over only if that
     // is 0), 8192 px day, night and cloud maps (the 4096 ones show while they load), a 4096 px
     // Moon, 16x anisotropy on the Earth and Moon maps, 32 atmosphere samples, soft cloud shadows
-    // and the densest Earth mesh. The star limit is the catalog's own: it stops at magnitude 6.0,
-    // so 6.5 already draws every star. tierConfig() falls back per feature, never per tier.
+    // and the densest Earth mesh. `deepStars`: the base catalogue (to V 6.0) plus 36,000 stars to
+    // V 8 (data/stars8.json, main.js syncDeepStars), so a dark wide field reaches the naked eye's
+    // 6.5 and the telescope's aperture gain finds real stars to reveal. tierConfig() falls back per
+    // feature, never per tier.
     max: {
         name: 'max', dprCap: Infinity, composer: true, msaa: 16, bloom: { strength: 0.6, radius: 0.45, threshold: 0.9, scale: 1.0 },
         earthSegments: [256, 128], dayTex: 'day8k', oceanMask: 'roughness', clouds: 'clouds8k', cloudShadows: true, bump: true,
         atmosphere: 'raymarch', atmoSteps: 32, starMagLimit: 6.5, flare: true, labelCap: 80, twinkle: true, beamGlowPx: 14,
-        finalPass: true, moonTex: 'moon4k', anisotropy: 16, cloudShadowTaps: 5, supersample: 16, streakPx: 32,
+        finalPass: true, moonTex: 'moon4k', anisotropy: 16, cloudShadowTaps: 5, supersample: 16, streakPx: 32, deepStars: true,
     },
 });
 

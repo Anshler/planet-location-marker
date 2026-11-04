@@ -32,10 +32,18 @@
 // the Earth–Moon line reads the Moon's parallax and the distance the two sightlines imply
 // (astro/parallax.js).
 //
-// Priorities follow SPEC §C.6: selected 100, Sun/Moon 90, planets 80, observer 70, cardinal 60,
-// stars 50 − mag, constellations 20.
+// Extra objects (astro/extras.js: guest stars, comets, spacecraft, …) are labelled like bodies at
+// their at-infinity direction (`dirS` of their ExtraState in snap.extras), in orbit and sky view, as
+// their meta says ('always' or only while 'selected'); a `gate` hides them while not `present`.
+// Deep-sky objects (meta `skyOnly`, `nightMag`) are named only in sky view and follow the drawn sky
+// like star names; a selected catalogue star is labelled once, as the selection. Guide marks with
+// their own anchors (render/precession.js: century ticks, pole stars, the pole and equinoxes of
+// date) come through `getSkyMarks`.
+//
+// Priorities follow SPEC §C.6: selected 100, Sun/Moon 90, planets 80, extras 78, observer 70,
+// cardinal 60, stars 50 − mag, constellations 20.
 
-import { BODIES, BODY_INDEX } from '../astro/bodies.js';
+import { BODIES, BODY_INDEX, AU_ER } from '../astro/bodies.js';
 import { starVisibility } from '../astro/photometry.js';
 import { horizonAltDeg } from '../geo/horizon.js';
 import { eqAngRadius, RING_OUTER, SCOPE_FROM_PX } from '../astro/disc.js';
@@ -54,7 +62,7 @@ import { fmtDistKm } from '../core/format.js';
  * @typedef {{starExposure?:number, magLimit?:number, viewportH?:number,
  *   horizon?:import('../geo/horizon.js').HorizonProfile|null, mapK?:number, map?:object|null}} LabelView */
 
-export const PRIORITY = Object.freeze({ selected: 100, earth: 95, sunMoon: 90, planet: 80, observer: 70, cardinal: 60, starBase: 50, constellation: 20 });
+export const PRIORITY = Object.freeze({ selected: 100, earth: 95, sunMoon: 90, planet: 80, extra: 78, observer: 70, cardinal: 60, starBase: 50, constellation: 20 });
 /** Star names shown in sky view (SPEC: mag ≤ 2.5) and, more sparingly, around the globe. */
 export const STAR_NAME_MAG_SKY = 2.5;
 export const STAR_NAME_MAG_ORBIT = 1.0;
@@ -211,6 +219,59 @@ function bodyAnchors(out, state, snap, sky, live, opts, where = null) {
     }
 }
 
+/**
+ * Extra-object anchors (astro/extras.js registry `extras`), at infinity along each state's live
+ * dirS. Leaves them out while the registry has not filled this snapshot yet (returns false, so
+ * the feed rebuilds on the next frame).
+ * @returns {boolean} complete
+ */
+function extraAnchors(out, state, snap, extras, sky, live) {
+    if (!extras || typeof extras.ids !== 'function') return true;
+    const ids = extras.ids();
+    if (!ids.length) return true;
+    if (snap.extrasVersion !== extras.version) return false;
+    const sel = state.selection ?? null;
+    const layers = state.layers ?? {};
+    for (const id of ids) {
+        const meta = extras.meta(id);
+        const st = extras.state(snap, id);
+        if (!meta || !st) continue;
+        const selected = sel === id;
+        if (meta.label === 'never' || (meta.label === 'selected' && !selected)) continue;
+        if (meta.layer && layers[meta.layer] === false && !selected) continue;
+        if (meta.layer && !Object.hasOwn(layers, meta.layer) && !selected) continue;
+        // Deep-sky labels (astro/dso.js): only in sky view unless selected.
+        if (meta.skyOnly && !sky && !selected) continue;
+        // A spacecraft's label rides its radio beam in the globe view (render/craft.js), like a body's.
+        let along = null;
+        if (!sky && live && meta.glyph === 'marker' && layers.beams !== false) {
+            if (!live.extraOrbit) live.extraOrbit = new Map();
+            along = live.extraOrbit.get(id);
+            if (!along) { along = new Float64Array([NaN, NaN, NaN]); live.extraOrbit.set(id, along); }
+        }
+        const a = {
+            id,
+            text: meta.name,
+            kind: 'body',
+            priority: selected ? PRIORITY.selected : Number.isFinite(meta.priority) ? meta.priority : PRIORITY.extra,
+            color: meta.color,
+            ariaLabel: `${meta.name} — show details`,
+            interactive: true,
+            extra: true,
+            selected,
+            dirS: st.dirS,
+            offsetPx: GLYPH_OFFSET,
+            gate: () => st.present === true,
+            below: labelBelow(st, sky),
+        };
+        if (along) { a.posS = along; a.alongBeam = true; }
+        // `nightMag` (deep-sky objects): the name follows the drawn sky like a star name (syncNames).
+        if (Number.isFinite(meta.nightMag) && !selected) { a.mag = meta.nightMag; a.night = true; a.hidden = false; a.faint = false; }
+        out.push(a);
+    }
+    return true;
+}
+
 function observerAnchor(out, state, live) {
     const name = state.observer?.name || 'Your location';
     out.push({
@@ -274,10 +335,12 @@ function cardinalAnchors(out, live, rim) {
     });
 }
 
-function starAnchors(out, catalog, sky) {
+function starAnchors(out, catalog, sky, selection = null) {
     const limit = sky ? STAR_NAME_MAG_SKY : STAR_NAME_MAG_ORBIT;
     for (const s of catalog.starNames ?? []) {
         if (!s?.name || !s.dirS || !(s.mag <= limit)) continue;
+        // A selected star is labelled as the selection (extraAnchors, astro/stars.js), not twice.
+        if (selection === `star:${s.hip}`) continue;
         out.push({
             id: `star:${s.hip}`,
             text: s.name,
@@ -401,7 +464,10 @@ function trailAnchors(out, trails) {
  *          bodyOffset?:Float64Array[], hideBody?:(id:string)=>boolean, hideObserver?:boolean,
  *          rimCardinals?:boolean, medallion?:((id:string, selected:boolean)=>number[]|null)|null,
  *          ruler?:{anchors?:()=>LabelAnchor[]}|null, parallax?:string,
- *          systemPoint?:((id:string)=>Float64Array|null)|null, systemOffset?:((id:string)=>Float64Array|null)|null}} [opts]
+ *          systemPoint?:((id:string)=>Float64Array|null)|null, systemOffset?:((id:string)=>Float64Array|null)|null,
+ *          extras?:object|null}} [opts]
+ *   `extras` (astro/extras.js registry): extra objects are labelled in orbit and sky view; when the
+ *   registry has not filled `snap` yet, `opts.extrasPending` is set true on return.
  *   'system' mode: bodies (and the 'earth' label) sit on `systemPoint`, the orrery's live points,
  *   their dots offset by `systemOffset`; a body without a point is left out.
  *   `medallion` (render/planets.js footprint): orbit-view body labels get `med` (their dot becomes
@@ -441,6 +507,7 @@ export function buildAnchors(state, snap, catalog, trails, opts = {}) {
     }
 
     bodyAnchors(out, state, snap, sky, live, opts, map ? 'map' : null);
+    if (!map && opts.extras) opts.extrasPending = !extraAnchors(out, state, snap, opts.extras, sky, live);
     if (live && !sky && !opts.hideObserver) observerAnchor(out, state, live);
     if (live && !sky && !opts.hideObserver) observer2Anchor(out, state, live);
     if (map) return out;
@@ -452,9 +519,11 @@ export function buildAnchors(state, snap, catalog, trails, opts = {}) {
     }
     if (live && sky) cardinalAnchors(out, live, false);
     if (live && !sky && opts.rimCardinals && layers.horizon !== false && !opts.hideObserver) cardinalAnchors(out, live, true);
-    if (catalog && layers.stars !== false && layers.starNames) starAnchors(out, catalog, sky);
+    if (catalog && layers.stars !== false && layers.starNames) starAnchors(out, catalog, sky, state.selection ?? null);
     if (catalog && layers.constellationNames) constellationAnchors(out, catalog);
     if (layers.trails) trailAnchors(out, trails);
+    // Guide marks on the celestial sphere with their own labels (render/precession.js).
+    for (const m of opts.skyMarks ?? []) trailAnchors(out, m);
     // The angle ruler's reading (render/ruler.js), sky view only.
     if (sky && opts.ruler) trailAnchors(out, opts.ruler);
     return out;
@@ -518,6 +587,21 @@ function syncOrbitPoints(live, snap, camera) {
     }
 }
 
+/** An orbit-view label point along a spacecraft's beam (as syncOrbitPoints does for a body). No allocation. */
+function alongBeam(out, st, snap, camera) {
+    const o = snap.observer;
+    const p = o.posS, up = o.upS, d = st.dirS;
+    const cp = camera.position;
+    const camDist = Math.hypot(cp.x, cp.y, cp.z);
+    const du = d[0] * up[0] + d[1] * up[1] + d[2] * up[2];
+    let L = du >= 0 ? clamp(ORBIT_LABEL_K * camDist, ORBIT_LABEL_MIN, ORBIT_LABEL_MAX) : -2 * du + clamp(0.12 * camDist, 0.2, 8);
+    const er = st.distAU * AU_ER;
+    if (Number.isFinite(er) && er - 1 > 0.5) L = Math.min(L, er - 1);
+    out[0] = p[0] + d[0] * L;
+    out[1] = p[1] + d[1] * L;
+    out[2] = p[2] + d[2] * L;
+}
+
 function syncPinHead(live, snap) {
     const p = snap.observer.posS;
     live.pinHead[0] = p[0] * PIN_HEAD_R;
@@ -566,7 +650,7 @@ function syncCardinals(live, snap) {
  *          getPin?:()=>object|null, getPlanets?:()=>object|null, getRuler?:()=>object|null}} deps
  */
 export function createLabelsFeed({ labels, store, snap, getCatalog = () => null, getTrails = () => null, getBeams = () => null,
-    getPin = () => null, getPlanets = () => null, getRuler = () => null, getOrrery = () => null }) {
+    getPin = () => null, getPlanets = () => null, getRuler = () => null, getOrrery = () => null, getSkyMarks = () => [], extras = null }) {
     /** @type {LiveVectors} */
     const live = {
         bodyOrbit: BODIES.map(() => new Float64Array(3)),
@@ -587,6 +671,9 @@ export function createLabelsFeed({ labels, store, snap, getCatalog = () => null,
     let anchors = [];
     /** Body anchors by BODIES index (null when not shown), for the per-frame `below` flag. */
     const bodyAnchor = new Array(BODIES.length).fill(null);
+    /** Extra-object anchors and their states (astro/extras.js), for the per-frame `below` flag. */
+    let extraList = [];
+    let extraStates = [];
     let selIndex = -1;
     /** @type {Array<LabelAnchor & Record<string, any>>} star and constellation anchors (daylight gating) */
     let nameAnchors = [];
@@ -609,6 +696,7 @@ export function createLabelsFeed({ labels, store, snap, getCatalog = () => null,
         store.subscribe((s) => s.observer.name, () => { dirty = true; }),
         store.subscribe((s) => s.observer2, () => { dirty = true; }),
     ];
+    if (extras && typeof extras.onChange === 'function') offs.push(extras.onChange(() => { dirty = true; }));
 
     function beamPointFn() {
         const beams = getBeams();
@@ -620,7 +708,8 @@ export function createLabelsFeed({ labels, store, snap, getCatalog = () => null,
         usesBeamPoints = !!bodyPoint;
         const planets = getPlanets();
         const orrery = mode === 'system' ? getOrrery() : null;
-        anchors = buildAnchors(store.get(), snap, getCatalog(), getTrails(), {
+        const opts = {
+            extras,
             systemPoint: orrery && typeof orrery.labelPoint === 'function' ? (id) => orrery.labelPoint(id) : null,
             systemOffset: orrery && typeof orrery.labelOffset === 'function' ? (id) => orrery.labelOffset(id) : null,
             mode,
@@ -633,13 +722,24 @@ export function createLabelsFeed({ labels, store, snap, getCatalog = () => null,
             hideObserver: observerHidden,
             rimCardinals: !!getPin()?.cardinals,
             ruler: getRuler(),
+            skyMarks: getSkyMarks() ?? [],
             parallax,
-        });
+        };
+        anchors = buildAnchors(store.get(), snap, getCatalog(), getTrails(), opts);
         bodyAnchor.fill(null);
         selIndex = -1;
         nameAnchors = [];
+        extraList = [];
+        extraStates = [];
         for (const a of anchors) {
-            if (a.kind === 'body' && Object.hasOwn(BODY_INDEX, a.id)) {
+            if (a.extra === true) {
+                const st = extras?.state?.(snap, a.id);
+                if (st) { extraList.push(a); extraStates.push(st); }
+                if (a.night === true) {
+                    a.hidden = hiddenNames.has(a.id);
+                    nameAnchors.push(a);
+                }
+            } else if (a.kind === 'body' && Object.hasOwn(BODY_INDEX, a.id)) {
                 bodyAnchor[BODY_INDEX[a.id]] = a;
                 if (a.selected) selIndex = BODY_INDEX[a.id];
             } else if (a.kind === 'star' || a.kind === 'constellation') {
@@ -649,7 +749,8 @@ export function createLabelsFeed({ labels, store, snap, getCatalog = () => null,
         }
         labels.setAnchors(anchors);
         builtMode = mode;
-        dirty = false;
+        // The registry had not filled this snapshot yet: try again next frame.
+        dirty = opts.extrasPending === true;
     }
 
     /** Daylight gating of star and constellation names. No allocation. */
@@ -659,7 +760,7 @@ export function createLabelsFeed({ labels, store, snap, getCatalog = () => null,
         for (let k = 0; k < nameAnchors.length; k++) {
             const a = nameAnchors[k];
             const was = a.hidden === true;
-            if (a.kind === 'star') gateStarName(a, e, lim);
+            if (a.kind === 'star' || a.night === true) gateStarName(a, e, lim);
             else gateConstellationName(a, e);
             if (a.hidden !== was) {
                 if (a.hidden) hiddenNames.add(a.id);
@@ -713,6 +814,11 @@ export function createLabelsFeed({ labels, store, snap, getCatalog = () => null,
         for (let i = 0; i < BODIES.length; i++) {
             const a = bodyAnchor[i];
             if (a) a.below = mode === 'map' ? false : labelBelow(snap.bodies[i], sky, view && view.horizon);
+        }
+        for (let i = 0; i < extraList.length; i++) {
+            const a = extraList[i];
+            a.below = labelBelow(extraStates[i], sky, view && view.horizon);
+            if (a.alongBeam && !sky && mode !== 'map') alongBeam(a.posS, extraStates[i], snap, camera);
         }
         syncNames(view);
     }

@@ -162,9 +162,13 @@ void main() {
     if (uSkyBlend > 0.0) lim = min(lim + (sgLimitMag(sgSky(dir)) - uSgLimZen) * uSkyBlend, uMagLimit);
     lim += uBoost;
     float vis = smoothFall(lim + 0.35, lim - 0.45, aMag) * smoothstep(0.0, 0.04, e);
+    // The aperture gain brightens what the eyepiece shows as well as deepening it: a faint star is
+    // drawn uBoost magnitudes brighter, up to the look of a mag-2.5 star (bright stars keep theirs,
+    // so a zoomed field does not fill with bloated discs).
+    float mDrawn = max(aMag - uBoost, min(aMag, 2.5));
     // Flux relative to a mag-2.5 star, the "just saturated" reference. Below it the peak is
     // compressed (F^0.75) so mag-6 stars stay visible on a display; above it stars grow instead.
-    float F = exp2(-1.3287712 * (aMag - 2.5));
+    float F = exp2(-1.3287712 * (mDrawn - 2.5));
     float grow = max(1.0, pow(F, 0.3));
     float sigmaPx = 0.78 * grow * pow(uZoom, 0.6) * uPx;
     float peak = 1.2 * (F < 1.0 ? pow(F, 0.75) : pow(F, 0.3)) * vis;

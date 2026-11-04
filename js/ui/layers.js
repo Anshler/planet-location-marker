@@ -25,8 +25,10 @@ export const LAYER_GROUPS = [
             ['constellationNames', 'Constellation names', ['Shift', 'C'], null],
             ['starNames', 'Star names', null, null],
             ['milkyWay', 'Milky Way', ['Shift', 'M'], null],
+            ['deepSky', 'Deep-sky objects', null, 'Galaxies, clusters and nebulae as faint smudges at their true size; zoom in to see them'],
             ['ecliptic', 'Ecliptic', ['E'], 'The Sun’s yearly path; planets stay close to it'],
             ['eqGrid', 'Equatorial grid (of date)', ['G'], 'Right ascension and declination of date: the true pole and equinox'],
+            ['precession', 'Precession', null, 'The pole’s 26,000-year circle, the pole of date and the equinox points among the stars'],
             ['altAzGrid', 'Horizon grid (Sky view)', null, 'Altitude and azimuth when standing on the ground'],
             ['landscape', 'Illustrative landscape (Sky view)', null, 'Invented hills, trees and sea for your place; rise and set times use the flat horizon'],
         ],
@@ -45,6 +47,7 @@ export const LAYER_GROUPS = [
         title: 'Overlays',
         items: [
             ['trails', 'Path of selected body', ['T'], 'Six months either side, with retrograde loops'],
+            ['spacecraft', 'Spacecraft', null, 'Faint radio beams to Voyager 1 and 2, New Horizons and JWST, with the one-way radio time'],
             ['labels', 'Labels', null, null],
         ],
     },

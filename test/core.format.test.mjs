@@ -42,7 +42,9 @@ test('dates and times in a zone (weekday computed, not localised)', () => {
     assert.equal(fmtTime(Date.parse('2026-10-11T12:05:00Z'), 'UTC', true), '12:05:00 PM');
     assert.equal(fmtDateTime(T, 'Asia/Saigon'), 'Sun 11 Oct 2026 · 20:14:05');
     assert.equal(fmtDateTime(T, 'UTC', true, { seconds: false, weekday: false }), '11 Oct 2026 · 1:14 PM');
-    assert.equal(fmtDate(Date.UTC(1000, 0, 1), 'UTC'), 'Wed 1 Jan 1000', 'proleptic Gregorian weekday');
+    // Before 15 Oct 1582 dates are Julian (historic-skies): the clock's floor, 1 Jan 1000 proleptic
+    // Gregorian, is 27 Dec 999 Julian, on the same Wednesday.
+    assert.equal(fmtDate(Date.UTC(1000, 0, 1), 'UTC'), 'Wed 27 Dec 999', 'Julian date, shared weekday');
     assert.equal(fmtDate(Date.UTC(2999, 11, 31), 'UTC'), 'Tue 31 Dec 2999');
     assert.equal(fmtDate(Date.UTC(2000, 1, 29), 'UTC'), 'Tue 29 Feb 2000');
     assert.equal(fmtDate(T, 'Not/AZone'), 'Sun 11 Oct 2026', 'bad zone → UTC');

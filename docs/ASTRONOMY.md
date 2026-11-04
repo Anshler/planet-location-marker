@@ -24,6 +24,16 @@ the page, in the module worker (`js/astro/worker.js`) and in the Node test suite
 - **Range.** The clock is clamped to 1000-01-01 … 3000-01-01. A "Reduced accuracy" badge appears
   outside 1800–2200 (see §8).
 - **Julian date.** `jdUT = ms / 86 400 000 + 2 440 587.5`, kept in the snapshot for display.
+- **Calendars** (`core/tz.js`). Instants are UTC and `t=` is a proleptic Gregorian ISO instant at
+  every epoch. Displayed calendar dates before Friday 15 October 1582 are **Julian**, as the records
+  of the time give them (4 July 1054, 29 February 1504): `toCalendar` goes Gregorian → Julian Day
+  Number → Julian (the standard integer algorithms; JDN 2299160 = 4 Oct 1582 Julian, 2299161 =
+  15 Oct 1582 Gregorian, 2451545 = 1 Jan 2000), weekdays are shared (Thursday 4 → Friday 15
+  October), the Julian calendar's leap day comes every fourth year (29 Feb 1500 exists), and typed
+  dates on or before 4 Oct 1582 are read as Julian (the ten days between never existed). One
+  worldwide cut-over is a simplification: Britain and its colonies switched in 1752, Russia in 1918,
+  so a British date between 1582 and 1752 in the records is still Julian. The clock's floor,
+  1 January 1000 proleptic Gregorian, shows as 27 December 999 (Julian).
 
 ---
 
@@ -75,7 +85,8 @@ With E = Rz(θ) alone, S·Rz(θ)·Sᵀ is three's `rotation.y = θ`, which was v
 **The sky is static; the Earth moves.** Stars, constellations, the Milky Way and the ecliptic are
 placed once at load, in J2000 scene coordinates. Precession and nutation appear because the
 Earth's axis (`earthMatrix`) moves inside that fixed sky. Over centuries the celestial pole
-visibly drifts away from Polaris.
+visibly drifts away from Polaris. The one exception among the stars is proper motion: the 1,183
+stars that move at least 100 mas/yr are moved to the snapshot's epoch (§5d).
 
 The two grids are the exceptions. The alt-az grid follows the observer. The equatorial grid is
 drawn **of date**: it is built in J2000 RA/Dec and turned by `S·PN·Sᵀ = earthMatrix · RotY(−GAST)`,
@@ -294,8 +305,12 @@ libration = AE.Libration(t)                               // 'full' only: it fee
 
 ## 5. The star sky (`data/sky.json`, `js/data/catalog.js`)
 
-- **Stars.** 5,044 Hipparcos stars to magnitude 6 (via d3-celestial), at their **J2000** positions.
-  Proper motion is not applied (§8).
+- **Stars.** 5,044 Hipparcos stars to magnitude 6 (via d3-celestial), at their **J2000** positions
+  (epoch and equinox), the fastest of them moved by proper motion (§5d). The max tier adds 36,367
+  more to V 8.0 (§5f).
+- **The telescope's aperture gain.** A narrow sky view reaches fainter stars, 2·log10(25°/FOV)
+  magnitudes deeper (3.5 at most), and draws faint stars that much brighter, up to the look of a
+  mag-2.5 star (brighter stars keep theirs).
 - **Colour.** B−V is turned into a colour temperature with Ballesteros' formula,
   `T = 4600 K · (1/(0.92·(B−V) + 1.7) + 1/(0.92·(B−V) + 0.62))`. Planck's law at that temperature
   is then integrated against the CIE 1931 observer (Wyman–Sloan–Shirley fit) into linear sRGB,
@@ -305,6 +320,148 @@ libration = AE.Libration(t)                               // 'full' only: it fee
 - **Constellations.** The 88 figures come from d3-celestial. The Milky Way is a 2048×1024 raster
   of its outline levels, sampled through `sceneDirToRaDecUv`.
 - **Planet glyphs.** Their size and brightness follow the live magnitude from `AE.Illumination`.
+
+### 5a. Guest stars: the supernovae of 1006–1604 (`js/astro/guest-stars.js`)
+
+- **Where.** Each is a fixed J2000 direction, its remnant's position: SN 1006 (Lupus,
+  15h02m48s −41°55′), SN 1054 (the Crab, 5h34m32s +22°01′, 1.1° from ζ Tauri, "near" which the
+  Song records place it), SN 1181 (Pa 30, 0h53m11s +67°30′; the identification is recent, Ritter
+  et al. 2021, earlier 3C 58), Tycho's (0h25m20s +64°08′) and Kepler's (17h30m42s −21°29′). The
+  sky is static in EQJ, so precession comes from the Earth's orientation like every star. Alt/az,
+  rise, transit and set use Astronomy Engine's user-defined star (`DefineStar` on `Body.Star8`).
+- **When and how bright.** Dated as recorded (Julian before 1582): first sighting, peak and last
+  sighting. Before the first recorded local day the star is not drawn. From the first sighting to
+  the peak it brightens by 1.2 mag (linear); after the peak a template fades it: type Ia (1006,
+  1181, 1572, 1604) 0.1 mag/day for 20 days, 0.03 mag/day to day 50, then a tail of 0.0155 mag/day
+  (0.025 for SN 1181, seen for 185 days); SN 1054 2.0 mag over its 23 days of daylight visibility,
+  then 0.0159 mag/day, so each crosses mag 5–6 near its last recorded sighting (tested). Peaks:
+  −7.5, −6, 0, −4, −2.5, each uncertain by about ±1 mag (±0.5 for 1572 and 1604).
+- **Drawn** as stars by the star field's own shader (render/extras.js), so they twinkle, redden
+  and fade into twilight like the catalogue; a −6 star fades from view only in full daylight.
+  **Illustrative:** the light curve between the records. The Chaco Canyon pictograph "may record"
+  SN 1054; that reading is debated.
+
+### 5b. Comets: Halley at five apparitions (`js/astro/comets.js`)
+
+- **Elements.** Heliocentric osculating elements {q, e, i, Ω, ω, T} in the ecliptic and equinox of
+  **J2000**, one set per apparition, from JPL Horizons: DASTCOM records 90000018 (1066, solution
+  SAO/1066), 90000023 (1456), 90000029 (1910), and osculating elements at perihelion integrated from
+  record 90000030 for 1986 and 2061. The old solutions go back to Yeomans & Kiang (1981), whose
+  tables are referred to **B1950**; Horizons serves them in J2000. For elements quoted in B1950,
+  `elementsB1950ToJ2000` rotates the orbit's P and Q vectors: B1950 ecliptic (ε = 23.4457889°) →
+  B1950 equator → FK5 J2000 equator (the FK4 → FK5 matrix of Standish 1982) → J2000 ecliptic
+  (ε = 84381.448″). Marsden's B1950 elements of 1986 (Ω = 58.1440°) come out within 0.001° of
+  Horizons' J2000 set (Ω = 58.8599°): without the rotation the node would be 0.7° out.
+- **Motion.** Two-body Kepler propagation around the Sun (k = 0.01720209895): Newton on Kepler's
+  equation from Danby's starter (elliptic), Newton on e sinh H − H = M (hyperbolic), Barker's
+  closed form (parabolic). Time is TT (Astronomy Engine's ΔT); T is TDB (≈ TT). Each set is used
+  within ±548 days of its perihelion, nowhere else (the comet is not drawn).
+- **Where it is seen.** Geocentric = comet(t − τ) − Earth(t) (the snapshot's heliocentric Earth),
+  the light time τ iterated three times, then the observer's place on the globe taken off
+  (`topocentricScene`) and mapped through S: astrometric J2000, like the bodies.
+- **Accuracy.** Against Horizons' own ephemeris from the same records: under 0.3′ at all five
+  apparitions (11 dates tested), distances within 2e-4 AU. The two-body model ignores planetary
+  perturbations over the ±1.5 years and non-gravitational forces. The *absolute* accuracy for 1066
+  and 1456 is about a degree (perihelion time and ΔT), shown as 'approximate'.
+- **Brightness.** JPL's total magnitude law m = M1 + 5 log Δ + k1 log r with M1 = 5.5, k1 = 8
+  (Horizons' T-mag: 5.06 on 1986-03-15, tested). Drawn while brighter than mag 9.
+- **Tails** (illustrative, physically guided). The ion tail runs straight along the heliocentric
+  radius vector (anti-Sun) at the light-time epoch; the dust tail curves in the orbit plane:
+  comet + L·(s·r̂ − 0.55·s²·v̂), lagging behind the motion. Lengths grow as r⁻² inside 2.5 AU,
+  0.04/r² AU (ion, ≤ 0.15 AU) and 0.025/r² AU (dust, ≤ 0.08 AU), widths 0.0006–0.0036 AU and
+  0.001–0.01 AU. The 3D samples are projected from the observer, so foreshortening is real (the
+  Earth passed through the tail on 19 May 1910). Brightness and length are a model, not a prediction.
+
+### 5c. Spacecraft (`js/astro/craft.js`, `data/craft.json`)
+
+- **Data.** JPL Horizons heliocentric geometric ICRF state vectors (TDB) for Voyager 1 (-31),
+  Voyager 2 (-32), New Horizons (-98) and JWST (-170), sampled every 4 days (1 day for JWST) and
+  every 2 hours within ±6 days of each flyby, then thinned to adaptive knots: an interval is split
+  at its worst sample until cubic Hermite interpolation of the knots' positions and velocities is
+  within max(1.2e-5 AU, 2e-5 × the distance from the Earth) of every sample (≈ 4″ far out, about
+  1,800 km for JWST). 589 knots (365 of them JWST's halo orbit), 32 KB (`scripts/build-craft.mjs`).
+- **Accuracy.** Against Horizons' astrometric RA/Dec: Voyager 1 0.0001°, Voyager 2 at Neptune
+  0.0007°, New Horizons at Pluto 0.001°, JWST 0.01° (tested). Past the data (2100 for the Voyagers,
+  2050 for New Horizons) they coast in straight lines, labelled 'projected'; JWST is not shown after
+  2031-11 (its halo orbit is unknown) or anything before launch.
+- **Radio time.** One way, for a message sent now: τ with |craft(t + τ) − Earth(t)| = cτ, iterated.
+  Voyager 1 passes one light-day in mid-November 2026 (crossing 24 h on 17–18 November). The beam
+  points to where its signal comes from now (light-time corrected).
+- **DSN.** 'In view of' Goldstone (35.43° N, 116.89° W), Madrid (40.43° N, 4.25° W) or Canberra
+  (35.40° S, 148.98° E) when the craft is at least 6° above that complex's horizon (topocentric,
+  geometric). A visibility test, not the DSN schedule: Voyager 2, at −60° declination, is only ever
+  in Canberra's view.
+
+### 5d. Proper motion and the precessing pole (`js/data/catalog.js`, `js/astro/precession.js`)
+
+- **Data.** Proper motions come from Hipparcos, the New Reduction (van Leeuwen 2007; the NASA
+  HEASARC table, `scripts/build-stars.mjs` → `data/raw/hip2.json`). sky.json carries `pm` (μα·cos δ
+  and μδ, mas/yr) for the 1,183 base stars moving at least 100 mas/yr; slower stars drift less than
+  1.7′ per millennium and stay at J2000.
+- **Model.** Linear motion in the tangent plane, renormalised:
+  `p(t) = normalise(p₀ + t·(μα*·ê_α + μδ·ê_δ))`, t in Julian years from J2000.0, updated in whole
+  years (render/sky.js, per snapshot). Radial velocities are not in Hipparcos, so the foreshortening
+  of a star's motion as its distance changes is ignored. Arcturus in the year 1000 sits 0.64° from
+  its J2000 place, and within 1′ of a rigorous space-motion calculation that includes its −5.2 km/s
+  radial velocity (tested); α Centauri moves 1.03° per millennium. Constellation endpoints on a
+  moving star (snapped within 0.03° at decode) and star-name labels move with it.
+- **The pole and the equinox of date.** `poleOfDate(t)` and `equinoxOfDate(t)` apply Astronomy
+  Engine's `Rotation_EQD_EQJ` (IAU 2006 precession, IAU 2000B nutation) to the true pole and the
+  true equinox of date: the same pole as the snapshot's `earthMatrix·ŷ` (tested to 1e-6°). Polaris
+  is 6.21° from it in 1000, 0.74° in 2000, 0.63° in 2026, 0.46° in 2100 (closest, 2102) and 5.05° in
+  3000. The March equinox point leaves Pisces for Aquarius between 2597 and 2600 (IAU boundaries).
+  The star card gives a star's distance from the pole of date when it is within 20°.
+- **The precession circle (illustrative).** The full 25,772-year circle is drawn as a turn about the
+  J2000 ecliptic pole at a fixed obliquity (23.4393°) and a constant 50.287″/yr. Over 1000–3000 it
+  agrees with Astronomy Engine to 0.03° (tested); far from the present the obliquity swings
+  (22.1–24.5°) and the ecliptic moves, so the pole stars of other ages (Thuban 2830 BCE, within 0.2°;
+  Errai ≈ 4100; Alderamin ≈ 7500; Deneb ≈ 10,200, 7° off; Vega ≈ 13,700, 5° off) are labelled
+  illustrative. The 1000–3000 track with century ticks is Astronomy Engine's own.
+
+### 5e. Star cards: designations, distance, 'the light left …' (`js/astro/stars.js`, `js/astro/lighttime.js`)
+
+- **Data.** `data/starinfo.json` (built with sky.json): the parallax and its error for every base
+  star (Hipparcos New Reduction), and the proper name, Bayer letter, Flamsteed number and variable
+  name from d3-celestial's starnames. Designations print with the IAU genitive (α Orionis, 58 Ori).
+- **Distance.** d = 1000/ϖ pc (ϖ in mas), 1 pc = 3.2616 ly, with σ_d = d·σ_ϖ/ϖ. A parallax under
+  3σ (or ≤ 0) gives only a lower bound ('too far for Hipparcos to measure'). Betelgeuse: 6.55 ±
+  0.83 mas, about 500 ly ± 13 % (interferometric and modern estimates are nearer 550–650 ly; the card
+  says 'about' and shows the error). Deep (max-tier) stars ship their parallax without an error; a
+  typical 1 mas is assumed and the card says so.
+- **When the light left.** The simulated year minus the light-time, rounded to what σ supports: the
+  year itself (σ < 1.5 yr, under 100 ly), the decade (σ < 8 yr), the century (σ < 80 yr), else
+  'about N years ago, give or take'. A moment of history is quoted only within that uncertainty
+  ('around the 1500s — when Copernicus put the Sun at the centre'); past 5,000 years, an event
+  within 10 % of the light-time or the first one after the light left ('before people painted the
+  first cave art').
+- **Kind (illustrative).** Colour words and a spectral letter from B−V (B < 0, A < 0.3, F < 0.58,
+  G < 0.81, K < 1.4, M), and giant or supergiant from the absolute magnitude against a rough main
+  sequence (supergiant: M_V < −3.5 and 3 mag over it; giant: 2.5 mag over it). Real classes come
+  from spectra.
+
+### 5f. Deep-sky objects and the max tier's deeper stars (`js/astro/dso.js`, `render/dso.js`)
+
+- **Data.** `data/dso.json` (`scripts/build-dso.mjs`, 10 KB): the 110 Messier objects (positions,
+  magnitudes and sizes from d3-celestial's messier.json; the Orion Nebula's position corrected to
+  the catalogue value) and 30 showpieces (the Magellanic Clouds, ω Centauri, 47 Tucanae, the Carina
+  Nebula, the Double Cluster, …) hand-entered from NGC/IC values; distances (SEDS, NED, Harris
+  2010) and position angles (RC3/NED) rounded. Positions agree with published J2000 values within
+  0.05° (tested for nine objects). Distances are uncertain by 10–30 % (galaxies more): the light-time
+  line says 'about'.
+- **Visibility (illustrative).** An object counts as fainter than its total magnitude by
+  0.8·log10(major axis in ′) (M31 3.4 → 5.2, M13 5.8 → 6.8, the LMC 0.9 → 3.2) and is compared with
+  the stars' own limit at its place (twilight, moonlight, light pollution, the aperture gain). Real
+  detection depends on surface-brightness contrast; this keeps naked-eye showpieces right (M31,
+  M42, ω Cen, the Clouds under a dark sky; not under a city's) and makes most Messier objects
+  telescope-only.
+- **Drawing (illustrative).** True size and position angle; per-type profiles (exponential disc and
+  bulge, King profile, ring, fbm noise) kept to faint grey smudges, with structure (arms, resolved
+  stars, noise octaves) fading in only as an object grows past ~20 px. Asterisms are not drawn.
+- **Deeper stars (max).** `data/stars8.json` (`scripts/build-stars.mjs`): the 36,367 stars of
+  d3-celestial's stars.8 (Hipparcos, V 6.01–8.00) not in the base catalogue, with their parallax. The
+  max tier appends them to the star field (`mergeDeepStars`; base indices unchanged), so a dark
+  wide field reaches the naked eye's 6.5 and the aperture gain reveals real stars to V 8 (≈ 1 per
+  square degree; the Beehive's members at a 1° field). Their proper motion is not applied.
 
 ---
 
@@ -852,7 +1009,10 @@ and AE's contacts to 0.1 s; the shapes are illustrative.
 | Pin on a sphere against the WGS84 ellipsoid | ≤ 21 km in position | ≤ 11″ on the Moon's direction from the pin (globe view, the umbra on the globe), negligible for everything farther. The sky view and the observer's obscuration use AE's WGS84 topocentric directions. The zenith direction is exact (geodetic). |
 | Beam far endpoint at 2000 Earth radii | `camDist / 2000` rad | 0.1° at the default 3.4 ER view. The beam is a line from the pin, so seen from elsewhere it converges at 2000 ER. |
 | Polar motion (ignored) | ≤ 0.5″ (≈ 15 m) | |
-| Star proper motion (catalogue fixed at J2000) | 0.2″–10″/yr | Negligible within a few centuries. The fastest naked-eye stars shift by up to about a degree 1000 years from 2000. |
+| Star proper motion | < 1.7′ per millennium (stars under 100 mas/yr, left at J2000); ≲ 1′ (the 1,183 movers, linear, no radial velocity) | §5d. Arcturus in 1000 within 1′ of a rigorous space-motion calculation. The max tier's deeper stars do not move. |
+| Star distances and light-times | Hipparcos σ_ϖ (Betelgeuse ± 13 %) | §5e. The departure year is rounded to that error. |
+| Deep-sky objects | position ≤ 0.05°; distance 10–30 %; drawing illustrative | §5f. |
+| Precession circle beyond 1000–3000 | 1–7° | Fixed obliquity and rate; labelled illustrative (§5d). Within 1000–3000 the track is Astronomy Engine's. |
 | Refraction model | several ′ near the horizon | Real refraction depends on temperature and pressure. Rise and set times are good to about a minute. The sky view draws the same model (§6). |
 | Aurora oval | a few degrees of latitude | Starkov's statistical oval for a chosen Kp, not live activity; centred dipole instead of corrected geomagnetic coordinates; the dipole held at 1900 or 2030 outside those years. Arcs, rays and their motion are illustrative (§6b). |
 | 'Point at the sky' heading | 5–15° until aligned | Phone compasses are magnetic and easily disturbed; 'Align' on a body removes the offset for that place and phone. The UI says 'approximate'. |
@@ -863,6 +1023,10 @@ and AE's contacts to 0.1 s; the shapes are illustrative.
 | Sub-points, footprint | geocentric | The footprint is the hemisphere where the body's geocentric direction is above the horizon. Parallax and refraction are not applied. It is a guide, not a contact time. |
 | World map twilight lines | ≲ 1° of solar altitude | Geocentric and unrefracted, from the sphere's normal (§6c); the panels use the topocentric, refracted Sun. |
 | Parallax distance (two places) | ≲ 1 % | Small-angle triangulation over the pins' chord (§6c). |
+| Halley's Comet | < 0.3′ against Horizons (same orbits); ≈ 1° absolute in 1066 and 1456 | Two-body propagation within ±1.5 years of each perihelion (§5b). Tails illustrative. |
+| Guest stars | position exact (remnant); brightness ±1 mag | Light curves are templates between the recorded dates (§5a). |
+| Spacecraft | ≤ 0.001° (0.01° JWST) | Hermite knots against Horizons; straight-line 'projected' past 2100 / 2050 (§5c). |
+| Calendar | exact | Julian before 15 Oct 1582 everywhere; the local adoption date is not modelled (§1). |
 
 **Validation.** The tests in `test/astro.*.test.mjs` check these values from SPEC §D.5:
 
@@ -882,6 +1046,9 @@ and AE's contacts to 0.1 s; the shapes are illustrative.
   `AE.SearchLocalSolarEclipse` for the eclipses of 2026, 2027 (total and annular) and 2028, and a
   Sky panel that never reads "Partial … 100.0 %";
 - the globe's umbra half-width on 2027-08-02 (≈ 129 km) and totality's star limit (≤ 2.5);
+- Polaris from the pole of date in 1000, 2000, 2026, 2100 and 3000 (6.21°, 0.74°, 0.63°, 0.46°,
+  5.05°), the equinox entering Aquarius in 2597–2600, Arcturus's proper motion against a rigorous
+  space-motion calculation (< 1′), and nine deep-sky positions against published J2000 values;
 - eclipse paths against NASA (greatest point within 15 km, width within 8–10 km) for 2027-08-02,
   2026-08-12, 2027-02-06 and 2023-04-20, date-line-safe longitudes (2028-07-22), and Luxor's
   contacts and totality in the event card within 1 s of `AE.SearchLocalSolarEclipse`.
@@ -890,6 +1057,17 @@ and AE's contacts to 0.1 s; the shapes are illustrative.
 
 ## 9. Sources
 
+- **JPL Horizons.** NASA/JPL-Caltech, <https://ssd.jpl.nasa.gov/horizons/>: spacecraft state
+  vectors (`data/craft.json`), Halley's per-apparition elements and the reference ephemerides in
+  `test/astro.comets.test.mjs` and `test/astro.craft.test.mjs` (retrieved 2026-11-04).
+- **Halley's orbits.** D. K. Yeomans & T. Kiang (1981), "The long-term motion of comet Halley",
+  *MNRAS* 197, 633. FK4 → FK5: E. M. Standish (1982), *A&A* 115, 20.
+- **Historical supernovae.** F. R. Stephenson & D. A. Green (2002), *Historical Supernovae and their
+  Remnants*, OUP; P. F. Winkler et al. (2003), *ApJ* 585, 324 (SN 1006); G. W. Collins et al.
+  (1999), *PASP* 111, 871 (SN 1054); A. Ritter et al. (2021), *ApJL* 918, L33 (Pa 30, SN 1181);
+  O. Krause et al. (2008), *Nature* 456, 617 (Tycho's).
+- **Calendars.** E. G. Richards, "Calendars", in *Explanatory Supplement to the Astronomical
+  Almanac* (3rd ed., 2013), ch. 15 (Julian Day Number algorithms).
 - **Astronomy Engine.** Don Cross, <https://github.com/cosinekitty/astronomy>, MIT. This covers the
   API reference and the model notes on VSOP87, the lunar theory, IAU 2000B nutation, IAU 2006
   precession and Espenak–Meeus ΔT.
@@ -934,4 +1112,10 @@ and AE's contacts to 0.1 s; the shapes are illustrative.
   Dawn" (Beer-powder), SIGGRAPH Advances in Real-Time Rendering.
 - **Star data.** ESA (1997), *The Hipparcos and Tycho Catalogues*, ESA SP-1200, via d3-celestial
   (Olaf Frohn, BSD-3-Clause).
+- **Parallaxes and proper motions.** F. van Leeuwen (2007), "Validation of the new Hipparcos
+  reduction", *A&A* 474, 653, via NASA HEASARC (`hipnewcat`). Space motion: ESA (1997), *The
+  Hipparcos and Tycho Catalogues*, Vol. 1, §1.2.8.
+- **Deep-sky objects.** d3-celestial's messier.json; SEDS Messier database; NASA/IPAC Extragalactic
+  Database (NED); W. E. Harris (2010 edition), *Catalog of Parameters for Milky Way Globular
+  Clusters*; G. de Vaucouleurs et al. (1991), *Third Reference Catalogue of Bright Galaxies* (RC3).
 - **Cities.** GeoNames gazetteer, CC BY 4.0.

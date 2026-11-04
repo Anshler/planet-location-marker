@@ -12,6 +12,7 @@ import { AE } from '../astro/ae.js';
 import { STAR_VERT, STAR_FRAG, MW_VERT, MW_FRAG, LINE_VERT, LINE_FRAG } from './shaders/sky.glsl.js';
 import { createSkyglowUniforms, applySkyglow } from './skyglow.js';
 import { STREAK_UNIFORMS, streakState } from './streaks.js';
+import { applyProperMotion, yearsFromJ2000 } from '../data/catalog.js';
 
 const DEG = Math.PI / 180;
 const OBLIQUITY_DEG = 23.4392911;
@@ -358,6 +359,15 @@ export function createSky(rc, deps = {}) {
     stars.matrixAutoUpdate = false;
     group.add(stars);
     let starMags = new Float32Array(0);
+    // The drawn arrays (sorted by magnitude) and their link back to the catalogue: HIP per drawn
+    // star, and the drawn slot of each catalogue index (proper motion rewrites those slots).
+    let starPos = new Float32Array(0);
+    let starHip = new Int32Array(0);
+    let drawnOf = new Int32Array(0);
+    let starPosAttr = null;
+    /** @type {any} the installed catalogue (proper motion moves its fast stars in place) */
+    let catalogRef = null;
+    let pmYearsDrawn = Number.NaN;
 
     let drawnLimit = NaN;
     function applyMagLimit() {
@@ -455,10 +465,13 @@ export function createSky(rc, deps = {}) {
         for (let k = 0; k < n; k++) order[k] = k;
         if (n) order.sort((a, b) => st.mag[a] - st.mag[b]);
         const pos = new Float32Array(n * 3), mag = new Float32Array(n), col = new Float32Array(n * 3);
+        const hip = new Int32Array(n), slot = new Int32Array(n);
         for (let k = 0; k < n; k++) {
             const j = order[k];
             pos[k * 3] = st.dirS[j * 3]; pos[k * 3 + 1] = st.dirS[j * 3 + 1]; pos[k * 3 + 2] = st.dirS[j * 3 + 2];
             mag[k] = st.mag[j];
+            hip[k] = st.hip ? st.hip[j] : 0;
+            slot[j] = k;
             if (st.color) {
                 col[k * 3] = st.color[j * 3]; col[k * 3 + 1] = st.color[j * 3 + 1]; col[k * 3 + 2] = st.color[j * 3 + 2];
             } else {
@@ -466,7 +479,8 @@ export function createSky(rc, deps = {}) {
             }
         }
         const g = new THREE.BufferGeometry();
-        g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        starPosAttr = new THREE.BufferAttribute(pos, 3);
+        g.setAttribute('position', starPosAttr);
         g.setAttribute('aMag', new THREE.BufferAttribute(mag, 1));
         g.setAttribute('aColor', new THREE.BufferAttribute(col, 3));
         const old = starGeometry;
@@ -474,6 +488,12 @@ export function createSky(rc, deps = {}) {
         stars.geometry = g;
         old.dispose();
         starMags = mag;
+        starPos = pos;
+        starHip = hip;
+        drawnOf = slot;
+        catalogRef = catalog || null;
+        // The copied directions are the catalogue's current ones (proper motion included).
+        pmYearsDrawn = catalog?.stars?.pm ? catalog.stars.pm.years : Number.NaN;
         applyMagLimit();
 
         const c = catalog && catalog.cons;
@@ -526,9 +546,75 @@ export function createSky(rc, deps = {}) {
         try { setCatalog(deps.catalog); } catch { /* stays empty */ }
     }
 
+    // --- Proper motion (time-machine sky) --------------------------------------------------------
+    /**
+     * Moves the fast stars (catalog.js applyProperMotion: the catalogue's own directions, the
+     * constellation endpoints on them and the star names' label points) to the snapshot's epoch,
+     * in whole years, then copies them into the drawn arrays. No allocation.
+     */
+    function syncProperMotion(tMs) {
+        const pm = catalogRef?.stars?.pm;
+        if (!pm || !Number.isFinite(tMs) || !starPosAttr) return;
+        const years = Math.round(yearsFromJ2000(tMs));
+        if (years === pmYearsDrawn) return;
+        applyProperMotion(catalogRef, years);
+        pmYearsDrawn = years;
+        const D = catalogRef.stars.dirS;
+        for (let s = 0; s < pm.idx.length; s++) {
+            const j = pm.idx[s];
+            if (j >= drawnOf.length) continue;
+            const k = drawnOf[j] * 3;
+            starPos[k] = D[3 * j]; starPos[k + 1] = D[3 * j + 1]; starPos[k + 2] = D[3 * j + 2];
+        }
+        starPosAttr.needsUpdate = true;
+        const P = catalogRef.cons.segments, ab = cons.ab;
+        if (P && P.length <= ab.length) {
+            for (let k = 0; k < pm.seg.length; k += 2) {
+                const o = pm.seg[k];
+                ab[o] = P[o]; ab[o + 1] = P[o + 1]; ab[o + 2] = P[o + 2];
+            }
+            cons.commit();
+        }
+        lastHighlightDir[0] = NaN;
+        if (rc && rc.invalidate) rc.invalidate();
+    }
+
+    // --- Star picking -----------------------------------------------------------------------------
+    /**
+     * The drawn star under a tap: the catalogue stars that are visible now (the tier's limit, the
+     * telescope's aperture gain and the twilight limit), within `maxPx` of it, the nearest winning
+     * with a nudge toward brighter ones. `tap` is the true direction under the tap (picking.js
+     * skyTapDir: refraction taken off), so stars are compared on the sphere and none is projected.
+     * Once per tap.
+     * @param {ArrayLike<number>} tap scene unit vector
+     * @param {number} radPerPx radians per CSS pixel at the view centre
+     * @param {number} [maxPx]
+     * @returns {{hip:number, mag:number}|null}
+     */
+    function pickStar(tap, radPerPx, maxPx = 14) {
+        if (!layers.stars || !stars.visible || !tap || !(radPerPx > 0)) return null;
+        const e = Math.max(0, Math.min(1, exposure.stars));
+        if (e < 0.05) return null;
+        const cosMax = Math.cos(maxPx * radPerPx);
+        const lim = -1 + (magLimit + 1) * Math.sqrt(e) + starUniforms.uBoost.value;
+        const n = starGeometry.drawRange.count;
+        let best = -1, bestScore = Infinity;
+        for (let i = 0; i < n && i < starMags.length; i++) {
+            const m = starMags[i];
+            if (m > lim) break;   // sorted brightest first
+            const d = starPos[3 * i] * tap[0] + starPos[3 * i + 1] * tap[1] + starPos[3 * i + 2] * tap[2];
+            if (d < cosMax) continue;
+            const px = Math.acos(Math.min(1, d)) / radPerPx;
+            const score = px + 1.2 * (m - lim);
+            if (score < bestScore) { bestScore = score; best = i; }
+        }
+        return best >= 0 ? { hip: starHip[best], mag: starMags[best] } : null;
+    }
+
     // --- RenderModule API ----------------------------------------------------------------------
     function apply(snap) {
         if (!snap || !snap.observer) return;
+        syncProperMotion(snap.tMs);
         const o = snap.observer;
         sunAltDeg = Number.isFinite(o.sunAltDeg) ? o.sunAltDeg : -90;
         obscuration = snap.eclipse && Number.isFinite(snap.eclipse.obscurationAtObserver)
@@ -556,6 +642,9 @@ export function createSky(rc, deps = {}) {
         if (selection && snap.bodies) {
             let b = null;
             for (let k = 0; k < snap.bodies.length; k++) if (snap.bodies[k].id === selection) { b = snap.bodies[k]; break; }
+            // An extra object (astro/extras.js) highlights its constellation too.
+            const xs = b ? null : snap.extras;
+            if (xs) for (let k = 0; k < xs.length; k++) if (xs[k].id === selection && xs[k].present) { b = xs[k]; break; }
             updateHighlight(b ? b.dirS : null);
         } else if (highlighted !== '') {
             setHighlight('');
@@ -680,6 +769,10 @@ export function createSky(rc, deps = {}) {
     return {
         object3d: group,
         apply, update, setLayers, setViewMode, setSelection, setQuality, setExposure,
-        setCatalog, setReducedMotion, dispose,
+        setCatalog, setReducedMotion, dispose, pickStar,
+        /** Faintest magnitude drawn right now (the tier's limit plus the telescope's aperture gain). */
+        get drawnLimit() { return drawnLimit; },
+        /** The stars' material: other point sets at infinity (render/extras.js guest stars) share it. */
+        get starMaterial() { return starMaterial; },
     };
 }

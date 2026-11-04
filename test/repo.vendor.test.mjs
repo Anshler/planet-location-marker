@@ -23,15 +23,29 @@ test('lock entries have the documented shape and pinned https URLs', () => {
             assert.match(e.license, /^CC-BY-4\.0 \(Solar System Scope\)$/);
             continue;
         }
+        if (e.name === 'hipparcos-new-reduction') {
+            // NASA HEASARC's export of van Leeuwen (2007): not versioned either, so the sha256 is the pin.
+            assert.equal(e.url, 'https://heasarc.gsfc.nasa.gov/FTP/heasarc/dbase/tdat_files/heasarc_hipnewcat.tdat.gz');
+            assert.equal(e.cache, true, 'a build input only');
+            continue;
+        }
         assert.match(e.url, /^https:\/\/cdn\.jsdelivr\.net\/(npm\/[^/]+@\d[^/]*|gh\/[^/]+\/[^/@]+@[^/]+)\//, `${e.path}: pinned URL`);
     }
 });
 
 test('cache entries are gitignored build inputs that never ship', () => {
     const cached = LOCK.filter((e) => e.cache);
-    assert.deepEqual(cached.map((e) => e.path), ['data/raw/textures/8k_earth_clouds.jpg', 'data/raw/textures/8k_moon.jpg']);
-    assert.match(fs.readFileSync(path.join(ROOT, '.gitignore'), 'utf8'), /^data\/raw\/textures\/$/m);
-    for (const e of cached) assert.ok(DERIVED.some((d) => d.from === e.path), `${e.path} feeds a derived texture`);
+    assert.deepEqual(cached.map((e) => e.path), ['data/raw/textures/8k_earth_clouds.jpg', 'data/raw/textures/8k_moon.jpg',
+        'data/raw/cache/stars.8.json', 'data/raw/cache/heasarc_hipnewcat.tdat.gz']);
+    const ignore = fs.readFileSync(path.join(ROOT, '.gitignore'), 'utf8');
+    assert.match(ignore, /^data\/raw\/textures\/$/m);
+    assert.match(ignore, /^data\/raw\/cache\/$/m);
+    for (const e of cached.filter((c) => c.path.startsWith('data/raw/textures/'))) {
+        assert.ok(DERIVED.some((d) => d.from === e.path), `${e.path} feeds a derived texture`);
+    }
+    // The star inputs feed scripts/build-stars.mjs (data/raw/hip2.json and data/stars8.json).
+    const src = fs.readFileSync(path.join(ROOT, 'scripts/build-stars.mjs'), 'utf8');
+    for (const e of cached.filter((c) => c.path.startsWith('data/raw/cache/'))) assert.ok(src.includes(path.basename(e.path)), `${e.path} is read by build-stars`);
 });
 
 test('the lock lists exactly the pinned manifest, in order', () => {

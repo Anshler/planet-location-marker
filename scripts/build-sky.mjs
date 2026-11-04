@@ -8,6 +8,14 @@
 //          dec (deg×1000), mag (×100), bv (B−V ×1000; missing → 600)
 //   names: [hip, name, constellation, starIndex] for named stars with mag ≤ 3.0
 //   cons:  [{id, name, rank, label:[ra×100, dec×100], lines:[[ra×100, dec×100, …], …]}]
+//   pm:    {i, ra, de}: proper motions (mas/yr; μα·cos δ and μδ, Hipparcos New Reduction via
+//          data/raw/hip2.json) of the stars that move at least PM_MIN_MASYR (≥ 1.7′ per
+//          millennium); `i` are star indices (js/data/catalog.js applyProperMotion)
+//
+// It also writes data/starinfo.json (fetched when a star is first selected; precached by sw.js):
+//   plx, eplx: parallax and its error per star, in sky.json star order (mas × 100; −1 = none)
+//   names:     [starIndex, proper name, Bayer, Flamsteed, variable, constellation] for every star
+//              starnames.json designates (js/data/starinfo.js)
 //
 // d3-celestial stores positions as GeoJSON [lon, lat] with lon = RA in −180..180.
 // Serpens is the one constellation split in two (Caput/Cauda); both halves carry the
@@ -23,9 +31,12 @@ import { fileURLToPath } from 'node:url';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const RAW = path.join(ROOT, 'data', 'raw');
 const OUT = path.join(ROOT, 'data', 'sky.json');
+const OUT_INFO = path.join(ROOT, 'data', 'starinfo.json');
 
 const NAME_MAG_LIMIT = 3.0;
 const MISSING_BV = 600;
+/** Proper motions at least this fast (mas/yr) ship in sky.json; slower stars stay at J2000. */
+export const PM_MIN_MASYR = 100;
 
 const readJson = (f) => JSON.parse(fs.readFileSync(path.join(RAW, f), 'utf8'));
 
@@ -105,16 +116,84 @@ function buildCons(linesGeo, consGeo) {
  * @param {{stars:object, starnames:object, lines:object, cons:object}} raw parsed GeoJSON/JSON
  * @returns {object} the sky.json document
  */
-export function buildSky({ stars, starnames, lines, cons }) {
+export function buildSky({ stars, starnames, lines, cons, hip2 = null }) {
     const { feats, packed } = buildStars(stars);
     return {
         v: 1,
         epoch: 'J2000',
-        source: 'd3-celestial (BSD-3), Hipparcos',
+        source: 'd3-celestial (BSD-3), Hipparcos; proper motions: Hipparcos New Reduction (van Leeuwen 2007)',
         stars: packed,
         names: buildNames(feats, starnames),
         cons: buildCons(lines, cons),
+        pm: hip2 ? buildPm(packed, hip2) : null,
     };
+}
+
+/** HIP → row index of data/raw/hip2.json. */
+function hipRows(hip2) {
+    return new Map(hip2.hip.map((h, k) => [h, k]));
+}
+
+/** The fast movers' proper motions, in star order (integers, mas/yr). */
+function buildPm(packed, hip2) {
+    const rows = hipRows(hip2);
+    const out = { i: [], ra: [], de: [] };
+    packed.hip.forEach((h, i) => {
+        const k = rows.get(h);
+        if (k === undefined) return;
+        const ra = hip2.pmra[k] / 100, de = hip2.pmde[k] / 100;
+        if (Math.hypot(ra, de) < PM_MIN_MASYR) return;
+        out.i.push(i);
+        out.ra.push(Math.round(ra));
+        out.de.push(Math.round(de));
+    });
+    return out;
+}
+
+/** A designation field from starnames.json, or '' (d3-celestial has a few placeholders). */
+const cleanDesig = (s) => {
+    const t = typeof s === 'string' ? s.trim() : '';
+    return /undefined|^-$/.test(t) ? '' : t;
+};
+
+/**
+ * data/starinfo.json: per-star parallax (sky.json order) and every designation starnames.json has.
+ * @param {object} sky buildSky's result
+ * @param {object} starnames d3-celestial starnames.json
+ * @param {object} hip2 data/raw/hip2.json
+ */
+export function buildStarInfo(sky, starnames, hip2) {
+    const rows = hipRows(hip2);
+    const s = sky.stars;
+    const plx = [], eplx = [], names = [];
+    s.hip.forEach((h, i) => {
+        const k = rows.get(h);
+        plx.push(k === undefined ? -1 : hip2.plx[k]);
+        eplx.push(k === undefined ? -1 : hip2.eplx[k]);
+        const e = starnames[String(h)];
+        if (!e) return;
+        const row = [i, cleanDesig(e.name), cleanDesig(e.bayer), cleanDesig(e.flam), cleanDesig(e.var), cleanDesig(e.c)];
+        if (row[1] || row[2] || row[3] || row[4]) names.push(row);
+    });
+    return {
+        v: 1,
+        source: 'designations: d3-celestial starnames (BSD-3); parallax: Hipparcos New Reduction (van Leeuwen 2007)',
+        n: s.n,
+        hip0: s.hip[0],
+        plx, eplx, names,
+    };
+}
+
+/** One array per line. */
+export function serializeStarInfo(info) {
+    return [
+        `{"v":${info.v},"source":${JSON.stringify(info.source)},"n":${info.n},"hip0":${info.hip0},`,
+        `"plx":${JSON.stringify(info.plx)},`,
+        `"eplx":${JSON.stringify(info.eplx)},`,
+        `"names":[`,
+        info.names.map((r) => JSON.stringify(r)).join(',\n'),
+        ']}',
+    ].join('\n') + '\n';
 }
 
 /**
@@ -133,28 +212,40 @@ export function serializeSky(sky) {
         `"names":${JSON.stringify(sky.names)},`,
         '"cons":[',
         sky.cons.map((c) => JSON.stringify(c)).join(',\n'),
-        ']}',
+        sky.pm ? '],' : ']}',
+        ...(sky.pm ? [`"pm":{"i":${JSON.stringify(sky.pm.i)},`, `"ra":${JSON.stringify(sky.pm.ra)},`, `"de":${JSON.stringify(sky.pm.de)}}}`] : []),
     ].join('\n') + '\n';
 }
 
+/** The committed raw inputs of build-sky (also used by test/data.sky.test.mjs). */
+export function readRawInputs(read = readJson) {
+    return {
+        stars: read('stars.6.json'),
+        starnames: read('starnames.json'),
+        lines: read('constellations.lines.json'),
+        cons: read('constellations.json'),
+        hip2: read('hip2.json'),
+    };
+}
+
 function main() {
-    const sky = buildSky({
-        stars: readJson('stars.6.json'),
-        starnames: readJson('starnames.json'),
-        lines: readJson('constellations.lines.json'),
-        cons: readJson('constellations.json'),
-    });
+    const raw = readRawInputs();
+    const sky = buildSky(raw);
     const text = serializeSky(sky);
+    const info = serializeStarInfo(buildStarInfo(sky, raw.starnames, raw.hip2));
     if (process.argv.includes('--check')) {
         const cur = fs.existsSync(OUT) ? fs.readFileSync(OUT, 'utf8') : '';
-        if (cur !== text) {
-            console.error('data/sky.json is out of date — run: node scripts/build-sky.mjs');
+        const curInfo = fs.existsSync(OUT_INFO) ? fs.readFileSync(OUT_INFO, 'utf8') : '';
+        if (cur !== text || curInfo !== info) {
+            console.error('data/sky.json or data/starinfo.json is out of date — run: node scripts/build-sky.mjs');
             process.exit(1);
         }
-        console.log('data/sky.json is up to date');
+        console.log('data/sky.json and data/starinfo.json are up to date');
         return;
     }
     fs.writeFileSync(OUT, text);
+    fs.writeFileSync(OUT_INFO, info);
+    console.log(`data/starinfo.json: ${(info.length / 1024).toFixed(1)} KB; ${sky.pm?.i.length ?? 0} proper motions in sky.json`);
     const segs = sky.cons.reduce((a, c) => a + c.lines.reduce((b, l) => b + l.length / 2 - 1, 0), 0);
     console.log(`data/sky.json: ${sky.stars.n} stars, ${sky.names.length} names, ${sky.cons.length} constellations, `
         + `${segs} segments, ${(text.length / 1024).toFixed(1)} KB`);

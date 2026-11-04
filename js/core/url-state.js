@@ -1,7 +1,7 @@
 // Deep links in the URL hash (SPEC §C.3, §F.4).
 //
 //   #loc=21.0285,105.8542&n=Hanoi&cc=VN&tz=Asia/Ho_Chi_Minh&el=15&t=2027-08-02T10:07:00Z&r=3600&p=1
-//    &view=orbit&lock=1&sel=moon&ly=bgoscCnmkazhld&q=auto&sky=auto&cam=o:21.0,105.8,3.2|s:142.3,25.0,60&intro=0&debug=1
+//    &view=orbit&lock=1&sel=moon&ly=bgoscCnmkazhldx&q=auto&sky=auto&cam=o:21.0,105.8,3.2|s:142.3,25.0,60&intro=0&debug=1
 //
 // `sky` is the Sky darkness setting: auto (light pollution estimated from nearby cities), pristine,
 // or a Bortle class 1–9. `au` is the Aurora activity setting: quiet, typical (default) or storm.
@@ -26,15 +26,16 @@ import { MIN_MS, MAX_MS, snapRate } from './clock.js';
 import { DEFAULT_STATE, SKY_DARK_SETTINGS, AURORA_SETTINGS, VANTAGE_SETTINGS, VIEW_MODES } from './store.js';
 import { canonTz, daysInMonth } from './tz.js';
 import { isTourId } from './tour-catalog.js';
+import { normalizeSelectionId, isSelectionId } from './selection.js';
 
-const BODY_IDS = Object.freeze(['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune']);
 const QUALITY_SETTINGS = Object.freeze(['auto', 'low', 'medium', 'high', 'max']);
 /** `ly` letters in canonical order (SPEC §F.4). Case-sensitive: c = lines, C = names. */
 export const LAYER_CODES = Object.freeze([
     ['b', 'beams'], ['g', 'ghostBeams'], ['o', 'sunMoonBeams'], ['s', 'stars'], ['c', 'constellations'],
     ['C', 'constellationNames'], ['n', 'starNames'], ['m', 'milkyWay'], ['k', 'clouds'], ['a', 'atmosphere'],
     ['e', 'ecliptic'], ['q', 'eqGrid'], ['z', 'altAzGrid'], ['h', 'horizon'], ['f', 'footprint'],
-    ['p', 'subpoints'], ['t', 'trails'], ['l', 'labels'], ['d', 'landscape'],
+    ['p', 'subpoints'], ['t', 'trails'], ['l', 'labels'], ['d', 'landscape'], ['v', 'spacecraft'], ['x', 'deepSky'],
+    ['r', 'precession'],
 ].map((pair) => Object.freeze(pair)));
 const LAYER_BY_CODE = new Map(LAYER_CODES);
 const KNOWN_KEYS = new Set(['loc', 'n', 'cc', 'tz', 'el', 't', 'r', 'p', 'view', 'lock', 'sel', 'ly', 'q', 'sky', 'au', 'cam', 'trk', 'vt', 'intro', 'debug', 'tour',
@@ -50,7 +51,7 @@ const TRACK_CODES = Object.freeze({ b: 'body', s: 'stars' });
 const NUM_RE = /^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d{1,3})?$/;
 const ISO_RE = /^(\d{4})(?:-(\d{2})(?:-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,9}))?)?)?)?)?(Z|[+-]\d{2}(?::?\d{2})?)?$/i;
 
-/** The `ly` value for DEFAULT_STATE.layers ('bgoscCnmkazhld'). */
+/** The `ly` value for DEFAULT_STATE.layers ('bgoscCnmkazhldx'). */
 export const DEFAULT_LAYER_CODE = layersToCode(DEFAULT_STATE.layers);
 
 /** @param {string} s */
@@ -378,10 +379,10 @@ function parseViewKeys(params, out, invalid) {
         else out.earthLock = f;
     }
     if (params.has('sel')) {
-        const v = params.get('sel').trim().toLowerCase();
-        if (v === '' || v === 'none') out.selection = null;
-        else if (BODY_IDS.includes(v)) out.selection = /** @type {any} */ (v);
-        else invalid.push('sel');
+        // A body, or an extra object's namespaced id (core/selection.js: comet:halley, craft:voyager1).
+        const v = normalizeSelectionId(params.get('sel'));
+        if (v === undefined) invalid.push('sel');
+        else out.selection = /** @type {any} */ (v);
     }
     if (params.has('ly')) {
         const code = params.get('ly').trim();
@@ -508,7 +509,7 @@ export function serializeHash({ state, clock, cam, extra } = {}) {
         if (trk === 'body' || trk === 'stars') parts.push(`trk=${trk[0]}`);
         const vt = s.view?.vantage;
         if (s.view?.mode === 'orbit' && vt !== 'none' && VANTAGE_SETTINGS.includes(vt)) parts.push(`vt=${vt}`);
-        if (typeof s.selection === 'string' && BODY_IDS.includes(s.selection)) parts.push(`sel=${s.selection}`);
+        if (isSelectionId(s.selection)) parts.push(`sel=${s.selection}`);
         const ly = layersToCode(s.layers);
         if (ly !== null && ly !== DEFAULT_LAYER_CODE) parts.push(`ly=${ly}`);
         const q = s.quality?.setting;

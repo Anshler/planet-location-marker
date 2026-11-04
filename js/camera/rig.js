@@ -343,6 +343,15 @@ function prefersReducedMotion() {
     }
 }
 
+/** Tracking's target by index: BODIES first, then the extra objects (snap.extras, astro/extras.js). */
+function trackedAt(snap, i) {
+    const bs = snap && snap.bodies;
+    if (!bs || !(i >= 0)) return null;
+    if (i < bs.length) return bs[i];
+    const xs = snap.extras;
+    return xs ? xs[i - bs.length] ?? null : null;
+}
+
 /**
  * Creates the camera rig.
  * @param {object} rc RenderContext (SPEC §C.6)
@@ -1655,11 +1664,15 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         const F = _v1;
         if (track.kind === 'body') {
             const bs = snap && snap.bodies;
-            if (bs && !(track.index >= 0 && bs[track.index] && bs[track.index].id === track.id)) {
+            // An extra object (astro/extras.js: a comet, a guest star…) is found in snap.extras.
+            const xs = snap && snap.extras;
+            if (bs && !(trackedAt(snap, track.index) && trackedAt(snap, track.index).id === track.id)) {
                 track.index = -1;
                 for (let i = 0; i < bs.length; i++) if (bs[i].id === track.id) { track.index = i; break; }
+                if (track.index < 0 && xs) for (let i = 0; i < xs.length; i++) if (xs[i].id === track.id) { track.index = bs.length + i; break; }
             }
-            const b = track.index >= 0 && bs ? bs[track.index] : null;
+            const b0 = trackedAt(snap, track.index);
+            const b = b0 && b0.present !== false ? b0 : null;
             if (!b) { endTrack('lost'); return true; }
             const d = b.dirS;
             if (d[0] * upW.x + d[1] * upW.y + d[2] * upW.z < TRACK_SET_SIN) { endTrack('set'); return true; }

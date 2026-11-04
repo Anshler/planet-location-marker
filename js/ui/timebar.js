@@ -1,6 +1,7 @@
 /**
  * Time bar: play / step / rate / reverse, the date-time button (popover with a
- * `datetime-local` input interpreted in the display timezone), the timezone
+ * `datetime-local` input interpreted in the display timezone; before 15 Oct 1582 a text field in
+ * the Julian calendar, core/tz.js parseCalendarInput), the timezone
  * chip (Observer → Device → UTC), the Live pill / "Return to now", the
  * Timelapse (range loop) popover and the scrubber.
  *
@@ -25,6 +26,7 @@
 import { BODIES, BODY_INDEX } from '../astro/bodies.js';
 import { h, on, setText, setAttr, clamp, openPopover, uid } from './dom.js';
 import { icon, swapIcon } from './icons.js';
+import { parseCalendarInput, toCalendar, fromCalendar } from '../core/tz.js';
 
 const MIN_MS = Date.UTC(1000, 0, 1);
 const MAX_MS = Date.UTC(3000, 0, 1);
@@ -192,11 +194,13 @@ export function mountTimebar(root, ctx) {
     btnReverse.setAttribute('aria-pressed', 'false');
 
     const stampDay = h('span', { class: 'stamp__day' });
+    // Before 15 Oct 1582 the date is Julian, as records give it; the tag says so (title: the Gregorian date).
+    const stampCal = h('span', { class: 'stamp__cal', hidden: true }, 'Julian');
     const stampSep = h('span', { class: 'stamp__sep', 'aria-hidden': 'true' }, '·');
     const stampTime = h('span', { class: 'stamp__time' });
     const dateBtn = h('button', {
         class: 'tb-date', type: 'button', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'data-tip': 'Go to a date and time',
-    }, h('span', { class: 'tb-date__icon' }, icon('calendar', { size: 18 })), h('span', { class: 'stamp' }, stampDay, stampSep, stampTime));
+    }, h('span', { class: 'tb-date__icon' }, icon('calendar', { size: 18 })), h('span', { class: 'stamp' }, stampDay, stampCal, stampSep, stampTime));
     const badge = h('span', { class: 'badge badge--warn tb-accuracy', hidden: true, title: 'Planet positions are most accurate between 1800 and 2200' },
         icon('warning', { size: 14 }), h('span', { class: 'tb-accuracy__text' }, 'Reduced accuracy'));
     const tzChip = h('button', { class: 'chip tb-tz', type: 'button', 'data-tip': 'Change time zone' });
@@ -233,10 +237,13 @@ export function mountTimebar(root, ctx) {
         'data-autofocus': '',
     });
     const dateZone = h('span', { class: 'pop__zone' });
+    const dateCal = h('p', { class: 'pop__hint pop__cal' },
+        'Dates before 15 Oct 1582 are in the Julian calendar, as records of the time give them.');
     const quick = h('div', { class: 'pop__quick', role: 'group', 'aria-label': 'Quick jumps' });
     const goBtn = h('button', { class: 'btn btn--primary', type: 'submit' }, 'Go');
     const dateForm = h('form', { class: 'pop__form', novalidate: true },
         h('label', { class: 'field' }, h('span', { class: 'field__label' }, 'Date and time ', dateZone), dateInput),
+        dateCal,
         quick,
         h('div', { class: 'pop__actions' }, goBtn));
     const datePop = h('div', { class: 'popover pop-date', role: 'dialog', 'aria-label': 'Go to date and time', hidden: true },
@@ -312,14 +319,26 @@ export function mountTimebar(root, ctx) {
 
     // -- date popover -------------------------------------------------------
     let datePopCtl = null;
+    /** The display calendar's date and time (Julian before 15 Oct 1582: ui.zoned). */
     function toInputValue(ms) {
         const z = ui.zoned(clamp(ms, MIN_MS, MAX_MS - 1000));
         return `${String(z.y).padStart(4, '0')}-${pad2(z.mo)}-${pad2(z.d)}T${pad2(z.h)}:${pad2(z.mi)}:${pad2(z.s)}`;
     }
+    /** A typed date: on or before 4 Oct 1582 it is Julian, from 15 Oct Gregorian (tz.parseCalendarInput). */
     function fromInputValue(v) {
-        const m = /^(\d{4,})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/.exec(v || '');
-        if (!m) return NaN;
-        return ui.toUtc({ y: +m[1], mo: +m[2], d: +m[3], h: +m[4], mi: +m[5], s: +(m[6] || 0) });
+        const p = parseCalendarInput(v || '');
+        return p ? ui.toUtc(p) : NaN;
+    }
+    /**
+     * The native picker is Gregorian and refuses Julian-only days (29 Feb 1500), so an input showing
+     * a Julian date becomes a text field ('1066-04-24T20:00:00' or '24 Apr 1066 20:00').
+     */
+    function inputFor(input, ms) {
+        const jul = ui.zoned(clamp(ms, MIN_MS, MAX_MS - 1000)).cal === 'julian';
+        const type = jul ? 'text' : 'datetime-local';
+        if (input.type !== type) input.type = type;
+        input.placeholder = jul ? 'YYYY-MM-DD HH:MM (Julian)' : '';
+        input.value = toInputValue(ms);
     }
     function zoneText() {
         const st = store.get();
@@ -336,7 +355,7 @@ export function mountTimebar(root, ctx) {
         const tw = ui.almanac.night?.twilight;
         if (tw && Number.isFinite(tw.sunsetMs)) items.push(['Sunset', tw.sunsetMs, null]);
         const z = ui.zoned(t);
-        const midnight = ui.toUtc({ y: z.y, mo: z.mo, d: z.d + 1, h: 0, mi: 0, s: 0 });
+        const midnight = ui.toUtc({ y: z.y, mo: z.mo, d: z.d + 1, h: 0, mi: 0, s: 0, cal: z.cal });
         items.push(['Midnight', midnight, null]);
         if (tw && Number.isFinite(tw.sunriseMs)) items.push(['Sunrise', tw.sunriseMs, null]);
         quick.replaceChildren(...items.map(([label, ms, fn]) => h('button', {
@@ -354,7 +373,7 @@ export function mountTimebar(root, ctx) {
     function openDate() {
         if (datePopCtl) { closeDate(); return; }
         closeLapse();
-        dateInput.value = toInputValue(clock.tMs);
+        inputFor(dateInput, clock.tMs);
         dateInput.removeAttribute('aria-invalid');
         setText(dateZone, zoneText());
         quickJumps();
@@ -377,8 +396,8 @@ export function mountTimebar(root, ctx) {
         closeDate();
         const r = clock.range;
         const t = clock.tMs;
-        fromInput.value = toInputValue(r ? r.fromMs : t);
-        toInput.value = toInputValue(r ? r.toMs : t + DAY);
+        inputFor(fromInput, r ? r.fromMs : t);
+        inputFor(toInput, r ? r.toMs : t + DAY);
         durInput.value = String(r ? Math.round(r.durationS) : 10);
         const mode = r?.loop || 'loop';
         for (const m of modes) { const inp = m.querySelector('input'); inp.checked = inp.value === mode; }
@@ -449,7 +468,14 @@ export function mountTimebar(root, ctx) {
         const t = clock.tMs;
         setText(stampDay, ui.fmtDay(t));
         setText(stampTime, ui.fmtClock(t, { seconds: true }));
-        setAttr(dateBtn, 'aria-label', `Date and time: ${ui.fmtSpoken(t)}. Change`);
+        const jul = ui.zoned(t).cal === 'julian';
+        if (stampCal.hidden === jul) stampCal.hidden = !jul;
+        if (jul) {
+            const g = new Date(t + ui.zoned(t).offsetMin * 60e3);
+            const tipText = `Julian calendar, as records of the time give it. Gregorian (proleptic): ${g.getUTCDate()} ${ui.MONTHS[g.getUTCMonth()]} ${g.getUTCFullYear()}`;
+            if (stampCal.title !== tipText) stampCal.title = tipText;
+        }
+        setAttr(dateBtn, 'aria-label', `Date and time: ${ui.fmtSpoken(t)}${jul ? ' (Julian calendar)' : ''}. Change`);
         const y = new Date(t).getUTCFullYear();
         if (y !== lastYear) {
             lastYear = y;
@@ -714,13 +740,16 @@ export function mountTimebar(root, ctx) {
         } else if (kind === 'D') {
             const first = Math.ceil((start + offMs) / DAY) * DAY - offMs;
             for (let t = first; t <= end; t += DAY) {
-                const dom = new Date(t + offMs).getUTCDate();
+                const dom = calOf(t + offMs).d;
                 if (dom === 1 || (dom % 5 === 0 && dom < 30)) majors.push(t);
             }
         } else {
+            // Month starts in the display calendar (Julian before 15 Oct 1582).
             const z = ui.zoned(start);
             for (let k = 0; k < 30; k += 1) {
-                const t = Date.UTC(z.y, z.mo - 1 + k, 1) - offMs;
+                const yy = z.y + Math.floor((z.mo - 1 + k) / 12), mm = ((z.mo - 1 + k) % 12) + 1;
+                const g = fromCalendar(yy, mm, 1);
+                const t = Date.UTC(g.y, g.mo - 1, g.d) - offMs;
                 if (t > end) break;
                 if (t >= start) majors.push(t);
             }
@@ -743,17 +772,26 @@ export function mountTimebar(root, ctx) {
         g2d.stroke();
     }
 
+    /** The display-calendar date of a wall-clock instant (ms with the zone offset added). */
+    const calScratch = {};
+    function calOf(wallMs) {
+        const d = new Date(wallMs);
+        calScratch.y = d.getUTCFullYear(); calScratch.mo = d.getUTCMonth() + 1; calScratch.d = d.getUTCDate();
+        return toCalendar(calScratch, calScratch);
+    }
+
     function majorLabel(kind, t, offMs) {
         const d = new Date(t + offMs);
         const hh = d.getUTCHours();
+        const c = calOf(t + offMs);
         if (kind === 'h') {
-            if (hh === 0) return `${ui.WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()}`;
+            if (hh === 0) return `${ui.WEEKDAYS[d.getUTCDay()]} ${c.d}`;
             if (store.get().display?.hour12) return `${hh % 12 || 12} ${hh < 12 ? 'AM' : 'PM'}`;
             return `${pad2(hh)}:00`;
         }
-        if (kind === 'd') return `${ui.WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()}`;
-        if (kind === 'D') return `${d.getUTCDate()} ${ui.MONTHS[d.getUTCMonth()]}`;
-        return d.getUTCMonth() === 0 ? `${ui.MONTHS[0]} ${d.getUTCFullYear()}` : ui.MONTHS[d.getUTCMonth()];
+        if (kind === 'd') return `${ui.WEEKDAYS[d.getUTCDay()]} ${c.d}`;
+        if (kind === 'D') return `${c.d} ${ui.MONTHS[c.mo - 1]}`;
+        return c.mo === 1 ? `${ui.MONTHS[0]} ${c.y}` : ui.MONTHS[c.mo - 1];
     }
 
     function drawTicks() {

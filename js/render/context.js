@@ -19,7 +19,15 @@
  * chain (no bloom) while it is on. A restored context rebuilds the chain with a fresh stack.
  *
  * Capture: `rc.capture(w, h, scale, draw, read)` renders one frame at another size in one task
- * (postcards, the exposure's 'Save image'); see capture() below.
+ * (postcards, the exposure's 'Save image'); see capture() below. A video session
+ * (`beginCapture` … `endCapture`) keeps that size for many frames: each frame brackets its draw with
+ * `captureCamera()` / `releaseCamera()`, and screen resizes wait until it ends.
+ *
+ * Idle supersampling (tiers with `supersample` > 1 and a composer): `rc.render(ss)` with
+ * ss = {x, y, weight} offsets this frame's projection by (x, y) device px (projectionMatrix
+ * elements 8 and 9, on top of the rig's view offset, restored right after the draw: picking and CPU
+ * projections never see it) and blends it into postfx's running mean; `rc.supersampling` says
+ * whether the chain has the pass. The policy lives in core/sampling.js and the loop.
  *
  * Throws only from the constructor, when a WebGL2 context cannot be created
  * (three r170 has no WebGL1 path); main.js turns that into text mode.
@@ -39,23 +47,24 @@ export const FALLBACK_TIERS = Object.freeze({
         name: 'low', dprCap: 1.0, composer: false, msaa: 0, bloom: null, earthSegments: [64, 32], dayTex: 'day2k',
         oceanMask: 'roughness2k', clouds: 'none', cloudShadows: false, bump: false, atmosphere: 'analytic', atmoSteps: 0,
         starMagLimit: 5.0, flare: false, labelCap: 12, twinkle: false, beamGlowPx: 8, finalPass: false,
+        supersample: 0, streakPx: 0,
     }),
     medium: Object.freeze({
         name: 'medium', dprCap: 1.5, composer: true, msaa: 4,
         bloom: Object.freeze({ strength: 0.55, radius: 0.4, threshold: 0.9, scale: 0.5 }),
         earthSegments: [96, 48], dayTex: 'day4k', oceanMask: 'roughness2k', clouds: 'clouds2k', cloudShadows: false,
         bump: false, atmosphere: 'analytic', atmoSteps: 0, starMagLimit: 6.0, flare: true, labelCap: 24, twinkle: false,
-        beamGlowPx: 12, finalPass: true,
+        beamGlowPx: 12, finalPass: true, supersample: 8, streakPx: 14,
     }),
     high: Object.freeze({
         name: 'high', dprCap: 2.0, composer: true, msaa: 4,
         bloom: Object.freeze({ strength: 0.6, radius: 0.45, threshold: 0.9, scale: 1.0 }),
         earthSegments: [128, 64], dayTex: 'day4k', oceanMask: 'roughness', clouds: 'brc4k', cloudShadows: true,
         bump: true, atmosphere: 'raymarch', atmoSteps: 8, starMagLimit: 6.5, flare: true, labelCap: 40, twinkle: true,
-        beamGlowPx: 14, finalPass: true,
+        beamGlowPx: 14, finalPass: true, supersample: 16, streakPx: 24,
     }),
     max: Object.freeze({
-        name: 'max', dprCap: Infinity, composer: true, msaa: 16,
+        name: 'max', dprCap: Infinity, composer: true, msaa: 16, supersample: 16, streakPx: 32,
         bloom: Object.freeze({ strength: 0.6, radius: 0.45, threshold: 0.9, scale: 1.0 }),
         earthSegments: [256, 128], dayTex: 'day8k', oceanMask: 'roughness', clouds: 'clouds8k', cloudShadows: true,
         bump: true, atmosphere: 'raymarch', atmoSteps: 32, starMagLimit: 6.5, flare: true, labelCap: 80, twinkle: true,
@@ -128,6 +137,8 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
     const invalidateCbs = new Set();
     const cleanups = [];
     let disposed = false;
+    /** A video session (beginCapture … endCapture): the screen state it restores, or null. */
+    let session = null;
 
     // The canvas's own MSAA is fixed when the context is created, and only a 'low' boot asks for it.
     // A context created for a composer tier has none, so a later switch to low (governor or
@@ -166,12 +177,16 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
         return { w: Math.max(1, Math.round(w || 1)), h: Math.max(1, Math.round(h || 1)) };
     }
 
+    /** The tier supersamples when idle: a pass in a full composer chain (never the lean low one). */
+    const ssWanted = (chain) => chain === cfg && !!chain.composer && chain.supersample > 1;
+
     function ensurePostFx() {
         const chain = chainCfg(cfg);
         if (chain.composer && !postfx) {
             try {
                 postfx = createPostFx(renderer, scene, camera, chain, { w: size.w, h: size.h, dpr });
                 if (accumWanted) postfx.setAccumulation(true);
+                postfx.setSupersample(ssWanted(chain));
             } catch (err) {
                 // A broken composer must not blank the screen: render directly instead.
                 console.warn('Planet Location Marker: post-processing unavailable, rendering directly.', err);
@@ -187,6 +202,11 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
     /** Re-reads the canvas size and DPR; cheap no-op when nothing changed. */
     function resize() {
         if (disposed) return;
+        // A video session owns the drawing buffer: apply the screen's size when it ends.
+        if (session) {
+            forceResize = true;
+            return;
+        }
         const m = measure();
         const changedSize = m.w !== size.w || m.h !== size.h;
         size.w = m.w;
@@ -223,6 +243,7 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
         cfg = resolveTier(next);
         const chain = ensurePostFx();
         postfx?.setTier(chain);
+        postfx?.setSupersample(ssWanted(chain));
         forceResize = true; // re-apply sizes to a freshly built composer
         resize();
         presentIfCleared(bw, bh);
@@ -295,7 +316,11 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
         const had = postfx;
         ensurePostFx();
         if (postfx && postfx === had) postfx.setAccumulation(want);
-        if (postfx !== had) {
+        if (postfx !== had && session) {
+            // A new chain inside a video session takes the session's size (resize() waits for its end).
+            postfx?.setCapture(true, session.opts);
+            postfx?.setSize(session.cw, session.ch, session.s);
+        } else if (postfx !== had) {
             forceResize = true;
             resize();
         }
@@ -326,7 +351,7 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
      * @returns {boolean} false when nothing could be captured (context lost, disposed)
      */
     function capture(w, h, scale, draw, read, opts) {
-        if (lost || disposed) return false;
+        if (lost || disposed || session) return false;
         const gl = renderer.getContext();
         const W = Math.max(16, Math.min(maxBuffer, Math.round(w)));
         const H = Math.max(16, Math.min(maxBuffer, Math.round(h)));
@@ -335,55 +360,13 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
             read(renderer.domElement, { cssW: size.w, cssH: size.h, scale: dpr, camera });
             return true;
         }
-        const s = Number.isFinite(scale) && scale > 0 ? scale : 1;
-        // CSS sizes whose product with s floors to exactly W and H.
-        const cw = (W + 0.25) / s, ch = (H + 0.25) / s;
-        const saved = {
-            w: size.w, h: size.h, fov: camera.fov, aspect: camera.aspect,
-            view: camera.view && camera.view.enabled ? { ...camera.view } : null,
-            l: size.insets.left, r: size.insets.right, t: size.insets.top, b: size.insets.bottom,
-        };
-        // The screen's shorter side → the capture's shorter side.
-        const tanV = Math.tan((saved.fov * Math.PI) / 360);
-        const tanShort = Math.min(tanV, tanV * saved.aspect);
-        const aspect = cw / ch;
-        const tanV2 = aspect >= 1 ? tanShort : tanShort / aspect;
-        // Capped: a story card from a wide desktop sky view would otherwise stretch past 120°.
-        const fov = Math.min(110, (Math.atan(tanV2) * 360) / Math.PI);
+        beginCapture(W, H, scale, opts);
         try {
-            renderer.setPixelRatio(s);
-            renderer.setSize(cw, ch, false);
-            postfx?.setCapture(true);
-            postfx?.setSize(cw, ch, s);
-            const inset = Math.min(ch * 0.6, Math.max(0, Number(opts?.insetBottom) || 0));
-            size.w = cw;
-            size.h = ch;
-            size.insets.left = size.insets.right = size.insets.top = 0;
-            size.insets.bottom = inset;
-            camera.fov = fov;
-            camera.aspect = aspect;
-            if (inset > 0.5) camera.setViewOffset(cw, ch, 0, inset / 2, cw, ch);
-            else camera.clearViewOffset();
-            camera.updateProjectionMatrix();
+            captureCamera();
             draw();
-            read(renderer.domElement, { cssW: cw, cssH: ch, scale: s, camera });
+            read(renderer.domElement, { cssW: size.w, cssH: size.h, scale: session.s, camera });
         } finally {
-            size.w = saved.w;
-            size.h = saved.h;
-            size.insets.left = saved.l;
-            size.insets.right = saved.r;
-            size.insets.top = saved.t;
-            size.insets.bottom = saved.b;
-            renderer.setPixelRatio(dpr);
-            renderer.setSize(size.w, size.h, false);
-            postfx?.setSize(size.w, size.h, dpr);
-            postfx?.setCapture(false);
-            camera.fov = saved.fov;
-            camera.aspect = saved.aspect;
-            const v = saved.view;
-            if (v) camera.setViewOffset(v.fullWidth, v.fullHeight, v.offsetX, v.offsetY, v.width, v.height);
-            else camera.clearViewOffset();
-            camera.updateProjectionMatrix();
+            endCapture();
             // The resize cleared the drawing buffer: draw the screen frame before the task ends.
             try { draw(); } catch { /* the loop redraws on its next frame */ }
             invalidate();
@@ -391,12 +374,114 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
         return true;
     }
 
-    /** Renders one frame (composer or direct). Never throws. */
-    function render() {
+    /**
+     * Starts a video session: the drawing buffer, the composer and `rc.size` take the capture's size
+     * (as capture() does for one frame) until endCapture(); `scale` is its pixel ratio and
+     * `opts.insetBottom` its caption band (CSS px). Screen resizes wait. `opts.stack` keeps a long
+     * exposure stacking at the capture's size (postfx setCapture).
+     * @param {number} w device px
+     * @param {number} h device px
+     * @param {number} scale capture pixel ratio
+     * @param {{insetBottom?:number, stack?:boolean}} [opts]
+     * @returns {boolean} false when the context is lost, disposed or a session runs
+     */
+    function beginCapture(w, h, scale, opts) {
+        if (lost || disposed || session) return false;
+        const W = Math.max(16, Math.min(maxBuffer, Math.round(w)));
+        const H = Math.max(16, Math.min(maxBuffer, Math.round(h)));
+        const s = Number.isFinite(scale) && scale > 0 ? scale : 1;
+        // CSS sizes whose product with s floors to exactly W and H.
+        const cw = (W + 0.25) / s, ch = (H + 0.25) / s;
+        session = {
+            s, cw, ch, opts: { stack: !!opts?.stack }, inset: Math.min(ch * 0.6, Math.max(0, Number(opts?.insetBottom) || 0)), rigFov: NaN, view: null,
+            w: size.w, h: size.h, aspect: camera.aspect,
+            l: size.insets.left, r: size.insets.right, t: size.insets.top, b: size.insets.bottom,
+        };
+        renderer.setPixelRatio(s);
+        renderer.setSize(cw, ch, false);
+        postfx?.setCapture(true, opts);
+        postfx?.setSize(cw, ch, s);
+        size.w = cw;
+        size.h = ch;
+        size.insets.left = size.insets.right = size.insets.top = 0;
+        size.insets.bottom = session.inset;
+        return true;
+    }
+
+    /**
+     * Gives the camera the session's projection, from the field the rig set: the screen's shorter
+     * side → the capture's shorter side, the capture's aspect and its own view offset (the caption
+     * band). releaseCamera() hands the rig its own values back.
+     */
+    function captureCamera() {
+        if (!session || Number.isFinite(session.rigFov)) return;
+        const v = camera.view && camera.view.enabled ? camera.view : null;
+        session.rigFov = camera.fov;
+        session.view = v ? [v.fullWidth, v.fullHeight, v.offsetX, v.offsetY, v.width, v.height] : null;
+        const tanV = Math.tan((camera.fov * Math.PI) / 360);
+        const tanShort = Math.min(tanV, tanV * session.aspect);
+        const aspect = session.cw / session.ch;
+        const tanV2 = aspect >= 1 ? tanShort : tanShort / aspect;
+        // Capped: a story card from a wide desktop sky view would otherwise stretch past 120°.
+        camera.fov = Math.min(110, (Math.atan(tanV2) * 360) / Math.PI);
+        camera.aspect = aspect;
+        if (session.inset > 0.5) camera.setViewOffset(session.cw, session.ch, 0, session.inset / 2, session.cw, session.ch);
+        else camera.clearViewOffset();
+        camera.updateProjectionMatrix();
+    }
+
+    /** Hands the rig its own field, aspect and view offset back (after a session frame's draw). */
+    function releaseCamera() {
+        if (!session || !Number.isFinite(session.rigFov)) return;
+        camera.fov = session.rigFov;
+        camera.aspect = session.aspect;
+        const v = session.view;
+        if (v) camera.setViewOffset(v[0], v[1], v[2], v[3], v[4], v[5]);
+        else camera.clearViewOffset();
+        camera.updateProjectionMatrix();
+        session.rigFov = NaN;
+    }
+
+    /** Ends a video session: the screen's size, insets and composer come back (not yet redrawn). */
+    function endCapture() {
+        if (!session) return;
+        releaseCamera();
+        const sv = session;
+        session = null;
+        size.w = sv.w;
+        size.h = sv.h;
+        size.insets.left = sv.l;
+        size.insets.right = sv.r;
+        size.insets.top = sv.t;
+        size.insets.bottom = sv.b;
+        renderer.setPixelRatio(dpr);
+        renderer.setSize(size.w, size.h, false);
+        postfx?.setSize(size.w, size.h, dpr);
+        postfx?.setCapture(false);
+        if (forceResize) resize();
+        invalidate();
+    }
+
+    /**
+     * Renders one frame (composer or direct). Never throws. `ss` ({x, y, weight}: jitter in device
+     * px and blend weight, core/sampling.js) makes it an idle-supersampling sample when the chain has
+     * the pass; otherwise it is ignored.
+     * @param {{x:number, y:number, weight:number}|null} [ss]
+     */
+    function render(ss) {
         if (lost || disposed) return;
         renderer.info.reset();
+        const jitter = ss && postfx?.supersample && !postfx.accum ? ss : null;
+        const e = camera.projectionMatrix.elements;
+        const e8 = e[8], e9 = e[9];
         try {
-            if (postfx) postfx.render();
+            if (jitter) {
+                // ndc.x = … − e8 (clip.w = −z): shifting by x px takes e8 − 2x/W.
+                const gl = renderer.getContext();
+                e[8] = e8 - (2 * jitter.x) / Math.max(1, gl.drawingBufferWidth);
+                e[9] = e9 - (2 * jitter.y) / Math.max(1, gl.drawingBufferHeight);
+            }
+            if (postfx) postfx.render(jitter);
             else renderer.render(scene, camera);
         } catch (err) {
             if (postfx) {
@@ -409,6 +494,11 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
                 renderer.render(scene, camera);
             } else {
                 throw err;
+            }
+        } finally {
+            if (jitter) {
+                e[8] = e8;
+                e[9] = e9;
             }
         }
         rc.dirty = false;
@@ -548,9 +638,17 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
         get postfx() { return postfx; },
         /** The long-exposure stacking pass while Expose is on (render/accum.js), else null. */
         get accum() { return postfx?.accum ?? null; },
+        /** True when render(ss) can supersample: the tier wants it, the chain has the pass, no Expose. */
+        get supersampling() { return !!postfx?.supersample && !postfx.accum; },
+        /** True during a video session (beginCapture … endCapture). */
+        get capturing() { return session !== null; },
         invalidate,
         setAccumulation,
         capture,
+        beginCapture,
+        captureCamera,
+        releaseCamera,
+        endCapture,
         onInvalidate,
         setTier,
         setDprCap,

@@ -2,7 +2,7 @@
  * GLSL for the Sun, Moon, planet glyphs, selection reticle and lens flare (G5, SPEC E.5).
  * Every fragment shader ends with the tonemapping/colorspace includes (SPEC R6).
  */
-import { INFINITY_VERT_CHUNK, REFRACT_CHUNK } from './sky.glsl.js';
+import { INFINITY_VERT_CHUNK, REFRACT_CHUNK, STREAK_VERT_CHUNK } from './sky.glsl.js';
 import { FINITE_CHUNK } from './common.glsl.js';
 
 const TONE = /* glsl */`
@@ -201,6 +201,8 @@ void main() {
 /**
  * Planet glyphs: one instanced quad per planet, sized in pixels from the live magnitude.
  * iParams: x = core radius (CSS px), y = intensity, z = diffraction spikes (0/1), w = visible (0/1).
+ * In fast time the quad stretches along the planet's motion (STREAK_VERT_CHUNK) and the fragment
+ * measures from the streak's segment (vSeg, half the streak in px), as the stars do.
  */
 export const GLYPH_VERT = /* glsl */`
 uniform vec2 uViewport;
@@ -212,17 +214,39 @@ varying vec2 vPx;
 varying vec3 vColor;
 varying vec3 vParams;
 varying float vExt;
+varying vec2 vSeg;
 ${INFINITY_VERT_CHUNK}
+${STREAK_VERT_CHUNK}
 void main() {
     float R = iParams.x * uDpr;
     float ext = R * (iParams.z > 0.5 ? 6.5 : 3.5) + 2.0 * uDpr;
-    vec4 c = infinityClip(normalize(iDir));
-    c.xy += position.xy * ext * 2.0 / uViewport * c.w;
+    vec3 dir = normalize(iDir);
+    vec4 c = infinityClip(dir);
+    vec2 d = streakPx(dir, c);
+    float L = length(d);
+    float spread = 1.0;
+    vec2 u = vec2(1.0, 0.0);
+    if (L > 0.05) {
+        if (L > uStreakMax) {
+            spread = pow(max(uStreakMax / L, 1e-3), 0.6);
+            d *= uStreakMax / L;
+            L = uStreakMax;
+        }
+        spread *= pow(max(R / (R + L), 1e-3), 0.6);
+        u = d / max(L, 1e-3);
+    } else {
+        d = vec2(0.0);
+        L = 0.0;
+    }
+    // The quad stretched along the streak and centred on its midpoint (the planet leads).
+    vec2 corner = u * (position.x * (ext + 0.5 * L)) + vec2(-u.y, u.x) * (position.y * ext);
+    c.xy += (corner - 0.5 * d) * 2.0 / uViewport * c.w;
     gl_Position = iParams.w > 0.5 ? c : vec4(2.0, 2.0, 2.0, 1.0);
-    vPx = position.xy * ext;
+    vPx = corner;
+    vSeg = 0.5 * d;
     vExt = ext;
     vColor = iColor;
-    vParams = vec3(R, iParams.y, iParams.z);
+    vParams = vec3(R, iParams.y * spread, iParams.z);
 }
 `;
 
@@ -234,15 +258,18 @@ varying vec2 vPx;
 varying vec3 vColor;
 varying vec3 vParams;
 varying float vExt;
+varying vec2 vSeg;
 void main() {
     float R = vParams.x;
-    float r = length(vPx);
+    // From the nearest point of the streak (the centre without one).
+    vec2 q = vPx - vSeg * clamp(dot(vPx, vSeg) / max(dot(vSeg, vSeg), 1e-8), -1.0, 1.0);
+    float r = length(q);
     float rc = 0.5 * R;
     float disc = 1.0 - smoothstep(rc - 0.7 * uDpr, rc + 0.7 * uDpr, r);
     float halo = 0.30 * exp(-r / (0.85 * R)) + 0.035 * exp(-r / (1.6 * R));
     vec3 col = mix(vColor, vec3(1.0), 0.45) * disc + vColor * halo;
     if (vParams.z > 0.5) {
-        vec2 a = abs(vPx);
+        vec2 a = abs(q);
         float w = 0.5 * uDpr;
         float len = 1.5 * R;
         float spike = exp(-a.y / w - a.x / len) + exp(-a.x / w - a.y / len);

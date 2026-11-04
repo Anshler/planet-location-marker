@@ -1615,6 +1615,20 @@ body.no-webgl .vb-ruler, body.no-webgl .vb-point { display: none; }
 .pc__actions { display: flex; justify-content: flex-end; gap: 8px; }
 .pc__actions .btn[hidden] { display: none; }
 
+/* Time-lapse video (ui/video.js): presets, frame size, progress with a live preview, the clip. */
+.vid__setup[hidden], .vid__frame[hidden], .vid__bar[hidden], .vid__preview[hidden], .vid__player[hidden], .share-opt[hidden] { display: none; }
+.vid__presets, .vid__sizes { margin-bottom: 8px; }
+.vid__detail { margin: 0 0 12px; color: var(--text-2); font-size: 13px; line-height: 1.4; }
+.vid__support { margin: 4px 0 12px; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.vid__frame { min-height: 180px; }
+.vid__preview { display: block; max-width: 100%; max-height: min(44vh, 420px); }
+.vid__player { display: block; max-width: 100%; max-height: min(52vh, 560px); background: #02040a; }
+.vid__bar { height: 6px; margin-top: 12px; border-radius: 3px; background: rgba(255, 255, 255, .08); overflow: hidden; }
+.vid__fill { display: block; width: 0; height: 100%; border-radius: inherit; background: var(--accent); transition: width .2s linear; }
+/* While recording, the scene canvas renders the video's frames (another size): keep it out of sight. */
+.is-recording #scene, .is-recording #labels-root { opacity: 0; }
+@media (prefers-reduced-motion: reduce) { .vid__fill { transition: none; } }
+
 /* The exposure's status pill: under the top bar, centred on the free area (beside the floating column on the phone). */
 .xp {
     position: fixed;

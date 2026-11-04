@@ -59,6 +59,25 @@ vec4 infinityClip(vec3 dirW) {
 `;
 
 /**
+ * Fast-time streaks (render/streaks.js STREAK_UNIFORMS): the screen motion (device px) of a
+ * direction at infinity over the shutter, its current position minus where it was when the shutter
+ * opened (uStreakView: world → view then). (0, 0) when off. Requires INFINITY_VERT_CHUNK.
+ * @type {string}
+ */
+export const STREAK_VERT_CHUNK = /* glsl */`
+uniform mat3 uStreakView;
+uniform float uStreakMax;
+uniform float uStreakPoint;
+uniform vec2 uStreakRes;
+vec2 streakPx(vec3 dirW, vec4 clipNow) {
+    if (uStreakMax <= 0.0 || clipNow.w <= 0.0) return vec2(0.0);
+    vec4 c1 = projectionMatrix * vec4(uStreakView * refractLift(dirW), 1.0);
+    if (c1.w <= 0.0) return vec2(0.0);
+    return (clipNow.xy / clipNow.w - c1.xy / c1.w) * 0.5 * uStreakRes;
+}
+`;
+
+/**
  * A falling smoothstep. smoothstep(edge0, edge1, x) is undefined for edge0 >= edge1 (GLSL ES 3.00
  * §8.3, and in MSL and SPIR-V), so a falling ramp spells out the spec's own formula instead: the
  * arithmetic drivers evaluate for the builtin, now defined for e0 > e1. (1.0 - smoothstep(e1, e0,
@@ -102,6 +121,10 @@ const TONE = /* glsl */`
  * light dome go first. Low stars are dimmed/reddened by extinction and scintillate (high tier):
  * bright ones low down also flash colour (chromatic scintillation). uBoost, the telescope zoom's
  * aperture gain (render/sky.js scopeGainMag), lifts every limit, the tier's included.
+ * In fast time a star becomes a capsule along its motion (STREAK_VERT_CHUNK): the sprite grows by
+ * the streak and centres on its midpoint, the fragment measures the PSF from the segment, and the
+ * light spreads (softened) along it; past uStreakMax (or the GPU's point-size limit) the streak
+ * stops growing and the star dims instead.
  */
 export const STAR_VERT = /* glsl */`
 uniform float uMagLimit;
@@ -123,7 +146,10 @@ varying vec3 vColor;
 varying float vPeak;
 varying float vSigma;
 varying float vHalo;
+varying vec2 vSeg;
+varying float vR;
 ${INFINITY_VERT_CHUNK}
+${STREAK_VERT_CHUNK}
 ${EXTINCTION_CHUNK}
 ${SMOOTH_FALL_CHUNK}
 ${SKYGLOW_CHUNK}
@@ -169,12 +195,33 @@ void main() {
     }
     float haloPx = sigmaPx * 3.5 * (1.0 + (0.8 + 1.2 * uHalo) * smoothstep(1.5, 40.0, F));
     float radiusPx = max(3.2 * sigmaPx, haloPx) + 1.0;
-    gl_PointSize = 2.0 * radiusPx;
+    vec4 clip = infinityClip(dir);
+    vec2 seg = vec2(0.0);
+    float spread = 1.0;
+    vec2 d = streakPx(dir, clip);
+    float L = length(d);
+    if (L > 0.05) {
+        float cap = min(uStreakMax, max(0.0, uStreakPoint - 2.0 * radiusPx));
+        if (L > cap) {
+            spread = pow(max(cap / L, 1e-3), 0.6);
+            d *= cap / L;
+            L = cap;
+        }
+        spread *= pow(max(2.5 * sigmaPx / (2.5 * sigmaPx + L), 1e-3), 0.6);
+        seg = 0.5 * d;
+        // Centred on the streak's midpoint: the star is at its leading end.
+        clip.xy -= seg / (0.5 * uStreakRes) * clip.w;
+    }
+    float halfPx = radiusPx + length(seg);
+    gl_PointSize = 2.0 * halfPx;
     vSigma = sigmaPx / radiusPx;
-    vPeak = peak * uDisplay;
-    vHalo = (0.03 + 0.07 * uHalo) * peak * uDisplay * smoothstep(1.5, 12.0, F);
+    vR = radiusPx / halfPx;
+    // gl_PointCoord's y runs down the screen.
+    vSeg = vec2(seg.x, -seg.y) / halfPx;
+    vPeak = peak * uDisplay * spread;
+    vHalo = (0.03 + 0.07 * uHalo) * peak * uDisplay * smoothstep(1.5, 12.0, F) * spread;
     vColor = col;
-    gl_Position = vis * peak > 0.002 ? infinityClip(dir) : vec4(2.0, 2.0, 2.0, 1.0);
+    gl_Position = vis * peak > 0.002 ? clip : vec4(2.0, 2.0, 2.0, 1.0);
 }
 `;
 
@@ -184,9 +231,14 @@ varying vec3 vColor;
 varying float vPeak;
 varying float vSigma;
 varying float vHalo;
+varying vec2 vSeg;
+varying float vR;
 void main() {
     vec2 p = gl_PointCoord * 2.0 - 1.0;
-    float r2 = dot(p, p);
+    // From the nearest point of the streak (the centre without one), in units of the star's radius.
+    float h = clamp(dot(p + vSeg, vSeg) / max(2.0 * dot(vSeg, vSeg), 1e-8), 0.0, 1.0);
+    vec2 q = (p + vSeg - 2.0 * h * vSeg) / max(vR, 1e-3);
+    float r2 = dot(q, q);
     if (r2 >= 1.0) discard;
     float core = vPeak * exp(-0.5 * r2 / (vSigma * vSigma));
     float halo = vHalo * exp(-sqrt(r2) * 5.0) * (1.0 - r2);

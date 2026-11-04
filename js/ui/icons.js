@@ -99,6 +99,8 @@ const ICONS = {
     // Long exposure: an aperture (six blades); the postcard: a framed landscape; saving: a tray.
     aperture: [['circle', { cx: 12, cy: 12, r: 8.6 }], ['path', { d: 'M14.6 3.8L9.4 12.6M20.4 11.2h-9.6M16.6 19.2L11.4 10.6M9.4 20.2l5.2-8.8M3.6 12.8h9.6M7.4 4.8l5.2 8.6' }]],
     postcard: [['rect', { x: 3.4, y: 4.6, width: 17.2, height: 14.8, rx: 2.4 }], ['path', { d: 'M3.6 16.4l5-4.6 3.6 3.2 3-2.4 5.2 4.4' }], ['circle', { cx: 15.6, cy: 8.8, r: 1.5 }]],
+    // The time-lapse video: a camera body and its lens hood.
+    video: [['rect', { x: 3.2, y: 6.4, width: 12.4, height: 11.2, rx: 2.2 }], ['path', { d: 'M15.6 10.4l5.2-3v9.2l-5.2-3z' }]],
     download: [['path', { d: 'M12 3.6v11' }], ['path', { d: 'M7.8 10.6l4.2 4.2 4.2-4.2' }], ['path', { d: 'M4.6 15.8v2.4a2.2 2.2 0 0 0 2.2 2.2h10.4a2.2 2.2 0 0 0 2.2-2.2v-2.4' }]],
     link: [['path', { d: 'M10.2 13.8a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.1 1.1' }], ['path', { d: 'M13.8 10.2a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.1-1.1' }]],
     // The angle ruler: two rays and the arc between them; pointing the phone: a phone with motion arcs.

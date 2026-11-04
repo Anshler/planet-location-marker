@@ -16,25 +16,33 @@ function deepFreeze(o) {
     return o;
 }
 
-/** Tier table (SPEC §E.6). Frozen; use tierConfig() for a device-adjusted copy. */
+/**
+ * Tier table (SPEC §E.6). Frozen; use tierConfig() for a device-adjusted copy.
+ * `supersample`: idle progressive supersampling's sample cap (core/sampling.js; 0 = off, the low
+ * tier: canvas MSAA and no composer). `streakPx`: the longest fast-time star streak in device px
+ * (render/streaks.js; 0 = off).
+ */
 export const TIERS = deepFreeze({
     low: {
         name: 'low', dprCap: 1.0, composer: false, msaa: 0, bloom: null,
         earthSegments: [64, 32], dayTex: 'day2k', oceanMask: 'roughness2k',
         clouds: 'none', cloudShadows: false, bump: false, atmosphere: 'analytic', atmoSteps: 0,
         starMagLimit: 5.0, flare: false, labelCap: 12, twinkle: false, beamGlowPx: 8, finalPass: false,
+        supersample: 0, streakPx: 0,
     },
     medium: {
         name: 'medium', dprCap: 1.5, composer: true, msaa: 4, bloom: { strength: 0.55, radius: 0.4, threshold: 0.9, scale: 0.5 },
         earthSegments: [96, 48], dayTex: 'day4k', oceanMask: 'roughness2k',
         clouds: 'clouds2k', cloudShadows: false, bump: false, atmosphere: 'analytic', atmoSteps: 0,
         starMagLimit: 6.0, flare: true, labelCap: 24, twinkle: false, beamGlowPx: 12, finalPass: true,
+        supersample: 8, streakPx: 14,
     },
     high: {
         name: 'high', dprCap: 2.0, composer: true, msaa: 4, bloom: { strength: 0.6, radius: 0.45, threshold: 0.9, scale: 1.0 },
         earthSegments: [128, 64], dayTex: 'day4k', oceanMask: 'roughness',
         clouds: 'brc4k', cloudShadows: true, bump: true, atmosphere: 'raymarch', atmoSteps: 8,
         starMagLimit: 6.5, flare: true, labelCap: 40, twinkle: true, beamGlowPx: 14, finalPass: true,
+        supersample: 16, streakPx: 24,
     },
     // Manual only (Settings or #q=max): no budget. Auto never picks it, and the governor never
     // leaves it (a chosen tier is pinned, and a pinned tier is not governed). Every knob at its
@@ -48,7 +56,7 @@ export const TIERS = deepFreeze({
         name: 'max', dprCap: Infinity, composer: true, msaa: 16, bloom: { strength: 0.6, radius: 0.45, threshold: 0.9, scale: 1.0 },
         earthSegments: [256, 128], dayTex: 'day8k', oceanMask: 'roughness', clouds: 'clouds8k', cloudShadows: true, bump: true,
         atmosphere: 'raymarch', atmoSteps: 32, starMagLimit: 6.5, flare: true, labelCap: 80, twinkle: true, beamGlowPx: 14,
-        finalPass: true, moonTex: 'moon4k', anisotropy: 16, cloudShadowTaps: 5,
+        finalPass: true, moonTex: 'moon4k', anisotropy: 16, cloudShadowTaps: 5, supersample: 16, streakPx: 32,
     },
 });
 

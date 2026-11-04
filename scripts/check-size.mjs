@@ -50,7 +50,9 @@ const MB = 1e6, KB = 1e3;
 // relief, menu and caption; ≈ 46 KB of JS, GLSL and CSS) raise low and medium by ≈ 48 KB.
 // Phase 5 (find it in the real sky): off-screen pointers, the angle ruler, 'find it' guidance and 'Point at the sky'
 // (sky-guide, edge chips, ruler, aim, sky tools and CSS; ≈ 85 KB of JS and CSS) raise low and medium by 90 KB (+5 %).
-export const TIER_BUDGETS = { low: 4.09 * MB, medium: 4.85 * MB, high: 8 * MB };
+// Phase 5 (quality): idle supersampling, fast-time star streaks and the time-lapse video export (recorder and MP4
+// muxer loaded on demand, but crawled; ≈ 93 KB of JS, GLSL and CSS) raise low and medium by 0.10 MB (+5 %).
+export const TIER_BUDGETS = { low: 4600 * KB, medium: 5360 * KB, high: 8 * MB };
 /** Tiers that are measured and printed but have no budget (max: a deliberate, manual choice). */
 export const INFO_TIERS = ['max'];
 // The max tier's 8192 px maps (≈ 15.2 MB) ship with the site; 32 MB keeps headroom (Pages allows 1 GB).

@@ -104,6 +104,8 @@ const R = {
     /** @type {any} */ tours: null,
     /** 'Point at the sky' (js/camera/aim.js), created on first use. */
     /** @type {any} */ aim: null,
+    /** A video session's virtual time base (ms, app/recorder.js), or null: the rig reads real time. */
+    /** @type {number|null} */ virtualNow: null,
     uiMounted: false,
 };
 
@@ -357,6 +359,7 @@ async function importRenderStack() {
     const specs = {
         context: import('./render/context.js'),
         textures: import('./render/textures.js'),
+        streaks: import('./render/streaks.js'),
         earth: import('./render/earth.js'),
         atmosphere: import('./render/atmosphere.js'),
         aurora: import('./render/aurora.js'),
@@ -898,6 +901,8 @@ async function bootRender(ctx) {
     // the flare and the labels test against it, so they all agree with the silhouette.
     const horizon = createHorizon();
     R.horizon = horizon;
+    // Fast-time streaks: shared uniforms for the stars and planet glyphs, set by its update().
+    create('streaks', m.streaks && (() => m.streaks.createStreaks(rc, { store, reducedMotion: rm })));
     const earth = create('earth', m.earth && (() => m.earth.createEarth(rc, { textures, reducedMotion: rm })));
     create('aurora', m.aurora && (() => m.aurora.createAurora(rc, { reducedMotion: rm })));
     create('atmosphere', m.atmosphere && (() => m.atmosphere.createAtmosphere(rc)));
@@ -923,7 +928,8 @@ async function bootRender(ctx) {
         console.error('[main] labels unavailable', err);
         labels = null;
     }
-    const rig = m.rig?.createRig ? m.rig.createRig(rc, { dom: canvas, reducedMotion: rm }) : null;
+    // A time-lapse recording drives the rig's tweens on its own (virtual) time base.
+    const rig = m.rig?.createRig ? m.rig.createRig(rc, { dom: canvas, reducedMotion: rm, now: () => R.virtualNow ?? performance.now() }) : null;
     if (!rig) throw new Error('The camera rig could not be created.');
     R.rig = rig;
     R.labels = labels;
@@ -935,6 +941,8 @@ async function bootRender(ctx) {
         onActivate: (id) => { if (isBodyId(id)) R.actions.select(id, { fly: true }); },
     })));
     render.capture = createCapture({ getRc: () => R.rc, getLoop: () => R.loop, getFeed: () => R.labelsFeed });
+    // The time-lapse recorder (app/recorder.js, loaded by actions.recordVideo).
+    render.video = { getRc: () => R.rc, getLoop: () => R.loop, setNow: (ms) => { R.virtualNow = Number.isFinite(ms) ? ms : null; } };
     render.rig = rig;
     render.beams = beams;
     render.pin = pin;

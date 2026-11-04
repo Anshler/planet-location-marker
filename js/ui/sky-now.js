@@ -10,11 +10,17 @@
  *
  * `mountBodyStrip` renders the mobile peek strip of body chips (dot, name, alt).
  *
+ * Two places (store.observer2, ROADMAP two-observers): a card above the list sets the selected body
+ * (else the Moon) as seen from both side by side, altitude and azimuth, and how far apart its two
+ * directions are: for the Moon, its parallax and the distance it implies (astro/parallax.js). It
+ * reads `snap.second` of the readout, so it works in text mode too.
+ *
  * @module ui/sky-now
  */
 
-import { BODIES } from '../astro/bodies.js';
+import { BODIES, BODY_INDEX } from '../astro/bodies.js';
 import { auroraText } from '../astro/geomag.js';
+import { compareSight } from '../astro/parallax.js';
 import { h, s, on, setText, setAttr } from './dom.js';
 import { icon } from './icons.js';
 
@@ -85,9 +91,33 @@ export function mountSkyNow(root, ctx) {
     const downHead = h('li', { class: 'body-list__group', 'aria-hidden': 'true' }, h('span', null, 'Below the horizon'), h('span', { class: 'body-list__count' }));
     const empty = h('p', { class: 'empty' }, h('span', { class: 'spinner', 'aria-hidden': 'true' }), 'Computing positions…');
 
+    // ---------------------------------------------------------------- two places
+    const cmpTitle = h('h3', { class: 'compare__title' });
+    const cmpShow = h('button', { class: 'btn btn--soft btn--sm', type: 'button', title: 'Frame the Earth and the Moon so both places’ beams can be seen meeting at it' },
+        icon('compare', { size: 15 }), 'Show both beams');
+    const cmpEdit = h('button', { class: 'icon-btn icon-btn--sm', type: 'button', 'aria-label': 'Change the second place', title: 'Change the second place' }, icon('search', { size: 15 }));
+    const cmpRemove = h('button', { class: 'icon-btn icon-btn--sm', type: 'button', 'aria-label': 'Remove the second place', title: 'Remove the second place' }, icon('close', { size: 15 }));
+    const cmpCol = (cls) => {
+        const place = h('span', { class: 'compare__place' });
+        const pos = h('span', { class: 'compare__pos' });
+        const sub = h('span', { class: 'compare__sub' });
+        return { el: h('div', { class: `compare__col ${cls}` }, place, pos, sub), place, pos, sub };
+    };
+    const cmpA = cmpCol('compare__col--a');
+    const cmpB = cmpCol('compare__col--b');
+    const cmpNote = h('p', { class: 'compare__note' });
+    const compare = h('section', { class: 'compare', 'aria-label': 'Two places compared', hidden: true },
+        h('div', { class: 'compare__head' }, cmpTitle, h('span', { class: 'compare__tools' }, cmpShow, cmpEdit, cmpRemove)),
+        h('div', { class: 'compare__grid', role: 'group' }, cmpA.el, cmpB.el),
+        cmpNote);
+    offs.push(on(cmpShow, 'click', () => ui.act('frameObservers')));
+    offs.push(on(cmpEdit, 'click', () => ui.act('compareWith')));
+    offs.push(on(cmpRemove, 'click', () => ui.act('setObserver2', null)));
+    const sight = { sepDeg: 0, baselineKm: 0, perpKm: 0, distKm: NaN };
+
     root.append(
         h('div', { class: 'section-head' }, h('h2', { class: 'panel-title' }, 'Sky now'), status),
-        summary, empty, list,
+        summary, compare, empty, list,
         h('p', { class: 'note' }, 'Tip: press ', h('kbd', { class: 'kbd' }, '1'), '–', h('kbd', { class: 'kbd' }, '9'),
             ' to select a body, ', h('kbd', { class: 'kbd' }, 'V'), ' to stand on the ground and look up.'));
 
@@ -176,7 +206,43 @@ export function mountSkyNow(root, ctx) {
         setText(status, `${state}${Number.isFinite(sunAlt) ? ` · Sun ${ui.fmt('fmtAlt', sunAlt)}` : ''}`);
         status.dataset.tw = tw || '';
         setText(summary, summaryText(snap));
+        updateCompare(snap);
     }
+
+    /** The two-places card: the selected body (else the Moon) from both, and their angle apart. */
+    function updateCompare(snap) {
+        const s2 = snap.second ?? null;
+        const st = store.get();
+        const o2 = st.observer2;
+        compare.hidden = !s2 || !o2;
+        if (compare.hidden) return;
+        const id = st.selection && st.selection in BODY_INDEX ? st.selection : 'moon';
+        const i = BODY_INDEX[id];
+        const name = ui.bodyName(id);
+        setText(cmpTitle, `${name} from two places`);
+        cmpShow.hidden = st.status?.webgl === false;
+        const fill = (col, b, placeName) => {
+            const { alt, az } = ui.altAz(b);
+            const up = isUp(b, alt);
+            setText(col.place, placeName);
+            setText(col.pos, Number.isFinite(alt) ? `${ui.fmt('fmtAlt', alt)} · ${ui.compass(az)}` : '—');
+            setText(col.sub, up ? `Up, in the ${ui.compassWords(az)}` : 'Below the horizon');
+            col.el.classList.toggle('is-down', !up);
+            setAttr(col.el, 'aria-label', `From ${placeName}: ${name} ${up ? `${Math.round(alt)} degrees up in the ${ui.compassWords(az)}` : 'below the horizon'}.`);
+        };
+        fill(cmpA, snap.bodies[i], st.observer?.name || 'Your location');
+        fill(cmpB, s2.bodies[i], o2.name || 'Second place');
+        const r = compareSight(snap, s2, i, sight);
+        let note = '';
+        if (r) {
+            const apart = r.sepDeg >= 0.1 ? `${r.sepDeg.toFixed(2)}°` : r.sepDeg >= 0.001 ? `${(r.sepDeg * 3600).toFixed(1)}″` : 'less than 0.001°';
+            note = id === 'moon' && Number.isFinite(r.distKm)
+                ? `Its direction differs by ${apart} between the two places: the Moon’s parallax. ${ui.fmt('fmtInt', r.perpKm)} km of baseline across the line of sight ÷ ${r.sepDeg.toFixed(2)}° ≈ ${ui.fmt('fmtDistKm', Math.round(r.distKm / 1000) * 1000)} to the Moon, as Lalande and Lacaille measured it from Berlin and the Cape in 1751.`
+                : `Its direction differs by ${apart} between the two places${id === 'sun' ? ' (the Sun’s tiny parallax)' : ''}: too far away for the sightlines to meet in view.`;
+        }
+        setText(cmpNote, note);
+    }
+    offs.push(store.subscribe((st) => st.observer2, () => { if (ui.snap) update(ui.snap); }));
 
     function summaryText(snap) {
         const t = snap.tMs;

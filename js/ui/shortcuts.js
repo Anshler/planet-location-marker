@@ -58,6 +58,7 @@ export function bindShortcuts(ctx) {
         if (isTyping(e.target)) { /** @type {HTMLElement} */ (e.target).blur(); return; }
         if (st.ui?.cinema) { act('toggleCinema'); e.preventDefault(); return; }
         if ((st.view?.vantage ?? 'none') !== 'none') { act('setVantage', 'none'); flash('Back to the globe'); e.preventDefault(); return; }
+        if (st.view?.mode === 'map') { act('setViewMode', 'orbit'); flash('Back to the globe'); e.preventDefault(); return; }
         if (st.selection) { act('select', null); e.preventDefault(); }
     }
 
@@ -118,7 +119,11 @@ export function bindShortcuts(ctx) {
             flash(k === 'body' ? 'Tracking the body' : k === 'stars' ? 'Locked to the stars' : 'Tracking off');
         } else if (code === 'KeyB') toggleLayer('beams');
         else if (code === 'KeyC') toggleLayer(e.shiftKey ? 'constellationNames' : 'constellations');
-        else if (code === 'KeyM') toggleLayer('milkyWay');
+        else if (code === 'KeyM' && e.shiftKey) toggleLayer('milkyWay');
+        else if (code === 'KeyM') {
+            const on = act('toggleMap');
+            flash(on ? 'World map' : 'Globe view');
+        }
         else if (code === 'KeyE') toggleLayer('ecliptic');
         else if (code === 'KeyG') toggleLayer('eqGrid');
         else if (code === 'KeyO') toggleLayer('footprint');

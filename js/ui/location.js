@@ -71,15 +71,22 @@ export function mountLocation(root, ctx) {
     const locateLabel = h('span', null, 'Use my location');
     const locateBtn = h('button', { class: 'btn btn--soft', type: 'button' }, icon('locate', { size: 16 }), locateLabel);
     const pickBtn = h('button', { class: 'btn btn--soft', type: 'button' }, icon('globe', { size: 16 }), 'Pick on the globe');
+    // A second place to compare with (two-observers): `ui.palette === 'compare'` turns the palette into
+    // its picker; the foot then offers to remove it instead.
+    const compareBtn = h('button', { class: 'btn btn--soft', type: 'button', title: 'Add a second place: its own pin and beams, side by side in Sky now' },
+        icon('compare', { size: 16 }), 'Compare with…');
+    const uncompareBtn = h('button', { class: 'btn btn--soft', type: 'button', hidden: true }, icon('close', { size: 16 }), 'Remove second place');
+    const compareHead = h('p', { class: 'palette__mode', hidden: true });
     const statusDot = h('span', { class: 'status-dot', 'aria-hidden': 'true' });
     const statusText = h('span');
     const status = h('span', { class: 'palette__status' }, statusDot, statusText);
     const dialog = h('div', { class: 'palette glass', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Change location' },
+        compareHead,
         h('div', { class: 'palette__search' },
             h('span', { class: 'palette__icon', 'aria-hidden': 'true' }, icon('search', { size: 20 })),
             input, clearBtn, escHint, closeBtn),
         list,
-        h('div', { class: 'palette__foot' }, h('div', { class: 'btn-row' }, locateBtn, pickBtn), status));
+        h('div', { class: 'palette__foot' }, h('div', { class: 'btn-row' }, locateBtn, pickBtn, compareBtn, uncompareBtn), status));
     const layer = h('div', { class: 'modal-layer palette-layer', hidden: true }, h('div', { class: 'modal-backdrop' }), dialog);
     root.appendChild(layer);
 
@@ -101,6 +108,7 @@ export function mountLocation(root, ctx) {
     let active = -1;
     let release = null;
     let locating = false;
+    let comparing = false;
     /** @type {{name:string, country:string, latDeg:number, lonDeg:number, tz:string|null, cc:string}[]} */
     let recents = [];
 
@@ -314,7 +322,8 @@ export function mountLocation(root, ctx) {
             obs = { latDeg: p.lat, lonDeg: wrapLon(p.lon), elevM: 0, name: p.name || '', country: p.country || '', tz: p.tz || null, tzApprox: false,
                 source: model.type === 'online' ? 'search' : 'city', ...(p.cc ? { cc: p.cc } : {}) };
         }
-        ui.act('setObserver', obs, { fly: true });
+        if (comparing) ui.act('setObserver2', obs);
+        else ui.act('setObserver', obs, { fly: true });
         ui.closePalette();
     }
     const wrapLon = (lon) => ((((lon + 180) % 360) + 360) % 360) - 180;
@@ -369,6 +378,14 @@ export function mountLocation(root, ctx) {
         if (after !== before && after?.source === 'geo') ui.closePalette();
         else if (!layer.hidden) input.focus();
     }));
+    offs.push(on(compareBtn, 'click', () => {
+        store.set({ ui: { ...store.get().ui, palette: 'compare' } });
+        input.focus();
+    }));
+    offs.push(on(uncompareBtn, 'click', () => {
+        ui.act('setObserver2', null);
+        ui.closePalette();
+    }));
     offs.push(on(pickBtn, 'click', () => {
         ui.closePalette();
         if (store.get().view?.mode === 'sky') ui.act('setViewMode', 'orbit');
@@ -393,6 +410,24 @@ export function mountLocation(root, ctx) {
     offs.push(on(window, 'offline', syncStatus));
 
     // ---------------------------------------------------------------- open / close
+    /** Normal search, or the second place's picker ('compare'). */
+    function setCompare(on) {
+        comparing = on;
+        const o2 = store.get().observer2;
+        compareHead.hidden = !on;
+        compareHead.textContent = on
+            ? (o2 ? `Compare with a second place (now ${o2.name || 'set'}): its beams are drawn dashed, in amber.`
+                : 'Compare with a second place: its own pin and dashed amber beams, side by side in Sky now.')
+            : '';
+        dialog.setAttribute('aria-label', on ? 'Compare with a second place' : 'Change location');
+        input.placeholder = on ? 'Search the second place, or type coordinates' : 'Search a city, or type coordinates (e.g. 48.86, 2.35)';
+        locateBtn.hidden = on;
+        pickBtn.hidden = on;
+        compareBtn.hidden = on;
+        uncompareBtn.hidden = !on || !o2;
+        dialog.classList.toggle('is-compare', on);
+    }
+
     function show(open) {
         if (open === !layer.hidden) return;
         layer.hidden = !open;
@@ -409,7 +444,12 @@ export function mountLocation(root, ctx) {
             release?.(); release = null;
         }
     }
-    offs.push(store.subscribe((s) => s.ui?.palette, (v) => show(!!v), { immediate: true }));
+    offs.push(store.subscribe((s) => s.ui?.palette, (v) => {
+        const was = comparing;
+        setCompare(v === 'compare');
+        show(!!v);
+        if (v && was !== comparing) { input.value = ''; runSearch(); input.focus(); }
+    }, { immediate: true }));
 
     return {
         destroy() {

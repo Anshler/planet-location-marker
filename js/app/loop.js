@@ -61,8 +61,23 @@ export const TWINKLE_MIN_STARS = 0.005;
  */
 export const TWINKLE_FRAME_MS = 1000 / 30 - 4;
 
+/** The flat map's morph (rig.mapK) past which the scene's space objects are hidden (attach mapHidden). */
+export const MAP_HIDE_K = 0.02;
+
 const OPT_FRAME = Object.freeze({ detail: 'frame' });
 const OPT_FULL = Object.freeze({ detail: 'full' });
+
+/**
+ * The label feed's mode for a frame: 'map' as soon as the globe starts to unroll (the labels ride
+ * the morph to their places on the map), 'sky' once the sky view is past halfway, else 'orbit'.
+ * @param {number} skyBlend
+ * @param {number} mapK
+ * @returns {'orbit'|'sky'|'map'}
+ */
+export function labelMode(skyBlend, mapK) {
+    if (mapK > MAP_HIDE_K) return 'map';
+    return skyBlend >= 0.5 ? 'sky' : 'orbit';
+}
 
 /** Human names for strike toasts. */
 const FEATURE_NAMES = Object.freeze({
@@ -75,8 +90,10 @@ const FEATURE_NAMES = Object.freeze({
     trails: 'Planet paths',
     eclipsePath: 'The eclipse path',
     beams: 'The beams',
+    beams2: 'The second place’s beams',
     planets: 'The planet medallions',
     pin: 'The location pin',
+    pin2: 'The second place’s pin',
     flare: 'The lens flare',
     longExposure: 'Long exposure',
     labels: 'Sky labels',
@@ -117,6 +134,10 @@ export function createLoop(deps) {
 
     const snap = deps.snap ?? createSnapshot();
     const snapFull = deps.snapFull ?? createSnapshot();
+    // The second place (store.observer2, ROADMAP two-observers): its own frame and full snapshots,
+    // computed beside the first ones and hung on them as `.second` (null while there is none).
+    const snap2 = createSnapshot();
+    const snapFull2 = createSnapshot();
     // The observer's light pollution (astro/skyglow.js SkySite; null = pristine), set by setSkySite.
     let skySite = deps.skySite ?? null;
     // Aurora activity (astro/geomag.js AURORA_SETTINGS), set by setAuroraActivity.
@@ -160,6 +181,9 @@ export function createLoop(deps) {
     let reducedMotion = !!store.get().status?.reducedMotion;
     let lastMode = '';
     let lastSkyBlend = -1;
+    // Scene groups hidden on the flat map (attach `mapHidden`: the bodies in space, the beams…).
+    let mapHidden = [];
+    let lastMapHide = false;
     const pointers = new Set();
 
     // Strikes.
@@ -189,7 +213,7 @@ export function createLoop(deps) {
     /** @type {FrameInfo} */
     const fi = {
         dtMs: 0, timeS: 0, camera: null, viewMode: 'orbit', skyBlend: 0, snap,
-        pulsesActive: false, simRate: 0, exposure, moonFront: false,
+        pulsesActive: false, simRate: 0, exposure, moonFront: false, mapK: 0, map: null,
     };
     // upS is the snapshot's live zenith: the label pool derives is-below for direction anchors from it,
     // and in sky view (horizon) hides star and constellation names that the ground covers — the
@@ -203,10 +227,11 @@ export function createLoop(deps) {
     // The label feed's per-frame inputs (labels-feed LabelView): star and constellation names follow
     // the drawn star field; body label offsets scale with the viewport; sky-view `below` flags follow
     // the landscape profile.
-    const labelView = { starExposure: 1, magLimit: 6, viewportH: 0, horizon: null };
+    const labelView = { starExposure: 1, magLimit: 6, viewportH: 0, horizon: null, mapK: 0, map: null };
 
     const offs = [];
     offs.push(store.subscribe((s) => s.observer, () => { observerDirty = true; dirty = true; }));
+    offs.push(store.subscribe((s) => s.observer2, () => { observerDirty = true; dirty = true; }));
     offs.push(store.subscribe((s) => s.status.introPlaying, (v) => { introPlaying = !!v; dirty = true; }));
     offs.push(store.subscribe((s) => s.status.reducedMotion, (v) => { reducedMotion = !!v; dirty = true; }));
     // Any other state change may alter what is drawn (layers, selection, view, quality, ui).
@@ -293,6 +318,18 @@ export function createLoop(deps) {
         }
     }
 
+    /** The second place's snapshot (into `out`), or null when there is no second place. */
+    function computeSecond(t, obs2, out, opt) {
+        if (!obs2 || !Number.isFinite(obs2.latDeg) || !Number.isFinite(obs2.lonDeg)) return null;
+        try {
+            computeSnapshot(t, obs2, out, opt);
+            return out;
+        } catch (err) {
+            reportOnce('computeSnapshot(second)', err);
+            return null;
+        }
+    }
+
     /** snap.skyglow and snap.aurora for a freshly computed snapshot (snapshots without them are left alone). */
     function fillSkyglow(s) {
         if (s.skyglow) computeSkyglow(s, skySite, s.skyglow);
@@ -313,6 +350,7 @@ export function createLoop(deps) {
             t = clock.tMs;
         }
         const obs = store.get().observer;
+        const obs2 = store.get().observer2 ?? null;
         const rendering = rc !== null && !renderPaused && !renderFailed;
 
         // 1. Frame-detail snapshot for the renderers. A telescope-narrow sky view and lunar orbit
@@ -325,6 +363,7 @@ export function createLoop(deps) {
             try {
                 computeSnapshot(t, obs, snap, OPT_FRAME);
                 fillSkyglow(snap);
+                snap.second = computeSecond(t, obs2, snap2, OPT_FRAME);
                 snapValid = true;
                 for (let i = 0; i < modules.length; i++) callModule(modules[i], 'apply', snap);
                 if (hooks.onApply) hooks.onApply(snap);
@@ -339,6 +378,7 @@ export function createLoop(deps) {
             try {
                 computeSnapshot(t, obs, snapFull, OPT_FULL);
                 fillSkyglow(snapFull);
+                snapFull.second = computeSecond(t, obs2, snapFull2, OPT_FULL);
                 fullValid = true;
                 fullT = t;
                 lastFull = now;
@@ -352,6 +392,7 @@ export function createLoop(deps) {
                 try {
                     computeSnapshot(t, obs, snap, OPT_FRAME);
                     fillSkyglow(snap);
+                    snap.second = computeSecond(t, obs2, snap2, OPT_FRAME);
                     snapValid = true;
                 } catch { /* reported above */ }
             }
@@ -364,6 +405,7 @@ export function createLoop(deps) {
             let moving = false;
             let mode = 'orbit';
             let skyBlend = 0;
+            let mapK = 0;
             if (rig && !disabled.has(rig)) {
                 try {
                     moving = !!rig.update(dt, snap);
@@ -372,6 +414,14 @@ export function createLoop(deps) {
                 }
                 mode = rig.mode === 'sky' ? 'sky' : 'orbit';
                 skyBlend = Number.isFinite(rig.skyBlend) ? rig.skyBlend : (mode === 'sky' ? 1 : 0);
+                mapK = Number.isFinite(rig.mapK) ? rig.mapK : 0;
+            }
+            // The flat map: the bodies in space, the beams and the paths go as the globe unrolls.
+            const hideForMap = mapK > MAP_HIDE_K;
+            if (hideForMap !== lastMapHide) {
+                lastMapHide = hideForMap;
+                for (let i = 0; i < mapHidden.length; i++) mapHidden[i].visible = !hideForMap;
+                dirty = true;
             }
             if (mode !== lastMode || skyBlend !== lastSkyBlend) {
                 lastMode = mode;
@@ -404,6 +454,8 @@ export function createLoop(deps) {
                 fi.pulsesActive = (clock.playing && Math.abs(clock.rate) > 1) || introPlaying;
                 fi.simRate = clock.playing && Number.isFinite(clock.rate) ? clock.rate : 0;
                 fi.moonFront = !!(rig && rig.moonFront);
+                fi.mapK = mapK;
+                fi.map = mapK > 0 && rig ? rig.mapFrame ?? null : null;
 
                 for (let i = 0; i < modules.length; i++) callModule(modules[i], 'update', fi);
 
@@ -430,10 +482,12 @@ export function createLoop(deps) {
                             labelView.starExposure = exposure.stars;
                             labelView.magLimit = cfg && Number.isFinite(cfg.starMagLimit) ? cfg.starMagLimit : 6;
                             labelView.viewportH = rc.size && rc.size.h > 0 ? rc.size.h : 0;
-                            labelsFeed.sync(camera, skyBlend >= 0.5 ? 'sky' : 'orbit', labelView);
+                            labelView.mapK = mapK;
+                            labelView.map = fi.map;
+                            labelsFeed.sync(camera, labelMode(skyBlend, mapK), labelView);
                         }
                         const tierCap = cfg && Number.isFinite(cfg.labelCap) ? cfg.labelCap : 24;
-                        labelOpts.cap = skyBlend >= 0.5 ? tierCap : Math.min(tierCap, ORBIT_LABEL_CAP);
+                        labelOpts.cap = skyBlend >= 0.5 || mapK > 0 ? tierCap : Math.min(tierCap, ORBIT_LABEL_CAP);
                         labelOpts.horizon = skyBlend >= 0.5;
                         labelOpts.refrK = skyBlend;
                         labelOpts.skyLum = skyBrightness(snap.observer.sunAltDeg, obsc, skyBlend);
@@ -560,8 +614,9 @@ export function createLoop(deps) {
     /**
      * Supplies (or replaces) the render stack.
      * @param {{rc:any, rig?:any, modules?:RenderModule[], moduleNames?:Map<RenderModule,string>, labels?:any,
-     *          labelsFeed?:any, governor?:any, getTierCfg?:()=>any, horizon?:object|null}} r `horizon`: the
-     *          shared landscape profile (geo/horizon.js) for the labels
+     *          labelsFeed?:any, governor?:any, getTierCfg?:()=>any, horizon?:object|null, mapHidden?:object[]}} r `horizon`: the
+     *          shared landscape profile (geo/horizon.js) for the labels; `mapHidden`, scene groups hidden
+     *          while the globe is (being) unrolled into the flat map (rig.mapK)
      */
     function attach(r) {
         labelOpts.landscape = labelView.horizon = r.horizon ?? null;
@@ -573,6 +628,8 @@ export function createLoop(deps) {
         labels = r.labels ?? null;
         if (labels) names.set(labels, 'labels');
         labelsFeed = r.labelsFeed ?? null;
+        mapHidden = Array.isArray(r.mapHidden) ? r.mapHidden.slice() : [];
+        lastMapHide = false;
         governor = r.governor ?? null;
         if (typeof r.getTierCfg === 'function') getTierCfg = r.getTierCfg;
         if (canvas) {
@@ -630,7 +687,7 @@ export function createLoop(deps) {
             if (labelsFeed && labels && !disabled.has(labels)) {
                 try {
                     labelView.viewportH = rc.size && rc.size.h > 0 ? rc.size.h : 0;
-                    labelsFeed.sync(camera, fi.skyBlend >= 0.5 ? 'sky' : 'orbit', labelView);
+                    labelsFeed.sync(camera, labelMode(fi.skyBlend, fi.mapK), labelView);
                 } catch (err) {
                     reportOnce('labelsFeed.sync(redraw)', err);
                 }

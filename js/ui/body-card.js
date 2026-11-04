@@ -85,7 +85,8 @@ export function mountBodyCard(root, ctx) {
     const actRise = actionBtn('vantage', 'Earthrise', 'Watch the Earth rise over the Moon’s limb from lunar orbit (Esc returns)', true);
     const actPath = actionBtn('path', 'Path ±6 months', 'Show its apparent path for six months either side', true);
     const actFoot = actionBtn('footprint', 'Show where it’s visible', 'Highlight where on Earth it is above the horizon', true);
-    const actions = h('div', { class: 'card__actions' }, actLook, actCenter, actScope, actTrack, actFrom, actRise, actPath, actFoot);
+    const actCompare = actionBtn('compare', 'Compare with…', 'See it from a second place too: its own pin and beams, side by side in Sky now');
+    const actions = h('div', { class: 'card__actions' }, actLook, actCenter, actScope, actTrack, actFrom, actRise, actPath, actFoot, actCompare);
 
     const facts = {};
     const fact = (key, label, { wide = false, hint } = {}) => {
@@ -152,6 +153,7 @@ export function mountBodyCard(root, ctx) {
     offs.push(on(actTrack, 'click', () => ui.act('setTracking', store.get().view?.track === 'body' ? 'none' : 'body')));
     offs.push(on(actPath, 'click', () => ui.act('toggleLayer', 'trails', !store.get().layers?.trails)));
     offs.push(on(actFoot, 'click', () => ui.act('toggleLayer', 'footprint', !store.get().layers?.footprint)));
+    offs.push(on(actCompare, 'click', () => ui.act('compareWith')));
 
     // ---------------------------------------------------------------- rendering
     let shownId = null;
@@ -189,6 +191,8 @@ export function mountBodyCard(root, ctx) {
         actRise.lastChild.textContent = rise ? 'Back to the globe' : 'Earthrise';
         actTrack.hidden = !sky || noGl;
         setAttr(actTrack, 'aria-pressed', String(sky && store.get().view?.track === 'body'));
+        const o2 = store.get().observer2;
+        actCompare.lastChild.textContent = o2 ? `Compared with ${o2.name || 'a second place'}` : 'Compare with…';
     }
 
     function update(snap) {
@@ -331,6 +335,7 @@ export function mountBodyCard(root, ctx) {
     offs.push(store.subscribe((st) => st.layers, syncLayerButtons));
     offs.push(store.subscribe((st) => st.view, syncLayerButtons));
     offs.push(store.subscribe((st) => st.status?.webgl, syncLayerButtons));
+    offs.push(store.subscribe((st) => st.observer2, syncLayerButtons));
     offs.push(ui.on('almanac', () => { if (ui.snap && sel()) update(ui.snap); }));
     offs.push(ui.on('display', () => { if (ui.snap && sel()) update(ui.snap); }));
     syncLayerButtons();

@@ -27,7 +27,8 @@ export const SHORTCUTS = [
     ] },
     { title: 'View', rows: [
         ['V', 'Globe / Sky view'],
-        ['Esc', 'Leave a vantage point (View from L1, Earthrise)'],
+        ['M', 'World map (the globe unrolled) and back'],
+        ['Esc', 'Leave a vantage point (View from L1, Earthrise) or the world map'],
         ['L', 'Lock view to Earth'],
         ['K', 'Sky view: track the body, then the stars'],
         ['←|→|↑|↓', 'Rotate the globe / look around'],
@@ -40,7 +41,7 @@ export const SHORTCUTS = [
         ['B', 'Beams'],
         ['C', 'Constellation lines'],
         ['Shift+C', 'Constellation names'],
-        ['M', 'Milky Way'],
+        ['Shift+M', 'Milky Way'],
         ['E', 'Ecliptic'],
         ['G', 'Equatorial grid'],
         ['O', 'Visibility footprint'],

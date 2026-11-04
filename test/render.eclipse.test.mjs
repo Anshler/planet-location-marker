@@ -97,7 +97,8 @@ test('totality: the Sun material alone carries the SUN_ECLIPSE branch, gated by 
 test('totality: beads module registered, not depth-tested, flare follows the brightest bead, ring shared', () => {
     const main = stripComments(read('js/main.js'));
     assert.match(main, /totality: import\('\.\/render\/totality\.js'\)/);
-    assert.match(main, /create\('totality', m\.totality && \(\(\) => m\.totality\.createTotality\(rc\)\)\)/);
+    // In the scene, or in the `space` group the flat map hides (globe-to-map-morph).
+    assert.match(main, /create\('totality', m\.totality && \(\(\) => m\.totality\.createTotality\(rc\)\)(, space)?\)/);
     const tot = stripComments(read('js/render/totality.js'));
     assert.match(tot, /depthTest: false/);
     assert.match(tot, /new Float32Array\(MAX_BEADS \* 3\)/, 'preallocated');
@@ -115,7 +116,8 @@ test('totality: beads module registered, not depth-tested, flare follows the bri
 test('the path ribbon: registered in main.js, above the clouds, drawn after them, Earth-fixed, one geometry per eclipse', () => {
     const main = stripComments(read('js/main.js'));
     assert.match(main, /eclipsePath: import\('\.\/render\/eclipse-path\.js'\)/, 'importRenderStack');
-    assert.match(main, /create\('eclipsePath', m\.eclipsePath && \(\(\) => m\.eclipsePath\.createEclipsePath\(rc\)\), furniture\)/, 'create list (in the furniture a vantage hides)');
+    assert.match(main, /create\('eclipsePath', m\.eclipsePath && \(\(\) => m\.eclipsePath\.createEclipsePath\(rc\)\), furniture(Space)?\)/, 'create list (in the furniture a vantage hides)');
+    assert.match(main, /furniture\.add\(furnitureSpace\)/, 'the map-hidden part of the furniture is inside it');
     const src = stripComments(read('js/render/eclipse-path.js'));
     const earth = stripComments(read('js/render/earth.js'));
     const cloudR = Number(earth.match(/const CLOUD_RADIUS = ([\d.]+);/)[1]);
@@ -134,7 +136,8 @@ test('the path ribbon: registered in main.js, above the clouds, drawn after them
 
 test('eclipse-aware pin and beams: both key on umbraNear from the snapshot', () => {
     const pin = stripComments(read('js/render/pin.js'));
-    assert.match(body(pin, 'apply'), /clearT = umbraNear\(snap\);/);
+    // `src`: the pin's own snapshot (the second place's pin reads snap.second).
+    assert.match(body(pin, 'apply'), /clearT = umbraNear\((snap|src)\);/);
     assert.match(pin, /uniform float uClear;/);
     const beams = stripComments(read('js/render/beams.js'));
     assert.match(body(beams, 'apply'), /uRootClear\.value = umbraNear\(snap, ROOT_CLEAR_RAD\[0\], ROOT_CLEAR_RAD\[1\]\)/);

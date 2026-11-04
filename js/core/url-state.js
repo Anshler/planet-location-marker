@@ -10,6 +10,9 @@
 // orbit); it implies the globe view, and its `cam` is the orbit pose it returns to. A sky `cam`
 // keeps its field to 0.2° (the telescope zoom) with three significant digits. `tour` starts a
 // guided tour (core/tour-catalog.js) once the app is ready; it is read, never written back.
+// `view=map` is the flat world map (the globe unrolled); its `cam` is `m:lat,lon,dist` (the map's
+// centre and the camera's distance from the plane). `loc2` (with `n2`, `tz2`) is a second place to
+// compare with (two-observers): its own pin and dashed beams on the globe, side by side in Sky now.
 //
 // parseHash never throws: values are validated, clamped (time, elevation, camera) or dropped, and
 // every key that was present but not usable as written is listed in `invalid` (for the
@@ -18,7 +21,7 @@
 // short; `t` is omitted while Live.
 
 import { MIN_MS, MAX_MS, snapRate } from './clock.js';
-import { DEFAULT_STATE, SKY_DARK_SETTINGS, AURORA_SETTINGS, VANTAGE_SETTINGS } from './store.js';
+import { DEFAULT_STATE, SKY_DARK_SETTINGS, AURORA_SETTINGS, VANTAGE_SETTINGS, VIEW_MODES } from './store.js';
 import { canonTz, daysInMonth } from './tz.js';
 import { isTourId } from './tour-catalog.js';
 
@@ -32,11 +35,12 @@ export const LAYER_CODES = Object.freeze([
     ['p', 'subpoints'], ['t', 'trails'], ['l', 'labels'], ['d', 'landscape'],
 ].map((pair) => Object.freeze(pair)));
 const LAYER_BY_CODE = new Map(LAYER_CODES);
-const KNOWN_KEYS = new Set(['loc', 'n', 'cc', 'tz', 'el', 't', 'r', 'p', 'view', 'lock', 'sel', 'ly', 'q', 'sky', 'au', 'cam', 'trk', 'vt', 'intro', 'debug', 'tour']);
+const KNOWN_KEYS = new Set(['loc', 'n', 'cc', 'tz', 'el', 't', 'r', 'p', 'view', 'lock', 'sel', 'ly', 'q', 'sky', 'au', 'cam', 'trk', 'vt', 'intro', 'debug', 'tour',
+    'loc2', 'n2', 'tz2']);
 const MAX_HASH_LEN = 4096;
 const NAME_MAX = 80;
 const ELEV_MIN = -500, ELEV_MAX = 9000;
-const CAM = Object.freeze({ distMin: 1.08, distMax: 150, altMin: -10, altMax: 89, fovMin: 0.2, fovMax: 100 });
+const CAM = Object.freeze({ distMin: 1.08, distMax: 150, altMin: -10, altMax: 89, fovMin: 0.2, fovMax: 100, mapMin: 0.05, mapMax: 20 });
 const TRACK_CODES = Object.freeze({ b: 'body', s: 'stars' });
 // Unambiguous (the dot must be present to reach the fraction), so matching is linear even on
 // pathological 4 KB digit runs.
@@ -164,16 +168,19 @@ function pick(o, names) {
 
 /**
  * One `cam` part → CamView, clamped; null when malformed.
- * @param {string} part  'o:lat,lon,dist' | 's:az,alt,fov'
+ * @param {string} part  'o:lat,lon,dist' | 's:az,alt,fov' | 'm:lat,lon,dist'
  * @returns {import('./types.js').CamView|null}
  */
 function parseCamPart(part) {
-    const m = /^\s*([os])\s*:(.*)$/i.exec(part);
+    const m = /^\s*([osm])\s*:(.*)$/i.exec(part);
     if (!m) return null;
     const nums = m[2].split(',').map(strictNum);
     if (nums.length !== 3 || !nums.every(Number.isFinite)) return null;
     if (m[1].toLowerCase() === 'o') {
         return { mode: 'orbit', latDeg: clamp(nums[0], -90, 90), lonDeg: wrapLon(nums[1]), distance: clamp(nums[2], CAM.distMin, CAM.distMax) };
+    }
+    if (m[1].toLowerCase() === 'm') {
+        return { mode: 'map', latDeg: clamp(nums[0], -90, 90), lonDeg: wrapLon(nums[1]), distance: clamp(nums[2], CAM.mapMin, CAM.mapMax) };
     }
     const az = ((nums[0] % 360) + 360) % 360;
     return { mode: 'sky', azDeg: az || 0, altDeg: clamp(nums[1], CAM.altMin, CAM.altMax), fovDeg: clamp(nums[2], CAM.fovMin, CAM.fovMax) };
@@ -205,6 +212,13 @@ export function camToCode(cam) {
         if (![lat, lon, dist].every(Number.isFinite)) return '';
         return `o:${fmtNum(clamp(lat, -90, 90), 2)},${fmtNum(wrapLon(lon), 2)},${fmtNum(clamp(dist, CAM.distMin, CAM.distMax), 2)}`;
     }
+    if (mode === 'map' || mode === 'm') {
+        const lat = pick(c, ['latDeg', 'lat']);
+        const lon = pick(c, ['lonDeg', 'lon']);
+        const dist = pick(c, ['distance', 'dist', 'd']);
+        if (![lat, lon, dist].every(Number.isFinite)) return '';
+        return `m:${fmtNum(clamp(lat, -90, 90), 2)},${fmtNum(wrapLon(lon), 2)},${fmtNum(clamp(dist, CAM.mapMin, CAM.mapMax), 3)}`;
+    }
     if (mode === 'sky' || mode === 's') {
         const az = pick(c, ['azDeg', 'az', 'yawDeg', 'yaw']);
         const alt = pick(c, ['altDeg', 'alt', 'pitchDeg', 'pitch']);
@@ -234,7 +248,7 @@ function readParams(hash, invalid) {
         let raw = eq < 0 ? '' : part.slice(eq + 1);
         // In names a literal '+' means a space (form encoding); an encoded %2B stays a plus. Never
         // in other keys: zone ids such as Etc/GMT+5 contain a real '+'.
-        if (key === 'n') raw = raw.replace(/\+/g, ' ');
+        if (key === 'n' || key === 'n2') raw = raw.replace(/\+/g, ' ');
         const val = safeDecode(raw);
         if (val === null) {
             if (KNOWN_KEYS.has(key)) invalid.push(key);
@@ -284,6 +298,28 @@ function parseObserver(params, invalid) {
     };
 }
 
+/** loc2 + n2/tz2 → the second place (source 'url'), or undefined. */
+function parseObserver2(params, invalid) {
+    if (!params.has('loc2')) return undefined;
+    const parts = params.get('loc2').split(',');
+    const lat = parts.length === 2 ? strictNum(parts[0]) : Number.NaN;
+    const lon = parts.length === 2 ? strictNum(parts[1]) : Number.NaN;
+    if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90) {
+        invalid.push('loc2');
+        return undefined;
+    }
+    let tz = null;
+    if (params.has('tz2')) {
+        const v = params.get('tz2').trim();
+        if (canonTz(v)) tz = v;
+        else invalid.push('tz2');
+    }
+    return {
+        latDeg: lat, lonDeg: wrapLon(lon), elevM: 0, name: params.has('n2') ? cleanName(params.get('n2')) : '', country: '', cc: '', tz,
+        tzApprox: tz ? /^Etc\//i.test(tz) : false, source: 'url',
+    };
+}
+
 /** t / r / p → out.tMs, out.rate, out.playing, out.live. */
 function parseTimeKeys(params, out, invalid) {
     let explicitNow = false;
@@ -329,7 +365,7 @@ function parseViewKeys(params, out, invalid) {
     if (params.has('view')) {
         const v = params.get('view').trim().toLowerCase();
         if (v === 'orbit' || v === 'globe') out.view = 'orbit';
-        else if (v === 'sky') out.view = 'sky';
+        else if (v === 'sky' || v === 'map') out.view = v;
         else invalid.push('view');
     }
     if (params.has('lock')) {
@@ -412,6 +448,8 @@ export function parseHash(hash) {
         const params = readParams(typeof hash === 'string' ? hash : '', invalid);
         const observer = parseObserver(params, invalid);
         if (observer) out.observer = observer;
+        const observer2 = parseObserver2(params, invalid);
+        if (observer2) out.observer2 = observer2;
         parseTimeKeys(params, out, invalid);
         parseViewKeys(params, out, invalid);
     } catch {
@@ -447,18 +485,25 @@ export function serializeHash({ state, clock, cam, extra } = {}) {
             if (typeof o.tz === 'string' && canonTz(o.tz)) parts.push(`tz=${enc(o.tz.trim())}`);
             if (Number.isFinite(o.elevM) && Math.round(o.elevM) !== 0) parts.push(`el=${Math.round(clamp(o.elevM, ELEV_MIN, ELEV_MAX))}`);
         }
+        const o2 = s.observer2;
+        if (o2 && Number.isFinite(o2.latDeg) && Number.isFinite(o2.lonDeg) && Math.abs(o2.latDeg) <= 90) {
+            parts.push(`loc2=${fmtNum(o2.latDeg, 4)},${fmtNum(wrapLon(o2.lonDeg), 4)}`);
+            const name2 = typeof o2.name === 'string' ? cleanName(o2.name) : '';
+            if (name2) parts.push(`n2=${enc(name2)}`);
+            if (typeof o2.tz === 'string' && canonTz(o2.tz)) parts.push(`tz2=${enc(o2.tz.trim())}`);
+        }
         if (clock) {
             if (!clock.live && Number.isFinite(clock.tMs)) parts.push(`t=${isoSeconds(clamp(clock.tMs, MIN_MS, MAX_MS))}`);
             const r = snapRate(clock.rate);
             if (r !== null && r !== 1) parts.push(`r=${r}`);
             if (clock.playing === false) parts.push('p=0');
         }
-        if (s.view?.mode === 'sky') parts.push('view=sky');
+        if (s.view?.mode !== 'orbit' && VIEW_MODES.includes(s.view?.mode)) parts.push(`view=${s.view.mode}`);
         if (s.view?.earthLock === false) parts.push('lock=0');
         const trk = s.view?.track;
         if (trk === 'body' || trk === 'stars') parts.push(`trk=${trk[0]}`);
         const vt = s.view?.vantage;
-        if (s.view?.mode !== 'sky' && vt !== 'none' && VANTAGE_SETTINGS.includes(vt)) parts.push(`vt=${vt}`);
+        if (s.view?.mode === 'orbit' && vt !== 'none' && VANTAGE_SETTINGS.includes(vt)) parts.push(`vt=${vt}`);
         if (typeof s.selection === 'string' && BODY_IDS.includes(s.selection)) parts.push(`sel=${s.selection}`);
         const ly = layersToCode(s.layers);
         if (ly !== null && ly !== DEFAULT_LAYER_CODE) parts.push(`ly=${ly}`);
@@ -574,7 +619,7 @@ export function bindUrl({ win, store, clock, getCam, onExternalChange, minInterv
 
     const offs = [];
     if (store?.subscribe) {
-        for (const sel of [(s) => s.observer, (s) => s.selection, (s) => s.view, (s) => s.layers, (s) => s.quality?.setting,
+        for (const sel of [(s) => s.observer, (s) => s.observer2, (s) => s.selection, (s) => s.view, (s) => s.layers, (s) => s.quality?.setting,
             (s) => s.display?.skyDark, (s) => s.display?.aurora]) {
             offs.push(store.subscribe(sel, schedule));
         }

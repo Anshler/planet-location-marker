@@ -12,7 +12,16 @@
  *     follow(targetFn, {altitude, backDeg, tiltDeg, approachMs}) → Promise, stopFollow(), following,
  *     setTracking('none'|'body'|'stars', id), tracking, telescope(fovDeg), onTrackEnd(cb) → off,
  *     setVantage('none'|'l1'|'moon', {animate}) → Promise, vantage, moonFront, onVantageEnd(cb) → off,
+ *     mapK, mapFrame, frameSpan(dirS, lengthER, {animate}) → Promise,
  *     setReducedMotion(on), dispose() }
+ *
+ * The flat map (setMode('map'), ROADMAP globe-to-map-morph): the camera glides in ~1.1 s to face an
+ * equirectangular plane (geo/mapview.js) while `mapK` runs 0 → 1, which the Earth's vertex shader
+ * uses to unroll the globe onto it; the plane is oriented when the morph starts (north up, square
+ * to the camera's direction) and stays fixed in the world. On the map a drag pans, the wheel and
+ * pinch zoom about the cursor or the fingers, arrows pan and +/− zoom; the orbit controls are off.
+ * Leaving it rolls the globe back up into the pose it was entered from (or, once the map was panned
+ * or zoomed, over the place at the map's centre); sky view goes through the globe both ways.
  *
  * Vantage points (globe view): 'l1' looks back at the sunlit Earth from 1.5 million km sunward
  * (DSCOVR/EPIC), 'moon' rides a low lunar orbit with the Earth rising over the limb. The pose is
@@ -64,6 +73,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { liftByRefraction } from '../astro/photometry.js';
 import { MOON_RADIUS_ER } from '../astro/bodies.js';
+import { createMapFrame, orientMapFrame, mapFitDistance, mapXY, MAP_HALF_W, MAP_HALF_H, MAP_SCALE } from '../geo/mapview.js';
 
 const DEG = Math.PI / 180;
 const ORBIT_FOV = 45;
@@ -120,6 +130,13 @@ const TRACK_OFF_MAX = 60;
 // leads the distance by this share of the flight (and trails it on the way back), so a camera that
 // starts behind the Earth swings clear of it before closing in.
 const VANTAGE_MS = 4000;
+// The flat map: the morph's length, the closest zoom (plane units from the plane: ~5° of latitude
+// across the view) and the farthest (× the whole-map fit).
+const MAP_MS = 1100;
+const MAP_D_MIN = 0.12;
+const MAP_D_MAX_K = 1.6;
+// frameSpan: the far end of the segment sits this far out of the free half-extent.
+const SPAN_FILL = 0.86;
 const VANTAGE_LEAD = 0.15;
 
 const Y = new THREE.Vector3(0, 1, 0);
@@ -152,6 +169,12 @@ const _flQ = new THREE.Quaternion();
 const _lift = new Float64Array(3);
 const _flPos = new Float64Array(3);
 const _flFwd = new Float64Array(3);
+const _mN = new THREE.Vector3();
+const _mU = new THREE.Vector3();
+const _mPole = new Float64Array(3);
+const _mView = new Float64Array(3);
+const _mFall = new Float64Array(3);
+const _mXY = new Float64Array(2);
 
 function clamp(x, a, b) { return x < a ? a : x > b ? b : x; }
 function easeInOutCubic(t) { return t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2; }
@@ -247,17 +270,27 @@ export function skyLookFor(azDeg, altDeg, cx, cy, cz, out, refAzDeg, refAltDeg) 
     return out;
 }
 
-/** Parses a CamView-ish value: {mode, latDeg|lat, lonDeg|lon, distance|dist} | {mode, azDeg|az, altDeg|alt, fovDeg|fov} | 'o:lat,lon,d' | 's:az,alt,fov'. */
+/**
+ * Parses a CamView-ish value: {mode, latDeg|lat, lonDeg|lon, distance|dist} | {mode, azDeg|az, altDeg|alt, fovDeg|fov}
+ * | 'o:lat,lon,d' | 's:az,alt,fov' | 'm:lat,lon,d' (the map: its centre and the distance from the plane).
+ */
 function parseView(cam) {
     if (cam == null) return null;
     if (typeof cam === 'string') {
-        const m = /^\s*([os])\s*:\s*([-+\d.eE]+)\s*,\s*([-+\d.eE]+)\s*,\s*([-+\d.eE]+)\s*$/.exec(cam);
+        const m = /^\s*([osm])\s*:\s*([-+\d.eE]+)\s*,\s*([-+\d.eE]+)\s*,\s*([-+\d.eE]+)\s*$/.exec(cam);
         if (!m) return null;
         const a = +m[2], b = +m[3], c = +m[4];
         // Through the object path, so a hand-written string is clamped like any other view.
+        if (m[1] === 'm') return parseView({ mode: 'map', latDeg: a, lonDeg: b, distance: c });
         return parseView(m[1] === 'o' ? { mode: 'orbit', latDeg: a, lonDeg: b, distance: c } : { mode: 'sky', azDeg: a, altDeg: b, fovDeg: c });
     }
     if (typeof cam !== 'object') return null;
+    if (cam.mode === 'm' || cam.mode === 'map') {
+        const latDeg = Number(cam.latDeg ?? cam.lat), lonDeg = Number(cam.lonDeg ?? cam.lon);
+        const distance = Number(cam.distance ?? cam.dist);
+        if (!Number.isFinite(latDeg) || !Number.isFinite(lonDeg)) return null;
+        return { mode: 'map', latDeg: clamp(latDeg, -90, 90), lonDeg: wrap180(lonDeg), distance: Number.isFinite(distance) ? clamp(distance, MAP_D_MIN, 20) : NaN };
+    }
     const mode = cam.mode === 's' || cam.mode === 'sky' ? 'sky' : cam.mode === 'o' || cam.mode === 'orbit' ? 'orbit' : null;
     if (mode === 'orbit') {
         const latDeg = Number(cam.latDeg ?? cam.lat), lonDeg = Number(cam.lonDeg ?? cam.lon);
@@ -377,6 +410,19 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         pending: null,
     };
     const vantEndCbs = new Set();
+
+    // The flat map (setMode('map')). `k` is the morph (0 globe … 1 map: FrameInfo.mapK), `frame` the
+    // plane (geo/mapview.js; oriented as the morph starts), (x, y) the view's centre on it and `d` the
+    // camera's distance from it (plane units), eased toward the *T targets. `retL` is the globe pose
+    // to return to (Earth-local) unless the map was panned or zoomed since (`moved`).
+    const mapv = {
+        k: 0, frame: createMapFrame(),
+        x: 0, y: 0, d: 4, xT: 0, yT: 0, dT: 4,
+        retL: new THREE.Vector3(), hasRet: false, moved: false,
+        drag: null, pinch: null,
+    };
+    // setMode requests: a newer one stops an older one's second leg (sky → globe → map and back).
+    let modeReq = 0;
     let vlib = null;
     let vlibP = null;
     let vpose = null;
@@ -569,6 +615,28 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
     }
 
     function applyViewNow(v) {
+        if (v.mode === 'map') {
+            // The globe pose to return to: this one, or (a deep link, before any pose) home.
+            if (mode === 'orbit' && initialized) toLocal(camera.position, mapv.retL);
+            else homePosL(mapv.retL);
+            mapv.hasRet = true;
+            dropVantage('view');
+            if (mode === 'sky') camera.position.copy(posW).multiplyScalar(HOME_DIST);
+            captureMapFrame();
+            mode = 'map';
+            skyBlend = 0;
+            mapv.k = 1;
+            mapXY(v.latDeg, v.lonDeg, _mXY);
+            mapv.x = mapv.xT = _mXY[0];
+            mapv.y = mapv.yT = _mXY[1];
+            mapv.d = mapv.dT = clamp(Number.isFinite(v.distance) ? v.distance : mapFit(), MAP_D_MIN, mapDMax());
+            mapv.moved = true;
+            setControlsEnabled(false);
+            applyMapCamera();
+            initialized = true;
+            return;
+        }
+        mapv.k = 0;
         if (v.mode === 'orbit') {
             mode = 'orbit';
             skyBlend = 0;
@@ -854,6 +922,205 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
             setControlsEnabled(true);
             syncControls();
         }
+    }
+
+    // ---- the flat map ----------------------------------------------------------------------------
+
+    /** The camera's distance from the plane that fits the whole map into the free area. */
+    function mapFit() {
+        const W = rc.size?.w || 1, H = rc.size?.h || 1;
+        return mapFitDistance(ORBIT_FOV, H, Math.max(1, W - insets.left - insets.right), Math.max(1, H - insets.top - insets.bottom));
+    }
+
+    function mapDMax() {
+        return Math.max(MAP_D_MIN * 2, mapFit() * MAP_D_MAX_K);
+    }
+
+    /** The map camera over plane point (x, y), d from the plane, looking straight at it, north up. */
+    function mapPose(x, y, d, outP, outQ) {
+        const f = mapv.frame, c = f.center, r = f.right, u = f.up, n = f.normal;
+        outP.set(c[0] + r[0] * x + u[0] * y + n[0] * d, c[1] + r[1] * x + u[1] * y + n[1] * d, c[2] + r[2] * x + u[2] * y + n[2] * d);
+        basisQuat(_mN.set(-n[0], -n[1], -n[2]), _mU.set(u[0], u[1], u[2]), outQ);
+        return outP;
+    }
+
+    function setMapNear(d) {
+        const near = clamp(d * 0.05, 0.0005, 0.05);
+        if (Math.abs(camera.near - near) > near * 0.01) {
+            camera.near = near;
+            camera.updateProjectionMatrix();
+        }
+    }
+
+    function applyMapCamera() {
+        mapPose(mapv.x, mapv.y, mapv.d, camera.position, camera.quaternion);
+        const u = mapv.frame.up;
+        camera.up.set(u[0], u[1], u[2]);
+        setFov(ORBIT_FOV);
+        setMapNear(mapv.d);
+    }
+
+    /** Orients the plane: north up, square to the camera's direction (fallback: longitude 0). */
+    function captureMapFrame() {
+        toWorld(_v1.set(0, 1, 0), _v2);
+        _mPole[0] = _v2.x; _mPole[1] = _v2.y; _mPole[2] = _v2.z;
+        _mView[0] = camera.position.x; _mView[1] = camera.position.y; _mView[2] = camera.position.z;
+        toWorld(_v1.set(1, 0, 0), _v2);
+        _mFall[0] = _v2.x; _mFall[1] = _v2.y; _mFall[2] = _v2.z;
+        orientMapFrame(mapv.frame, _mPole, _mView, _mFall);
+    }
+
+    function clampMapTargets() {
+        mapv.xT = clamp(mapv.xT, -MAP_HALF_W, MAP_HALF_W);
+        mapv.yT = clamp(mapv.yT, -MAP_HALF_H, MAP_HALF_H);
+        mapv.dT = clamp(mapv.dT, MAP_D_MIN, mapDMax());
+    }
+
+    /** The globe unrolls into the map: the whole map, fitted to the free area. */
+    function startToMap({ animate }) {
+        if (!hasSnap) return Promise.resolve(false);
+        captureMapFrame();
+        toLocal(camera.position, mapv.retL);
+        mapv.hasRet = true;
+        mapv.moved = false;
+        mapv.x = mapv.xT = 0;
+        mapv.y = mapv.yT = 0;
+        mapv.d = mapv.dT = mapFit();
+        mapv.drag = mapv.pinch = null;
+        zoomTarget = null;
+        mode = 'map';
+        skyBlend = 0;
+        setControlsEnabled(false);
+        return startTween({
+            kind: 'toMap', cancellable: false, p0: camera.position.clone(), q0: camera.quaternion.clone(), fov0: camera.fov,
+            dur: !animate || reduced ? 0 : MAP_MS,
+        });
+    }
+
+    function stepToMap(t, u) {
+        const e = easeInOutCubic(u);
+        mapPose(mapv.x, mapv.y, mapv.d, _v2, _q1);
+        camera.position.copy(t.p0).lerp(_v2, e);
+        camera.quaternion.copy(t.q0).slerp(_q1, e);
+        setFov(t.fov0 + (ORBIT_FOV - t.fov0) * e);
+        setNearFor(Math.min(camera.position.length(), 1 + mapv.d));
+        mapv.k = e;
+        if (u >= 1) {
+            mapv.k = 1;
+            applyMapCamera();
+        }
+    }
+
+    /** The globe pose to roll back up into (Earth-local): where the map was entered, or over its centre. */
+    function mapReturnL(out) {
+        if (mapv.hasRet && !mapv.moved) return out.copy(mapv.retL);
+        const lat = clamp(mapv.yT / MAP_SCALE, -Math.PI / 2, Math.PI / 2), lon = mapv.xT / MAP_SCALE, cp = Math.cos(lat);
+        const r = clamp(1 + mapv.dT * 0.8, 1.6, HOME_DIST * 1.8);
+        return out.set(cp * Math.cos(lon), Math.sin(lat), -cp * Math.sin(lon)).multiplyScalar(r);
+    }
+
+    /** The map rolls back up into the globe. */
+    function startFromMap({ animate }) {
+        const destL = mapReturnL(new THREE.Vector3());
+        mapv.drag = mapv.pinch = null;
+        mode = 'orbit';
+        setControlsEnabled(false);
+        return startTween({
+            kind: 'fromMap', cancellable: false, destL, p0: camera.position.clone(), q0: camera.quaternion.clone(),
+            dur: !animate || reduced ? 0 : MAP_MS,
+        });
+    }
+
+    function stepFromMap(t, u) {
+        const e = easeInOutCubic(u);
+        toWorld(t.destL, _v2);
+        orbitQuat(_v2, _q1);
+        camera.position.copy(t.p0).lerp(_v2, e);
+        camera.quaternion.copy(t.q0).slerp(_q1, e);
+        setFov(ORBIT_FOV);
+        setNearFor(Math.min(camera.position.length(), 1 + mapv.d));
+        mapv.k = 1 - e;
+        if (u >= 1) {
+            mapv.k = 0;
+            placeOrbitLocal(t.destL);
+            setFov(ORBIT_FOV);
+            camera.up.copy(Y);
+            setControlsEnabled(true);
+            syncControls();
+        }
+    }
+
+    /** On the map: eases the view toward its targets. Returns true while it moves (or is held). */
+    function stepMap(dt) {
+        const m = mapv;
+        let moved = false;
+        // Until the map is panned or zoomed it keeps fitting the free area (panels open and close).
+        if (!m.moved && !m.drag && !m.pinch) {
+            const fit = mapFit();
+            if (Math.abs(fit - m.dT) > 1e-6 * fit || m.xT !== 0 || m.yT !== 0) {
+                m.dT = fit;
+                m.xT = m.yT = 0;
+            }
+        }
+        if (m.x !== m.xT || m.y !== m.yT || m.d !== m.dT) {
+            const k = reduced ? 1 : 1 - Math.exp(-dt / 90);
+            m.x += (m.xT - m.x) * k;
+            m.y += (m.yT - m.y) * k;
+            m.d = Math.exp(Math.log(m.d) + (Math.log(m.dT) - Math.log(m.d)) * k);
+            if (Math.abs(m.x - m.xT) < 1e-5 * m.d && Math.abs(m.y - m.yT) < 1e-5 * m.d && Math.abs(Math.log(m.dT / m.d)) < 1e-4) {
+                m.x = m.xT;
+                m.y = m.yT;
+                m.d = m.dT;
+            }
+            moved = true;
+        }
+        applyMapCamera();
+        return moved || !!m.drag || !!m.pinch;
+    }
+
+    /**
+     * Map zoom about a point of the canvas: the place under it stays under it (targets, so a wheel
+     * zoom still easing keeps its point). `now` applies it at once (pinch).
+     */
+    function mapZoomAt(dNext, ndcX, ndcY, now = false) {
+        const m = mapv;
+        const d1 = clamp(dNext, MAP_D_MIN, mapDMax());
+        // The camera looks straight at the plane: a camera-space ray (x, y, −1) meets it x·d, y·d off centre.
+        camRay(ndcX, ndcY, camera.fov, _ray);
+        const px = m.xT + _ray.x * m.dT, py = m.yT + _ray.y * m.dT;
+        m.xT = px - _ray.x * d1;
+        m.yT = py - _ray.y * d1;
+        m.dT = d1;
+        clampMapTargets();
+        if (now) {
+            m.x = m.xT;
+            m.y = m.yT;
+            m.d = m.dT;
+        }
+        m.moved = true;
+        rc.invalidate?.();
+    }
+
+    /** Pans the map to a place (keeping the zoom). */
+    function mapPanTo(latDeg, lonDeg, animate) {
+        mapXY(latDeg, lonDeg, _mXY);
+        mapv.xT = _mXY[0];
+        mapv.yT = _mXY[1];
+        clampMapTargets();
+        if (!animate || reduced) {
+            mapv.x = mapv.xT;
+            mapv.y = mapv.yT;
+        }
+        mapv.moved = true;
+        rc.invalidate?.();
+        return Promise.resolve(true);
+    }
+
+    /** Pans the map to where a world direction from the Earth's centre stands overhead. */
+    function mapPanToDir(dirS, animate) {
+        toLocal(_v1.set(dirS[0], dirS[1], dirS[2]), _v1);
+        if (!(_v1.lengthSq() > 0)) return Promise.resolve(false);
+        return mapPanTo(Math.atan2(_v1.y, Math.hypot(_v1.x, _v1.z)) / DEG, Math.atan2(-_v1.z, _v1.x) / DEG, animate);
     }
 
     function startLook(azDeg, altDeg, { animate, durationMs, fovDeg }) {
@@ -1191,10 +1458,11 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
             }
             return startVantage('none', animate);
         }
-        if (mode === 'sky') {
-            // From sky view: back to the globe first, then out to the vantage.
+        if (mode === 'sky' || mode === 'map') {
+            // From sky view or the map: back to the globe first, then out to the vantage.
             const req = vantReq;
-            return startToOrbit({ animate }).then((ok) => (ok && req === vantReq ? setVantageNow(k, { animate }) : false));
+            const back = mode === 'sky' ? startToOrbit({ animate }) : startFromMap({ animate });
+            return back.then((ok) => (ok && req === vantReq ? setVantageNow(k, { animate }) : false));
         }
         return startVantage(k, animate);
     }
@@ -1212,6 +1480,8 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         else if (t.kind === 'toOrbit') stepToOrbit(t, u);
         else if (t.kind === 'look') stepLook(t, u);
         else if (t.kind === 'vantage') stepVantageTween(t, u, snap);
+        else if (t.kind === 'toMap') stepToMap(t, u);
+        else if (t.kind === 'fromMap') stepFromMap(t, u);
         if (u >= 1 && t.kind === 'toSky' && Number.isFinite(t.thenFov) && tween === t) {
             // Hand the finished descent over to its zoom; the caller's promise follows the zoom.
             tween = null;
@@ -1503,9 +1773,12 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
             vant.pending = null;
             setVantageNow(p.kind, { animate: p.animate });
         }
+        // The morph only runs on the map and in the flights to and from it.
+        if (mapv.k !== 0 && mode !== 'map' && !(tween && tween.kind === 'fromMap')) mapv.k = 0;
         if (tween) return stepTween(tNow, snap);
         if (vant.kind !== 'none') return stepVantage(snap);
 
+        if (mode === 'map') return stepMap(dt);
         if (mode === 'orbit') {
             if (earthLock && dq.w < 1 - 1e-15) {
                 camera.position.applyQuaternion(dq);
@@ -1560,6 +1833,21 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         } else if (downInfo) {
             downInfo.moved = true; // multi-touch is never a click
         }
+        if (mode === 'map' && !tween) {
+            try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+            if (pointers.size === 1) {
+                mapv.drag = { id: e.pointerId, x: e.clientX, y: e.clientY };
+                mapv.pinch = null;
+            } else if (pointers.size === 2) {
+                mapv.drag = null;
+                const [a, b] = [...pointers.values()];
+                mapv.pinch = { dist: Math.hypot(a.x - b.x, a.y - b.y) || 1, d0: mapv.d };
+                mapv.xT = mapv.x;
+                mapv.yT = mapv.y;
+                mapv.dT = mapv.d;
+            }
+            rc.invalidate?.();
+        }
         if (mode === 'sky' && !tween) {
             try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
             sky.vAz = sky.vAlt = 0;
@@ -1592,6 +1880,26 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         p.y = e.clientY;
         if (downInfo && e.pointerId === downInfo.id && !downInfo.moved
             && Math.hypot(e.clientX - downInfo.x, e.clientY - downInfo.y) >= CLICK_PX) downInfo.moved = true;
+        if (mode === 'map' && !tween) {
+            const m = mapv;
+            if (m.drag && e.pointerId === m.drag.id) {
+                // The map follows the finger: plane units per pixel at the camera's distance.
+                const h = el.clientHeight || rc.size?.h || 800;
+                const upp = 2 * m.d * Math.tan(camera.fov * DEG / 2) / h;
+                m.x = m.xT = clamp(m.x - (e.clientX - m.drag.x) * upp, -MAP_HALF_W, MAP_HALF_W);
+                m.y = m.yT = clamp(m.y + (e.clientY - m.drag.y) * upp, -MAP_HALF_H, MAP_HALF_H);
+                m.drag.x = e.clientX;
+                m.drag.y = e.clientY;
+                m.moved = true;
+                rc.invalidate?.();
+            } else if (m.pinch && pointers.size >= 2) {
+                const [a, b] = [...pointers.values()];
+                const dist = Math.hypot(a.x - b.x, a.y - b.y) || 1;
+                const n = ndcOf((a.x + b.x) / 2, (a.y + b.y) / 2);
+                mapZoomAt(m.pinch.d0 * m.pinch.dist / dist, n.x, n.y, true);
+            }
+            return;
+        }
         if (mode !== 'sky' || tween) return;
         if (skyDrag && e.pointerId === skyDrag.id) {
             const dx = e.clientX - skyDrag.x, dy = e.clientY - skyDrag.y;
@@ -1657,6 +1965,12 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
             skyDrag = null;
         }
         if (pointers.size < 2) pinch = null;
+        if (mapv.drag && e.pointerId === mapv.drag.id) mapv.drag = null;
+        if (pointers.size < 2) mapv.pinch = null;
+        if (pointers.size === 1 && mode === 'map' && !tween) {
+            const [id, q] = [...pointers.entries()][0];
+            mapv.drag = { id, x: q.x, y: q.y };
+        }
         if (pointers.size === 1 && mode === 'sky' && !tween) {
             const [id, q] = [...pointers.entries()][0];
             skyDrag = { id, x: q.x, y: q.y, t: now() };
@@ -1667,17 +1981,18 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
     const onWheel = (e) => {
         emitInteract('wheel');
         cancelTween();
-        if (mode === 'sky' && !tween) {
+        if ((mode === 'sky' || mode === 'map') && !tween) {
             e.preventDefault();
             const scale = e.deltaMode === 1 ? 33 : e.deltaMode === 2 ? 400 : 1;
             const dy = clamp(e.deltaY * scale / 100, -3, 3);
             const n = ndcOf(e.clientX, e.clientY);
-            zoomSkyAt(sky.fovT * Math.exp(0.1 * dy), n.x, n.y);
+            if (mode === 'map') mapZoomAt(mapv.dT * Math.exp(0.12 * dy), n.x, n.y);
+            else zoomSkyAt(sky.fovT * Math.exp(0.1 * dy), n.x, n.y);
             rc.invalidate?.();
         }
     };
 
-    const onContext = (e) => { if (mode === 'sky') e.preventDefault(); };
+    const onContext = (e) => { if (mode === 'sky' || mode === 'map') e.preventDefault(); };
 
     const onKeyDown = (e) => {
         if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return;
@@ -1716,7 +2031,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
     // ---- API implementations -----------------------------------------------------------------------------
 
     function inTransition() {
-        return !!tween && (tween.kind === 'toSky' || tween.kind === 'toOrbit');
+        return !!tween && (tween.kind === 'toSky' || tween.kind === 'toOrbit' || tween.kind === 'toMap' || tween.kind === 'fromMap');
     }
 
     /** Runs fn now, or after the running globe/sky transition finishes. */
@@ -1725,7 +2040,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         return fn();
     }
 
-    function setModeNow(target, { animate = true, look } = {}) {
+    function setModeNow(target, { animate = true, look } = {}, req = modeReq) {
         if (target === mode) {
             if (target === 'sky' && look && Number.isFinite(look.azDeg) && Number.isFinite(look.altDeg)) {
                 return startLook(look.azDeg, look.altDeg, { animate, fovDeg: Number(look.fovDeg) });
@@ -1733,6 +2048,16 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
             return Promise.resolve(true);
         }
         emitInteract('mode');
+        // Sky view and the map pass through the globe: the second leg runs unless a newer request came.
+        const next = (fn) => (ok) => (ok && req === modeReq ? fn() : false);
+        if (mode === 'map') {
+            if (target === 'sky') return startFromMap({ animate }).then(next(() => startToSky({ look, animate })));
+            return startFromMap({ animate });
+        }
+        if (target === 'map') {
+            if (mode === 'sky') return startToOrbit({ animate }).then(next(() => startToMap({ animate })));
+            return startToMap({ animate });
+        }
         if (target === 'sky') return startToSky({ look, animate });
         return startToOrbit({ animate });
     }
@@ -1742,6 +2067,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         _v1.set(dirS[0], dirS[1], dirS[2]);
         if (!(_v1.lengthSq() > 0)) return Promise.resolve(false);
         _v1.normalize();
+        if (mode === 'map') return mapPanToDir(dirS, animate);
         if (mode === 'sky') {
             const alt = Math.asin(clamp(_v1.dot(upW), -1, 1)) / DEG;
             const az = Math.atan2(_v1.dot(eastW), _v1.dot(northW)) / DEG;
@@ -1823,7 +2149,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         _v1.set(dirS[0], dirS[1], dirS[2]);
         if (!(_v1.lengthSq() > 0)) return Promise.resolve(false);
         _v1.normalize();
-        if (mode === 'sky') return flyToDirNow(dirS, { animate, durationMs });
+        if (mode === 'sky' || mode === 'map') return flyToDirNow(dirS, { animate, durationMs });
         const p = point && Number.isFinite(point[0]) && Number.isFinite(point[1]) && Number.isFinite(point[2])
             ? _fP.set(point[0], point[1], point[2]) : null;
         // Earth-fixed (local) endpoints while locked; startFly converts back to world otherwise.
@@ -1851,6 +2177,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
             pendingView = { mode: 'orbit', latDeg: clamp(latDeg, -90, 90), lonDeg: wrap180(lonDeg), distance: dist };
             return Promise.resolve(true);
         }
+        if (mode === 'map') return mapPanTo(latDeg, lonDeg, animate);
         const p = clamp(latDeg, -90, 90) * DEG, l = lonDeg * DEG, cp = Math.cos(p);
         const targetL = new THREE.Vector3(cp * Math.cos(l), Math.sin(p), -cp * Math.sin(l)).multiplyScalar(dist);
         if (mode === 'sky') return startToOrbit({ targetL, animate });
@@ -1866,7 +2193,45 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
             const L = defaultLook({ az: 0, alt: 0 });
             return startLook(L.az, L.alt, { animate, fovDeg: SKY_FOV });
         }
+        if (mode === 'map') {
+            // The whole map again.
+            mapv.xT = mapv.yT = 0;
+            mapv.dT = mapFit();
+            if (!animate || reduced) {
+                mapv.x = mapv.y = 0;
+                mapv.d = mapv.dT;
+            }
+            mapv.moved = true;
+            rc.invalidate?.();
+            return Promise.resolve(true);
+        }
         return startFly(homePosL(new THREE.Vector3()), { earthFixed: true, animate });
+    }
+
+    /**
+     * frameSpan: an orbit pose square to a segment from the Earth's centre along dirS (and to world
+     * north), on the observer's side, far enough out that the segment's end fits the free area. The
+     * Earth–Moon line (two-observers: the beams of two places converging on the Moon) reads only at
+     * this scale, about 100 Earth radii out.
+     */
+    function frameSpanNow(dirS, lengthER, { animate = true, durationMs } = {}) {
+        if (!dirS || !hasSnap || mode !== 'orbit' || !(lengthER > 0)) return Promise.resolve(false);
+        _v1.set(dirS[0], dirS[1], dirS[2]);
+        if (!(_v1.lengthSq() > 0)) return Promise.resolve(false);
+        _v1.normalize();
+        _v2.crossVectors(_v1, Y);
+        if (_v2.lengthSq() < 1e-8) _v2.set(1, 0, 0).cross(_v1);
+        _v2.normalize();
+        if (_v2.dot(posW) < 0) _v2.negate();
+        // Seen from _v2·d with north up, the end sits (along screen-right, along screen-up)·len/d off centre.
+        _v3.crossVectors(Y, _v2).normalize();
+        const W = rc.size?.w || 1, H = rc.size?.h || 1;
+        const hx = Math.max(1, W - insets.left - insets.right) / 2, hy = Math.max(1, H - insets.top - insets.bottom) / 2;
+        const px = (H / 2) / Math.tan(ORBIT_FOV * DEG / 2);
+        const ex = Math.abs(_v1.dot(_v3)) * lengthER, ey = Math.abs(_v1.y) * lengthER;
+        const dist = clamp(Math.max(ex * px / (SPAN_FILL * hx), ey * px / (SPAN_FILL * hy), HOME_DIST), MIN_DIST, MAX_DIST);
+        const targetL = toLocal(_v2.multiplyScalar(dist), new THREE.Vector3());
+        return startFly(targetL, { earthFixed: earthLock, durationMs, animate });
     }
 
     // ---- public API ------------------------------------------------------------------------------------------
@@ -1883,7 +2248,14 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         anchor.on = false;
         // Sky view: steps shrink with a narrow field (a 5° step at the 0.2° floor loses the target).
         const kf = Math.min(1, sky.fov / SKY_FOV);
-        if (mode === 'sky' && track.kind !== 'none') {
+        if (mode === 'map') {
+            // Pans: a 5° step moves 5° of longitude at the whole-map zoom, less when zoomed in.
+            const k = DEG * MAP_SCALE * clamp(mapv.dT / mapFit(), 0.05, 1);
+            mapv.xT += dxDeg * k;
+            mapv.yT += dyDeg * k;
+            clampMapTargets();
+            mapv.moved = true;
+        } else if (mode === 'sky' && track.kind !== 'none') {
             trackTurn(-dxDeg * kf, dyDeg * kf);
         } else if (mode === 'sky') {
             sky.azT = wrap360(sky.azT + dxDeg * kf);
@@ -1905,7 +2277,10 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         cancelTween();
         anchor.on = false;
         if (mode === 'sky') sky.fovT = clamp(sky.fovT * factor, SKY_FOV_MIN, SKY_FOV_MAX);
-        else zoomTarget = clamp((zoomTarget ?? camera.position.length()) * factor, MIN_DIST, MAX_DIST);
+        else if (mode === 'map') {
+            mapv.dT = clamp(mapv.dT * factor, MAP_D_MIN, mapDMax());
+            mapv.moved = true;
+        } else zoomTarget = clamp((zoomTarget ?? camera.position.length()) * factor, MIN_DIST, MAX_DIST);
         rc.invalidate?.();
     }
 
@@ -1915,6 +2290,10 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         /** Logical mode: switches at the start of a transition. */
         get mode() { return mode; },
         get skyBlend() { return skyBlend; },
+        /** The globe → flat map morph, 0 … 1 (FrameInfo.mapK). */
+        get mapK() { return mapv.k; },
+        /** The map plane's frame (geo/mapview.js; live, rewritten as each morph starts). */
+        get mapFrame() { return mapv.frame; },
         get tweening() { return !!tween; },
         get dragging() { return pointers.size > 0; },
         get earthLock() { return earthLock; },
@@ -1930,9 +2309,10 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
          * @returns {Promise<boolean>}
          */
         setMode(next, opts = {}) {
-            const target = next === 'sky' ? 'sky' : 'orbit';
+            const target = next === 'sky' ? 'sky' : next === 'map' ? 'map' : 'orbit';
             if (inTransition() && mode === target && !opts?.look) return tween.promise.then(() => true);
-            return afterTransition(() => setModeNow(target, opts));
+            const req = ++modeReq;
+            return afterTransition(() => (req === modeReq ? setModeNow(target, opts, req) : false));
         },
 
         /** @param {boolean} on */
@@ -2020,8 +2400,9 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
          */
         follow(targetFn, opts = {}) {
             return afterTransition(() => {
-                if (mode !== 'sky') return followNow(targetFn, opts || {});
-                return startToOrbit({ animate: opts?.animate !== false }).then((ok) => (ok ? followNow(targetFn, opts || {}) : false));
+                if (mode === 'orbit') return followNow(targetFn, opts || {});
+                const back = mode === 'sky' ? startToOrbit({ animate: opts?.animate !== false }) : startFromMap({ animate: opts?.animate !== false });
+                return back.then((ok) => (ok ? followNow(targetFn, opts || {}) : false));
             });
         },
 
@@ -2152,6 +2533,9 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
             if (mode === 'sky') {
                 return { mode: 'sky', azDeg: wrap360(sky.azT), altDeg: sky.altT, fovDeg: sky.fovT };
             }
+            if (mode === 'map') {
+                return { mode: 'map', latDeg: mapv.yT / MAP_SCALE / DEG, lonDeg: wrap180(mapv.xT / MAP_SCALE / DEG), distance: mapv.dT };
+            }
             // A vantage (url `vt`) reports the orbit pose it returns to.
             if (vantageOwns() && vant.hasRet) toLocal(vantageReturn(_v1), _v1);
             else toLocal(camera.position, _v1);
@@ -2217,7 +2601,22 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
             if (mode === 'sky' && !tween && Number.isFinite(ndcX) && Number.isFinite(ndcY)) {
                 zoomSkyAt(sky.fovT * factor, ndcX, ndcY);
                 rc.invalidate?.();
+            } else if (mode === 'map' && !tween && Number.isFinite(ndcX) && Number.isFinite(ndcY)) {
+                mapZoomAt(mapv.dT * factor, ndcX, ndcY);
             } else zoom(factor);
+        },
+
+        /**
+         * Globe view: flies to an orbit pose square to the segment from the Earth's centre along
+         * dirS, `lengthER` long (the Earth–Moon line), with its far end inside the free area.
+         * Resolves false outside the globe view.
+         * @param {ArrayLike<number>} dirS world unit vector
+         * @param {number} lengthER
+         * @param {{animate?:boolean, durationMs?:number}} [opts]
+         * @returns {Promise<boolean>}
+         */
+        frameSpan(dirS, lengthER, opts = {}) {
+            return afterTransition(() => frameSpanNow(dirS, Number(lengthER), opts || {}));
         },
 
         /**

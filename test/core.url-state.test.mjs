@@ -9,7 +9,7 @@ import { createClock, MIN_MS, MAX_MS, RATES } from '../js/core/clock.js';
 
 const BODY_IDS = ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune'];
 const LAYER_KEYS = Object.keys(DEFAULT_STATE.layers);
-const ALLOWED_KEYS = new Set(['observer', 'tMs', 'live', 'rate', 'playing', 'view', 'earthLock', 'selection', 'layers', 'quality', 'skyDark', 'aurora', 'cam', 'track', 'intro', 'debug', 'invalid']);
+const ALLOWED_KEYS = new Set(['observer', 'observer2', 'tMs', 'live', 'rate', 'playing', 'view', 'earthLock', 'selection', 'layers', 'quality', 'skyDark', 'aurora', 'cam', 'track', 'intro', 'debug', 'invalid']);
 const SPEC_EXAMPLE = '#loc=21.0285,105.8542&n=Hanoi&cc=VN&tz=Asia/Ho_Chi_Minh&el=15&t=2027-08-02T10:07:00Z&r=3600&p=1&view=orbit&lock=1&sel=moon'
     + '&ly=bgoscCnmkazhld&q=auto&cam=o:21.0,105.8,3.2|s:142.3,25.0,60&intro=0&debug=1';
 
@@ -31,7 +31,14 @@ function assertValid(out, label) {
     if ('tMs' in out) assert.ok(out.tMs >= MIN_MS && out.tMs <= MAX_MS, `${label}: t`);
     if ('rate' in out) assert.ok(RATES.includes(out.rate), `${label}: rate ${out.rate}`);
     for (const k of ['live', 'playing', 'earthLock', 'intro', 'debug']) if (k in out) assert.equal(typeof out[k], 'boolean', `${label}: ${k}`);
-    if ('view' in out) assert.ok(['orbit', 'sky'].includes(out.view));
+    if ('view' in out) assert.ok(['orbit', 'sky', 'map'].includes(out.view));
+    if (out.observer2) {
+        const o = out.observer2;
+        assert.ok(Number.isFinite(o.latDeg) && Math.abs(o.latDeg) <= 90, `${label}: lat2`);
+        assert.ok(Number.isFinite(o.lonDeg) && o.lonDeg > -180 && o.lonDeg <= 180, `${label}: lon2 ${o.lonDeg}`);
+        assert.ok(o.name.length <= 80 && !/[\u0000-\u001f]/.test(o.name), `${label}: name2`);
+        assert.equal(o.source, 'url');
+    }
     if ('selection' in out) assert.ok(out.selection === null || BODY_IDS.includes(out.selection));
     if ('layers' in out) {
         assert.deepEqual(Object.keys(out.layers).sort(), [...LAYER_KEYS].sort());
@@ -43,6 +50,8 @@ function assertValid(out, label) {
         const c = out.cam;
         if (c.mode === 'orbit') {
             assert.ok(Math.abs(c.latDeg) <= 90 && c.lonDeg > -180 && c.lonDeg <= 180 && c.distance >= 1.08 && c.distance <= 150, `${label}: cam`);
+        } else if (c.mode === 'map') {
+            assert.ok(Math.abs(c.latDeg) <= 90 && c.lonDeg > -180 && c.lonDeg <= 180 && c.distance >= 0.05 && c.distance <= 20, `${label}: map cam`);
         } else {
             assert.equal(c.mode, 'sky');
             assert.ok(c.azDeg >= 0 && c.azDeg < 360 && c.altDeg >= -10 && c.altDeg <= 89 && c.fovDeg >= 0.2 && c.fovDeg <= 100, `${label}: cam`);
@@ -293,7 +302,8 @@ test('fuzz: 1500 random hashes never throw and always validate', () => {
         'loc', 'n', 'cc', 'tz', 'el', 't', 'r', 'p', 'view', 'lock', 'sel', 'ly', 'q', 'cam', 'intro', 'debug', 'o:', 's:',
         'Asia/Saigon', 'UTC', 'Etc/GMT-7', 'now', 'sky', 'orbit', 'mars', 'auto', 'bgoscC', '\u0000', '\uD800', '\uDFFF', '😀', 'ñ',
         ' ', '\n', '?', '/', '\\', '"', "'", '<script>', 'NaN', 'Infinity', '1e999', '-0', '2027-08-02T10:07:00Z', '0500-01-01',
-        '%2B07:00', 'constructor', '__proto__', 'toString', 'loc=1,2', 't=2027', 'r=3600', 'cam=o:1,2,3'];
+        '%2B07:00', 'constructor', '__proto__', 'toString', 'loc=1,2', 't=2027', 'r=3600', 'cam=o:1,2,3',
+        'loc2', 'n2', 'tz2', 'map', 'm:', 'loc2=-33.9,18.4', 'view=map', 'cam=m:1,2,3'];
     for (let i = 0; i < 1000; i++) {
         let s = '';
         const len = Math.floor(rand() * 30);
@@ -301,7 +311,8 @@ test('fuzz: 1500 random hashes never throw and always validate', () => {
         const out = parseHash(s);
         assertValid(out, JSON.stringify(s));
         const hash = serializeHash({
-            state: { ...DEFAULT_STATE, ...(out.observer ? { observer: out.observer } : {}), ...(out.layers ? { layers: out.layers } : {}) },
+            state: { ...DEFAULT_STATE, ...(out.observer ? { observer: out.observer } : {}), ...(out.layers ? { layers: out.layers } : {}),
+                ...(out.observer2 ? { observer2: out.observer2 } : {}) },
             clock: { tMs: out.tMs ?? MIN_MS, rate: out.rate ?? 1, playing: out.playing ?? true, live: out.live ?? true },
             cam: out.cam,
         });
@@ -495,4 +506,38 @@ test('vt: vantage points round-trip in globe view (l1, moon); none and sky view 
     // The camera key keeps the orbit pose a vantage returns to.
     const h = serializeHash({ ...st('orbit', 'moon'), cam: { mode: 'orbit', latDeg: 10, lonDeg: 20, distance: 3.4 } });
     assert.deepEqual(parseHash(h).cam, { mode: 'orbit', latDeg: 10, lonDeg: 20, distance: 3.4 });
+});
+
+test('view=map: the flat world map round-trips with its m: camera; a vantage is never written with it', () => {
+    assert.equal(parseHash('#view=map').view, 'map');
+    assert.equal(parseHash('#view=MAP').view, 'map');
+    assert.deepEqual(parseHash('#view=maps').invalid, ['view']);
+    const st = { view: { mode: 'map', earthLock: true, track: 'none', vantage: 'l1' } };
+    const h = serializeHash({ state: st, cam: { mode: 'map', latDeg: 12.345, lonDeg: -200, distance: 2.5 } });
+    assert.equal(h, '#view=map&cam=m:12.35,160,2.5');
+    const p = parseHash(h);
+    assert.equal(p.view, 'map');
+    assert.deepEqual(p.cam, { mode: 'map', latDeg: 12.35, lonDeg: 160, distance: 2.5 });
+    // Clamped like every camera; the view's own part is picked from a pair.
+    assert.deepEqual(parseHash('#cam=m:95,10,999').cam, { mode: 'map', latDeg: 90, lonDeg: 10, distance: 20 });
+    assert.equal(parseHash('#view=map&cam=o:1,2,3|m:4,5,6').cam.mode, 'map');
+    assert.equal(camToCode({ mode: 'm', lat: 1, lon: 2, dist: 0.0001 }), 'm:1,2,0.05');
+});
+
+test('loc2: a second place round-trips (name, zone); bad values are reported, never applied', () => {
+    const p = parseHash('#loc=52.52,13.4&n=Berlin&loc2=-33.9249,18.4241&n2=Cape+Town&tz2=Africa/Johannesburg');
+    assert.deepEqual(p.observer2, {
+        latDeg: -33.9249, lonDeg: 18.4241, elevM: 0, name: 'Cape Town', country: '', cc: '', tz: 'Africa/Johannesburg',
+        tzApprox: false, source: 'url',
+    });
+    assert.equal(p.invalid, undefined);
+    const h = serializeHash({ state: { observer: p.observer, observer2: p.observer2 } });
+    assert.match(h, /&loc2=-33\.9249,18\.4241&n2=Cape%20Town&tz2=Africa\/Johannesburg/);
+    assert.deepEqual(parseHash(h).observer2, p.observer2);
+    assert.deepEqual(parseHash('#loc2=95,10').invalid, ['loc2']);
+    assert.equal(parseHash('#loc2=95,10').observer2, undefined);
+    assert.deepEqual(parseHash('#loc2=10,20&tz2=Mars/Olympus').invalid, ['tz2']);
+    assert.equal(parseHash('#loc2=10,200').observer2.lonDeg, -160);
+    // Nothing is written without a second place.
+    assert.equal(serializeHash({ state: { observer2: null } }), '');
 });

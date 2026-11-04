@@ -20,18 +20,61 @@ import { COMMON, SURFACE_FRAG } from './common.glsl.js';
 import { ATMO_MODEL } from './atmosphere.glsl.js';
 import { AURORA_CHUNK } from './aurora.glsl.js';
 
-/** Shared by the Earth and the cloud shell (both are spheres in the Earth group). */
+/**
+ * Shared by the Earth and the cloud shell (both are spheres in the Earth group).
+ *
+ * The flat map (ROADMAP globe-to-map-morph, geo/mapview.js): with uMapK > 0 each vertex moves
+ * toward its place on an equirectangular plane, from the sphere's own uv (three's SphereGeometry
+ * duplicates the seam, so the map splits at the antimeridian). The plane is a fixed world frame
+ * (uMapO centre, uMapR east, uMapU north, uMapN toward the camera; uMapLift lifts the cloud deck off
+ * the ground): it is NOT multiplied by modelMatrix, which turns with the Earth (GAST, precession),
+ * so the map holds still while time runs. vPosL, vPosW and vNw stay the sphere's, so day and night,
+ * the terminator, clouds, the eclipse shadow and the sub-points are lit exactly as on the globe.
+ */
 export const SURFACE_VERTEX = /* glsl */ `
+uniform float uMapK;
+uniform vec3 uMapO;
+uniform vec3 uMapR;
+uniform vec3 uMapU;
+uniform vec3 uMapN;
+uniform float uMapLift;
+
 varying vec3 vPosL;
 varying vec3 vPosW;
 varying vec3 vNw;
+varying float vMapV;
 
 void main() {
     vPosL = position;
     vec4 pw = modelMatrix * vec4(position, 1.0);
     vPosW = pw.xyz;
     vNw = mat3(modelMatrix) * normal;
-    gl_Position = projectionMatrix * viewMatrix * pw;
+    vMapV = uv.y;
+    vec3 p = pw.xyz;
+    if (uMapK > 0.0) {
+        vec3 m = uMapO + uMapR * ((uv.x - 0.5) * 6.28318531) + uMapU * ((uv.y - 0.5) * 3.14159265) + uMapN * uMapLift;
+        p = mix(p, m, uMapK);
+    }
+    gl_Position = projectionMatrix * viewMatrix * vec4(p, 1.0);
+}
+`;
+
+/**
+ * The flat map's fragment helpers (both surface shaders): the view direction (on the map the
+ * ground is seen face-on, along its own normal: no limb haze, the glint at the subsolar point)
+ * and the pole rows, which a sphere's fans cannot lay flat (their apex triangles leave a saw edge),
+ * clipped once the morph is under way: the map ends one row short of each pole.
+ */
+export const MAP_FRAG = /* glsl */ `
+uniform float uMapK;
+uniform float uMapClip;     // one sphere row in v (1 / height segments)
+varying float vMapV;
+
+vec3 mapView(vec3 V, vec3 Ng) {
+    return uMapK > 0.0 ? normalize(mix(V, Ng, uMapK)) : V;
+}
+bool mapClipped() {
+    return uMapK > 0.15 && (vMapV < uMapClip || vMapV > 1.0 - uMapClip);
 }
 `;
 
@@ -139,6 +182,20 @@ ${SURFACE_FRAG}
 ${ATMO_MODEL}
 ${CLOUD_LOOKUP}
 ${AURORA_CHUNK}
+${MAP_FRAG}
+
+// The flat map's twilight contours, from the Sun's altitude dot(n, sun) at each point (geocentric,
+// unrefracted): sunrise and sunset (−0.833°, the upper limb on the refracted horizon) in gold, then
+// civil (−6°), nautical (−12°) and astronomical (−18°) twilight in fading blue. About a pixel wide.
+vec3 twilightLines(float mu) {
+    float h = asin(clamp(mu, -1.0, 1.0)) * 57.2957795;
+    float w = max(fwidth(h), 1e-4);
+    float l0 = 1.0 - smoothstep(0.6, 1.4, abs(h + 0.833) / w);
+    float l1 = 1.0 - smoothstep(0.5, 1.2, abs(h + 6.0) / w);
+    float l2 = 1.0 - smoothstep(0.5, 1.2, abs(h + 12.0) / w);
+    float l3 = 1.0 - smoothstep(0.5, 1.2, abs(h + 18.0) / w);
+    return vec3(1.0, 0.70, 0.32) * (0.55 * l0) + vec3(0.42, 0.62, 1.0) * (0.34 * l1 + 0.24 * l2 + 0.16 * l3);
+}
 
 // Moonlight scale (linear HDR) on the face toward a full Moon. Physical moonlight is ~4e-6 of
 // sunlight; this is perceptual, like the clearer-than-life haze. NIGHT_FLOOR: starlight and airglow.
@@ -184,7 +241,7 @@ vec3 nightLights(vec2 uv) {
 void main() {
     vec3 pl = normalize(vPosL);
     vec3 Ng = normalize(vNw);
-    vec3 V = normalize(cameraPosition - vPosW);
+    vec3 V = mapView(normalize(cameraPosition - vPosW), Ng);
     vec3 L = normalize(uSunDirW);
     float mu = dot(Ng, L);
 
@@ -289,6 +346,8 @@ void main() {
     float spec = 3.2 * D_GGX(NoH, A_CORE) * V_SmithFast(NoV, NoLg, A_CORE)
                + 6.5 * D_GGX(NoH, A_SHEEN) * V_SmithFast(NoV, NoLg, A_SHEEN);
     float glint = min(spec * F_Schlick(0.02, VoH) * NoLg * uSunE * uGlintGain, 6.0);
+    // Seen straight down everywhere, the map would blaze one glint at the subsolar point: keep a hint.
+    glint *= 1.0 - 0.85 * uMapK;
     col += sunT * ocean * (1.0 - cloud) * (1.0 - csh) * sunVis * glint;
 
     // --- city lights, night side only, dimmed under clouds (HDR: they bloom). A per-cell jitter
@@ -313,13 +372,14 @@ void main() {
     }
 #endif
 
-    // --- aerial perspective: extinction + in-scatter, clearer than life at the centre ---
-    if (uAtmo > 0.5) {
+    // --- aerial perspective: extinction + in-scatter, clearer than life at the centre (it is a view
+    //     through the air from space, so it fades out as the globe unrolls into the map) ---
+    if (uAtmo > 0.5 && uMapK < 1.0) {
         float edge = 1.0 - NoV;
         vec3 Tv, Si;
         atmAerial(Ng, V, L, mix(0.15, 1.0, edge * edge * edge), uHazeE, Tv, Si);
-        col = col * Tv + Si * sunVis;
-        col += vec3(0.010, 0.016, 0.032) * edge * edge * edge * edge;   // keep the night limb's shape
+        vec3 hazed = col * Tv + Si * sunVis + vec3(0.010, 0.016, 0.032) * edge * edge * edge * edge;   // keep the night limb's shape
+        col = mix(hazed, col, uMapK);
     }
 
     // --- aurora: the modelled oval seen from above (shaders/aurora.glsl.js), over the haze ---
@@ -347,7 +407,12 @@ void main() {
         }
     }
 
+    // --- the map's twilight contours (sunset, civil, nautical, astronomical) ---
+    if (uMapK > 0.0) col += twilightLines(mu) * uMapK;
+
     col *= uFade;
+    // After every derivative above (none are defined once lanes are discarded).
+    if (mapClipped()) discard;
     gl_FragColor = vec4(col, 1.0);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>

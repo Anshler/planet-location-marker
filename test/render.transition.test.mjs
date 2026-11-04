@@ -92,7 +92,8 @@ test('the globe, its clouds and its atmosphere fade with the ground cover; settl
     assert.equal(cover(0), 0);
     assert.equal(cover(1), 1);
     const atmo = fs.readFileSync(path.join(ROOT, 'js/render/atmosphere.js'), 'utf8');
-    assert.match(atmo, /uIntensity\.value = 1 - cover;/);
+    // × the flat map's fade (globe-to-map-morph), 1 off the map.
+    assert.match(atmo, /uIntensity\.value = \(1 - cover\) \* \(1 - mapK\)/);
     const earth = fs.readFileSync(path.join(ROOT, 'js/render/earth.js'), 'utf8');
     assert.match(earth, /cloudFade\.value = 1 - groundCover\(skyBlend\);/);
     const ground = fs.readFileSync(path.join(ROOT, 'js/render/ground.js'), 'utf8');

@@ -5,6 +5,10 @@
  * worker precaches them, so they work offline from the first visit on, text mode included). No
  * three.js, no DOM.
  *
+ * The satellites ('sat:<id>', astro/satellites.js and its SGP4) load once data/tle.json has
+ * arrived: the module is imported then, so it stays off the boot path. The service worker fetches
+ * that file network-first (the deploy refreshes it daily), falling back to its cached copy.
+ *
  * Catalogue stars ('star:<hip>') register with `registerStars` once the sky catalogue is decoded:
  * their provider keeps a registry slot only for the star being looked at (astro/stars.js), follows
  * the selection (`syncStarSelection`), and fetches data/starinfo.json (designations, parallaxes)
@@ -24,6 +28,8 @@ import { decodeStarInfo } from '../data/starinfo.js';
 export const CRAFT_URL = 'data/craft.json';
 /** The deep-sky showpieces (scripts/build-dso.mjs). */
 export const DSO_URL = 'data/dso.json';
+/** Two-line element sets for the satellites (scripts/fetch-tle.mjs; refreshed daily by the deploy). */
+export const TLE_URL = 'data/tle.json';
 /** Star designations and parallaxes (scripts/build-sky.mjs). */
 export const STARINFO_URL = 'data/starinfo.json';
 
@@ -31,7 +37,7 @@ export const STARINFO_URL = 'data/starinfo.json';
  * @param {ReturnType<import('../astro/extras.js').createExtras>} extras
  * @param {{fetchJson:(url:string)=>Promise<any>, onDso?:(provider:any)=>void}} deps `fetchJson`
  *   resolves null on failure; `onDso` receives the deep-sky provider (render/dso.js draws its list)
- * @returns {Promise<boolean>} resolves once the spacecraft and deep-sky objects are in (false if either is missing)
+ * @returns {Promise<boolean>} resolves once the spacecraft, deep-sky objects and satellites are in (false if any is missing)
  */
 export function registerExtras(extras, { fetchJson, onDso = () => {} }) {
     try {
@@ -62,7 +68,18 @@ export function registerExtras(extras, { fetchJson, onDso = () => {} }) {
             return false;
         }
     });
-    return Promise.all([craft, dso]).then(([a, b]) => a && b);
+    const sats = fetchJson(TLE_URL).then(async (json) => {
+        if (!json) return false;
+        try {
+            const m = await import('../astro/satellites.js');
+            extras.register(m.createSatProvider(m.decodeTle(json), { json }));
+            return true;
+        } catch (err) {
+            console.error('[extras] data/tle.json could not be decoded', err);
+            return false;
+        }
+    });
+    return Promise.all([craft, dso, sats]).then(([a, b, c]) => a && b && c);
 }
 
 /**

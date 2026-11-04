@@ -392,6 +392,52 @@ libration = AE.Libration(t)                               // 'full' only: it fee
   geometric). A visibility test, not the DSN schedule: Voyager 2, at −60° declination, is only ever
   in Canberra's view.
 
+### 5c′. Satellites: the ISS, Tiangong, Hubble and bright rocket bodies (`js/astro/sgp4.js`, `js/astro/satellites.js`)
+
+- **Elements.** Two-line element sets (TLEs) from CelesTrak's GP service for six objects: the ISS
+  (NORAD 25544), Tiangong's Tianhe core (48274), Hubble (20580) and three SL-16 (Zenit-2) second
+  stages (22285, 25407, 31793), in `data/tle.json` (`scripts/fetch-tle.mjs`; the deploy refreshes the
+  staged copy daily, the page never goes online for it). Every set is checked: both checksums, the
+  catalogue number, near-Earth (period < 225 min), under 30 days old when fetched.
+- **Propagation.** Near-Earth SGP4 as revised by Vallado, Crawford, Hujsak & Kelso (2006,
+  "Revisiting Spacetrack Report #3", AIAA 2006-6753), with the WGS-72 constants the element sets
+  are fitted with: secular J2/J4 and drag (`bstar`), long-period J3, Kepler's equation for the
+  true longitude, short-period J2 corrections; the perigee < 220 km simplification and the
+  < 156 km atmosphere fix are kept. SDP4 (deep space) is not implemented: such orbits are rejected.
+  **Verified** against Vallado's published TEME vectors for every near-Earth case of
+  `SGP4-VER.TLE` (00005, 06251, 22312, 28057, 28350, 28872, 29141, 29238, 88888; 158 rows): within
+  0.01 mm in position and 0.001 mm/s in velocity (`test/astro.sgp4.test.mjs`).
+- **Frames.** SGP4's TEME (true equator, mean equinox of date) becomes Earth-fixed through GMST
+  (IAU 1982, Vallado's `gstime`, with UTC for UT1: ≤ 0.4 km at the equator); polar motion (≈ 10 m)
+  is ignored. The observer stands on the WGS-84 ellipsoid (geodetic latitude, height). For the
+  scene, the topocentric vector goes through the snapshot's `earthMatrix` = S·PN·Rz(GAST)·Sᵀ, so
+  EQJ = PN·Rz(GAST − GMST)·TEME, i.e. TEME is turned by the equation of the equinoxes and the
+  precession–nutation matrix, as it should be. Between two snapshots the satellite moves with
+  time while the Earth's orientation is the snapshot's: against the stars that costs ≤ 7.5″
+  (0.5 s of the Earth's turn); against the drawn horizon and globe nothing.
+- **Sun and shadow.** The Sun from the Astronomical Almanac's low-precision formulae (mean
+  longitude, mean anomaly, equation of centre, obliquity of date; ≈ 0.01°, tested against Astronomy
+  Engine to 0.02° and 2e-4 AU). The satellite is lit by the fraction of the Sun's disc the Earth's
+  disc leaves uncovered, both seen from the satellite (`shadow.discVisibleFraction`: Sun radius
+  asin(R☉/d), Earth radius asin(6378.137 km/r)): a penumbra-correct fade over a few seconds. No
+  atmosphere is added to the Earth's disc; real satellites redden and fade a few seconds earlier
+  and later than this geometric edge.
+- **Brightness (approximate).** m = m₀ − 15.75 + 2.5·log10(ρ² / f), ρ the range in km and
+  f = (1 + cos φ)/2 the illuminated fraction of a diffuse sphere at phase angle φ (Sun–satellite–
+  observer), so m₀ is the magnitude at 1000 km, half lit (the McCants / Heavens-Above convention),
+  minus 2.5·log10 of the sunlit fraction; nothing in the umbra. Standard magnitudes: ISS −1.8,
+  Tiangong −0.6, Hubble +2.2, the Zenit stages +2.3 — estimates good to about ±0.5 mag; attitude,
+  solar-panel glints and tumbling change the real brightness by a magnitude or more. Atmospheric
+  extinction is applied by the star shader in sky view, not in the pass list.
+- **Staleness.** TLE positions drift by a few km a day (along-track mostly, more after a reboost or
+  under high solar activity), so a satellite is drawn only within 14 days of its elements' epoch,
+  is flagged approximate after 3 days, and its card gives the elements' date and age.
+- **Passes** (worker): rise and set found on 60 s steps and bisected to 0.5 s; inside, 5 s samples
+  of 'visible' — at least 10° up, at least half the Sun's disc on it, the Sun at most −6° (civil
+  twilight's end) — refined by bisection; the peak by golden-section search on altitude. A pass is
+  listed when its visible part lasts at least 60 s. Times inherit the elements' error: tens of
+  seconds after a few days for the ISS. Geometric altitudes (≥ 10°, refraction ≤ 0.1°).
+
 ### 5d. Proper motion and the precessing pole (`js/data/catalog.js`, `js/astro/precession.js`)
 
 - **Data.** Proper motions come from Hipparcos, the New Reduction (van Leeuwen 2007; the NASA
@@ -1097,6 +1143,9 @@ altitudes 64.6° and 17.7° at the solstices, sunrise azimuths 51° and 125°; t
 | Halley's Comet | < 0.3′ against Horizons (same orbits); ≈ 1° absolute in 1066 and 1456 | Two-body propagation within ±1.5 years of each perihelion (§5b). Tails illustrative. |
 | Guest stars | position exact (remnant); brightness ±1 mag | Light curves are templates between the recorded dates (§5a). |
 | Spacecraft | ≤ 0.001° (0.01° JWST) | Hermite knots against Horizons; straight-line 'projected' past 2100 / 2050 (§5c). |
+| Satellites (SGP4) | ≤ 1 mm against Vallado's vectors; a few km a day from the elements' epoch | The propagator is exact to the published test cases; the error is the element set's own (§5c′). Shown within 14 days of the epoch only. |
+| Satellite brightness | ±0.5 mag (standard magnitudes), more with attitude | Diffuse-sphere phase law; glints and tumbling not modelled (§5c′). |
+| Earth's shadow on a satellite | a few seconds | Geometric Earth disc, no atmosphere; penumbra from the Sun's disc (§5c′). |
 | Calendar | exact | Julian before 15 Oct 1582 everywhere; the local adoption date is not modelled (§1). |
 | Meteor-shower peaks | ≲ 1 h against the IMO calendar | λ☉ (J2000) + precession through `SearchSunLongitude` (§7b). Real maxima vary from year to year; outbursts are not modelled. |
 | Meteor rates | a factor of ~2 | Expected values for one observer (ZHR, r, the radiant's altitude, the modelled sky's limiting magnitude). The meteors drawn are illustrative. |
@@ -1121,6 +1170,9 @@ altitudes 64.6° and 17.7° at the solstices, sunrise azimuths 51° and 125°; t
   `AE.SearchLocalSolarEclipse` for the eclipses of 2026, 2027 (total and annular) and 2028, and a
   Sky panel that never reads "Partial … 100.0 %";
 - the globe's umbra half-width on 2027-08-02 (≈ 129 km) and totality's star limit (≤ 2.5);
+- SGP4 against Vallado's published vectors for every near-Earth case (158 rows, ≤ 1 mm), GMST at
+  J2000.0 and Vallado's example 3-5, the low-precision Sun against Astronomy Engine (0.02°), and
+  each listed satellite pass visible from start to end;
 - Polaris from the pole of date in 1000, 2000, 2026, 2100 and 3000 (6.21°, 0.74°, 0.63°, 0.46°,
   5.05°), the equinox entering Aquarius in 2597–2600, Arcturus's proper motion against a rigorous
   space-motion calculation (< 1′), and nine deep-sky positions against published J2000 values;
@@ -1135,6 +1187,14 @@ altitudes 64.6° and 17.7° at the solstices, sunrise azimuths 51° and 125°; t
 - **JPL Horizons.** NASA/JPL-Caltech, <https://ssd.jpl.nasa.gov/horizons/>: spacecraft state
   vectors (`data/craft.json`), Halley's per-apparition elements and the reference ephemerides in
   `test/astro.comets.test.mjs` and `test/astro.craft.test.mjs` (retrieved 2026-11-04).
+- **Satellites.** Element sets: CelesTrak (T. S. Kelso), <https://celestrak.org>, GP data of the 18th
+  Space Defense Squadron (`data/tle.json`, retrieved 2026-11-04 and daily by the deploy). SGP4:
+  D. A. Vallado, P. Crawford, R. Hujsak & T. S. Kelso (2006), "Revisiting Spacetrack Report #3",
+  AIAA 2006-6753 (rev. 3), and F. R. Hoots & R. L. Roehrich (1980), *Spacetrack Report No. 3*; the
+  verification files SGP4-VER.TLE and tcppver.out as distributed with python-sgp4 (B. Rhodes, MIT)
+  (`test/fixtures/sgp4-vallado.json`, near-Earth cases). Low-precision Sun: *The Astronomical
+  Almanac*, section C ("Low precision formulas for the Sun"). Standard magnitudes after the
+  McCants / Heavens-Above convention (1000 km, 50 % illuminated), rounded estimates.
 - **Halley's orbits.** D. K. Yeomans & T. Kiang (1981), "The long-term motion of comet Halley",
   *MNRAS* 197, 633. FK4 → FK5: E. M. Standish (1982), *A&A* 115, 20.
 - **Historical supernovae.** F. R. Stephenson & D. A. Green (2002), *Historical Supernovae and their

@@ -49,6 +49,9 @@ const QUALITY_SETTINGS = new Set(['auto', 'low', 'medium', 'high', 'max']);
 const MAX_UNDO = 12;
 const MAX_RECENT = 8;
 const JUMP_ANIMATE_MS = 1400;
+/** 'Watch this pass' starts the clock this long before the satellite becomes visible. */
+export const PASS_LEAD_MS = 30000;
+const COMPASS8 = Object.freeze(['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west']);
 /** An event flight lasts the time sweep plus this (the globe ↔ sky transitions take 1.8 s). */
 const EVENT_FLY_EXTRA_MS = 400;
 const DAY_MS = 864e5;
@@ -70,7 +73,7 @@ export const LAYER_LABELS = Object.freeze({
     milkyWay: 'Milky Way', clouds: 'Clouds', atmosphere: 'Atmosphere', ecliptic: 'Ecliptic', eqGrid: 'Equatorial grid (of date)',
     altAzGrid: 'Horizon grid', horizon: 'Horizon disc', footprint: 'Visibility footprint', subpoints: 'Sub-points',
     trails: 'Path of selected body', labels: 'Labels', landscape: 'Illustrative landscape',
-    sunPath: 'Sun paths and analemma', meteors: 'Meteors',
+    sunPath: 'Sun paths and analemma', meteors: 'Meteors', satellites: 'Satellites',
 });
 
 const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
@@ -1439,6 +1442,49 @@ export function createActions(deps) {
     }
 
     /**
+     * data/tle.json as the satellites' provider holds it (astro/satellites.js; the worker's
+     * 'satPasses' input), or null until it has loaded.
+     * @returns {any}
+     */
+    function satelliteElements() {
+        try {
+            return extras?.provider?.('sat')?.elements?.() ?? null;
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * 'Watch this pass' (a SatPass from the worker's 'satPasses'): the clock cut to PASS_LEAD_MS
+     * before the visible part begins and playing at 1×, the satellite selected, and in sky view
+     * tracked across the sky. A cut, not a sweep: tracking lets go of a target that is below the
+     * horizon on the way.
+     * @param {{id:string, startMs:number, startAzDeg?:number, startAltDeg?:number}} pass
+     * @returns {boolean} applied
+     */
+    function watchPass(pass) {
+        if (!pass || !isExtraId(pass.id) || !Number.isFinite(pass.startMs)) return false;
+        chase.stop();
+        clock.pause();
+        clock.setTime(pass.startMs - PASS_LEAD_MS, { animateMs: 0 });
+        clock.setRate?.(1);
+        clock.play?.();
+        setEclipseFocus(pass);
+        const st = store.get();
+        if (!st.layers.satellites) store.set({ layers: { ...st.layers, satellites: true } }, 'actions');
+        if (st.selection !== pass.id) store.set({ selection: pass.id }, 'actions');
+        const az = Number(pass.startAzDeg);
+        if (has3d() && !st.status.introPlaying) {
+            const look = Number.isFinite(az) ? { azDeg: az, altDeg: Math.max(8, Number(pass.startAltDeg) || 10) } : undefined;
+            settle(rig().setMode?.('sky', { animate: !reducedMotion(), look }));
+            store.set({ view: { ...store.get().view, mode: 'sky', track: 'body', vantage: 'none' } }, 'event');
+        }
+        const where = Number.isFinite(az) ? ` low in the ${COMPASS8[Math.round(((az % 360) + 360) % 360 / 45) % 8]}` : '';
+        say(`Watching ${nameOf(pass.id)}: it appears${where} in ${Math.round(PASS_LEAD_MS / 1000)} seconds`);
+        return true;
+    }
+
+    /**
      * Guided tours (js/app/tours.js, which main.js loads on demand; ids in core/tour-catalog.js).
      * `deps.tours` is {start(id), stop(), next(), resume()}; without it (tests, a failed load) the
      * calls do nothing. startTour resolves true once the tour runs.
@@ -1471,6 +1517,8 @@ export function createActions(deps) {
         get recording() { return recording !== null; },
         // Phase 5: finding it in the real sky (the angle ruler, pointing the phone).
         setRuler, pointAtSky, alignAim,
+        // Phase 6: satellites (the worker's pass search input, 'Watch this pass').
+        satelliteElements, watchPass,
         /**
          * Rides the Moon's shadow: the camera follows the umbra from low orbit while the clock runs
          * the path of the central eclipse near `target` (a time or an event) in about 40 s.

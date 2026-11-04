@@ -12,6 +12,7 @@
     "vendor:check": "node scripts/fetch-vendor.mjs --check",
     "data": "node scripts/build-sky.mjs && node scripts/build-dso.mjs && node scripts/build-milkyway.mjs && node scripts/build-cities.mjs",
     "stars": "node scripts/build-stars.mjs",
+    "tle": "node scripts/fetch-tle.mjs",
     "icons": "node scripts/build-icons.mjs",
     "textures": "node scripts/build-textures.mjs",
     "textures:check": "node scripts/build-textures.mjs --check",

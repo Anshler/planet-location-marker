@@ -36,7 +36,9 @@
 // their at-infinity direction (`dirS` of their ExtraState in snap.extras), in orbit and sky view, as
 // their meta says ('always' or only while 'selected'); a `gate` hides them while not `present`.
 // Deep-sky objects (meta `skyOnly`, `nightMag`) are named only in sky view and follow the drawn sky
-// like star names; a selected catalogue star is labelled once, as the selection. Guide marks with
+// like star names; a selected catalogue star is labelled once, as the selection. Satellites (glyph
+// 'sat') sit on their moving dot in the globe view (the state's live posS) and, in sky view, are
+// named only while they can be seen (their magnitude, gated like a star's). Guide marks with
 // their own anchors (render/precession.js: century ticks, pole stars, the pole and equinoxes of
 // date) come through `getSkyMarks`.
 //
@@ -265,6 +267,11 @@ function extraAnchors(out, state, snap, extras, sky, live) {
             below: labelBelow(st, sky),
         };
         if (along) { a.posS = along; a.alongBeam = true; }
+        // A satellite's label sits on its dot in the globe view (render/satellites.js), which moves every frame.
+        if (!sky && meta.glyph === 'sat' && st.data?.posS) a.posS = st.data.posS;
+        // In sky view it is named only while it can be seen (lit, bright enough for this sky; its
+        // magnitude follows it every frame, `satMag`), like a star, unless selected.
+        if (sky && meta.glyph === 'sat' && !selected) { a.satMag = true; a.mag = 99; a.night = true; a.hidden = false; a.faint = false; }
         // `nightMag` (deep-sky objects): the name follows the drawn sky like a star name (syncNames).
         if (Number.isFinite(meta.nightMag) && !selected) { a.mag = meta.nightMag; a.night = true; a.hidden = false; a.faint = false; }
         out.push(a);
@@ -823,6 +830,7 @@ export function createLabelsFeed({ labels, store, snap, getCatalog = () => null,
             const a = extraList[i];
             a.below = labelBelow(extraStates[i], sky, view && view.horizon);
             if (a.alongBeam && !sky && mode !== 'map') alongBeam(a.posS, extraStates[i], snap, camera);
+            if (a.satMag === true) a.mag = Number.isFinite(extraStates[i].mag) ? extraStates[i].mag : 99;
         }
         syncNames(view);
     }

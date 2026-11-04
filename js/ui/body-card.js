@@ -35,6 +35,7 @@ import { createYearPlanner } from './year-planner.js';
 import { findIt, guideRefs } from '../astro/sky-guide.js';
 import { isExtraId } from '../core/selection.js';
 import { extraSky } from '../astro/extras.js';
+import { createPassBox } from './sat-passes.js';
 
 const SYNODIC_DAYS = 29.530589;
 
@@ -96,6 +97,8 @@ export function mountBodyCard(root, ctx) {
     const eyepiece = createEyepiece();
     // The 12-month planner (planets) and the Sun's solstice paths in words (ui/year-planner.js).
     const planner = createYearPlanner(ctx);
+    // A satellite's next visible passes, with 'Watch this pass' (ui/sat-passes.js).
+    const passBox = createPassBox(ctx);
 
     const actLook = actionBtn('sky', 'Look from here', 'Stand at the observer and look toward it');
     const actCenter = actionBtn('target', 'Center', 'Turn the view toward it');
@@ -155,7 +158,7 @@ export function mountBodyCard(root, ctx) {
             h('div', { class: 'card__disc' }, disc),
             h('div', { class: 'card__titles' }, nameEl, kindEl),
             verdict),
-        sentence, findLine, light, moonLine, xBox, eyepiece.el, actions, tonight, planner.el, grid, tableNote);
+        sentence, findLine, light, moonLine, xBox, passBox.el, eyepiece.el, actions, tonight, planner.el, grid, tableNote);
 
     root.append(empty, card);
 
@@ -218,6 +221,7 @@ export function mountBodyCard(root, ctx) {
         if (id !== shownId) {
             shownId = id;
             xBox.hidden = true;
+            passBox.update(null, null);
             eyepiece.el.hidden = false;
             for (const k of ['phase', 'elong', 'size', 'date', 'sub']) facts[k].el.hidden = false;
             const b = BODIES[BODY_INDEX[id]];
@@ -258,9 +262,12 @@ export function mountBodyCard(root, ctx) {
         const st = ui.bodyOf(snap, id);
         const info = st ? ctx.extras?.card?.(id, snap) ?? null : null;
         const name = m?.name ?? id;
+        passBox.update(id, snap);
         if (!st) {
             setText(kindEl, m ? `${m.kindLabel || ''}` : 'Loading…');
-            setText(sentence, m ? `${name} is not in the sky at this date.` : 'Its data is still loading.');
+            setText(sentence, !m ? 'Its data is still loading.' : m.kind === 'sat'
+                ? `${name} is not shown at this date: its orbital elements are only used ${ctx.extras?.provider?.('sat')?.validDays ?? 14} days either side of their own date.`
+                : `${name} is not in the sky at this date.`);
             findLine.hidden = true;
             light.hidden = true;
             xLines.replaceChildren();
@@ -484,7 +491,7 @@ export function mountBodyCard(root, ctx) {
 
     return {
         update,
-        destroy() { offs.forEach((off) => off()); eyepiece.destroy(); planner.destroy(); root.textContent = ''; },
+        destroy() { offs.forEach((off) => off()); eyepiece.destroy(); planner.destroy(); passBox.destroy(); root.textContent = ''; },
     };
 }
 
@@ -626,6 +633,17 @@ export function drawExtraGlyph(cv, color, kind) {
         c.lineWidth = 1.5;
         c.beginPath(); c.moveTo(4, 60); c.lineTo(22, 42); c.stroke();
         c.setLineDash([]);
+    } else if (kind === 'sat') {
+        // A satellite: a bright body between two panels, on a dashed arc across the sky.
+        c.strokeStyle = `rgba(${r},${g},${b},0.6)`;
+        c.lineWidth = 1.4;
+        c.setLineDash([3, 4]);
+        c.beginPath(); c.arc(32, 64, 40, Math.PI * 1.15, Math.PI * 1.85); c.stroke();
+        c.setLineDash([]);
+        c.fillStyle = `rgb(${r},${g},${b})`;
+        c.fillRect(13, 24, 13, 8);
+        c.fillRect(38, 24, 13, 8);
+        glow(32, 28, 9, 1);
     } else {
         glow(32, 32, 22, 1);
         c.strokeStyle = `rgba(${r},${g},${b},0.55)`;

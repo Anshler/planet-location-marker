@@ -1,6 +1,9 @@
 name: Deploy to GitHub Pages
 
-# Deploys main after CI has passed on it (or manually). One-time setup in the repository:
+# Deploys main after CI has passed on it (or manually), and once a day so the satellites' orbital
+# elements stay fresh: every deploy writes a fresh data/tle.json (scripts/fetch-tle.mjs, CelesTrak)
+# into the staged site only. Nothing is committed; the repository's copy is the fallback when
+# CelesTrak is unreachable. One-time setup in the repository:
 # Settings → Pages → Build and deployment → Source: GitHub Actions.
 # (A plain "Deploy from a branch: main / root" setup also keeps working — the site needs no
 # build step; .nojekyll stops Jekyll from touching it.)
@@ -11,8 +14,12 @@ on:
     types: [completed]
     branches: [main]
   workflow_dispatch:
+  # Daily, for the satellites' element sets (data/tle.json); the site is otherwise unchanged.
+  schedule:
+    - cron: "17 4 * * *"
 
 permissions:
+  actions: read
   contents: read
   pages: write
   id-token: write
@@ -23,7 +30,7 @@ concurrency:
 
 jobs:
   deploy:
-    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push') }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push') }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment:
@@ -35,6 +42,13 @@ jobs:
           # Deploy exactly the commit CI tested.
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
+      # A scheduled refresh redeploys main only where CI passed on that very commit.
+      - name: CI passed on this commit
+        if: github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: test "$(gh run list --repo ${{ github.repository }} --workflow CI --commit ${{ github.sha }} --json conclusion --jq '.[0].conclusion')" = success
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -43,6 +57,14 @@ jobs:
       # graphify-out/, .claude/ (see scripts/stage-site.mjs; same list as the size budget).
       - name: Stage the site
         run: node scripts/stage-site.mjs _site
+
+      # Today's orbital elements into the staged copy only (the page itself never contacts CelesTrak).
+      # The script checks every set (checksums, catalogue number, SGP4 accepts it, under 30 days
+      # old) and keeps the committed one for any that fails; a CelesTrak outage must not stop the
+      # deploy. No test depends on the date, so CI stays green however old the committed file gets.
+      - name: Fresh satellite elements
+        continue-on-error: true
+        run: node scripts/fetch-tle.mjs --out=_site/data/tle.json
 
       - name: Staged size
         run: du -sh _site && find _site -type f | wc -l

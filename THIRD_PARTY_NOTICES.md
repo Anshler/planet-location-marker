@@ -19,6 +19,8 @@ those files are recorded, with their source, recipe and hash, in
 | Max-quality textures by [Solar System Scope](https://www.solarsystemscope.com/textures/) (8K Earth day, night and cloud maps, 8K Moon) | downloaded 2026-11, pinned by SHA-256 | CC BY 4.0 | `assets/textures/earth_day_8192.jpg`, `earth_night_8192.jpg`; derived: `earth_clouds_8192.webp`, `moon_4096.webp` |
 | Moon texture from the three.js examples (NASA-derived imagery) | three.js r170 | see below | `assets/textures/moon_1024.jpg` |
 | [JPL Horizons](https://ssd.jpl.nasa.gov/horizons/) spacecraft state vectors (Voyager 1, Voyager 2, New Horizons, JWST) | retrieved 2026-11-04 (`scripts/build-craft.mjs`) | public data, see below | `data/craft.json` (derived) |
+| [CelesTrak](https://celestrak.org/) GP element sets (two-line elements) of the ISS, Tiangong, Hubble and three SL-16 rocket bodies | retrieved 2026-11-04 (`scripts/fetch-tle.mjs`), refreshed by each deploy | public data, see below | `data/tle.json` |
+| SGP4 verification files `SGP4-VER.TLE` and `tcppver.out` (Vallado et al. 2006), as distributed with [python-sgp4](https://github.com/brandon-rhodes/python-sgp4) | rev. 3 | MIT (python-sgp4), published test data | `test/fixtures/sgp4-vallado.json` (near-Earth cases, extracted; tests only) |
 | JPL Horizons / DASTCOM orbital elements of 1P/Halley (records 90000018, 90000023, 90000029, 90000030; the old apparitions after Yeomans & Kiang 1981) | retrieved 2026-11-04 | public data, see below | `js/astro/comets.js` (transcribed) |
 | Historical supernova dates and magnitudes (Stephenson & Green 2002; Tycho, Kepler; remnant positions) | — | facts, cited | `js/astro/guest-stars.js` |
 
@@ -202,6 +204,18 @@ subject to copyright in the United States). The
 three.js repository states no separate licence for it beyond its MIT licence above.
 
 Courtesy: NASA Visible Earth / Goddard Space Flight Center — <https://visibleearth.nasa.gov/>.
+
+## Satellite element sets and the SGP4 test vectors
+
+`data/tle.json` holds general-perturbations element sets of the 18th Space Defense Squadron as
+redistributed by CelesTrak (T. S. Kelso, <https://celestrak.org/>), fetched at build and deploy
+time only by `scripts/fetch-tle.mjs`; the page itself never contacts CelesTrak. These orbital data
+are public (US Government) data; CelesTrak is credited here as it requests. `js/astro/sgp4.js` is
+an independent implementation of the published SGP4 algorithm (Hoots & Roehrich 1980, *Spacetrack
+Report No. 3*, as revised by Vallado, Crawford, Hujsak & Kelso, AIAA 2006-6753). The verification
+vectors in `test/fixtures/sgp4-vallado.json` are extracted from Vallado's `SGP4-VER.TLE` and
+`tcppver.out` as distributed with python-sgp4 (Brandon Rhodes, MIT licence); they are used by the
+tests only and are not shipped with the site.
 
 ## JPL Horizons data
 

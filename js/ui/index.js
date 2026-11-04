@@ -355,11 +355,14 @@ function createUiHub(ctx, rootEl) {
         day: null,       // {data, fromMs, toMs, key}
         night: null,     // {tonight, twilight, reqMs, key}
         sun: null,       // {fromMs, toMs, values, key}  (the app's boot-time series; the time bar keeps its own)
-        pending: { next: null, day: null, night: null, events: null },
-        lastReq: { next: 0, day: 0, night: 0, events: 0 },
-        fails: { next: 0, day: 0, night: 0, events: 0 },
+        pending: { next: null, day: null, night: null, events: null, passes: null },
+        // passes: no wait at boot (data/tle.json may arrive while the clock is paused, with no readout to retry on).
+        lastReq: { next: 0, day: 0, night: 0, events: 0, passes: -Infinity },
+        fails: { next: 0, day: 0, night: 0, events: 0, passes: 0 },
     };
     const events = { list: null, fromMs: NaN, toMs: NaN, key: '', lp: 0, source: '' };
+    /** The satellites' next visible passes (astro/satellites.js SatPass[], the worker's 'satPasses'). */
+    const passes = { list: null, fromMs: NaN, toMs: NaN, key: '', tle: null };
 
     const observerKey = (o = ctx.store.get().observer) =>
         `${(+o.latDeg).toFixed(4)},${(+o.lonDeg).toFixed(4)},${Math.round(+o.elevM || 0)}`;
@@ -474,6 +477,24 @@ function createUiHub(ctx, rootEl) {
                 em.emit('events', events);
             });
         }
+
+        // Satellite passes (Events, the satellite's card): the next 10 days of the simulated time,
+        // once data/tle.json is in; again when the place or the elements change, or time leaves the window.
+        const tle = ctx.actions?.satelliteElements?.() ?? null;
+        const pStale = tle && (!passes.list || passes.key !== key || passes.tle !== tle
+            || t < passes.fromMs || t > passes.fromMs + 2 * DAY);
+        if (pStale && !alm.pending.passes && now - alm.lastReq.passes > gapFor('passes', 3000)) {
+            const fromMs = t - 20 * 60e3;
+            request('passes', 'satPasses', { tle, observer: astroObserver(st.observer), fromMs, days: 10 }, (list) => {
+                if (!Array.isArray(list)) return;
+                passes.list = list;
+                passes.fromMs = fromMs;
+                passes.toMs = fromMs + 10 * DAY;
+                passes.key = key;
+                passes.tle = tle;
+                em.emit('passes', passes);
+            });
+        }
     }
 
     function firstEvent(data, fromMs) {
@@ -520,8 +541,8 @@ function createUiHub(ctx, rootEl) {
     }
 
     function invalidateAlmanac() {
-        for (const k of ['next', 'day', 'night', 'events']) {
-            alm.pending[k]?.abort(); alm.pending[k] = null; alm.lastReq[k] = 0; alm.fails[k] = 0;
+        for (const k of ['next', 'day', 'night', 'events', 'passes']) {
+            alm.pending[k]?.abort(); alm.pending[k] = null; alm.lastReq[k] = k === 'passes' ? -Infinity : 0; alm.fails[k] = 0;
         }
         alm.next = alm.day = alm.night = null;
         em.emit('almanac', alm);
@@ -563,6 +584,7 @@ function createUiHub(ctx, rootEl) {
         snap: null,
         almanac: alm,
         events,
+        passes,
         layout: 'desktop',
         scrubbing: false,
         on: em.on,

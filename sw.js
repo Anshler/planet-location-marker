@@ -2,6 +2,9 @@
 //
 // Strategies (SPEC §C.4):
 //   vendor/ assets/ data/  cache-first          immutable within a VERSION
+//   data/tle.json          network-first (3 s)  the satellites' element sets: the deploy refreshes
+//                                               them daily without a new VERSION, so a returning
+//                                               visitor gets today's file, offline the cached one
 //   js/ css/               stale-while-revalidate
 //   index.html / navigations to the app  network-first (4 s), falling back to the cached shell
 // Everything else (other origins such as the optional geocoders, the manifest, sw.js itself)
@@ -20,13 +23,17 @@ const CACHE = `${PREFIX}${VERSION}`;
 const SCOPE = new URL('./', self.location).href;   // works under a GitHub Pages sub-path
 const SHELL_KEY = new URL('index.html', SCOPE).href;
 const NAV_TIMEOUT_MS = 4000;
+const DATA_TIMEOUT_MS = 3000;
+// data/tle.json (astro/satellites.js) is rewritten by every daily deploy (scripts/fetch-tle.mjs),
+// so it is network-first rather than cache-first per VERSION.
+const FRESH_DATA = new Set(['data/tle.json']);
 // data/craft.json (the spacecraft, astro/craft.js) and data/dso.json (the deep-sky objects,
 // astro/dso.js) are fetched after boot, off the critical path, and data/starinfo.json (star
 // designations and parallaxes, astro/stars.js) when a star is first selected; all three are
 // precached so they work offline from the first visit on. data/stars8.json (the max tier's deeper
 // stars, ≈ 1.1 MB) is not: it is cached on first use, on that tier only.
 const PRECACHE = ['index.html', 'manifest.webmanifest', 'assets/icons/favicon.svg', 'assets/icons/icon-192.png', 'data/craft.json',
-    'data/dso.json', 'data/starinfo.json'];
+    'data/dso.json', 'data/starinfo.json', 'data/tle.json'];
 
 /** Path of a same-scope URL relative to the scope, without query or hash ('' = the root). */
 function scopedPath(url) {
@@ -68,6 +75,23 @@ async function staleWhileRevalidate(event) {
         return hit;
     }
     return update;
+}
+
+async function networkFirst(event) {
+    const req = event.request;
+    try {
+        const res = await Promise.race([
+            fetch(req, { cache: 'no-cache' }),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), DATA_TIMEOUT_MS)),
+        ]);
+        if (cacheable(res)) event.waitUntil(put(req, res.clone()));
+        if (res.ok) return res;
+        throw new Error(`HTTP ${res.status}`);
+    } catch {
+        const hit = await caches.match(req, { cacheName: CACHE, ignoreSearch: true });
+        if (hit) return hit;
+        return fetch(req);
+    }
 }
 
 async function networkFirstShell(event) {
@@ -119,6 +143,7 @@ self.addEventListener('fetch', (event) => {
 
     let handler = null;
     if (rel === '' || rel === 'index.html') handler = networkFirstShell;
+    else if (FRESH_DATA.has(rel)) handler = networkFirst;
     else if (/^(vendor|assets|data)\//.test(rel)) handler = cacheFirst;
     else if (/^(js|css)\//.test(rel)) handler = staleWhileRevalidate;
     if (!handler) return;

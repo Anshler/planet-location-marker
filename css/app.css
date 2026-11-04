@@ -1395,6 +1395,12 @@ body.no-webgl .vb-ruler, body.no-webgl .vb-point { display: none; }
 .card__xline:first-child { padding: 9px 11px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255, 255, 255, .04); }
 .facts--extra { margin-top: 2px; }
 .card__caveat, .card__sources { margin-top: 2px; }
+/* A satellite's next visible passes (ui/sat-passes.js), with 'Watch this pass'. */
+.sat-passes { margin: 12px 0 4px; }
+.sat-passes[hidden] { display: none; }
+.sat-passes__head { margin: 0 0 4px; color: var(--text-2); font-size: 12px; line-height: 1.4; }
+.sat-passes__list { margin: 0; padding: 0; list-style: none; }
+.sat-passes__list .ev__jump { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .card__caveat[hidden], .card__sources[hidden] { display: none; }
 .filters { display: flex; gap: 6px; margin: 2px 0 14px; overflow-x: auto; scrollbar-width: none; }
 .filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 14px; }

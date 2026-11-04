@@ -38,6 +38,9 @@
     --body-saturn: #e8c872;
     --body-uranus: #9fe3e6;
     --body-neptune: #7f97ff;
+    /* Event glyphs (ui/event-glyphs.js): an eclipsed Moon, a meteor shower. */
+    --ev-copper: #d0764a;
+    --ev-meteor: #9fd4ff;
 
     --r-1: 10px;
     --r-2: 16px;

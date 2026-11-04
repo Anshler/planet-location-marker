@@ -29,6 +29,7 @@ import { mountAbout } from './about.js';
 import { mountLocation } from './location.js';
 import { mountHelp } from './help.js';
 import { mountEclipseHud } from './eclipse-hud.js';
+import { mountTourBar } from './tour-bar.js';
 
 /** Panel tabs, in display order. */
 export const TABS = [
@@ -128,6 +129,7 @@ export function mountShell(root, ctx) {
     }
     children.push(mountLocation(overlay, ctx));
     children.push(mountHelp(overlay, ctx));
+    children.push(mountTourBar(overlay, ctx));
 
     // ------------------------------------------------------------------ tabs behaviour
     let activeTab = '';

@@ -18,7 +18,8 @@
  * distance to the pin (clamped), so it neither vanishes when zoomed out nor
  * fills the view when skimming the surface.
  *
- * Extras: `prime()` hides the pin until `drop()`; `cardinals` exposes live
+ * Extras: `prime()` hides the pin (and the horizon disc, which then grows out with the
+ * drop's ripple: the intro, ROADMAP intro-preroll-matchcut) until `drop()`; `cardinals` exposes live
  * world points at the disc's N/E/S/W rim for optional orbit-view labels.
  *
  * Eclipse-aware (ROADMAP eclipse-aware-pin): while the Moon's shadow axis meets the Earth within
@@ -449,7 +450,10 @@ export function createPin(rc, deps = {}) {
         const fl = (e - FALL_MS) / 260;
         rippleMat.uniforms.uFlash.value = fl > 0 && fl < 1 ? (1 - fl) * (1 - fl) * 1.6 : 0;
         rippleMat.uniforms.uFoot.value = e < FALL_MS ? easeOutCubic(e / FALL_MS) * 0.6 : 1;
+        // After a primed drop the horizon disc grows out with the first ring.
+        if (anim.grow) disc.scale.setScalar(Math.max(1e-3, easeOutCubic(Math.min(1, Math.max(0, r1)))));
         if (r2 >= 1) {
+            disc.scale.setScalar(1);
             drop.position.y = 0;
             rippleMat.uniforms.uRings.value.set(0, 0);
             rippleMat.uniforms.uFlash.value = 0;
@@ -463,7 +467,7 @@ export function createPin(rc, deps = {}) {
         group.visible = orbitK > 0.001;
         body.visible = !primed;
         ripple.visible = !primed || anim !== null;
-        disc.visible = layers.horizon !== false;
+        disc.visible = layers.horizon !== false && !primed;
         const discK = orbitK;
         discMat.uniforms.uAlpha.value = discK;
         discMat.uniforms.uClear.value = clearK;
@@ -510,14 +514,16 @@ export function createPin(rc, deps = {}) {
      */
     function dropPin() {
         if (dropResolve) settleDrop(false);
+        const grow = primed;
         primed = false;
+        disc.scale.setScalar(1);
         if (reducedMotion) {
             drop.position.y = 0;
             updateVisibility();
             invalidate();
             return Promise.resolve(true);
         }
-        anim = { t0: now() };
+        anim = { t0: now(), grow };
         stepAnimation(anim.t0);
         updateVisibility();
         invalidate();
@@ -537,6 +543,7 @@ export function createPin(rc, deps = {}) {
         prime() {
             if (dropResolve) settleDrop(false);
             primed = true;
+            disc.scale.setScalar(1);
             updateVisibility();
             invalidate();
         },

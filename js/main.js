@@ -19,6 +19,7 @@ import { DEFAULT_STATE, SKY_DARK_SETTINGS, AURORA_SETTINGS, createStore } from '
 import { createBus } from './core/bus.js';
 import { createClock, scrubSpanMs } from './core/clock.js';
 import { parseHash, bindUrl } from './core/url-state.js';
+import { isTourId } from './core/tour-catalog.js';
 import { detectTier, createGovernor, isTier, autoStartTier, learnedTierRecord } from './core/quality.js';
 import * as prefs from './core/prefs.js';
 import * as tz from './core/tz.js';
@@ -35,7 +36,7 @@ import { createActions, normalizeObserver, selectionLook, viewModeLook, eclipseF
 import { ribbonPlan } from './app/eclipse-chase.js';
 import { createLoop } from './app/loop.js';
 import { createLabelsFeed } from './app/labels-feed.js';
-import { playIntro } from './app/intro.js';
+import { playIntro, INTRO_TIMING } from './app/intro.js';
 import { showFallback, showContextLost, hideContextLost, showFatal } from './app/fallback.js';
 
 // ---------------------------------------------------------------------------------------------
@@ -94,6 +95,9 @@ const R = {
     /** @type {any} */ snapFull: null,
     /** @type {any} */ bus: null,
     /** @type {any} */ texMod: null,
+    /** @type {any} */ astro: null,
+    /** The guided-tour runner (js/app/tours.js), created on the first tour. */
+    /** @type {any} */ tours: null,
     uiMounted: false,
 };
 
@@ -519,6 +523,7 @@ async function boot() {
     } catch (err) {
         console.error('[main] astro client unavailable', err);
     }
+    R.astro = astro;
     const services = { cities, geocoder, astro, tz, format };
 
     // ---- Actions (render objects are filled in later) ---------------------------------------
@@ -528,6 +533,12 @@ async function boot() {
         getSnap: () => snap,
         runIntro: (opts) => runIntro(opts),
         toggleDebug: () => toggleDebug(),
+        tours: {
+            start: (id) => startTour(id),
+            stop: () => R.tours?.stop(),
+            next: () => R.tours?.next(),
+            resume: () => R.tours?.resume(),
+        },
     });
     R.actions = actions;
     // The eclipse in focus (ui.eclipse, set by an eclipse jump) lapses once the time leaves its day.
@@ -563,7 +574,10 @@ async function boot() {
     loop.start();
 
     // URL ↔ state.
-    bindUrl({ win: window, store, clock, getCam: () => R.rig?.getView?.() ?? null, onExternalChange: (p) => applyHash(p) });
+    bindUrl({
+        win: window, store, clock, getCam: () => R.rig?.getView?.() ?? null, onExternalChange: (p) => applyHash(p),
+        suspended: () => !!store.get().ui.tour,
+    });
     reportHashProblems(hash, bus);
 
     // Late city data: complete a provisional observer (default before cities.json, or a deep
@@ -596,6 +610,9 @@ async function boot() {
             enterTextMode('context-failed', err);
         }
     }
+
+    // A `#tour=` link plays once the view is ready (in text mode, as captions and time jumps).
+    if (hash.tour) settle(startTour(hash.tour));
 
     // ---- 10. Idle work ----------------------------------------------------------------------
     idle(() => pushAlmanac({ store, bus, clock, astro }), 3000);
@@ -646,6 +663,7 @@ function bindBodyClasses(store) {
     const sub = (sel, fn) => store.subscribe(sel, fn, { immediate: true });
     sub((s) => s.status.phase, (phase) => b.classList.toggle('is-ready', phase === 'ready'));
     sub((s) => s.ui.cinema, (v) => b.classList.toggle('is-cinema', !!v));
+    sub((s) => !!s.ui.tour, (v) => b.classList.toggle('is-touring', v));
     sub((s) => s.view.mode, (m) => b.classList.toggle('is-sky', m === 'sky'));
     sub((s) => s.status.coarse, (v) => b.classList.toggle('is-coarse', !!v));
     sub((s) => s.status.reducedMotion, (v) => b.classList.toggle('is-reduced-motion', !!v));
@@ -666,9 +684,14 @@ function bindBodyClasses(store) {
     });
 }
 
-/** Layers, display and the quality setting persist across visits (the observer is saved by actions). */
+/**
+ * Layers, display and the quality setting persist across visits (the observer is saved by actions).
+ * A guided tour's layers are its own: they are not saved, and the tour restores the user's.
+ */
 function bindPreferences(store) {
-    store.subscribe((s) => s.layers, (l) => prefs.save('layers', l));
+    store.subscribe((s) => s.layers, (l) => {
+        if (!store.get().ui.tour) prefs.save('layers', l);
+    });
     store.subscribe((s) => s.display, (d) => prefs.save('display', d));
     store.subscribe((s) => s.quality.setting, (q) => prefs.save('quality', q));
 }
@@ -961,7 +984,7 @@ async function bootRender(ctx) {
 
     // 9. Intro (first visit) or a quick launch.
     if (introWanted) {
-        settle(runIntro());
+        settle(runIntro({ preRoll: true }));
     } else if (st0.view.mode === 'orbit' && !hash.cam) {
         try {
             settle(beams?.launch?.({ staggerMs: rm ? 0 : 90 }));
@@ -1008,7 +1031,7 @@ function replaceSky(skyMod, rc, catalog, textures, reducedMotion) {
 }
 
 function wantIntro(env, hash, store) {
-    if (env.reducedMotion || hash.intro === false) return false;
+    if (env.reducedMotion || hash.intro === false || hash.tour) return false;
     if (hash.intro === true) return true;
     if (hash.cam || store.get().view.mode !== 'orbit') return false;
     return !prefs.load('introSeen', false);
@@ -1326,9 +1349,10 @@ function applyGovernorStep() {
 
 /**
  * Plays the first-visit cinematic (or a replay). Any pointer, wheel or key input skips to the end.
- * @param {{force?:boolean}} [opts]
+ * `preRoll` (the first visit, started as the loader fades) holds the opening pose until it is gone.
+ * @param {{force?:boolean, preRoll?:boolean}} [opts]
  */
-async function runIntro({ force = false } = {}) {
+async function runIntro({ force = false, preRoll = false } = {}) {
     const store = R.store;
     const rig = R.rig;
     if (!store || !rig || introAbort) return 'busy';
@@ -1348,13 +1372,14 @@ async function runIntro({ force = false } = {}) {
     const bus = R.bus;
     bus?.emit('intro', 'start');
     let result = 'unavailable';
+    const preRollMs = preRoll ? INTRO_TIMING.preRollMs : 0;
     try {
         result = await Promise.race([
             playIntro({
                 rig, beams: R.mods.beams, pin: R.mods.pin, snap: R.loop.snap,
-                reducedMotion: false, signal: ac.signal, labelsFeed: R.labelsFeed,
+                reducedMotion: false, signal: ac.signal, labelsFeed: R.labelsFeed, preRollMs,
             }),
-            delay(9000).then(() => 'timeout'),
+            delay(9000 + preRollMs).then(() => 'timeout'),
         ]);
     } catch (err) {
         console.error('[main] intro failed', err);
@@ -1410,6 +1435,8 @@ function toggleDebug() {
 function applyHash(p) {
     const { store, clock, actions } = R;
     if (!p || !store) return;
+    // A link opened during a tour ends it first (restoring the state it found), then applies.
+    R.tours?.stop('link');
     const rm = store.get().status.reducedMotion;
     if (p.observer) actions.setObserver({ ...p.observer, source: 'url' }, { fly: true });
     if (Number.isFinite(p.rate)) clock.setRate(p.rate);
@@ -1437,6 +1464,38 @@ function applyHash(p) {
     }
     if (typeof p.debug === 'boolean') settle(setDebug(p.debug));
     if (R.bus) reportHashProblems(p, R.bus);
+    if (p.tour) settle(startTour(p.tour));
+}
+
+// ---------------------------------------------------------------------------------------------
+// Guided tours (js/app/tours.js, loaded on the first tour)
+// ---------------------------------------------------------------------------------------------
+
+let toursModP = null;
+
+/**
+ * Starts guided tour `id` (core/tour-catalog.js); a running intro yields to it.
+ * @param {string} id
+ * @returns {Promise<boolean>} true once it plays
+ */
+async function startTour(id) {
+    if (!R.store || !isTourId(id)) return false;
+    introAbort?.abort();
+    toursModP ??= import('./app/tours.js');
+    let mod;
+    try {
+        mod = await toursModP;
+    } catch (err) {
+        toursModP = null;
+        console.error('[main] guided tours unavailable', err);
+        R.bus?.emit('toast', { message: 'The tour could not be loaded.', kind: 'warn' });
+        return false;
+    }
+    R.tours ??= mod.createTourRunner({
+        store: R.store, bus: R.bus, clock: R.clock, actions: R.actions, astro: R.astro, win: window,
+        getRig: () => (textMode ? null : R.rig), getSnap: () => R.loop?.snap ?? null,
+    });
+    return R.tours.start(id);
 }
 
 // ---------------------------------------------------------------------------------------------

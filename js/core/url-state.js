@@ -6,7 +6,8 @@
 // `sky` is the Sky darkness setting: auto (light pollution estimated from nearby cities), pristine,
 // or a Bortle class 1–9. `au` is the Aurora activity setting: quiet, typical (default) or storm.
 // `trk` is sky-view tracking: b (the selected body) or s (the stars); absent = none. A sky `cam`
-// keeps its field to 0.2° (the telescope zoom) with three significant digits.
+// keeps its field to 0.2° (the telescope zoom) with three significant digits. `tour` starts a
+// guided tour (core/tour-catalog.js) once the app is ready; it is read, never written back.
 //
 // parseHash never throws: values are validated, clamped (time, elevation, camera) or dropped, and
 // every key that was present but not usable as written is listed in `invalid` (for the
@@ -17,6 +18,7 @@
 import { MIN_MS, MAX_MS, snapRate } from './clock.js';
 import { DEFAULT_STATE, SKY_DARK_SETTINGS, AURORA_SETTINGS } from './store.js';
 import { canonTz, daysInMonth } from './tz.js';
+import { isTourId } from './tour-catalog.js';
 
 const BODY_IDS = Object.freeze(['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune']);
 const QUALITY_SETTINGS = Object.freeze(['auto', 'low', 'medium', 'high', 'max']);
@@ -28,7 +30,7 @@ export const LAYER_CODES = Object.freeze([
     ['p', 'subpoints'], ['t', 'trails'], ['l', 'labels'], ['d', 'landscape'],
 ].map((pair) => Object.freeze(pair)));
 const LAYER_BY_CODE = new Map(LAYER_CODES);
-const KNOWN_KEYS = new Set(['loc', 'n', 'cc', 'tz', 'el', 't', 'r', 'p', 'view', 'lock', 'sel', 'ly', 'q', 'sky', 'au', 'cam', 'trk', 'intro', 'debug']);
+const KNOWN_KEYS = new Set(['loc', 'n', 'cc', 'tz', 'el', 't', 'r', 'p', 'view', 'lock', 'sel', 'ly', 'q', 'sky', 'au', 'cam', 'trk', 'intro', 'debug', 'tour']);
 const MAX_HASH_LEN = 4096;
 const NAME_MAX = 80;
 const ELEV_MIN = -500, ELEV_MAX = 9000;
@@ -320,7 +322,7 @@ function parseFlag(v, emptyMeans) {
     return undefined;
 }
 
-/** view, lock, sel, ly, q, cam, intro, debug. */
+/** view, lock, sel, ly, q, cam, intro, debug, tour. */
 function parseViewKeys(params, out, invalid) {
     if (params.has('view')) {
         const v = params.get('view').trim().toLowerCase();
@@ -381,6 +383,11 @@ function parseViewKeys(params, out, invalid) {
         const f = parseFlag(params.get('debug'), true);
         if (f === undefined) invalid.push('debug');
         else out.debug = f;
+    }
+    if (params.has('tour')) {
+        const v = params.get('tour').trim().toLowerCase();
+        if (isTourId(v)) out.tour = v;
+        else if (v !== '') invalid.push('tour');
     }
 }
 
@@ -480,12 +487,16 @@ function readLocationHash(loc) {
  * from the original link is preserved. When the user edits the hash by hand (hashchange),
  * `onExternalChange(parseHash(hash))` is called so the integrator can apply it.
  *
+ * While `suspended()` is true (a guided tour plays) nothing is written; the first write after it
+ * compares against the address bar itself, so a `tour=` link is replaced by the restored state.
+ *
  * @param {{win?:any, store?:import('./types.js').Store, clock?:any, getCam?:()=>unknown,
- *          onExternalChange?:(parsed:import('./types.js').HashState)=>void, minIntervalMs?:number, pollMs?:number}} deps
+ *          onExternalChange?:(parsed:import('./types.js').HashState)=>void, minIntervalMs?:number, pollMs?:number,
+ *          suspended?:()=>boolean}} deps
  *   `win` is the browser global object (needs history, location and addEventListener).
  * @returns {()=>void} unbind
  */
-export function bindUrl({ win, store, clock, getCam, onExternalChange, minIntervalMs = 500, pollMs = 1000 } = {}) {
+export function bindUrl({ win, store, clock, getCam, onExternalChange, minIntervalMs = 500, pollMs = 1000, suspended } = {}) {
     const hist = win?.history;
     const loc = win?.location;
     if (!hist || !loc || typeof hist.replaceState !== 'function') return () => {};
@@ -506,10 +517,27 @@ export function bindUrl({ win, store, clock, getCam, onExternalChange, minInterv
     /** @type {any} */
     let timer = null;
     let disposed = false;
+    let held = false;
+    const isSuspended = () => {
+        try {
+            return typeof suspended === 'function' && !!suspended();
+        } catch {
+            return false;
+        }
+    };
 
     function write() {
         timer = null;
         if (disposed) return;
+        if (isSuspended()) {
+            held = true;
+            return;
+        }
+        if (held) {
+            // Resuming: whatever the address bar shows now (a tour link, say) is what to replace.
+            held = false;
+            last = readLocationHash(loc);
+        }
         const next = build();
         if (next === last) return;
         let url = next;

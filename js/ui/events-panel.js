@@ -3,6 +3,7 @@
  * (Moon phases, oppositions, conjunctions, greatest elongations, eclipses —
  * including partial solar eclipses visible from the observer — equinoxes and
  * solstices), grouped by month, each with a Jump button. A "Next up" card leads.
+ * Above them, the guided tours (core/tour-catalog.js; actions.startTour).
  *
  * Data comes from the UI hub, which keeps the list covering ±1 year around the
  * simulated time via `services.astro` (`events` op) and the app's `bus 'events'`.
@@ -11,6 +12,7 @@
  */
 
 import { BODIES, BODY_INDEX } from '../astro/bodies.js';
+import { TOURS } from '../core/tour-catalog.js';
 import { h, on, setText } from './dom.js';
 import { icon } from './icons.js';
 
@@ -58,10 +60,19 @@ export function mountEventsPanel(root, ctx) {
     const next = h('div', { class: 'ev-next', hidden: true });
     const list = h('ol', { class: 'ev-list', 'aria-label': 'Upcoming events' });
     const empty = h('p', { class: 'empty' }, h('span', { class: 'spinner', 'aria-hidden': 'true' }), 'Computing upcoming events…');
+    const tourBtns = TOURS.map((t) => h('button', {
+        class: 'tour-card', type: 'button', 'data-tour': t.id, 'aria-pressed': 'false',
+        'aria-label': `Play the guided tour ${t.title}: ${t.blurb}`,
+    }, h('span', { class: 'tour-card__title' }, icon('play', { size: 14 }), t.title), h('span', { class: 'tour-card__blurb' }, t.blurb)));
     root.append(
+        h('div', { class: 'section-head' }, h('h2', { class: 'panel-title' }, 'Guided tours'), h('span', { class: 'pill' }, 'Narrated')),
+        h('div', { class: 'tours', role: 'group', 'aria-label': 'Guided tours' }, tourBtns),
         h('div', { class: 'section-head' }, h('h2', { class: 'panel-title' }, 'Upcoming events'), h('span', { class: 'pill' }, 'Next 12 months')),
         filterBar, next, list, empty,
         h('p', { class: 'note' }, 'Times are shown in the time-bar zone. Jump moves the clock (and the view, where useful) to the event.'));
+    offs.push(ctx.store.subscribe((s) => s.ui.tour?.id ?? '', (id) => {
+        for (const b of tourBtns) b.setAttribute('aria-pressed', String(b.dataset.tour === id));
+    }, { immediate: true }));
 
     offs.push(on(filterBar, 'click', (e) => {
         const b = /** @type {HTMLElement} */ (e.target).closest('[data-filter]');
@@ -71,6 +82,11 @@ export function mountEventsPanel(root, ctx) {
         render(true);
     }));
     offs.push(on(root, 'click', (e) => {
+        const tb = /** @type {HTMLElement} */ (e.target).closest('[data-tour]');
+        if (tb) {
+            ui.act('startTour', tb.dataset.tour);
+            return;
+        }
         const b = /** @type {HTMLElement} */ (e.target).closest('[data-ev]');
         if (!b) return;
         const ev = shownEvents[Number(b.dataset.ev)];

@@ -582,13 +582,15 @@ function utcLabel(min) {
 
 /**
  * Emits `bus 'announce'` strings for observer, selection and time changes.
- * The announcer throttles them (one per 2 s, latest wins).
+ * The announcer throttles them (one per 2 s, latest wins). Quiet while a guided tour plays: its
+ * captions are the narration (store ui.tour; a paused tour hands narration back).
  * @param {any} ctx
  * @returns {() => void} stop
  */
 function startNarrator(ctx) {
     const { store, bus, clock, ui } = ctx;
-    const say = (text) => { if (text) bus.emit('announce', text); };
+    const touring = () => { const t = store.get().ui?.tour; return !!t && !t.paused; };
+    const say = (text) => { if (text && !touring()) bus.emit('announce', text); };
     const offs = [];
     let timeTimer = 0;
 

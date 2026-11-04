@@ -188,3 +188,17 @@ function solLmst(sol, lmstH) {
     }
     return lo;
 }
+
+test('Find-it neighbours from Mars: slot 4 is the Earth, and the Earth’s Moon is no daytime landmark', async () => {
+    const { guideRefs } = await import('../js/astro/sky-guide.js');
+    const snap = createSnapshot();
+    for (const h of [10.5, 19.5]) {
+        computeMarsSnapshot(Date.UTC(2026, 10, 4, h, 30), JEZERO, snap, { detail: 'full' });
+        const refs = guideRefs(snap, null);
+        assert.ok(!refs.some((r) => r.name === 'Mars'), refs.map((r) => r.name).join());
+        const earth = refs.find((r) => r.id === 'mars');
+        if (h > 12) assert.equal(earth?.name, 'the Earth', 'by night the Earth is a signpost, by its name');
+        // By day (the Sun 66° up) the Earth's Moon, mag +3, is not one (from the Earth it always is).
+        assert.ok(!refs.some((r) => r.id === 'moon'), `${h} h: ${refs.map((r) => r.name).join()}`);
+    }
+});

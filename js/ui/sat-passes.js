@@ -77,7 +77,8 @@ export function createPassBox(ctx) {
         const t = simNow();
         const all = ui.passes?.list;
         const mine = Array.isArray(all) ? all.filter((p) => p.id === id && p.endMs >= t).slice(0, MAX_CARD_PASSES) : null;
-        const k = `${id}|${ui.passes?.fromMs}|${mine?.length ?? -1}|${mine?.[0]?.startMs ?? ''}|${ui.displayTz()}`;
+        const k = `${id}|${ui.passes?.fromMs}|${mine?.length ?? -1}|${mine?.[0]?.startMs ?? ''}|${ui.displayTz()}|${!!ui.onMars?.()}`
+            + (mine && !mine.length ? `|${Math.floor(t / 86400e3)}` : '');
         if (k === key) return;
         key = k;
         rows = [];
@@ -88,7 +89,7 @@ export function createPassBox(ctx) {
             return;
         }
         empty.hidden = mine.length > 0;
-        if (!mine.length) setText(empty, 'No visible passes from here in the next 10 days: it is either below your horizon, in the Earth’s shadow, or up only in daylight.');
+        if (!mine.length) setText(empty, noPassesText(id, t));
         list.replaceChildren(...mine.map((p, i) => {
             const meta = h('span', { class: 'ev__meta' });
             rows.push({ p, meta });
@@ -102,6 +103,19 @@ export function createPassBox(ctx) {
                     'aria-label': `Watch the pass at ${ui.fmtSpoken(p.startMs)}` }, icon('sky', { size: 14 }), 'Watch this pass'));
         }));
         tick(t);
+    }
+
+    /** Why the list is empty: no predictions past the elements' window, a clipped span, or the sky. */
+    function noPassesText(id, t) {
+        const prov = ctx.extras?.provider?.('sat') ?? null;
+        const sat = prov?.sat?.(id) ?? null;
+        const days = prov?.validDays ?? 14;
+        const until = sat && Number.isFinite(sat.epochMs) ? sat.epochMs + days * 86400e3 : NaN;
+        const to = Number.isFinite(ui.passes?.toMs) ? ui.passes.toMs : t + 10 * 86400e3;
+        if (t >= until) return `No predictions: the orbital elements are ${Math.floor((t - sat.epochMs) / 86400e3)} days old (the limit is ${days}).`;
+        const where = ui.onMars?.() ? 'from your place on the Earth' : 'from here';
+        if (until < to) return `No visible passes ${where} before predictions stop on ${ui.fmtDay(until, { year: false })}.`;
+        return `No visible passes ${where} in the next 10 days: it is either below the horizon, in the Earth’s shadow, or up only in daylight.`;
     }
 
     function tick(t) {
@@ -121,7 +135,10 @@ export function createPassBox(ctx) {
         const days = prov.validDays ?? 14;
         const until = sat.epochMs + days * 86400e3;
         const old = Number.isFinite(age) ? `Orbital elements ${Math.abs(age) < 1 ? `${Math.round(Math.abs(age) * 24)} h` : `${Math.abs(age).toFixed(1)} days`} ${age < 0 ? 'ahead of their date' : 'old'}` : 'Orbital elements';
-        setText(head, `${old}; predictions stop ${ui.fmtDay(until, { year: false })} (${days} days after them). Times in the time-bar zone.`);
+        // Standing on Mars the passes are still the Earth place's: Watch takes you back there.
+        const o = ctx.store?.get?.().observer;
+        const mars = ui.onMars?.() ? `Passes over ${o?.name || 'your place on the Earth'}; Watch this pass returns you to the Earth. ` : '';
+        setText(head, `${mars}${old}; predictions stop ${ui.fmtDay(until, { year: false })} (${days} days after them). Times in the time-bar zone.`);
     }
 
     offs.push(ui.on('passes', () => { key = ''; if (shownId) render(shownId); }));

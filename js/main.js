@@ -517,7 +517,8 @@ async function boot() {
         observer,
         observer2,
         host: marsLink ? { ...DEFAULT_STATE.host, ...hash.host } : DEFAULT_STATE.host,
-        selection: isSelectionId(hash.selection) ? hash.selection : null,
+        // Phobos and Deimos ('moon:') exist only standing on Mars: off Mars their provider is not loaded.
+        selection: isSelectionId(hash.selection) && !(String(hash.selection).startsWith('moon:') && !marsLink) ? hash.selection : null,
         view,
         layers,
         display: {
@@ -650,6 +651,8 @@ async function boot() {
         suspended: () => !!store.get().ui.tour,
     });
     reportHashProblems(hash, bus);
+    // A Mars link without the 3D view opens on the Earth: say why (as actions.standOnMars does).
+    if (hash.host?.id === 'mars' && !env.can3d) bus.emit('toast', { message: 'Standing on Mars needs the 3D view.', kind: 'info' });
 
     // Late city data: complete a provisional observer (default before cities.json, or a deep
     // link without a timezone) once the index is in.

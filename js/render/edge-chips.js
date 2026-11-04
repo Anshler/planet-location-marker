@@ -174,13 +174,16 @@ export function createEdgeChips(rc, deps = {}) {
         const turnOk = zl > 0.05;
         if (turnOk) { zx /= zl; zy /= zl; }
         let n = 0;
+        // Always findable whatever its brightness: the Moon from the Earth; from Mars the Earth (slot 4)
+        // is what people look for, and the Earth's Moon is a faint point.
+        const always = snap.host === 'mars' ? 'mars' : 'moon';
         for (let i = 0; i < slots.length; i++) {
             const s = slots[i];
             const b = snap.bodies[i];
             s.want = false;
             if (!b || !b.above) continue;
             const mag = Number.isFinite(b.mag) ? b.mag : 0;
-            if (s.id !== selection && mag > lim && s.id !== 'sun' && s.id !== 'moon') continue;
+            if (s.id !== selection && mag > lim && s.id !== 'sun' && s.id !== always) continue;
             const d = liftByRefraction(b.dirS, up, k, LIFT);
             const vx = M[0] * d[0] + M[4] * d[1] + M[8] * d[2];
             const vy = M[1] * d[0] + M[5] * d[1] + M[9] * d[2];

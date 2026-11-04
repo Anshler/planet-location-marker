@@ -273,9 +273,13 @@ export function mountBodyCard(root, ctx) {
         passBox.update(id, snap);
         if (!st) {
             setText(kindEl, m ? `${m.kindLabel || ''}` : 'Loading…');
-            setText(sentence, !m ? 'Its data is still loading.' : m.kind === 'sat'
-                ? `${name} is not shown at this date: its orbital elements are only used ${ctx.extras?.provider?.('sat')?.validDays ?? 14} days either side of their own date.`
-                : `${name} is not in the sky at this date.`);
+            const mars = !!ui.onMars?.();
+            setText(sentence, !m ? 'Its data is still loading.' : m.kind === 'sat' && mars
+                ? `Earth satellites are seen from the Earth: use Back to Earth to follow ${name}.`
+                : m.kind === 'sat'
+                    ? `${name} is not shown at this date: its orbital elements are only used ${ctx.extras?.provider?.('sat')?.validDays ?? 14} days either side of their own date.`
+                    : m.kind === 'moon' && !mars ? `${name} is seen from Mars: Stand on Mars to see it.`
+                        : `${name} is not in the sky at this date.`);
             findLine.hidden = true;
             light.hidden = true;
             xLines.replaceChildren();
@@ -301,8 +305,10 @@ export function mountBodyCard(root, ctx) {
         }
         if (info?.subtitle) sent = `${info.subtitle}. ${sent}`;
         setText(sentence, sent);
-        // A catalogue star is not its own signpost (guideRefs lists the bright stars by name).
-        const notSelf = (r) => Math.abs(r.altDeg - alt) > 0.3 || Math.abs(((r.azDeg - az + 540) % 360) - 180) * Math.cos(alt * Math.PI / 180) > 0.3;
+        // A catalogue star is not its own signpost: by identity (the guide's J2000 places do not
+        // follow proper motion, so far from 2000 its own ghost is not where it is), and by place.
+        const selfHip = id.startsWith('star:') ? Number(id.slice(5)) : NaN;
+        const notSelf = (r) => r.hip !== selfHip && (Math.abs(r.altDeg - alt) > 0.3 || Math.abs(((r.azDeg - az + 540) % 360) - 180) * Math.cos(alt * Math.PI / 180) > 0.3);
         const guide = st.above && Number.isFinite(alt) && Number.isFinite(st.mag) && st.mag < 6
             ? findIt({ azDeg: az, altDeg: alt, mag: st.mag }, guideRefs(snap, null).filter(notSelf)) : null;
         if (guide) setText(findText, lowerFirst(guide.text));
@@ -382,8 +388,8 @@ export function mountBodyCard(root, ctx) {
             light.hidden = false;
         } else light.hidden = true;
 
-        // Moon extras.
-        if (id === 'moon' && Number.isFinite(snap.moonPhaseDeg)) {
+        // Moon extras (the Earth's: from Mars its phase name and age would contradict the lit fraction).
+        if (id === 'moon' && snap.host !== 'mars' && Number.isFinite(snap.moonPhaseDeg)) {
             const age = ((((snap.moonPhaseDeg % 360) + 360) % 360) / 360) * SYNODIC_DAYS;
             const ecl = lunarEclipseState(snap);
             const sol = solarEclipseState(snap);
@@ -463,10 +469,10 @@ export function mountBodyCard(root, ctx) {
                 ? (sol ? `The Sun’s disc, ${sol.kind === 'total' ? 'hidden by the Moon' : `${sol.pct}% covered by the Moon`}` : 'The Sun’s disc')
                 : `${info.name}: ${Math.round(frac * 100)}% of the disc lit, lit side ${litRight ? 'right' : 'left'}`);
         }
-        // From Mars: no eyepiece portrait of the Earth (slot 4 draws Mars's maps), and no year
-        // planner (the astro worker plans for the Earth observer).
+        // From Mars: no eyepiece portrait of the Earth (slot 4 draws Mars's maps) or of the Moon (its
+        // libration is the Earth's view), and no year planner (the astro worker plans for the Earth observer).
         const marsSky = snap.host === 'mars';
-        eyepiece.el.hidden = marsSky && id === 'mars';
+        eyepiece.el.hidden = marsSky && (id === 'mars' || id === 'moon');
         if (!eyepiece.el.hidden) eyepiece.update(snap, id);
         if (marsSky) planner.el.hidden = true;
         else planner.update(snap, id);
@@ -477,7 +483,7 @@ export function mountBodyCard(root, ctx) {
         const rs = ui.riseSetFor(id, t);
         const rtsBox = facts.rts.dd.firstChild;
         let msg = '';
-        if (!rs.known) msg = 'Computing…';
+        if (!rs.known) msg = ui.onMars?.() ? 'Rise and set times are not computed on Mars yet' : 'Computing…';
         else if (rs.status === 'circumpolar' && rs.riseMs == null && rs.setMs == null) msg = 'Up all day — it never sets here today';
         else if (rs.status === 'never' && rs.riseMs == null) msg = 'Stays below the horizon all day';
         rtsMsg.hidden = !msg;

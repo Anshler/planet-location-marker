@@ -1504,6 +1504,8 @@ export function createActions(deps) {
      */
     function watchPass(pass) {
         if (!pass || !isExtraId(pass.id) || !Number.isFinite(pass.startMs)) return false;
+        // The pass is for the Earth place: standing on Mars, go back there first.
+        if (store.get().host?.id === 'mars') leaveMars();
         chase.stop();
         clock.pause();
         clock.setTime(pass.startMs - PASS_LEAD_MS, { animateMs: 0 });

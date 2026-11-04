@@ -17,7 +17,7 @@
  * @module astro/sky-guide
  */
 
-import { BODIES } from './bodies.js';
+import { hostBodies } from './bodies.js';
 
 const DEG = Math.PI / 180;
 
@@ -46,18 +46,19 @@ const DIR8 = Object.freeze([
 
 /**
  * The brightest stars (mag ≤ 1.6) and Polaris: name, J2000 right ascension (hours), declination
- * (degrees), visual magnitude. Positions to ~0.01°, proper motion ignored (≤ 0.05° since 2000).
+ * (degrees), visual magnitude, Hipparcos number. Positions to ~0.01°, proper motion ignored (≤ 0.05°
+ * since 2000; up to 0.6° by 1000 or 3000, so a card excludes its own star by `hip`, not by place).
  */
 export const BRIGHT_STARS = Object.freeze([
-    ['Sirius', 6.7525, -16.716, -1.46], ['Canopus', 6.3992, -52.696, -0.74], ['Arcturus', 14.2610, 19.182, -0.05],
-    ['Rigil Kentaurus', 14.6601, -60.834, -0.27], ['Vega', 18.6156, 38.784, 0.03], ['Capella', 5.2782, 45.998, 0.08],
-    ['Rigel', 5.2423, -8.202, 0.13], ['Procyon', 7.6550, 5.225, 0.34], ['Achernar', 1.6286, -57.237, 0.46],
-    ['Betelgeuse', 5.9195, 7.407, 0.50], ['Hadar', 14.0637, -60.373, 0.61], ['Altair', 19.8464, 8.868, 0.77],
-    ['Acrux', 12.4433, -63.099, 0.76], ['Aldebaran', 4.5987, 16.509, 0.86], ['Antares', 16.4901, -26.432, 0.96],
-    ['Spica', 13.4199, -11.161, 0.97], ['Pollux', 7.7553, 28.026, 1.14], ['Fomalhaut', 22.9608, -29.622, 1.16],
-    ['Deneb', 20.6905, 45.280, 1.25], ['Mimosa', 12.7954, -59.689, 1.25], ['Regulus', 10.1395, 11.967, 1.35],
-    ['Adhara', 6.9771, -28.972, 1.50], ['Castor', 7.5767, 31.888, 1.58], ['Polaris', 2.5303, 89.264, 1.98],
-].map(([name, raH, decDeg, mag]) => Object.freeze({ name, raH, decDeg, mag })));
+    ['Sirius', 6.7525, -16.716, -1.46, 32349], ['Canopus', 6.3992, -52.696, -0.74, 30438], ['Arcturus', 14.2610, 19.182, -0.05, 69673],
+    ['Rigil Kentaurus', 14.6601, -60.834, -0.27, 71683], ['Vega', 18.6156, 38.784, 0.03, 91262], ['Capella', 5.2782, 45.998, 0.08, 24608],
+    ['Rigel', 5.2423, -8.202, 0.13, 24436], ['Procyon', 7.6550, 5.225, 0.34, 37279], ['Achernar', 1.6286, -57.237, 0.46, 7588],
+    ['Betelgeuse', 5.9195, 7.407, 0.50, 27989], ['Hadar', 14.0637, -60.373, 0.61, 68702], ['Altair', 19.8464, 8.868, 0.77, 97649],
+    ['Acrux', 12.4433, -63.099, 0.76, 60718], ['Aldebaran', 4.5987, 16.509, 0.86, 21421], ['Antares', 16.4901, -26.432, 0.96, 80763],
+    ['Spica', 13.4199, -11.161, 0.97, 65474], ['Pollux', 7.7553, 28.026, 1.14, 37826], ['Fomalhaut', 22.9608, -29.622, 1.16, 113368],
+    ['Deneb', 20.6905, 45.280, 1.25, 102098], ['Mimosa', 12.7954, -59.689, 1.25, 62434], ['Regulus', 10.1395, 11.967, 1.35, 49669],
+    ['Adhara', 6.9771, -28.972, 1.50, 33579], ['Castor', 7.5767, 31.888, 1.58, 36850], ['Polaris', 2.5303, 89.264, 1.98, 11767],
+].map(([name, raH, decDeg, mag, hip]) => Object.freeze({ name, raH, decDeg, mag, hip })));
 
 /** Scene-frame unit vectors of BRIGHT_STARS (EQJ → scene: (x, y, z) → (x, z, −y)), built once. */
 const STAR_DIRS = BRIGHT_STARS.map((s) => {
@@ -239,15 +240,19 @@ export function guideRefs(snap, targetId = null) {
     const o = snap.observer;
     const sunAlt = Number.isFinite(o.sunAltDeg) ? o.sunAltDeg : snap.bodies[0]?.altGeomDeg;
     const lim = refMagLimit(sunAlt);
-    for (let i = 0; i < BODIES.length && i < snap.bodies.length; i++) {
-        const id = BODIES[i].id;
+    // Standing on Mars slot 4 is the Earth, and the Earth's Moon is a faint point, not a day landmark.
+    const mars = snap.host === 'mars';
+    const names = hostBodies(mars ? 'mars' : 'earth');
+    for (let i = 0; i < names.length && i < snap.bodies.length; i++) {
+        const id = names[i].id;
         if (id === 'sun' || id === targetId) continue;
         const b = snap.bodies[i];
         const full = Number.isFinite(b.altDeg) && Number.isFinite(b.azDeg) && !(b.altDeg === 0 && b.azDeg === 0 && b.altGeomDeg !== 0);
         const alt = full ? b.altDeg : b.altGeomDeg, az = full ? b.azDeg : b.azGeomDeg;
-        const mag = id === 'moon' ? -10 : Number.isFinite(b.mag) ? b.mag : 99;
+        const mag = id === 'moon' && !mars ? -10 : Number.isFinite(b.mag) ? b.mag : 99;
         if (!(alt >= REF_MIN_ALT_DEG) || mag > lim) continue;
-        out.push({ id, name: id === 'moon' ? 'the Moon' : BODIES[i].name, azDeg: az, altDeg: alt, mag });
+        const name = id === 'moon' ? 'the Moon' : mars && id === 'mars' ? 'the Earth' : names[i].name;
+        out.push({ id, name, azDeg: az, altDeg: alt, mag });
     }
     if (o.upS && o.northS && o.eastS && sunAlt < -8) {
         const up = o.upS, n = o.northS, e = o.eastS;
@@ -258,7 +263,7 @@ export function guideRefs(snap, targetId = null) {
             const alt = Math.asin(clamp(du, -1, 1)) / DEG;
             if (alt < REF_MIN_ALT_DEG) continue;
             const az = wrap360(Math.atan2(d[0] * e[0] + d[1] * e[1] + d[2] * e[2], d[0] * n[0] + d[1] * n[1] + d[2] * n[2]) / DEG);
-            out.push({ id: `star:${s.name}`, name: s.name, azDeg: az, altDeg: alt, mag: s.mag });
+            out.push({ id: `star:${s.name}`, name: s.name, azDeg: az, altDeg: alt, mag: s.mag, hip: s.hip });
         }
     }
     return out;

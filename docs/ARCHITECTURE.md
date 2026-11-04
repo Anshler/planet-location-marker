@@ -539,9 +539,9 @@ are applied live through `onExternalChange`.
   `HTMLScriptElement.supports=()=>false` for no import maps), `--fail=data/sky.json,earth_day`
   (those requests get HTTP 404 and are not judged) and `--at=1000,3000` (timed screenshots
   `<out>-<ms>.png`; the run then skips its wait for the intro to finish).
-- **`npm run size`** enforces the per-tier transfer budgets (low 3.5 MB, medium 4.35 MB, high
-  5.55 MB raw, re-baselined from the spec's estimate to the measured unminified module graph; every
-  tier stays under 6 MB) and the 32 MB deploy limit. Max (≈ 20.8 MB) is reported but has no budget;
+- **`npm run size`** enforces the per-tier transfer budgets (low 3.76 MB, medium 4.52 MB, high
+  8 MB raw, re-baselined from the spec's estimate to the measured unminified module graph; low and
+  medium stay under 6 MB, high under 8 MB) and the 32 MB deploy limit. Max (≈ 20.8 MB) is reported but has no budget;
   its 8192 px maps (≈ 15.2 MB) are why the deploy limit went from 12 to 32 MB (the staged site is
   ≈ 21.6 MB; GitHub Pages allows 1 GB).
 - **`npm run textures`** (`scripts/build-textures.mjs`) re-encodes the derived textures in headless

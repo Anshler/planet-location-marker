@@ -8,15 +8,16 @@
 // Raw bytes on disk are budgeted (1 MB = 10⁶ B); gzip "wire" sizes are informational
 // (GitHub Pages compresses JS/CSS/JSON/SVG/HTML).
 //
-//   low ≤ 3.76 MB · medium ≤ 4.52 MB · high ≤ 5.73 MB · staged site ≤ 32 MB
+//   low ≤ 3.76 MB · medium ≤ 4.52 MB · high ≤ 8 MB · staged site ≤ 32 MB
 //   SPEC §E.6 set 3.0 / 3.6 / 4.8 MB from an estimate of ≈ 1.35 MB of JavaScript. The shipped,
 //   unminified-by-design module graph (no build step) measures ≈ 2.0 MB raw incl. CSS
 //   (≈ 0.6 MB gzipped; three.js + astronomy-engine alone are 1.17 MB raw), so the budgets were
 //   re-baselined to the measured sizes plus ≈ 5 % headroom. The derived 2k maps
 //   (scripts/build-textures.mjs) then took low from 3.71 to 3.22 MB (incl. the 56 KB water
 //   mask it shares with medium) and medium from 4.21 to 4.05 MB, and low and medium were
-//   lowered to lock that in. The spec's hard line, every tier
-//   under 6 MB, still holds and is asserted in test/repo.tooling.test.mjs.
+//   lowered to lock that in. The spec's hard line is asserted in test/repo.tooling.test.mjs: low and
+//   medium stay under 6 MB; high may reach 8 MB (raised by the owner on 2026-11-05 to make room for
+//   the v2.1 features, since high is the desktop/discrete-GPU tier).
 //   plus per-file ceilings for generated data, icons and the social image.
 //
 //   max (manual only, "no budget") is reported for information and never fails the check. Its
@@ -40,7 +41,8 @@ const MB = 1e6, KB = 1e3;
 // Phase 3 (planets): medallions, the shared impostor shader, the eyepiece card, Galilean moons and libration (≈ 80 KB of JS)
 // and Phase 4 (globe): aurora, moonlight, close-zoom lights and sculpted clouds (≈ 48 KB of JS and GLSL, no textures).
 // Phase 3 (sky): sidereal tracking, the telescope zoom (true-scale impostors, Jupiter's moons, aperture gain) and the retrograde time-lapse (≈ 43 KB of JS).
-export const TIER_BUDGETS = { low: 3.76 * MB, medium: 4.52 * MB, high: 5.73 * MB };
+// High: 5.73 → 8 MB, the owner's new ceiling for that tier (low and medium keep tight budgets).
+export const TIER_BUDGETS = { low: 3.76 * MB, medium: 4.52 * MB, high: 8 * MB };
 /** Tiers that are measured and printed but have no budget (max: a deliberate, manual choice). */
 export const INFO_TIERS = ['max'];
 // The max tier's 8192 px maps (≈ 15.2 MB) ship with the site; 32 MB keeps headroom (Pages allows 1 GB).

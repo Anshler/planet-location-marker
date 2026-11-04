@@ -210,3 +210,5 @@ Use the 1000–3000 range and the unused Astronomy Engine APIs.
 - 2026-11-05: graphify code graph rebuilt (3662dc1, AST only: 2,502 nodes, 101 communities). Doc semantics pending: run
   /graphify . --update (LLM) when convenient. Next up: Phase 5 (camera, storytelling & sharing) — lazy-load new UI/render
   code (high tier is at its 6 MB ceiling), starting with lighten-stacking-exposure, sky-postcard and guided-tours.
+- 2026-11-05: Owner raised the high tier's limit to 8 MB (budget and hard line); low and medium keep their budgets and the
+  6 MB line. Shared JS still counts on every tier, so new code raises low/medium budgets deliberately per feature.

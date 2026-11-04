@@ -1150,10 +1150,39 @@ export function createActions(deps) {
         return deps.toggleDebug();
     }
 
+    // The clock a preset found (star trails run fast time from dusk; the analemma, a year's range),
+    // given back when the exposure stops.
+    let exposeClock = null;
+
+    /** The clock as the presets found it (Live, or the rate and play state; the analemma's start). */
+    function restoreExposeClock(saved, preset) {
+        const c = saved.clock;
+        // Trails taken over meanwhile (paused, or another rate): the user's clock stays.
+        if (preset === 'trails' && !(clock.playing && clock.rate === TRAILS_RATE)) return;
+        const animateMs = reducedMotion() ? 0 : JUMP_ANIMATE_MS;
+        if (clock.range) clock.setRange(null);
+        if (c.live) {
+            clock.goLive?.({ animateMs });
+            return;
+        }
+        if (c.range) {
+            clock.setRange(c.range);
+            if (Number.isFinite(c.progress)) clock.seek?.(c.progress);
+            if (!c.playing) clock.pause();
+            return;
+        }
+        clock.pause();
+        // The analemma ran up to a year on: back to the day it started (trails stay in the night).
+        if (preset === 'analemma') clock.setTime(c.tMs, { animateMs });
+        if (Number.isFinite(c.rate)) clock.setRate(c.rate);
+        if (c.playing) clock.play();
+    }
+
     /**
      * Long exposure (ROADMAP lighten-stacking-exposure, app/expose.js): 'trails' | 'analemma' |
      * 'free' starts stacking in sky view (presets also set the clock and the view), null stops it.
-     * Stopping ends the analemma's own timelapse. The stacking itself is render/long-exposure.js.
+     * Stopping ends the analemma's own timelapse and gives back the clock a preset found (Live, or
+     * its rate and play state; the analemma's start). The stacking itself is render/long-exposure.js.
      * @param {'trails'|'analemma'|'free'|null} kind
      * @returns {boolean} started (or stopped)
      */
@@ -1162,11 +1191,14 @@ export function createActions(deps) {
         if (k !== null && !EXPOSE_KINDS.includes(k)) return false;
         const ui = store.get().ui;
         if (k === null) {
+            const saved = exposeClock;
+            exposeClock = null;
             if (!ui.expose) return true;
             if (ui.expose === 'analemma' && clock.range?.strideMs) {
                 clock.setRange(null);
                 clock.pause();
             }
+            if (saved) restoreExposeClock(saved, saved.preset);
             store.set({ ui: { ...store.get().ui, expose: null } }, 'actions');
             say('Long exposure stopped');
             return true;
@@ -1180,6 +1212,17 @@ export function createActions(deps) {
         let look;
         scratchSnap ??= createSnapshot();
         if (k !== 'free' && (st.view.track ?? 'none') !== 'none') setTracking('none');
+        if ((k === 'trails' || k === 'analemma') && !exposeClock) {
+            exposeClock = {
+                preset: k,
+                clock: {
+                    tMs: clock.tMs, rate: clock.baseRate ?? clock.rate, playing: clock.playing, live: !!clock.live,
+                    range: clock.range ? { ...clock.range } : null, progress: clock.progress?.() ?? null,
+                },
+            };
+        } else if (exposeClock && k !== 'free') {
+            exposeClock.preset = k;
+        }
         if (k === 'trails') {
             const dark = nextDarkMs(clock.tMs, o, scratchSnap);
             if (dark === null) toast("The Sun doesn't set far enough here: the exposure waits for darkness.", 'info');

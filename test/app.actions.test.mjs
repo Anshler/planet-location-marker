@@ -252,3 +252,46 @@ test('pointAtSky: iOS permission asked inside the call, then the aim runner; den
     assert.equal(order.at(-1), 'stop:user');
     assert.equal(actions.alignAim(), 'the Moon');
 });
+
+test('expose: stopping a preset gives back the clock it found; a clock taken over meanwhile stays', async () => {
+    const { createClock } = await import('../js/core/clock.js');
+    const NY = { latDeg: 40.7, lonDeg: -74, elevM: 0, name: 'New York', tz: 'America/New_York', source: 'url' };
+    const T = Date.parse('2026-11-04T03:00:00Z');
+    const make = (opts) => {
+        const store = createStore({ observer: NY, view: { mode: 'sky', earthLock: true, track: 'none' }, status: { reducedMotion: true } });
+        const clock = createClock({ tMs: T, now: () => T + 3600e3, ...opts });
+        const actions = createActions({
+            store, clock, bus: { emit() {} }, prefs: { load: (_k, d) => d, save() {}, remove() {} },
+            render: { rig: { setMode: () => Promise.resolve(true), setTracking() {} } },
+        });
+        return { store, clock, actions };
+    };
+    // Paused at rate 1: Star trails run 10 min/s; stopping pauses again at 1× (the night stays).
+    const a = make({ playing: false, rate: 1 });
+    assert.equal(a.actions.expose('trails'), true);
+    assert.equal(a.clock.rate, 600);
+    assert.equal(a.clock.playing, true);
+    a.actions.expose(null);
+    assert.deepEqual([a.clock.rate, a.clock.playing], [1, false], 'paused at 1× again');
+    // Live: stopping goes Live again.
+    const b = make({ tMs: undefined });
+    assert.equal(b.clock.live, true);
+    b.actions.expose('trails');
+    assert.equal(b.clock.live, false);
+    b.actions.expose(null);
+    assert.equal(b.clock.live, true, 'Live again');
+    // Taken over (the user paused): left as the user set it.
+    const c = make({ playing: true, rate: 60 });
+    c.actions.expose('trails');
+    c.clock.pause();
+    c.actions.expose(null);
+    assert.deepEqual([c.clock.rate, c.clock.playing], [600, false], 'the user’s pause stays');
+    // The analemma: back to the day it started, paused as found.
+    const d = make({ playing: false, rate: 1 });
+    d.actions.expose('analemma');
+    d.clock.seek?.(0.5);
+    d.actions.expose(null);
+    assert.equal(d.clock.range, null);
+    assert.equal(d.clock.tMs, T, 'the start time');
+    assert.equal(d.clock.playing, false);
+});

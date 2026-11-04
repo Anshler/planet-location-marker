@@ -144,8 +144,8 @@ Use the 1000–3000 range and the unused Astronomy Engine APIs.
 | done | `max-deep-stars` | Max tier: deeper star catalogue to about magnitude 8 (d3-celestial stars.8.json, 5.4 MB), lazy-loaded and merged into the GPU arrays | 3 | M | Skipped by the max-tier agent as a detour: needs a build script, lazy decode/merge and a photometry check. 0d6f438 (max only: 36,367 extra Hipparcos stars to V 8.0, data/stars8.json lazy). |
 | done | `comets-halley-1066` | Historic and great comets with physical tails: Halley 1066/1456/1910/1986/2061, Hale–Bopp, NEOWISE ★ | 3 | XL | 0d6f438 (Halley 1066/1456/1910/1986/2061 from JPL elements, ion + dust tails). |
 | done | `human-emissaries` | Beams to humanity's emissaries: Voyager 1 and 2, New Horizons and JWST, with 'a message sent now arrives tomorrow' | 4 | L | 0d6f438 (Voyager 1/2, New Horizons, JWST radio beams, light time, DSN station; layer 'v'). |
-| todo | `live-satellites` | The ISS and bright satellites: a beam that visibly moves at 1x, with real pass predictions ★ | 4 | L |  |
-| todo | `stand-on-mars` | Stand on Mars: a Mars observer with a butterscotch day, a blue sunset and Earth as the evening star ★ | 4 | XL |  |
+| done | `live-satellites` | The ISS and bright satellites: a beam that visibly moves at 1x, with real pass predictions ★ | 4 | L | 5dac108 (ISS, Tiangong, HST + 3 bright stages; SGP4 vs Vallado vectors; passes list + Watch; TLEs refreshed at deploy, layer 'i'). |
+| done | `stand-on-mars` | Stand on Mars: a Mars observer with a butterscotch day, a blue sunset and Earth as the evening star ★ | 4 | XL | 865c9af (phase 1: sky view from Jezero; Mars clock in sols/LMST; Phobos/Deimos as 'moon:' extras; Earth + Moon as the evening star; host=mars). Phase 2 (globe/almanac on Mars) not done. |
 
 ## Phase 7: Interface, performance & engineering
 
@@ -230,3 +230,7 @@ Use the 1000–3000 range and the unused Astronomy Engine APIs.
   comet:/craft:/guest:), 11 items. npm test (814), size, smoke, smoke:mobile, text mode pass. Layer-code clash resolved:
   precession 'r', meteors 'w' (default ly=bgoscCnmkazhldxw). Budgets low 4.8 / medium 5.59 MB (medium measured 5.44 —
   ~0.5 MB left under its 6 MB line). Batch 2 (live-satellites, stand-on-mars) next, then the Phase 6 review and a PR.
+- 2026-11-05: Phase 6 batch 2 merged (5dac108 satellites, 865c9af Mars). Selection-kind clash resolved: Earth satellites 'sat:',
+  Mars's moons 'moon:'; satellites are host 'earth' (hidden from Mars). npm test (839), size, smoke, smoke:mobile, text mode
+  pass. Budgets low 5.0 / medium 5.79 MB (measured 4.86 / 5.62 — medium has ~0.38 MB under its 6 MB line). Note: pages.yml
+  now also deploys on a daily schedule to refresh satellite elements.

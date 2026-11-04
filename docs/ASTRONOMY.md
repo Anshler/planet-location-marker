@@ -1219,6 +1219,7 @@ roofs, in Mars colours. The light-time beam is a guide, not a ray.
 | Meteor rates | a factor of ~2 | Expected values for one observer (ZHR, r, the radiant's altitude, the modelled sky's limiting magnitude). The meteors drawn are illustrative. |
 | Star occultations | ~0.01° in separation, ~1 min in time | Fixed J2000 stars without proper motion or annual aberration; grazes near the Moon's limb may be misjudged (§7b). |
 | Year planner | ~1° (planets, Sun), ~2.5° (Moon) | Analytic altitudes from one RA/Dec a night, no refraction or parallax (§7b). |
+| Place search preview (`ui/location.js placeSky`) | Sun altitude ≤ 0.05°; sunrise/sunset ≲ 1 min within 90 min, a few min hours ahead in the Arctic; 'Moon up' ~0.5° near the horizon | 90° minus the great-circle distance to the readout's geocentric sub-point; the next crossing from the hour angle at 15°/h with the declination held; the Moon against Meeus' standard altitude +0.125° (mean parallax). A chip, not an almanac (tested against `SearchRiseSet`). |
 
 **Validation.** The tests in `test/astro.*.test.mjs` check these values from SPEC §D.5:
 

@@ -68,8 +68,13 @@ browser, and nothing needs the network.
   - greatest elongations;
   - lunar and solar eclipses, including whether one is visible from where you are;
   - equinoxes and solstices.
+  - Each event's icon shows the event itself: the Moon's real phase, both planets of a pairing,
+    the actual overlap of an eclipse.
+  - Add to calendar: any event, or every eclipse of the next 12 months, as an .ics file made
+    offline, with a reminder 30 minutes before and a link back to that sky.
 - **Put yourself anywhere, offline.**
-  - Search about 1,600 cities, with no network needed.
+  - Search about 1,600 cities, with no network needed. Each result shows its local time and its
+    sky at that moment ('06:14 · sunrise in 12 min', 'night, Moon up').
   - Click the globe (with Undo), type coordinates in decimal or DMS, or use your location.
   - Online place search is an optional extra.
 - **Deep links.** Every view is a shareable URL: place, time, speed, selection, layers and camera.

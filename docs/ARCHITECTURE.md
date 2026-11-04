@@ -54,7 +54,7 @@ the UI and the render stack with literal `import('./…')` calls, so:
 |---|---|---|
 | Entry | `index.html` | Import map (`three`, `three/addons/`). `modulepreload` for three, astronomy-engine and `main.js`. Preload for `data/cities.json`. Inline loader. Classic scripts for error capture (`window.__pcLoader`) and feature detection (`window.__pcEnv`). |
 | | `js/main.js` | Boot sequence, service wiring, store-to-module subscriptions, click picking, tier switching, the intro runner, the guided-tour loader (`startTour`), `window.__app`. |
-| App glue | `js/app/actions.js` | `createActions(deps)`: the only API the UI calls besides `store` and `clock` (read-only queries too, such as `getView()`, the camera's field for the Sky dome). Also `normalizeObserver`, `eventFraming` (how a jump frames its event), `eclipseFocusExpired`, `eclipsePlayRange` and `lookSpanning`. |
+| App glue | `js/app/actions.js` | `createActions(deps)`: the only API the UI calls besides `store` and `clock` (read-only queries too, such as `getView()`, the camera's field for the Sky dome, and `shareUrl({event})`, a link to an event's sky). Also `normalizeObserver`, `eventFraming` (how a jump frames its event), `eclipseFocusExpired`, `eclipsePlayRange` and `lookSpanning`. |
 | | `js/app/mars-host.js` | `createMarsHost(deps)`: standing on Mars (loaded by `main.js bindHost` the first time `store.host` is Mars). `enter()` hands the loop a Mars snapshot source (`loop.setHost`), broadcasts `setHost('mars')`, hides the Earth-only groups (`R.earthGroups`), registers the `sat:` provider and adds `render/mars-sky.js` once a renderer exists; `leave()` undoes it. No three.js. |
 | | `js/app/eclipse-chase.js` | `ribbonPlan` (which eclipse the globe's path ribbon shows), `chaseLegs`/`chaseTarget` and `createEclipseChase` (the shadow chase behind `actions.chaseEclipse`). No three.js. |
 | | `js/app/loop.js` | `createLoop(deps)`: the frame loop with render-on-demand, guarded module calls and strikes, governor sampling, the 4 Hz readout and idle supersampling (extra jittered frames once nothing moves, `core/sampling.js`). `redraw()` draws one frame on demand (captures); `step(now, dt, io)` runs one whole frame on a caller's time base (video sessions). |
@@ -152,7 +152,7 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/render/sunpath.js` | Layer `sunPath` (`y`): today's path with hour ticks, the solstice and equinox paths and the noon analemma as line layers in the observer's ENU frame (sky view), and the subsolar figure-8 as a line on the globe (Earth-fixed); figures from the worker via `request(snap)` (main.js `requestSunFigures`), only while the layer is on. `stats()`. |
 | Camera | `js/camera/rig.js`, `picking.js` | Orbit and sky-view camera, Earth-lock, fly-to tweens, `follow()` (the shadow chase), sidereal tracking, `setVantage()` (View from L1, Earthrise), the flat map (`setMode('map')`, `mapK`, `mapFrame`), the system zoom past 150 R (`setSystem`, `system`, `systemBlend`, `onSystemChange`), `frameSpan()` (the Earth–Moon framing), `setAiming()`/`setSkyAim()` (the phone steers the look); analytic globe, map (`pickMap`), glyph and map-point (`pickPoint`) picking. |
 | | `js/camera/aim.js` | 'Point at the sky' (loaded on first use, no three.js): device orientation → the rear camera's direction and the screen's up in ENU (`deviceVectors`), a level look (`lookOf`), an adaptive vector low-pass (`aimFilterStep`), and `createAim` (sensor events, iOS compass learning, deadband, Align offset, idle and hidden stops, wake lock). |
-| UI | `js/ui/index.js` and its modules | Shell, top bar, time bar (its strip coloured by `sky-palette.js`, the sky's colours by the Sun's altitude), Sky Now (with `tonight.js`: the Tonight card's dusk-to-dawn chart and the rows' 24-h sparklines, and `sky-dome.js`: the all-sky chart, the hero of text mode, both also in text mode), body card (with `eyepiece.js`: the 2D-canvas eyepiece portrait, also in text mode; `year-planner.js`: the planets' 12-month chart on a 2D canvas and the Sun's solstice paths in words, from the worker, also in text mode), events (with the guided tours and the Moon/Planets/Eclipses/Meteors/Seasons filters), Eclipse Companion, the tour's lower third (`tour-bar.js`), layers, settings, about, help, toasts, shortcuts, announcer; the share menu, `postcard.js` (postcard and Save-image dialog, the typographic band), `video.js` (the time-lapse video dialog: presets, frame size, progress and preview, the burned-in date stamp) and `expose.js` (Expose presets and the exposure's status pill); the vantage menu and its caption pill (`view-switch.js`: vantage points, the world map, the solar system).; the ruler and 'Point at the sky' buttons with their status pills (`sky-tools.js`); the body card's 'Find it' line.; the world map entry and the second place (`Compare with…` in the place search) |
+| UI | `js/ui/index.js` and its modules | Shell, top bar, time bar (its strip coloured by `sky-palette.js`, the sky's colours by the Sun's altitude), Sky Now (with `tonight.js`: the Tonight card's dusk-to-dawn chart and the rows' 24-h sparklines, and `sky-dome.js`: the all-sky chart, the hero of text mode, both also in text mode), body card (with `eyepiece.js`: the 2D-canvas eyepiece portrait, also in text mode; `year-planner.js`: the planets' 12-month chart on a 2D canvas and the Sun's solstice paths in words, from the worker, also in text mode), events (with the guided tours and the Moon/Planets/Eclipses/Meteors/Seasons filters; `event-glyphs.js`: each event's inline SVG glyph; `ics.js`: 'Add to calendar', the pure RFC 5545 builder and the file hand-off), Eclipse Companion, the tour's lower third (`tour-bar.js`), layers, settings, about, help, toasts, shortcuts, announcer; the share menu, `postcard.js` (postcard and Save-image dialog, the typographic band), `video.js` (the time-lapse video dialog: presets, frame size, progress and preview, the burned-in date stamp) and `expose.js` (Expose presets and the exposure's status pill); the vantage menu and its caption pill (`view-switch.js`: vantage points, the world map, the solar system).; the ruler and 'Point at the sky' buttons with their status pills (`sky-tools.js`); the body card's 'Find it' line.; the world map entry and the second place (`Compare with…` in the place search); the place search's sky preview per result (`location.js placeSky`) |
 
 ---
 
@@ -303,6 +303,41 @@ critical CSS read them.
   wedge is composited over that canvas when `getView()` changes, polled every 250 ms only while the
   card is open and shown in Sky view. A rebuild costs about 1 ms. It works on Mars too (the Earth
   in slot 4, the Moon as a plain dot).
+- **Event glyphs and 'Add to calendar'** (ROADMAP event-glyphs-and-ics). Each Events row and the
+  Next-up card show `ui/event-glyphs.js`: a 24-unit inline SVG built from a pure spec
+  (`glyphSpec(ev, {south})`, tested) and coloured by CSS tokens (`--body-*`, `--ev-copper`,
+  `--ev-meteor`; `var()` goes into `style`, which presentation attributes do not accept). Moon
+  phases are lit on the side this hemisphere sees; a pairing is both bodies' dots spaced by
+  `sepDeg`; a local solar eclipse's `obscuration` and a lunar eclipse's umbral fraction become the
+  discs' offset (`offsetForCover`, bisection on `astro/shadow.js discVisibleFraction`), cut as a
+  lens (`lensPath`, an even-odd hole in the Sun, copper on the Moon); solstices draw the Sun's arc
+  high in this hemisphere's summer. No canvas and no cache: a re-render clones a few paths. The
+  calendar button on each row and the card, and 'Add all N eclipses of the next 12 months' (under
+  the list, or leading it under the Eclipses filter; `eclipseBundle` drops a global solar eclipse
+  seen here as a local one), go through `ui/ics.js`: `buildCalendar` writes a VCALENDAR with one
+  VEVENT per event (UID = event id + place, so a later export updates rather than duplicates;
+  DTSTART/DTEND in UTC from `eventSpan`: C1–C4, U1–U4 or P1–P4, a transit's or pass's span, a
+  shower's best hour, else an instant; SUMMARY, DESCRIPTION with the detail, the place and the
+  link; URL; a display VALARM 30 min before), escapes TEXT and folds lines at 75 UTF-8 octets.
+  The link is `actions.shareUrl({event})`: the place, the instant a jump lands on
+  (`eventFraming`), paused, the event's selection (none if it has none) and view, never Mars, no
+  camera (the app turns to the selection), `intro=0`. `saveIcs` shares the file
+  (`navigator.share({files})`) on a coarse pointer when `canShare` allows, since an iOS home-screen
+  app opens no blob download, and otherwise downloads a Blob through `<a download>`; desktops
+  always download. All offline, text mode included.
+- **The place search's sky preview** (ROADMAP picker-place-preview, `ui/location.js`). Every
+  offline city, online result, coordinate entry and recent place gets a pill under its name: the
+  local clock at the simulated time (`ui.fmtClock(t, {tzName})`; a result without a zone uses the
+  longitude's `Etc/GMT±n`, shown as '≈ 05:12' with a tooltip saying so) and the Sun there
+  ('sunrise in 12 min' within 90 minutes, else day, civil, nautical or astronomical twilight, or
+  night) with ', Moon up', on the sky's colour at that Sun altitude (`sky-palette.js`). `placeSky`
+  needs no astronomy call: a body's altitude is 90° minus the great-circle distance to its
+  sub-point in the readout (`subLatDeg`/`subLonDeg`, geocentric: within 0.05° of AE for the Sun),
+  the next crossing comes from the hour angle with the sub-solar point moving west at 15°/h (to a
+  minute within the 90-minute window; tested against `SearchRiseSet`), and the Moon is up when its
+  geocentric altitude exceeds Meeus' standard +0.125° (parallax, refraction, semi-diameter). The
+  pills refresh at most once a second from the readout while the palette is open, and are absent
+  standing on Mars (no Earth sub-points).
 - **Sidereal tracking and the telescope** (`view.track`, url `trk=b|s`, K). In sky view the rig
   can keep the selected body centred at its refracted place (`'body'`, zenith up) or hold the
   star field still with the J2000 pole up while the horizon swings (`'stars'`); engaging and

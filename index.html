@@ -438,7 +438,19 @@ body.is-intro-out #ui-root{animation:pc-ui-in .9s cubic-bezier(.2,.7,.2,1) both}
     var art = d.querySelector('.pc-ld__art');
     if (art && art.pauseAnimations) art.pauseAnimations();
   }
-  $('pc-ld-reload').addEventListener('click', function () { w.location.reload(); });
+  // A version that fails to load must not stay: a newer one waiting in the service worker (sw.js)
+  // takes over first, then the page reloads (a plain reload would keep the failing one).
+  $('pc-ld-reload').addEventListener('click', function () {
+    var go = function () { w.location.reload(); };
+    var sw = navigator.serviceWorker;
+    if (!sw || !sw.getRegistration) return go();
+    sw.getRegistration().then(function (reg) {
+      if (!reg || !reg.waiting) return go();
+      sw.addEventListener('controllerchange', go);
+      reg.waiting.postMessage({ type: 'skip-waiting' });
+      setTimeout(go, 3000);
+    }, go);
+  });
 
   // Rotating tips.
   var tips = [

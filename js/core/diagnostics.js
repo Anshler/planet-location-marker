@@ -49,7 +49,8 @@ const num = (x, d = 2) => (Number.isFinite(x) ? Math.round(x * 10 ** d) / 10 ** 
  * @param {{version?:string, nowMs?:number, decision?:any, quality?:any, renderer?:string, maxTex?:number,
  *   dpr?:number, renderDpr?:number, viewport?:number[], coarse?:boolean, userAgent?:string, webgl?:boolean,
  *   governor?:any, tierLog?:any[], strikes?:Record<string, number>, disabled?:string[], losses?:any,
- *   errors?:unknown[], stats?:any, hash?:string}} d
+ *   errors?:unknown[], stats?:any, hash?:string, sw?:{version?:string|null, controlled?:boolean, waiting?:string|null}}} d
+ *   `sw`: the service worker serving the page (`__app.sw`): which deploy the report comes from.
  * @returns {object}
  */
 export function buildDiagnostics(d = {}) {
@@ -58,7 +59,10 @@ export function buildDiagnostics(d = {}) {
     const dec = d.decision ?? {};
     const errors = Array.isArray(d.errors) ? d.errors.slice(-DIAG_MAX_ERRORS).map(scrubError) : [];
     return {
-        app: { version: d.version ?? null, at: Number.isFinite(d.nowMs) ? new Date(d.nowMs).toISOString() : null },
+        app: {
+            version: d.version ?? null, at: Number.isFinite(d.nowMs) ? new Date(d.nowMs).toISOString() : null,
+            sw: d.sw ? { version: d.sw.version ?? null, controlled: !!d.sw.controlled, waiting: d.sw.waiting ?? null } : null,
+        },
         tier: {
             decision: { tier: dec.tier ?? null, ceiling: dec.ceiling ?? null, reason: dec.reason ?? null },
             setting: q.setting ?? null, active: q.active ?? null,

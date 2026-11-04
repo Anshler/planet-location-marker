@@ -5,7 +5,8 @@
  * - At most three toasts are visible; the oldest leaves first.
  * - An identical message already on screen is refreshed instead of duplicated.
  * - Only one toast per action label (e.g. one "Undo") is kept: a newer one replaces it.
- * - Timers pause while the pointer or focus is on a toast.
+ * - Timers pause while the pointer or focus is on a toast. `timeoutMs: 0` keeps it until it is
+ *   dismissed or acted on ("A new version is ready · Reload").
  *
  * `mountToasts` is idempotent per bus, so the app may also call it safely.
  *
@@ -83,7 +84,7 @@ export function mountToasts(root, bus) {
         }
         on(closeBtn, 'click', () => dismiss(t));
         const pause = () => {
-            if (t.paused) return;
+            if (t.paused || !(t.remaining > 0)) return;   // a sticky toast has no timer to pause
             t.paused = true;
             clearTimeout(t.timer);
             t.remaining = Math.max(1500, t.remaining - (performance.now() - t.started));

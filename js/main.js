@@ -75,6 +75,8 @@ const TRAIL_SPAN = { moon: { halfSpanDays: 14, stepHours: 2, refreshDays: 3 }, d
 const LOSS_KEY = 'contextLoss';
 
 const startedAt = typeof performance !== 'undefined' ? performance.now() : 0;
+/** The hash the page opened with: `sw=1`/`sw=0` is read at idle time, after bindUrl has rewritten it. */
+const BOOT_HASH = typeof location !== 'undefined' ? String(location.hash) : '';
 const noop = () => {};
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const settle = (p) => {
@@ -131,6 +133,8 @@ const R = {
     /** @type {any} */ aim: null,
     /** A video session's virtual time base (ms, app/recorder.js), or null: the rig reads real time. */
     /** @type {number|null} */ virtualNow: null,
+    /** The service-worker client (app/sw-client.js), once registration has run. */
+    /** @type {any} */ sw: null,
     uiMounted: false,
 };
 
@@ -169,6 +173,13 @@ const app = {
             tier: R.store?.get().quality.active ?? null,
             disabled: ls.disabled ?? [],
         };
+    },
+    /**
+     * The service worker serving this page (app/sw-client.js): `{version, controlled, precached,
+     * staged, waiting, …}`; before it has loaded, only whether a worker controls the page.
+     */
+    get sw() {
+        return R.sw?.state ?? { version: null, controlled: !!globalThis.navigator?.serviceWorker?.controller, precached: false };
     },
     /** Internals for debugging from the console (not a stable API). */
     get internals() { return R; },
@@ -1725,7 +1736,7 @@ function diagnostics() {
         maxTex: R.rc?.renderer?.capabilities?.maxTextureSize ?? env.maxTextureSize, dpr: window.devicePixelRatio, renderDpr: R.rc?.dpr,
         viewport: [window.innerWidth, window.innerHeight], coarse: env.coarse, userAgent: navigator.userAgent, webgl: st?.status.webgl,
         governor: R.governor, tierLog: R.tierLog, disabled: ls.disabled, strikes: ls.strikes, losses: R.losses,
-        errors: window.__pcErrors, stats: app.stats(), hash: location.hash,
+        errors: window.__pcErrors, stats: app.stats(), hash: location.hash, sw: app.sw,
     });
 }
 
@@ -2390,15 +2401,21 @@ async function pushAlmanac({ store, bus, clock, astro }) {
     }
 }
 
+/**
+ * The service worker (app/sw-client.js, loaded now): registered on https hosts or with `#sw=1`,
+ * the "A new version is ready" toast, and `__app.sw`. The first visit loaded everything before the
+ * worker existed, so it is handed those URLs (sw.js keeps only this version's same-scope files).
+ */
 function registerServiceWorker() {
-    if (location.protocol !== 'https:' || !('serviceWorker' in navigator)) return;
-    navigator.serviceWorker.register('sw.js')
-        .then(() => navigator.serviceWorker.ready)
-        .then((reg) => {
-            // The first visit loaded everything before the worker existed: hand it those URLs so
-            // the next visit already works offline (sw.js keeps only same-scope site files).
-            const urls = performance.getEntriesByType('resource').map((e) => e.name);
-            reg.active?.postMessage({ type: 'precache', urls });
+    if (!('serviceWorker' in navigator)) return;
+    import('./app/sw-client.js')
+        .then(({ createSwClient }) => {
+            R.sw = createSwClient({
+                nav: navigator, win: window, bus: R.bus, secure: window.isSecureContext === true,
+                loc: { protocol: location.protocol, hostname: location.hostname, hash: BOOT_HASH },
+                urls: () => performance.getEntriesByType('resource').map((e) => e.name),
+            });
+            return R.sw.start();
         })
         .catch(() => { /* offline support is a bonus */ });
 }

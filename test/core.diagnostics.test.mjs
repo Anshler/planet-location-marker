@@ -40,5 +40,9 @@ test('diagnostics: the newest 20 errors, trimmed; an empty input still has the f
     const empty = buildDiagnostics();
     assert.deepEqual(Object.keys(empty), ['app', 'tier', 'device', 'modules', 'contextLosses', 'errors', 'stats', 'hash']);
     assert.deepEqual(empty.contextLosses, { count: 0, cap: null, textMode: false });
+    assert.equal(empty.app.sw, null);
+    // The deploy the report comes from: the service worker's version, and a newer one waiting.
+    const sw = buildDiagnostics({ sw: { version: '2.0.0+0123456789abcdef', controlled: true, waiting: null, precached: true } }).app.sw;
+    assert.deepEqual(sw, { version: '2.0.0+0123456789abcdef', controlled: true, waiting: null });
     assert.equal(scrubError(null), '');
 });

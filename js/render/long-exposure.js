@@ -13,7 +13,8 @@
  * Reset (a fresh stack) when what the frame frames changes: the rig's LOCAL view (getView az/alt/fov;
  * under sidereal tracking, which re-aims every frame, the tracking mode and the field instead), a
  * tween or a drag, a clock jump or time sweep (setTime, setRange, seek), the layers, the observer, the pixel ratio
- * or size, the tier, or the preset. Never on the camera's world matrix: in sky view it turns with
+ * or size, the view offset (the UI insets: a side panel opened or collapsed shifts the projection), the tier,
+ * or the preset. Never on the camera's world matrix: in sky view it turns with
  * the Earth on every frame that time runs, which is exactly what the exposure records.
  *
  * Gate: star trails stop collecting while the Sun is above GATE_SUN_DEG (a daylight frame would
@@ -44,22 +45,26 @@ export function createLongExposure(rc, { rig, store, clock }) {
     }) ?? null;
 
     // The framing the stack was started with (see module docs).
-    const key = { kind: '', track: '', az: NaN, alt: NaN, fov: NaN, layers: null, observer: null, dpr: 0, w: 0, h: 0, tier: '' };
+    const key = { kind: '', track: '', az: NaN, alt: NaN, fov: NaN, layers: null, observer: null, dpr: 0, w: 0, h: 0, ox: 0, oy: 0, tier: '' };
     const stat = { kind: null, frames: 0, fromMs: NaN, toMs: NaN, gated: false, active: false };
 
     /** Updates the key; true when anything in it changed. No allocation beyond rig.getView(). */
-    function framingChanged(kind) {
+    function framingChanged(kind, camera) {
         const st = store.get();
         const v = rig?.getView?.() ?? null;
         const track = rig?.tracking ?? 'none';
         const tracked = track !== 'none';
         const az = v && !tracked ? v.azDeg : 0, alt = v && !tracked ? v.altDeg : 0, fov = v ? v.fovDeg : 0;
         const tier = rc.tier?.name ?? '';
+        // The view offset that centres the view beside the UI panels (rig applyInsets).
+        const view = camera?.view;
+        const ox = view && view.enabled ? view.offsetX : 0, oy = view && view.enabled ? view.offsetY : 0;
         let changed = !!(rig?.tweening || rig?.dragging || clock?.tweening) || jumped;
         jumped = false;
         if (key.kind !== kind || key.track !== track || !Object.is(key.az, az) || !Object.is(key.alt, alt)
             || !Object.is(key.fov, fov) || key.layers !== st.layers || key.observer !== st.observer
-            || key.dpr !== rc.dpr || key.w !== rc.size.w || key.h !== rc.size.h || key.tier !== tier) {
+            || key.dpr !== rc.dpr || key.w !== rc.size.w || key.h !== rc.size.h || key.tier !== tier
+            || !Object.is(key.ox, ox) || !Object.is(key.oy, oy)) {
             changed = true;
             key.kind = kind;
             key.track = track;
@@ -71,6 +76,8 @@ export function createLongExposure(rc, { rig, store, clock }) {
             key.dpr = rc.dpr;
             key.w = rc.size.w;
             key.h = rc.size.h;
+            key.ox = ox;
+            key.oy = oy;
             key.tier = tier;
         }
         return changed;
@@ -108,7 +115,7 @@ export function createLongExposure(rc, { rig, store, clock }) {
         // A capture at another size renders through here with the stack frozen: leave it be.
         if (pass.frozen) return;
         stat.kind = kind;
-        if (framingChanged(kind)) {
+        if (framingChanged(kind, fi.camera)) {
             pass.reset();
             stat.fromMs = stat.toMs = NaN;
         }

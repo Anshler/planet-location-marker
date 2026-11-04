@@ -8,6 +8,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { RECIPES, DERIVED_LOCK, checkDerived, imageSize, readLockFile } from '../scripts/build-textures.mjs';
 import { readAssets, tierTextureKeys } from '../scripts/check-size.mjs';
+import { precacheList } from '../scripts/stage-site.mjs';
 import { TIERS, tierConfig } from '../js/core/quality.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -121,7 +122,8 @@ test('every tier, and every device adjustment of it, loads only shipped textures
             assert.ok(fs.existsSync(path.join(ROOT, ASSET_URLS[key])), `${cfg.name}: ${ASSET_URLS[key]} exists`);
         }
         const keys = tierTextureKeys(cfg);
-        assert.equal(keys[0] === 'day2k', keys[1] === 'night2k', `${cfg.name}: the night map follows the day map`);
+        assert.deepEqual(keys.slice(0, 2), ['dayPreview', 'nightPreview'], `${cfg.name}: the previews come first`);
+        assert.equal(keys[2] === 'day2k', keys[3] === 'night2k', `${cfg.name}: the night map follows the day map`);
         // The mask derived from the day map runs on chroma, which the lossy 2k day map stores
         // at 1024 px: most islands of a few texels read as sea. So every tier loads the real
         // water mask, and the derived one only stands in while it loads.
@@ -141,24 +143,28 @@ test('max: 8192 maps of the same imagery, each after its 4096 stand-in; only max
     assert.deepEqual(recipeFor('clouds8k').recipe.clamp, [0.2, 1]);
     assert.equal(recipeFor('moon4k').recipe.colour, 'srgb', 'the Moon is filtered in linear light');
     const keys = tierTextureKeys(TIERS.max);
-    assert.deepEqual(keys, ['day4k', 'night4k', 'brc4k', 'moon', 'milkyway', 'day8k', 'night8k', 'clouds8k', 'moon4k']);
+    assert.deepEqual(keys, ['dayPreview', 'nightPreview', 'day4k', 'night4k', 'brc4k', 'moon', 'milkyway', 'day8k', 'night8k', 'clouds8k', 'moon4k']);
     for (const [big, small] of [['day8k', 'day4k'], ['night8k', 'night4k'], ['clouds8k', 'brc4k'], ['moon4k', 'moon']]) {
         assert.ok(keys.indexOf(small) < keys.indexOf(big), `${small} shows while ${big} loads`);
     }
     // A GPU under 8192 px keeps the 4096 Earth maps on max, and the 4096 Moon.
     assert.deepEqual(tierTextureKeys(tierConfig('max', { maxTextureSize: 4096 })),
-        ['day4k', 'night4k', 'brc4k', 'moon', 'milkyway', 'moon4k']);
+        ['dayPreview', 'nightPreview', 'day4k', 'night4k', 'brc4k', 'moon', 'milkyway', 'moon4k']);
     for (const t of ['low', 'medium', 'high']) {
         for (const cfg of [TIERS[t], tierConfig(t, { maxTextureSize: 4096 })]) {
             for (const key of MAX_ONLY) assert.ok(!tierTextureKeys(cfg).includes(key), `${t} never loads ${key}`);
         }
     }
-    // Cache on first use only (sw.js cache-first): the install step precaches the shell, never these.
+    // Cache on first use only (sw.js cache-first): an install precaches the shell, the module graph,
+    // the boot data and the two 512 px previews, never a tier's maps (staged: sw-manifest.json's
+    // precache; dev: sw.js DEV_PRECACHE).
+    const staged = precacheList(ROOT).filter((p) => p.startsWith('assets/textures/') || /\.(jpe?g|webp|png)$/.test(p) && p.startsWith('data/'));
+    assert.deepEqual(staged.sort(), [ASSET_URLS.dayPreview, ASSET_URLS.nightPreview].sort(), 'only the previews');
     const sw = fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8');
-    const precache = sw.match(/const PRECACHE = (\[[^\]]*\])/)?.[1] ?? '';
-    assert.ok(precache.length > 2, 'PRECACHE found');
-    for (const key of MAX_ONLY) assert.ok(!precache.includes(path.basename(ASSET_URLS[key])), `${key} not precached`);
-    assert.ok(!/textures/.test(precache), 'no textures precached at all');
+    const dev = sw.match(/const DEV_PRECACHE = (\[[^\]]*\])/)?.[1] ?? '';
+    assert.ok(dev.length > 2, 'DEV_PRECACHE found');
+    for (const key of MAX_ONLY) assert.ok(!dev.includes(path.basename(ASSET_URLS[key])), `${key} not precached`);
+    assert.ok(!/textures/.test(dev), 'no textures precached at all in dev');
 });
 
 test('the cloud and water maps are clamped to the windows the earth shader reads them through', async () => {

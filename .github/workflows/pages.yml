@@ -55,6 +55,9 @@ jobs:
 
       # Only site files: no test/, scripts/, docs/, data/raw/, .github/, node_modules/,
       # graphify-out/, .claude/ (see scripts/stage-site.mjs; same list as the size budget).
+      # It also writes sw-manifest.json and stamps its content-hashed version into the staged
+      # sw.js, so a deploy that changes any file is a new service-worker version, and one that
+      # changes nothing (the daily run) is not.
       - name: Stage the site
         run: node scripts/stage-site.mjs _site
 
@@ -62,6 +65,7 @@ jobs:
       # The script checks every set (checksums, catalogue number, SGP4 accepts it, under 30 days
       # old) and keeps the committed one for any that fails; a CelesTrak outage must not stop the
       # deploy. No test depends on the date, so CI stays green however old the committed file gets.
+      # data/tle.json is outside the service worker's version (network-first), so this needs no stamp.
       - name: Fresh satellite elements
         continue-on-error: true
         run: node scripts/fetch-tle.mjs --out=_site/data/tle.json

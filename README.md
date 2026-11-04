@@ -65,11 +65,20 @@ browser, and nothing needs the network.
   - Click the globe (with Undo), type coordinates in decimal or DMS, or use your location.
   - Online place search is an optional extra.
 - **Deep links.** Every view is a shareable URL: place, time, speed, selection, layers and camera.
+- **Works offline after the first visit.** The deployed site installs as a whole: every module and
+  the star, city and event data are cached in the background on the first visit, so it opens with
+  no network the next time. A new version downloads only what changed, waits, and says "A new
+  version is ready · Reload" instead of mixing old and new files.
 - **Fast everywhere.**
   - Three automatic quality tiers, with a governor that steps down when frames get slow, plus a
     manual Max (Settings → Quality) with 8K Earth maps and every effect at full detail, for fast GPUs.
   - The scene renders only when something changes.
   - A text mode with full sky tables on devices without WebGL 2.
+  - If the graphics keep resetting (a phone short of GPU memory), it steps down a quality tier for
+    the session, and after a third reset within a minute it falls back to text mode, with Retry.
+- **Report a problem.** About → Copy diagnostics copies one JSON report (version, graphics, quality
+  decisions, recent errors; never your location) to paste into a new issue, which the button next
+  to it opens prefilled.
 - **Accessible.** Full keyboard control, screen-reader announcements, and support for
   `prefers-reduced-motion`.
 
@@ -114,6 +123,20 @@ Maintenance scripts:
 - `npm run vendor` re-fetches the pinned third-party files and verifies their SHA-256.
 - `npm run data` rebuilds `data/sky.json`, `data/milkyway.png` and `data/cities.json` from
   `data/raw/`.
+- `npm run preload` regenerates the boot module preload lists in `index.html` after a module is
+  added or its static imports change (`npm test` says when they are stale).
+- `node scripts/stage-site.mjs _site` stages the site as the deploy does: it writes
+  `sw-manifest.json` and stamps the service worker's content-hashed version into `_site/sw.js`.
+  `node scripts/serve.mjs --root=_site --subpath=/planet-location-marker/` serves that copy, and
+  `node scripts/smoke.mjs --root=_site --subpath=/planet-location-marker/ --offline-reload` checks
+  that it reloads offline.
+- `node scripts/smoke.mjs --offline --perf=high` runs the performance gates: shader programs and
+  draw calls within the tier's budget, no frame drawn while paused, no layout read inside a frame
+  during a time-lapse (counts, not timings).
+- `node scripts/golden.mjs` compares the 3D view of eight fixed scenes with the goldens in
+  `test/golden/`. The goldens are made in CI with its pinned Chrome: run the CI workflow by hand
+  with **Render goldens** ticked and commit its `goldens` artifact to `test/golden/`. With another
+  Chrome, as on most development machines, the check skips with a notice.
 
 Useful URL options (in the hash):
 
@@ -121,6 +144,9 @@ Useful URL options (in the hash):
 - `#debug=1` shows the performance overlay.
 - `#q=low` forces a quality tier (`low`, `medium`, `high` or `max`).
 - `#t=2027-02-06T16:00:00Z&p=0` freezes time at a moment.
+- `#sw=1` registers the service worker on `localhost` too (it registers by itself only on https
+  hosts); `#sw=0` unregisters it and deletes its caches. Without a staged manifest, the worker
+  fetches everything from the network first, so edits show up on reload.
 
 ## Accuracy
 
@@ -156,9 +182,11 @@ The site is plain static files.
 
 - **GitHub Pages, recommended.** In the repository, open **Settings → Pages → Build and deployment
   → Source: GitHub Actions**. Every push to `main` then runs CI, which covers the tests, the size
-  budgets and the headless smoke tests. If CI passes, `.github/workflows/pages.yml` stages the site
-  files and deploys them.
+  budgets, the headless smoke tests, the performance gates and the golden renders. If CI passes, `.github/workflows/pages.yml` stages the site
+  files, stamps the service worker's version and deploys them.
 - **Branch deploy.** "Deploy from a branch: `main` / root" also works. `.nojekyll` is included.
+  The service worker then has no manifest: it still works offline, but fetches everything from
+  the network first instead of installing each version as a whole.
 - **Any static host** works too. All URLs are relative, so a sub-path is fine.
 
 ## Credits and licences
@@ -171,7 +199,7 @@ Planet Location Marker is MIT-licensed (see [LICENSE](LICENSE)). It bundles:
 | Astronomy | [Astronomy Engine](https://github.com/cosinekitty/astronomy) 2.1.19 by Don Cross | MIT |
 | Stars, constellations, Milky Way | ESA Hipparcos, via [d3-celestial](https://github.com/ofrohn/d3-celestial) by Olaf Frohn | BSD-3-Clause |
 | Cities | [GeoNames](https://www.geonames.org/) | CC BY 4.0 |
-| Earth textures (and the 2k maps made from them) | [Solar System Scope](https://www.solarsystemscope.com/textures/), via the three.js examples | CC BY 4.0 |
+| Earth textures (and the 2k maps and 512 px previews made from them) | [Solar System Scope](https://www.solarsystemscope.com/textures/), via the three.js examples | CC BY 4.0 |
 | Max quality: 8K Earth day, night and cloud maps, 4K Moon (made from their 8K map) | [Solar System Scope](https://www.solarsystemscope.com/textures/) | CC BY 4.0 |
 | Moon texture | NASA imagery, via the three.js examples | public domain |
 

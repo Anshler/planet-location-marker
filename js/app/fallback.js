@@ -1,7 +1,8 @@
 // Degraded-mode surfaces (SPEC §E.8 failure matrix).
 //
 //   showFallback(reason)   the "3D view isn't available" banner for text mode (no WebGL2, no import
-//                          maps, or a renderer that died). The UI keeps running without a canvas.
+//                          maps, a renderer that died, or a GPU context lost again and again). The
+//                          UI keeps running without a canvas.
 //   showContextLost()      a non-blocking overlay while the GPU context is being restored.
 //   hideContextLost()
 //   showFatal(err)         hands an unrecoverable boot error to the inline loader in index.html.
@@ -18,7 +19,7 @@ const LOST_ID = 'pc-context-lost';
 /** After this long without a 'restored' event the overlay offers a reload. */
 const LOST_RELOAD_AFTER_MS = 8000;
 
-/** @typedef {'no-webgl2'|'no-importmap'|'context-failed'} FallbackReason */
+/** @typedef {'no-webgl2'|'no-importmap'|'context-failed'|'context-unstable'} FallbackReason */
 
 const COPY = {
     'no-webgl2': {
@@ -35,6 +36,12 @@ const COPY = {
         title: 'The 3D view stopped working — the sky tables below still work.',
         detail: 'The graphics context could not be created or kept alive. Reloading the page may restore it.',
         reload: true,
+    },
+    // A third context loss within a minute (core/context-loss.js): Retry comes back at Low detail.
+    'context-unstable': {
+        title: 'The 3D view was turned off because the graphics kept resetting — the sky tables below still work.',
+        detail: 'This device ran short of graphics memory several times in a row. Retry starts the 3D view again at Low detail.',
+        retry: true,
     },
 };
 
@@ -101,9 +108,10 @@ function el(tag, attrs = {}, text = '') {
  * prominent), the canvas and label layer are hidden, and the loader is dismissed by main.js.
  *
  * @param {FallbackReason} reason
+ * @param {{onRetry?:()=>void}} [opts] the Retry button's action ('context-unstable')
  * @returns {HTMLElement|null} the banner element
  */
-export function showFallback(reason) {
+export function showFallback(reason, opts = {}) {
     if (typeof document === 'undefined' || !document.body) return null;
     const copy = COPY[reason] ?? COPY['no-webgl2'];
     ensureStyle();
@@ -125,11 +133,11 @@ export function showFallback(reason) {
 
     const body = el('div', { class: 'pc-fb__body' });
     body.append(el('p', { class: 'pc-fb__title' }, copy.title), el('p', { class: 'pc-fb__detail' }, copy.detail));
-    if (copy.reload) {
+    if (copy.reload || copy.retry) {
         const actions = el('div', { class: 'pc-fb__actions' });
-        const reload = el('button', { type: 'button' }, 'Reload');
-        reload.addEventListener('click', () => location.reload());
-        actions.append(reload);
+        const btn = el('button', { type: 'button' }, copy.retry ? 'Retry' : 'Reload');
+        btn.addEventListener('click', () => (copy.retry && opts.onRetry ? opts.onRetry() : location.reload()));
+        actions.append(btn);
         body.append(actions);
     }
     const close = el('button', { type: 'button', class: 'pc-fb__close', 'aria-label': 'Dismiss this message' }, '×');

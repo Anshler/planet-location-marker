@@ -1453,6 +1453,7 @@ body.no-webgl .vb-ruler, body.no-webgl .vb-point { display: none; }
 .about-hero__name { display: flex; align-items: center; font-size: 19px; font-weight: 780; letter-spacing: -.01em; }
 .about-hero__tag { margin-top: 3px; color: var(--muted); font-size: 13px; }
 .credits { margin: 12px 0 0; padding: 0; list-style: none; }
+.report__text { height: auto; margin-top: 4px; padding: 8px 10px; resize: vertical; font: 11px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .credit { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding: 8px 0; border-top: 1px solid var(--line); }
 .credit__main { display: flex; flex-direction: column; min-width: 0; gap: 1px; }
 .credit__name { font-size: 13.5px; }

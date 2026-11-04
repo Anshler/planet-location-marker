@@ -111,6 +111,9 @@ export class AccumPass extends Pass {
         this._copyQuad = new FullScreenQuad(this._copyMat);
     }
 
+    /** Its materials, both drawn into targets (render/context.js compile). */
+    get materials() { return [this._stackMat, this._copyMat]; }
+
     /** Starts a fresh stack: the next frame shows the scene alone. */
     reset() {
         this._fresh = true;
@@ -170,7 +173,6 @@ export class AccumPass extends Pass {
         this._stackMat.dispose();
         this._copyMat.dispose();
         // Not the quads: FullScreenQuad.dispose() releases three's one full-screen triangle, shared by
-        // every pass (bloom, the final pass); after a context restore it still holds the lost
-        // context's buffers and vertex arrays, and deleting them warns (render/context.js onRestored).
+        // every pass (bloom, the final pass), which the rest of the chain is still drawing.
     }
 }

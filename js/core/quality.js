@@ -245,6 +245,7 @@ export const CADENCE_STALE_MS = 5000;
  *
  * sample(dt) returns the tier name whenever the configuration changed (a tier drop OR a DPR step)
  * and null otherwise; apply `config()` (a resolved TierCfg including the reduced dprCap).
+ * `lastStep` describes that step ({from, to, dprCap, emaMs, budgetMs}) for the diagnostics report.
  * dt values over 1 s are treated as gaps (not consecutive) and ignored; dt is capped at 250 ms.
  *
  * @param {{tier?:TierName, ceiling?:TierName, coarse?:boolean, dpr?:number, maxTextureSize?:number,
@@ -285,6 +286,8 @@ export function createGovernor({ tier = 'medium', ceiling, coarse = false, dpr, 
     let cooldownMs = 0;
     /** @type {TierCfg|null} */
     let cfgMemo = null;
+    /** The latest step: {from, to, dprCap, emaMs, budgetMs} (diagnostics), or null. */
+    let lastStep = null;
 
     function resetMeasure() {
         ema = null;
@@ -400,9 +403,11 @@ export function createGovernor({ tier = 'medium', ceiling, coarse = false, dpr, 
             probeLeft = CADENCE_PROBE_TICKS;
             return null;
         }
+        const from = cur, emaMs = ema;
         resetMeasure();
         if (!stepDown()) return null;
         cooldownMs = 5000;
+        lastStep = { from, to: cur, dprCap, emaMs: Math.round(emaMs * 10) / 10, budgetMs: Math.round(b * 10) / 10 };
         return cur;
     }
 
@@ -451,5 +456,7 @@ export function createGovernor({ tier = 'medium', ceiling, coarse = false, dpr, 
         get emaMs() { return ema; },
         get cadenceMs() { return cadenceMs(); },
         get budgetMs() { return budget(); },
+        /** The latest step down (a DPR step keeps `to` === `from`), or null; a step's EMA is reset, so it is kept here. */
+        get lastStep() { return lastStep; },
     };
 }

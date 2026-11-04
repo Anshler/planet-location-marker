@@ -89,6 +89,9 @@ export class SupersamplePass extends Pass {
         this._copyQuad = new FullScreenQuad(this._copyMat);
     }
 
+    /** Its materials, both drawn into targets (render/context.js compile). */
+    get materials() { return [this._blendMat, this._copyMat]; }
+
     /** The history target's size changed: drop it (it is allocated again by the next accumulated frame). */
     setSize(width, height) {
         if (this.frozen) return;

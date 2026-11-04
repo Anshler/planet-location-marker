@@ -8,6 +8,7 @@
     "test": "node --test \"test/**/*.test.mjs\"",
     "smoke": "node scripts/smoke.mjs --offline --expect-ready --assert",
     "smoke:mobile": "node scripts/smoke.mjs --offline --expect-ready --assert --mobile",
+    "golden": "node scripts/golden.mjs",
     "vendor": "node scripts/fetch-vendor.mjs",
     "vendor:check": "node scripts/fetch-vendor.mjs --check",
     "data": "node scripts/build-sky.mjs && node scripts/build-dso.mjs && node scripts/build-milkyway.mjs && node scripts/build-cities.mjs",
@@ -17,6 +18,7 @@
     "textures": "node scripts/build-textures.mjs",
     "textures:check": "node scripts/build-textures.mjs --check",
     "size": "node scripts/check-size.mjs",
+    "preload": "node scripts/lib/modgraph.mjs --write",
     "stage": "node scripts/stage-site.mjs _site"
   }
 }

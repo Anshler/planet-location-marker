@@ -162,6 +162,7 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
     let occAt = -Infinity;
     let occDirty = true;
     let lastFrameT = -Infinity;
+    let readTimer = 0;
 
     // ---- DOM helpers ---------------------------------------------------------------------------
 
@@ -287,7 +288,7 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
                     it = {
                         id, kind, tag, node: acquire(tag), anchor: a, seq: k,
                         text: null, aria: null, color: null, med: null, title: null,
-                        rx0: -4, ry0: -9, rx1: 40, ry1: 9, measured: false,
+                        rx0: -4, ry0: -9, rx1: 40, ry1: 9, measured: false, tried: false,
                         sx: 0, sy: 0, ok: false, placed: false,
                         shown: false, isNew: false, newUntil: 0, sel: false, below: false, faint: false, wx: NaN, wy: NaN,
                     };
@@ -317,10 +318,13 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
 
     // ---- measurement -------------------------------------------------------------------------------
 
-    /** Reads label boxes relative to their anchor point (batched; only for changed text). */
+    /**
+     * Reads label boxes relative to their anchor point (batched; only for changed text).
+     * @returns {number} labels measured
+     */
     function measure() {
         measureDirty = false;
-        let rootRect = null;
+        let rootRect = null, measured = 0;
         for (let i = 0; i < order.length; i++) {
             const it = order[i];
             if (it.measured) continue;
@@ -343,11 +347,13 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
                 it.rx1 = x1 - ax;
                 it.ry1 = y1 - ay;
                 it.measured = true;
+                measured++;
                 let ext = EXTENTS.get(it.id);
                 if (!ext) EXTENTS.set(it.id, ext = new Float64Array(4));
                 ext[0] = it.rx0; ext[1] = it.ry0; ext[2] = it.rx1; ext[3] = it.ry1;
             } else {
                 // Not laid out yet (stylesheet still loading): estimate and retry later.
+                it.tried = true;
                 const len = it.text ? it.text.length : 4;
                 it.rx0 = -4;
                 it.ry0 = -9;
@@ -356,11 +362,13 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
                 measureDirty = true;
             }
         }
+        return measured;
     }
 
     /**
      * Re-reads the floating UI elements' rects into OCCLUDERS (layout read; at most every
-     * OCCLUDER_MS while rendering, never per frame). Hidden chrome (cinema mode) is skipped.
+     * OCCLUDER_MS while rendering, after a frame rather than inside it). Hidden chrome (cinema
+     * mode) is skipped.
      */
     function refreshOccluders(t) {
         occAt = t;
@@ -501,7 +509,8 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
         for (let i = 0; i < order.length; i++) {
             const it = order[i];
             it.placed = false;
-            if (!it.ok || n >= capNow) continue;
+            // A label never shown waits (hidden, laid out) for its first measurement after the frame.
+            if (!it.ok || n >= capNow || (!it.measured && !it.tried && !it.shown)) continue;
             const x0 = it.sx + it.rx0 - PAD, y0 = it.sy + it.ry0 - PAD;
             const x1 = it.sx + it.rx1 + PAD, y1 = it.sy + it.ry1 + PAD;
             let free = true;
@@ -531,11 +540,33 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
      * @returns {number} labels visible after this update
      */
     function update(camera, viewport, opts) {
-        return run(camera, viewport, opts, false);
+        return run(camera, viewport, opts, false, true);
     }
 
-    /** One pass; `idle` is true for the trailing timer pass after frames stopped. */
-    function run(camera, viewport, opts, idle) {
+    /**
+     * The layout reads a frame asked for (UI chrome rects, new label boxes), in a task queued from
+     * the frame: the browser has just laid the page out for it, so the reads force nothing.
+     */
+    function readAfterFrame() {
+        readTimer = 0;
+        if (disposed) return;
+        const t = now();
+        let read = false;
+        if (occDirty || t - occAt >= OCCLUDER_MS) { refreshOccluders(t); read = true; }
+        const measured = measureDirty ? measure() : 0;
+        if (!read && !measured) return;
+        declutterDue = true;
+        // New boxes: place them now (the labels held back for them appear with this frame's camera).
+        if (measured && lastCam) run(lastCam, lastVp, lastOpts || undefined, false);
+        else schedule();
+    }
+
+    /**
+     * One pass; `idle` is true for the trailing timer pass after frames stopped. A frame
+     * (`inFrame`) never reads layout: it places with the last rects and boxes (new labels with an
+     * estimate) and leaves the reads to readAfterFrame; the timer pass reads inline.
+     */
+    function run(camera, viewport, opts, idle, inFrame = false) {
         if (disposed || !camera || !doc) return 0;
         lastCam = camera;
         const w = Number(viewport?.w ?? viewport?.width) || rootEl.clientWidth || 1;
@@ -560,7 +591,12 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
         const t = now();
         if (!idle) lastFrameT = t;
         // UI chrome rects: on demand, every OCCLUDER_MS, and once more after a burst of frames.
-        if (occDirty || t - occAt >= OCCLUDER_MS || (idle && occAt < lastFrameT)) refreshOccluders(t);
+        const occDue = occDirty || t - occAt >= OCCLUDER_MS || (idle && occAt < lastFrameT);
+        if (inFrame) {
+            if ((occDue || measureDirty) && !readTimer && typeof setTimeout === 'function') readTimer = setTimeout(readAfterFrame, 0);
+        } else if (occDue) {
+            refreshOccluders(t);
+        }
 
         const mw = camera.matrixWorldInverse.elements;
         const pm = camera.projectionMatrix.elements;
@@ -574,7 +610,7 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
             project(it, cx, cy, cz, w, h, upS);
             if (it.ok && !was) becameOk = true;
         }
-        if (measureDirty) measure();
+        if (measureDirty && !inFrame) measure();
         if (becameOk) declutterDue = true;
         // A frame between declutters reuses the last placement; the idle timer then runs a
         // trailing declutter, so the layout a moving camera comes to rest on is never stale.
@@ -710,6 +746,7 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
         dispose() {
             disposed = true;
             if (timer) clearTimeout(timer);
+            if (readTimer) clearTimeout(readTimer);
             rootEl?.removeEventListener('click', onClick);
             if (typeof window !== 'undefined') window.removeEventListener('resize', onResize);
             for (const it of items.values()) {

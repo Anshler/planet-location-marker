@@ -5,8 +5,9 @@
 //   2. clock + first snapshot
 //   3. UI mounted at once (panels work before WebGL exists); headless loop publishes readouts
 //   4. render context + modules (each in try/catch), placeholders until textures arrive
-//   5. sky.json / cities.json / critical textures in parallel
-//   6. rc.compile()   7. loop renders   8. loader hides when the critical textures are ready or after 5 s
+//   5. sky.json / cities.json / textures in parallel (the tier's maps start in step 1, before the
+//      render stack has loaded; the 512 px previews even earlier, from index.html)
+//   6. rc.compile()   7. loop renders   8. loader hides when the previews are in or after 5 s
 //   9. first-visit intro   10. idle: deferred textures, almanac push, service worker
 //
 // Static imports are limited to modules that need neither three.js nor the import map, so text
@@ -21,6 +22,7 @@ import { createClock, scrubSpanMs } from './core/clock.js';
 import { parseHash, bindUrl } from './core/url-state.js';
 import { isTourId } from './core/tour-catalog.js';
 import { detectTier, createGovernor, isTier, autoStartTier, learnedTierRecord } from './core/quality.js';
+import { keysForTier, prefetchTextures, setMaxTextureSize } from './core/texture-plan.js';
 import * as prefs from './core/prefs.js';
 import * as tz from './core/tz.js';
 import * as format from './core/format.js';
@@ -41,11 +43,15 @@ import { decodeSky, emptyCatalog, mergeDeepStars } from './data/catalog.js';
 import { createActions, normalizeObserver, selectionLook, viewModeLook, eclipseFocusExpired } from './app/actions.js';
 import { ribbonPlan } from './app/eclipse-chase.js';
 import { createLoop } from './app/loop.js';
+import { createTierSwitch } from './app/tier-switch.js';
 import { createLabelsFeed } from './app/labels-feed.js';
 import { createCapture } from './app/capture.js';
 import { photoLayers } from './app/expose.js';
 import { playIntro, INTRO_TIMING } from './app/intro.js';
 import { showFallback, showContextLost, hideContextLost, showFatal } from './app/fallback.js';
+import { recordLoss, retryRecord, lossRecord, capTier } from './core/context-loss.js';
+import { buildDiagnostics } from './core/diagnostics.js';
+import { sessionLoad, sessionSave } from './app/session.js';
 
 // ---------------------------------------------------------------------------------------------
 // Constants
@@ -55,6 +61,8 @@ import { showFallback, showContextLost, hideContextLost, showFatal } from './app
 const CITY_GUESS_WAIT_MS = 1500;
 /** The loader hides this long after the loop starts even if the critical textures are still coming. */
 const READY_MAX_WAIT_MS = 5000;
+/** How long the first frame waits for the previews to decode (they are normally in by then). */
+const PREVIEW_WAIT_MS = 300;
 /** Never wait longer than this for shader compilation behind the loader. */
 const COMPILE_MAX_WAIT_MS = 10000;
 const DATA_TIMEOUT_MS = 20000;
@@ -63,8 +71,12 @@ const DOUBLE_CLICK_MS = 380;
 const DOUBLE_CLICK_PX = 12;
 /** Trail (apparent path) parameters per body. */
 const TRAIL_SPAN = { moon: { halfSpanDays: 14, stepHours: 2, refreshDays: 3 }, default: { halfSpanDays: 180, stepHours: 24, refreshDays: 45 } };
+/** sessionStorage key of this tab's context-loss record (core/context-loss.js). */
+const LOSS_KEY = 'contextLoss';
 
 const startedAt = typeof performance !== 'undefined' ? performance.now() : 0;
+/** The hash the page opened with: `sw=1`/`sw=0` is read at idle time, after bindUrl has rewritten it. */
+const BOOT_HASH = typeof location !== 'undefined' ? String(location.hash) : '';
 const noop = () => {};
 const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const settle = (p) => {
@@ -95,10 +107,19 @@ const R = {
     /** @type {any} */ labelsFeed: null,
     /** @type {any} */ textures: null,
     /** @type {any} */ governor: null,
+    /** Staged tier switches (app/tier-switch.js), created with the render context. */
+    /** @type {any} */ tierSwitch: null,
     /** The sky view's illustrative landscape profile (geo/horizon.js), built by the ground module. */
     /** @type {any} */ horizon: null,
     /** WebGL renderer string: the key of the governor's learned tier. */
     rendererString: '',
+    /** The device probe and detectTier's decision (the diagnostics report). */
+    /** @type {any} */ env: null,
+    /** @type {any} */ decision: null,
+    /** This tab's context-loss record (core/context-loss.js), mirrored to sessionStorage when it can be. */
+    /** @type {any} */ losses: null,
+    /** Tier changes made for the app (governor steps, context-loss step-downs), newest last; at most 20. */
+    /** @type {any[]} */ tierLog: [],
     /** @type {any} */ catalog: null,
     /** @type {any} */ snapFull: null,
     /** @type {any} */ bus: null,
@@ -112,6 +133,8 @@ const R = {
     /** @type {any} */ aim: null,
     /** A video session's virtual time base (ms, app/recorder.js), or null: the rig reads real time. */
     /** @type {number|null} */ virtualNow: null,
+    /** The service-worker client (app/sw-client.js), once registration has run. */
+    /** @type {any} */ sw: null,
     uiMounted: false,
 };
 
@@ -141,12 +164,22 @@ const app = {
             drawCalls: rs.drawCalls ?? 0,
             geometries: rs.geometries ?? 0,
             textures: rs.textures ?? 0,
+            programs: rs.programs ?? 0,
+            /** True while a tier switch compiles behind paused drawing. */
+            switching: !!R.tierSwitch?.pending,
             beamsVisible: countBeamsVisible(),
             labelsVisible: countLabelsVisible(),
             phase: R.store?.get().status.phase ?? 'boot',
             tier: R.store?.get().quality.active ?? null,
             disabled: ls.disabled ?? [],
         };
+    },
+    /**
+     * The service worker serving this page (app/sw-client.js): `{version, controlled, precached,
+     * staged, waiting, …}`; before it has loaded, only whether a worker controls the page.
+     */
+    get sw() {
+        return R.sw?.state ?? { version: null, controlled: !!globalThis.navigator?.serviceWorker?.controller, precached: false };
     },
     /** Internals for debugging from the console (not a stable API). */
     get internals() { return R; },
@@ -433,7 +466,14 @@ async function importRenderStack() {
 
 async function boot() {
     const env = readEnv();
+    R.env = env;
     loader.progress(0.1, 'Computing the sky');
+    // Earlier context losses in this tab (iOS reloads instead of restoring): the 3D view may have
+    // given up, or the session is held at a lower tier.
+    const losses = lossRecord(sessionLoad(LOSS_KEY));
+    R.losses = losses;
+    const unstable = env.can3d && losses.text;
+    if (unstable) env.can3d = false;
 
     // Start everything that does not depend on state right away.
     const uiModP = import('./ui/index.js');
@@ -461,19 +501,6 @@ async function boot() {
     } catch {
         hash = {};
     }
-    const savedObserver = loadSavedObserver();
-    let observer = null;
-    let observerFromDefault = false;
-    if (hash.observer) {
-        observer = normalizeObserver(hash.observer, { cities, tz });
-    } else if (savedObserver) {
-        observer = normalizeObserver(savedObserver, { cities, tz });
-    } else {
-        const index = await withTimeout(cityIndexP, CITY_GUESS_WAIT_MS);
-        observer = guessObserver(index);
-        observerFromDefault = observer.source === 'default' && !index;
-    }
-
     let decision = { tier: 'low', ceiling: 'low', textMode: !env.can3d, reason: 'text' };
     try {
         decision = detectTier({
@@ -484,6 +511,7 @@ async function boot() {
     } catch (err) {
         console.error('[main] tier detection failed', err);
     }
+    R.decision = decision;
     // Auto starts where the governor last settled on this GPU (if it dropped a tier recently), so
     // a device that cannot hold its detected tier does not pay the switch hitch on every visit.
     R.rendererString = env.rendererString;
@@ -496,6 +524,32 @@ async function boot() {
     const qualitySetting = [hash.quality, savedQuality].find((q) => QUALITY_SETTINGS.includes(q)) ?? 'auto';
     let active = governor.pin(qualitySetting === 'auto' ? null : qualitySetting);
     if (window.__pcSlow && qualitySetting === 'auto') active = governor.pin('low');
+    if (capTier(active, losses.cap) !== active) active = governor.pin(capTier(active, losses.cap));
+    // The tier's Earth maps start now, in parallel with the UI and the render stack (the previews
+    // are already on their way: index.html preloads them, and these fetches reuse that).
+    let texPrefetch = null;
+    if (env.can3d) {
+        try {
+            setMaxTextureSize(env.maxTextureSize);
+            const k = keysForTier(governor.config());
+            texPrefetch = prefetchTextures([...k.critical, ...k.primary], (...a) => fetch(...a));
+        } catch (err) {
+            console.error('[main] texture prefetch failed', err);
+        }
+    }
+
+    const savedObserver = loadSavedObserver();
+    let observer = null;
+    let observerFromDefault = false;
+    if (hash.observer) {
+        observer = normalizeObserver(hash.observer, { cities, tz });
+    } else if (savedObserver) {
+        observer = normalizeObserver(savedObserver, { cities, tz });
+    } else {
+        const index = await withTimeout(cityIndexP, CITY_GUESS_WAIT_MS);
+        observer = guessObserver(index);
+        observerFromDefault = observer.source === 'default' && !index;
+    }
 
     const layers = { ...DEFAULT_STATE.layers, ...(loadSavedLayers() ?? {}), ...(hash.layers ?? {}) };
     // A vantage point (vt=) is a globe-view pose, and needs the 3D view.
@@ -594,6 +648,7 @@ async function boot() {
         getSnap: () => snap,
         runIntro: (opts) => runIntro(opts),
         toggleDebug: () => toggleDebug(),
+        diagnostics: () => diagnostics(),
         tours: {
             start: (id) => startTour(id),
             stop: () => R.tours?.stop(),
@@ -676,10 +731,10 @@ async function boot() {
 
     // ---- 4–9. The 3D view -------------------------------------------------------------------
     if (!env.can3d) {
-        enterTextMode(env.webgl2 ? 'no-importmap' : 'no-webgl2');
+        enterTextMode(unstable ? 'context-unstable' : env.webgl2 ? 'no-importmap' : 'no-webgl2');
     } else {
         try {
-            await bootRender({ env, hash, store, bus, clock, actions, render, loop, snap, governor, renderModsP, skyJsonP, astro, cities });
+            await bootRender({ env, hash, store, bus, clock, actions, render, loop, snap, governor, renderModsP, skyJsonP, astro, cities, texPrefetch });
         } catch (err) {
             enterTextMode('context-failed', err);
         }
@@ -842,7 +897,9 @@ let textMode = false;
 
 /**
  * Switches to text mode: banner, no canvas, panels stay live (the loop keeps publishing readouts).
- * @param {'no-webgl2'|'no-importmap'|'context-failed'} reason
+ * 'context-unstable' (the GPU context lost three times within a minute) offers Retry: a reload
+ * that starts the 3D view again, held at low for the session.
+ * @param {'no-webgl2'|'no-importmap'|'context-failed'|'context-unstable'} reason
  * @param {unknown} [err]
  */
 function enterTextMode(reason, err) {
@@ -852,7 +909,13 @@ function enterTextMode(reason, err) {
     try {
         R.loop?.setRenderPaused(true);
     } catch { /* already headless */ }
-    showFallback(reason);
+    hideContextLost();
+    showFallback(reason, {
+        onRetry: () => {
+            sessionSave(LOSS_KEY, retryRecord(R.losses));
+            location.reload();
+        },
+    });
     const store = R.store;
     if (store) {
         const st = store.get().status;
@@ -946,7 +1009,7 @@ let currentCfg = null;
 let readyFlag = false;
 
 async function bootRender(ctx) {
-    const { env, hash, store, bus, clock, render, loop, snap, governor, renderModsP, skyJsonP, astro, cities } = ctx;
+    const { env, hash, store, bus, clock, render, loop, snap, governor, renderModsP, skyJsonP, astro, cities, texPrefetch } = ctx;
     const m = await renderModsP;
     if (!m?.context?.createRenderContext) throw new Error('The 3D engine could not be loaded.');
     loader.progress(0.35, 'Building the globe');
@@ -963,13 +1026,15 @@ async function bootRender(ctx) {
     let texWarned = false;
     try {
         textures = m.textures.createTextureStore(rc.renderer, {
+            prefetched: texPrefetch,
             onProgress: (ev) => {
                 if (ev?.error && !texWarned) {
                     texWarned = true;
                     bus.emit('toast', { message: "Some imagery couldn't load.", kind: 'warn' });
                 }
+                // Chunks move only the loader's bar (until ready); a frame is due when a map is in or failed.
                 updateLoaderProgress();
-                loop.invalidate();
+                if (ev?.done || ev?.error) loop.invalidate();
             },
         });
     } catch (err) {
@@ -979,6 +1044,12 @@ async function bootRender(ctx) {
     R.textures = textures;
     R.texMod = m.textures;
     textures?.setAnisotropy?.(currentCfg.anisotropy);
+    R.tierSwitch = makeTierSwitch(rc, loop, textures, m.textures, currentCfg);
+    // 5. The previews and the tier's maps (already downloading since boot()) decode while the
+    // modules are built; whatever is in before the compile starts is uploaded at once.
+    const keys = textures && m.textures.keysForTier ? m.textures.keysForTier(currentCfg) : { critical: [], primary: [], deferred: [] };
+    const criticalP = textures ? textures.load(keys.critical) : Promise.resolve();
+    const primaryP = textures ? textures.load(keys.primary) : Promise.resolve();
 
     // Star catalog (already decoded if sky.json beat the 3D engine here).
     let catalog = null;
@@ -1184,11 +1255,12 @@ async function bootRender(ctx) {
         afterCatalog();
     } else catalogP.then(installCatalog);
 
-    // 5. Critical textures, 6. compile.
-    const keys = textures && m.textures.keysForTier ? m.textures.keysForTier(currentCfg) : { critical: [], deferred: [] };
-    const criticalP = textures ? textures.load(keys.critical) : Promise.resolve();
+    // 6. Compile. No eager upload meanwhile: it would wait on the main thread for the GPU process
+    // to finish linking (textures.js holdUploads).
     updateLoaderProgress();
-    await withTimeout(rc.compile(), COMPILE_MAX_WAIT_MS);
+    const compileP = withTimeout(rc.compile(), COMPILE_MAX_WAIT_MS);
+    textures?.holdUploads?.(compileP);
+    await compileP;
     compiled = true;
     updateLoaderProgress();
 
@@ -1208,7 +1280,9 @@ async function bootRender(ctx) {
     }
     bindViewInsets(rig, store);
 
-    // 7. Render.
+    // 7. Render. A preview already downloaded is a few ms from decoded: give it that, so the first
+    // frame is a lit Earth (a pending decode would otherwise resolve after that frame).
+    await withTimeout(criticalP, PREVIEW_WAIT_MS);
     loop.attach({
         rc, rig, modules, moduleNames: names, labels, labelsFeed, governor: env.webdriver ? null : governor,
         getTierCfg: () => currentCfg, horizon, mapHidden: [space, furnitureSpace],
@@ -1217,13 +1291,17 @@ async function bootRender(ctx) {
     });
     bindRenderState({ store, bus, clock, rc, rig, loop, snap, astro, m, labels, labelsFeed, textures });
 
-    // 8. Ready: critical imagery, or 5 s, or "continue with low detail".
+    // 8. Ready: the previews (or, if they failed, the maps), or 5 s, or "continue with low detail".
     const slowP = loader.slow.then(() => 'slow');
-    const outcome = await Promise.race([criticalP.then(() => 'textures'), delay(READY_MAX_WAIT_MS).then(() => 'timeout'), slowP]);
+    const imageryP = criticalP.then(() => (keys.critical.every((k) => textures.isReady(k)) ? 'previews' : primaryP.then(() => 'textures')));
+    const outcome = await Promise.race([imageryP, delay(READY_MAX_WAIT_MS).then(() => 'timeout'), slowP]);
     if (outcome === 'slow' && store.get().quality.setting === 'auto') {
         governor.pin('low');
         store.set({ quality: { ...store.get().quality, active: 'low' } }, 'boot');
     }
+    // The loader leaves over a drawn globe: without KHR_parallel_shader_compile, compile() returns
+    // at once and the first frame is where the shaders link.
+    await drawnFrame(loop, 4000);
     readyFlag = true;
     setPhase('ready', 1);
 
@@ -1247,6 +1325,24 @@ async function bootRender(ctx) {
 }
 
 let compiled = false;
+
+/**
+ * Resolves once the loop has drawn a frame after this call, or after `maxMs` (a hidden tab has no
+ * animation frames).
+ * @param {{stats?:()=>{frames?:number}, invalidate?:()=>void}} loop
+ * @param {number} maxMs
+ */
+function drawnFrame(loop, maxMs) {
+    const count = () => loop.stats?.().frames ?? 0;
+    const f0 = count();
+    let done = false;
+    loop.invalidate?.();
+    const drawn = new Promise((resolve) => {
+        const tick = () => (done || count() > f0 ? resolve() : requestAnimationFrame(tick));
+        requestAnimationFrame(tick);
+    });
+    return Promise.race([drawn, delay(maxMs)]).then(() => { done = true; });
+}
 
 function updateLoaderProgress() {
     if (readyFlag) return;
@@ -1563,20 +1659,84 @@ function bindRenderState({ store, bus, clock, rc, rig, loop, snap, astro, m, lab
         }
     });
 
-    // GPU context loss.
+    // GPU context loss (context-loss-backoff-and-diagnostics). Losses are counted in a sliding
+    // window kept for the tab's session: a second within a minute holds the session one tier
+    // lower, a third gives up on the 3D view. Drawing resumes once the maps are back on the GPU.
     rc.onContextLost?.(() => {
         loop.setRenderPaused(true);
+        // Counted in memory too: without sessionStorage the window still works within the page.
+        const { record, action } = recordLoss(R.losses, Date.now(), store.get().quality.active);
+        R.losses = record;
+        sessionSave(LOSS_KEY, record);
+        if (action === 'text') {
+            enterTextMode('context-unstable');
+            return;
+        }
         showContextLost();
+        if (action === 'step-down') holdTier(record.cap, 'context-loss');
     });
     rc.onContextRestored?.(() => {
+        if (textMode) return undefined;
+        const resume = () => {
+            if (textMode) return;
+            hideContextLost();
+            loop.setRenderPaused(false);
+            loop.invalidate();
+        };
+        let restored = null;
         try {
-            textures?.restore?.();
+            restored = textures?.restore?.() ?? null;
         } catch (err) {
             console.error('[main] texture restore failed', err);
         }
-        hideContextLost();
-        loop.setRenderPaused(false);
-        loop.invalidate();
+        if (!restored) {
+            resume();
+            return undefined;
+        }
+        restored.then(resume, resume);
+        // rc draws nothing until it settles: a frame would upload a map whose decoded copy was closed.
+        return restored;
+    });
+}
+
+/**
+ * Holds the session at `cap` or below (a context lost twice within a minute): the governor is
+ * pinned there and the tier switches as for a governor step. Saved preferences are untouched.
+ * @param {string|null} cap
+ * @param {string} cause
+ */
+function holdTier(cap, cause) {
+    const gov = R.governor, store = R.store;
+    if (!gov || !store) return;
+    const q = store.get().quality;
+    const to = capTier(q.active, cap);
+    if (to === q.active) return;
+    logTier({ from: q.active, to, cause });
+    store.set({ quality: { ...q, active: gov.pin(to) } }, 'context-loss');
+    R.bus?.emit('toast', { message: 'Reduced graphics detail to keep things stable', kind: 'info' });
+}
+
+/** Adds a tier change to the diagnostics log (at most 20; `atS`: seconds since boot). */
+function logTier(entry) {
+    R.tierLog.push({ atS: Math.round((performance.now() - startedAt) / 100) / 10, ...entry });
+    if (R.tierLog.length > 20) R.tierLog.shift();
+}
+
+/**
+ * The 'Copy diagnostics' report (core/diagnostics.js): version, tier decision and setting, GPU,
+ * governor and tier log, module strikes, context losses, recent errors, stats and the hash
+ * without the place.
+ */
+function diagnostics() {
+    const env = R.env ?? {};
+    const st = R.store?.get();
+    const ls = R.loop?.stats?.() ?? {};
+    return buildDiagnostics({
+        version: VERSION, nowMs: Date.now(), decision: R.decision, quality: st?.quality, renderer: env.rendererString,
+        maxTex: R.rc?.renderer?.capabilities?.maxTextureSize ?? env.maxTextureSize, dpr: window.devicePixelRatio, renderDpr: R.rc?.dpr,
+        viewport: [window.innerWidth, window.innerHeight], coarse: env.coarse, userAgent: navigator.userAgent, webgl: st?.status.webgl,
+        governor: R.governor, tierLog: R.tierLog, disabled: ls.disabled, strikes: ls.strikes, losses: R.losses,
+        errors: window.__pcErrors, stats: app.stats(), hash: location.hash, sw: app.sw,
     });
 }
 
@@ -1622,8 +1782,12 @@ function bindViewInsets(rig, store) {
             console.error('[main] view insets failed', err);
         }
     };
+    // Measured in a task queued from a frame callback, i.e. just after that frame's own layout:
+    // the reads then cost nothing. Inside the callback they would lay out the UI's pending class
+    // changes first, then the browser would lay out again for the frame's own DOM writes.
+    const afterFrame = () => setTimeout(measure, 0);
     const schedule = () => {
-        if (!frame) frame = requestAnimationFrame(measure);
+        if (!frame) frame = requestAnimationFrame(afterFrame);
     };
     // Classes and the layout anywhere in the UI; inline styles only where they move the sheet
     // (the root's --sheet-h and the sheet's drag transform). Watching `style` on the whole
@@ -1864,30 +2028,67 @@ function updateTrails({ store, clock, astro, loop, labelsFeed, force = false }) 
 // Quality tiers
 // ---------------------------------------------------------------------------------------------
 
-/** Applies a resolved TierCfg everywhere: renderer, modules, textures, label cap. Idempotent. */
+/**
+ * Applies a resolved TierCfg everywhere: renderer, modules, textures, label cap. Idempotent. A
+ * tier with other shader variants is staged (makeTierSwitch); a DPR step applies at once.
+ */
 function applyTierCfg(cfg) {
     if (!cfg || cfg === currentCfg) return;
-    currentCfg = cfg;
-    const rc = R.rc;
-    if (!rc) return;
-    try {
-        rc.setTier(cfg);
-    } catch (err) {
-        console.error('[main] tier switch failed', err);
+    if (!R.rc || !R.tierSwitch) {
+        currentCfg = cfg;
+        return;
     }
-    R.loop.broadcast('setQuality', cfg);
-    syncDeepStars(cfg);
-    const t = R.textures;
-    if (t && R.texMod?.keysForTier) {
-        try {
-            t.setAnisotropy?.(cfg.anisotropy);
-            const keys = R.texMod.keysForTier(cfg);
-            settle(t.load(readyFlag ? [...keys.critical, ...keys.deferred] : keys.critical));
-        } catch (err) {
-            console.error('[main] texture set for the new tier failed', err);
-        }
-    }
-    R.loop.invalidate();
+    settle(R.tierSwitch.request(cfg));
+}
+
+/**
+ * Staged tier switches (app/tier-switch.js, hitch-free-tier-switch): drawing pauses, the modules
+ * take the tier's defines and meshes and rc its post chain, every variant compiles against the
+ * target it will draw into (rc.compile paced), maps decoded meanwhile upload one per task before
+ * they bind, and only then the DPR changes and drawing resumes. A context lost meanwhile ends the
+ * compile; drawing then waits for the restore ('context' pause).
+ */
+function makeTierSwitch(rc, loop, textures, texMod, cfg) {
+    return createTierSwitch({
+        current: cfg,
+        timeoutMs: COMPILE_MAX_WAIT_MS,
+        pause: () => loop.setRenderPaused(true, 'tier'),
+        resume: () => {
+            loop.setRenderPaused(false, 'tier');
+            loop.invalidate();
+        },
+        stage: (next) => {
+            currentCfg = next;
+            try {
+                rc.prepareTier(next);
+            } catch (err) {
+                console.error('[main] tier switch failed', err);
+            }
+            loop.broadcast('setQuality', next);
+            syncDeepStars(next);
+            if (textures && texMod?.keysForTier) {
+                const keys = texMod.keysForTier(next);
+                settle(textures.load([...keys.critical, ...keys.primary, ...(readyFlag ? keys.deferred : [])]));
+            }
+        },
+        compile: (next) => {
+            const compiled = rc.compile({ paced: true });
+            if (!textures) return compiled;
+            // Held from here, then one per task: the re-uploads of a new anisotropy (max) before
+            // the commit, the maps decoded during the compile after it (bound once uploaded).
+            const uploaded = textures.holdUploads(compiled, { bind: false });
+            const keys = texMod?.keysForTier?.(next);
+            const list = keys ? [...keys.critical, ...keys.primary, ...keys.deferred] : null;
+            // Not a mere stand-in (max: a 4096 map shown until its 8192 one is in); brc4k is also
+            // max's own water mask.
+            const stand = new Set(list?.map((k) => texMod.interimKeyFor?.(k)).filter(Boolean));
+            const mask = texMod?.maskKeyFor?.(next);
+            textures.setAnisotropy?.(next.anisotropy, list ? list.filter((k) => !stand.has(k) || k === mask) : undefined);
+            return uploaded;
+        },
+        commit: () => rc.commitTier(),
+        onError: (phase, err) => console.error(`[main] tier switch failed (${phase})`, err),
+    });
 }
 
 /** The governor stepped down (DPR or tier): mirror it in the store and apply its config. */
@@ -1896,6 +2097,7 @@ function applyGovernorStep() {
     const store = R.store;
     if (!gov || !store) return;
     const q = store.get().quality;
+    if (gov.lastStep) logTier({ ...gov.lastStep, cause: 'governor' });
     if (q.active !== gov.tier) {
         store.set({ quality: { ...q, active: gov.tier } }, 'governor');
         // A tier drop is remembered for this GPU; the next visit starts there (autoStartTier).
@@ -2203,15 +2405,21 @@ async function pushAlmanac({ store, bus, clock, astro }) {
     }
 }
 
+/**
+ * The service worker (app/sw-client.js, loaded now): registered on https hosts or with `#sw=1`,
+ * the "A new version is ready" toast, and `__app.sw`. The first visit loaded everything before the
+ * worker existed, so it is handed those URLs (sw.js keeps only this version's same-scope files).
+ */
 function registerServiceWorker() {
-    if (location.protocol !== 'https:' || !('serviceWorker' in navigator)) return;
-    navigator.serviceWorker.register('sw.js')
-        .then(() => navigator.serviceWorker.ready)
-        .then((reg) => {
-            // The first visit loaded everything before the worker existed: hand it those URLs so
-            // the next visit already works offline (sw.js keeps only same-scope site files).
-            const urls = performance.getEntriesByType('resource').map((e) => e.name);
-            reg.active?.postMessage({ type: 'precache', urls });
+    if (!('serviceWorker' in navigator)) return;
+    import('./app/sw-client.js')
+        .then(({ createSwClient }) => {
+            R.sw = createSwClient({
+                nav: navigator, win: window, bus: R.bus, secure: window.isSecureContext === true,
+                loc: { protocol: location.protocol, hostname: location.hostname, hash: BOOT_HASH },
+                urls: () => performance.getEntriesByType('resource').map((e) => e.name),
+            });
+            return R.sw.start();
         })
         .catch(() => { /* offline support is a bonus */ });
 }

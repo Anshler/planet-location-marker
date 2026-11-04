@@ -178,6 +178,19 @@ test('governor steps down after 2 s over budget: DPR first, then the tier', () =
     assert.equal(gov.tier, 'low');
 });
 
+test('governor: lastStep keeps each step for the diagnostics report (the EMA itself is reset)', () => {
+    const gov = gov60({ tier: 'high', ceiling: 'high', dpr: 2 });
+    assert.equal(gov.lastStep, null);
+    feed(gov, 30, 3000);
+    assert.deepEqual(gov.lastStep, { from: 'high', to: 'high', dprCap: 1.75, emaMs: gov.lastStep.emaMs, budgetMs: 16.7 });
+    assert.ok(gov.lastStep.emaMs > 1.3 * 16.7 && gov.lastStep.emaMs <= 30, 'the EMA that triggered it');
+    assert.equal(gov.emaMs, null, 'the governor itself starts afresh');
+    feed(gov, 30, 7600);
+    assert.equal(gov.lastStep.from, 'high');
+    assert.equal(gov.lastStep.to, 'medium');
+    assert.equal(gov.lastStep.dprCap, 1.5);
+});
+
 test('governor never steps up and does not oscillate', () => {
     const gov = gov60({ tier: 'medium', ceiling: 'medium', dpr: 1 });
     const results = [];

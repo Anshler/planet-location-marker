@@ -73,6 +73,17 @@ export const RECIPES = [
         path: 'assets/textures/earth_roughness_2048.webp', from: 'assets/textures/earth_bump_roughness_clouds_4096.jpg',
         recipe: { size: [2048, 1024], colour: 'data', channel: 'g', clamp: [0.25, 0.45], type: 'image/webp', quality: 0.9 },
     },
+    // Previews (every tier): the day and night maps at 512 px, about 18 KB together. They arrive with
+    // the first bytes of the page, so the globe is a recognisable, lit Earth in its first frame and
+    // sharpens into the tier's maps (render/earth.js uSharpen) instead of showing a flat blue ball.
+    {
+        path: 'assets/textures/earth_day_preview.webp', from: 'assets/textures/earth_day_4096.jpg',
+        recipe: { size: [512, 256], colour: 'srgb', channel: 'rgb', type: 'image/webp', quality: 0.7 },
+    },
+    {
+        path: 'assets/textures/earth_night_preview.webp', from: 'assets/textures/earth_night_4096.jpg',
+        recipe: { size: [512, 256], colour: 'srgb', channel: 'rgb', type: 'image/webp', quality: 0.7 },
+    },
     // Max-tier clouds: Solar System Scope's 8192 cloud map (the field brc4k.b was made from), grey,
     // clamped to the same density window. As a 3-channel JPEG it is 11.6 MB.
     {

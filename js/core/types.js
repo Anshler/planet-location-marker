@@ -176,7 +176,8 @@
  *   pin:(tier:'low'|'medium'|'high'|'max'|null)=>('low'|'medium'|'high'|'max'),
  *   config:()=>TierCfg, reset:()=>void, readonly tier:'low'|'medium'|'high'|'max', readonly ceiling:'low'|'medium'|'high',
  *   readonly start:'low'|'medium'|'high', readonly pinned:'low'|'medium'|'high'|'max'|null, readonly dprCap:number,
- *   readonly emaMs:number|null, readonly cadenceMs:number|null, readonly budgetMs:number }} Governor */
+ *   readonly emaMs:number|null, readonly cadenceMs:number|null, readonly budgetMs:number,
+ *   readonly lastStep:{from:string, to:string, dprCap:number, emaMs:number, budgetMs:number}|null }} Governor */
 
 /** Wall-clock fields in a time zone (js/core/tz.js). `mo` is 1-based.
  * @typedef {{y:number, mo:number, d:number, h:number, mi:number, s:number}} ZonedFields */

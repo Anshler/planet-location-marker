@@ -977,6 +977,33 @@ export function createActions(deps) {
         return (await copyText(url)) ? 'copied' : 'failed';
     }
 
+    /**
+     * The diagnostics report (core/diagnostics.js, built by main.js: no location), or null in a host
+     * that provides none.
+     * @returns {object|null}
+     */
+    function diagnostics() {
+        try {
+            return deps.diagnostics?.() ?? null;
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * Copies the diagnostics report, as indented JSON, to the clipboard (About; a Settings
+     * 'Troubleshooting' button may call it too). Resolves {ok, text}: the text either way, so the
+     * caller can show it to select by hand when copying failed. Feedback is the caller's.
+     * @returns {Promise<{ok:boolean, text:string}>}
+     */
+    async function copyDiagnostics() {
+        let text = '{}';
+        try {
+            text = JSON.stringify(diagnostics() ?? {}, null, 2);
+        } catch { /* a cycle or a getter that throws: an empty report */ }
+        return { ok: await copyText(text), text };
+    }
+
     function toggleFullscreen() {
         if (!doc) return;
         const el = doc.documentElement;
@@ -1553,6 +1580,8 @@ export function createActions(deps) {
         toggleFullscreen, toggleCinema, resetCamera, replayIntro, jumpToEvent,
         // Extensions beyond SPEC §C.9 (used by shortcuts / the shell when present).
         toggleDebug, openPalette, shareUrl, viewFromBody,
+        // Phase 7: the diagnostics report (About → Copy diagnostics).
+        diagnostics, copyDiagnostics,
         // Eclipse 2027 (ROADMAP Phase 1): the shared path request and 'Stand in the path'.
         eclipsePath: eclipsePathFor, standInPath, playEclipse,
         // Phase 5: long exposures and the capture path (postcards, Save image).

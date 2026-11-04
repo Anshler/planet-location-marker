@@ -119,6 +119,10 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
     renderer.setClearColor(0x000000, 1);
     // Count every draw of a frame (the composer issues several render() calls).
     renderer.info.autoReset = false;
+    // The context reports itself lost at once, but 'webglcontextlost' is dispatched in a later task:
+    // a frame in between would draw on a dead context (programs with no info log make three throw).
+    const ctxGl = renderer.getContext();
+    const deadGl = () => { try { return ctxGl.isContextLost(); } catch { return true; } };
 
     const scene = new THREE.Scene();
     scene.name = 'planet-location-marker';
@@ -131,6 +135,8 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
     let dprOverride = null;
     let postfx = null;
     let lost = false;
+    /** After a restore, until its listeners' work is done (the maps fetched again): nothing draws. */
+    let restoring = false;
     let frames = 0;
     let forceResize = true;
     let presentQueued = false;
@@ -189,6 +195,8 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
 
     function ensurePostFx() {
         const chain = chainCfg(cfg);
+        // While lost, the restore builds the chain (a tier staged meanwhile is its cfg).
+        if (lost) return chain;
         if (chain.composer && !postfx) {
             try {
                 postfx = createPostFx(renderer, scene, camera, chain, { w: size.w, h: size.h, dpr });
@@ -246,12 +254,32 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
      * @param {object|string} next TierCfg or tier name
      */
     function setTier(next) {
-        const gl = renderer.getContext();
-        const bw = gl.drawingBufferWidth, bh = gl.drawingBufferHeight;
+        prepareTier(next);
+        commitTier();
+    }
+
+    /**
+     * A staged switch's first half (main.js, app/tier-switch.js): the tier's post chain (composer
+     * on or off, MSAA, bloom, final pass, supersampling) at the current size. Nothing is resized or
+     * presented, so compile() can warm the chain's variants before any frame draws them.
+     * @param {object|string} next TierCfg or tier name
+     */
+    function prepareTier(next) {
+        compileGen++;
         cfg = resolveTier(next);
         const chain = ensurePostFx();
         postfx?.setTier(chain);
         postfx?.setSupersample(ssWanted(chain));
+        invalidate();
+    }
+
+    /**
+     * Its second half: the tier's DPR and the composer sized to it. A resize clears the drawing
+     * buffer, so the canvas is redrawn before the task ends (presentIfCleared).
+     */
+    function commitTier() {
+        const gl = renderer.getContext();
+        const bw = gl.drawingBufferWidth, bh = gl.drawingBufferHeight;
         forceResize = true; // re-apply sizes to a freshly built composer
         resize();
         presentIfCleared(bw, bh);
@@ -359,7 +387,7 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
      * @returns {boolean} false when nothing could be captured (context lost, disposed)
      */
     function capture(w, h, scale, draw, read, opts) {
-        if (lost || disposed || session) return false;
+        if (lost || restoring || disposed || session || deadGl()) return false;
         const gl = renderer.getContext();
         const W = Math.max(16, Math.min(maxBuffer, Math.round(w)));
         const H = Math.max(16, Math.min(maxBuffer, Math.round(h)));
@@ -394,7 +422,7 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
      * @returns {boolean} false when the context is lost, disposed or a session runs
      */
     function beginCapture(w, h, scale, opts) {
-        if (lost || disposed || session) return false;
+        if (lost || restoring || disposed || session) return false;
         const W = Math.max(16, Math.min(maxBuffer, Math.round(w)));
         const H = Math.max(16, Math.min(maxBuffer, Math.round(h)));
         const s = Number.isFinite(scale) && scale > 0 ? scale : 1;
@@ -499,7 +527,7 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
      * @param {{x:number, y:number, weight:number}|null} [ss]
      */
     function render(ss) {
-        if (lost || disposed) return;
+        if (lost || restoring || disposed || deadGl()) return;
         renderer.info.reset();
         const jitter = ss && postfx?.supersample && !postfx.accum ? ss : null;
         const e = camera.projectionMatrix.elements;
@@ -525,6 +553,8 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
                 renderOverlay();
             }
         } catch (err) {
+            // Lost in the middle of the frame: nothing is broken, and the restore draws again.
+            if (deadGl()) return;
             if (postfx) {
                 // Fall back to direct rendering for the rest of the session.
                 console.warn('Planet Location Marker: post-processing failed, rendering directly.', err);
@@ -551,32 +581,157 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
         frames++;
     }
 
+    /** Stand-in for a full-screen quad, to compile the post chain's pass materials (never drawn). */
+    let quad = null;
+    /** Bumped by each paced compile and each staged tier: a paced compile still running stops. */
+    let compileGen = 0;
+    function passQuad() {
+        if (!quad) {
+            const mesh = new THREE.Mesh(new THREE.BufferGeometry());
+            quad = { mesh, basic: mesh.material, camera: new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1) };
+        }
+        return quad;
+    }
+
     /**
-     * Compiles every material in the scene for the variant actually used
-     * (composer target vs. canvas), including objects that are currently
-     * hidden, so entering sky view or toggling a layer does not hitch.
+     * What compile() covers, as [root, camera, scene, toCanvas, …]: the scene (and the overlay) drawn
+     * into the post chain's input target (the canvas on the direct path), then each pass material
+     * (postfx passMaterials) on the stand-in quad, which is the root and the scene in one.
+     * @param {boolean} perObject one entry per object with a material instead of one per scene
+     */
+    function compileUnits(perObject) {
+        const units = [];
+        const toCanvas = !postfx?.inputTarget;
+        const scenes = overlay ? [[scene, camera], [overlay.scene, overlay.camera]] : [[scene, camera]];
+        for (const [sc, cam] of scenes) {
+            if (!perObject) units.push(sc, cam, sc, toCanvas);
+            else sc.traverse((o) => { if (o.material) units.push(o, cam, sc, toCanvas); });
+        }
+        const pass = postfx?.passMaterials?.() ?? [];
+        for (let i = 0; i < pass.length; i += 2) units.push(pass[i], null, null, pass[i + 1]);
+        return units;
+    }
+
+    /** renderer.compile for one unit at its target; a material unit compiles on the stand-in quad. */
+    function compileUnit(units, i, run) {
+        const prev = renderer.getRenderTarget();
+        const q = units[i + 1] ? null : passQuad();
+        try {
+            renderer.setRenderTarget(units[i + 3] ? null : postfx?.inputTarget ?? null);
+            if (q) {
+                q.mesh.material = units[i];
+                return run(q.mesh, q.camera, q.mesh);
+            }
+            return run(units[i], units[i + 1], units[i + 2]);
+        } catch {
+            return null; // compile errors surface at first render
+        } finally {
+            if (q) q.mesh.material = q.basic;
+            renderer.setRenderTarget(prev);
+        }
+    }
+
+    /**
+     * Compiles every material for the variant actually drawn (composer target vs. canvas),
+     * including objects that are currently hidden, so entering sky view or toggling a layer does not
+     * hitch, and the post chain's pass materials (bloom, supersampling, stacking, the final pass).
+     * With KHR_parallel_shader_compile everything compiles at once off the main thread. Without it
+     * the programs link on first use, in the first frame (boot), or with `paced` (tier switches)
+     * here, one new program per task: each is issued alone, a fence lets the GPU process catch up
+     * with what was queued before it (polled between tasks, which never blocks), and only then is
+     * it linked, so the main thread waits for one link at a time instead of a whole batch at once.
+     * `paced` also does three's first use of the new programs (firstUse) before resolving.
+     * Resolves early when the context is lost.
+     * @param {{paced?:boolean}} [opts]
      * @returns {Promise<void>} never rejects
      */
-    async function compile() {
-        if (lost || disposed) return;
-        const hidden = [];
-        const scenes = overlay ? [[scene, camera], [overlay.scene, overlay.camera]] : [[scene, camera]];
-        for (const [sc] of scenes) sc.traverse((o) => { if (o.visible === false) { hidden.push(o); o.visible = true; } });
-        const prevTarget = renderer.getRenderTarget();
-        let pending = null;
+    async function compile({ paced = false } = {}) {
+        if (lost || restoring || disposed || deadGl()) return;
+        const parallel = !!renderer.extensions?.has?.('KHR_parallel_shader_compile');
+        const n0 = renderer.info.programs?.length ?? 0;
+        let offLost = null;
+        const lostP = new Promise((resolve) => { offLost = onContextLost(() => resolve()); });
         try {
-            if (postfx?.inputTarget) renderer.setRenderTarget(postfx.inputTarget);
-            pending = Promise.all(scenes.map(([sc, cam]) => (typeof renderer.compileAsync === 'function'
-                ? renderer.compileAsync(sc, cam)
-                : (renderer.compile(sc, cam), null))));
-        } catch {
-            pending = null;
+            await Promise.race([lostP, paced && !parallel ? compilePaced() : compileAll(parallel)]);
+            if (paced && parallel && !lost) firstUse(n0);
+        } catch { /* compile errors surface at first render */ }
+        offLost();
+        invalidate();
+    }
+
+    /**
+     * three's first use of the programs from index `from` on (WebGLProgram.getUniforms: the link
+     * status, the info logs, the uniform and attribute tables), done now instead of in the first
+     * frame that draws them, where each of those synchronous queries would wait for that frame's
+     * own draws. Waits for a link still running.
+     */
+    function firstUse(from) {
+        const programs = renderer.info.programs ?? [];
+        for (let k = from; k < programs.length; k++) programs[k].getUniforms?.();
+    }
+
+    function compileAll(parallel) {
+        const hidden = [];
+        const scenes = overlay ? [scene, overlay.scene] : [scene];
+        for (const sc of scenes) sc.traverse((o) => { if (o.visible === false) { hidden.push(o); o.visible = true; } });
+        const run = (root, cam, sc) => (parallel && typeof renderer.compileAsync === 'function'
+            ? renderer.compileAsync(root, cam, sc)
+            : (renderer.compile(root, cam, sc), null));
+        const pending = [];
+        try {
+            const units = compileUnits(false);
+            for (let i = 0; i < units.length; i += 4) pending.push(compileUnit(units, i, run));
         } finally {
-            renderer.setRenderTarget(prevTarget);
             for (const o of hidden) o.visible = false;
         }
-        try { await pending; } catch { /* compile errors surface at first render */ }
-        invalidate();
+        return Promise.all(pending);
+    }
+
+    async function compilePaced() {
+        const gl = renderer.getContext();
+        const programs = renderer.info.programs;
+        const run = (root, cam, sc) => renderer.compile(root, cam, sc);
+        const gen = ++compileGen;
+        const nextTask = () => new Promise((resolve) => setTimeout(resolve, 0));
+        // Not in the task that asked for the tier (a click, a governor step): it has staged it.
+        await nextTask();
+        const units = compileUnits(true);
+        let t0 = performance.now();
+        for (let i = 0; i < units.length; i += 4) {
+            // Lost, or a newer tier staged meanwhile (its chain may have disposed these materials).
+            if (lost || disposed || gen !== compileGen) return;
+            const n0 = programs ? programs.length : 0;
+            compileUnit(units, i, run);
+            const fresh = programs ? programs.length > n0 : false;
+            // Let the GPU process catch up first (a fence polled across tasks never blocks), then
+            // wait for this link alone (firstUse) and let the main thread breathe.
+            if (fresh) {
+                await gpuIdle(gl);
+                if (gen !== compileGen || lost) return;
+                firstUse(n0);
+            }
+            if (fresh || performance.now() - t0 > 8) {
+                await nextTask();
+                t0 = performance.now();
+            }
+        }
+    }
+
+    /**
+     * Resolves once the GPU has run everything issued so far (a fence; its status only changes
+     * between tasks, so polling it never blocks), or after 3 s.
+     */
+    async function gpuIdle(gl) {
+        let sync = null;
+        try {
+            sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+            gl.flush();
+            const t0 = performance.now();
+            while (sync && !lost && performance.now() - t0 < 3000 && gl.getSyncParameter(sync, gl.SYNC_STATUS) !== gl.SIGNALED) {
+                await new Promise((resolve) => setTimeout(resolve, 4));
+            }
+        } catch { /* no fences: the link query below waits instead */ }
+        if (sync) gl.deleteSync(sync);
     }
 
     function onContextLost(cb) {
@@ -614,28 +769,80 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
         for (const c of cleanups) { try { c(); } catch { /* ignore */ } }
         postfx?.dispose();
         postfx = null;
+        quad?.mesh.geometry.dispose();
+        quad?.basic.dispose();
         renderer.dispose();
         disposed = true;
     }
 
     // ---- context loss -------------------------------------------------------------------------
+    /**
+     * Releases three's bookkeeping of everything drawn so far, while the context is lost: every GL
+     * call is then a silent no-op, and the dispose listener three hung on each geometry, material,
+     * texture and render target (the lost context's, with its buffers, vertex arrays and programs)
+     * runs and removes itself. The objects stay usable: after the restore three hangs new listeners
+     * as it draws them. Without this a later dispose() (a tier switch's new Earth mesh, the bloom
+     * pass, three's one full-screen triangle that every pass shares) would delete the lost
+     * context's objects on the new one: an 'object does not belong to this context' warning each.
+     * The post chain goes with it (its targets, passes and their quads); the restore builds a new one.
+     */
+    function releaseLost() {
+        const seen = new Set();
+        const rel = (o) => {
+            if (!o || seen.has(o) || typeof o.dispose !== 'function') return;
+            seen.add(o);
+            try { o.dispose(); } catch { /* best effort */ }
+        };
+        const relMat = (m) => {
+            if (!m || seen.has(m)) return;
+            rel(m);
+            for (const k in m) if (m[k]?.isTexture) rel(m[k]);
+            for (const k in m.uniforms) {
+                const v = m.uniforms[k]?.value;
+                if (v?.isTexture) rel(v);
+                else if (Array.isArray(v)) for (const t of v) if (t?.isTexture) rel(t);
+            }
+        };
+        for (const sc of overlay ? [scene, overlay.scene] : [scene]) {
+            sc.traverse((o) => {
+                rel(o.geometry);
+                if (Array.isArray(o.material)) o.material.forEach(relMat);
+                else relMat(o.material);
+            });
+        }
+        if (quad) { rel(quad.mesh.geometry); rel(quad.basic); }
+        try { postfx?.dispose(); } catch { /* ignore */ }
+        postfx = null;
+    }
     const onLost = (e) => {
         e.preventDefault(); // allows the browser to restore the context
         lost = true;
+        releaseLost();
         for (const cb of lostCbs) { try { cb(e); } catch { /* ignore */ } }
     };
     const onRestored = () => {
         lost = false;
-        // three re-creates GL state lazily; rebuild the composer targets explicitly. Its own
-        // restore listener (added with the renderer, so it runs first) has already reset its GL
-        // bookkeeping: the old composer's framebuffers, textures and vertex arrays died with the
-        // lost context, and dispose() would delete them on the new one (INVALID_OPERATION, one
-        // warning each). Drop it unreleased instead.
-        postfx = null;
+        // three re-creates GL state lazily (its own restore listener, added with the renderer, has
+        // already reset its bookkeeping); the post chain is built here, for the current tier.
         ensurePostFx();
         forceResize = true;
         resize();
-        for (const cb of restoredCbs) { try { cb(); } catch { /* ignore */ } }
+        // A listener may return a promise (main.js: the texture store fetching maps whose decoded
+        // copy it closed): nothing draws or captures until those settle.
+        const waits = [];
+        for (const cb of restoredCbs) {
+            try {
+                const r = cb();
+                if (r && typeof r.then === 'function') waits.push(r.then(() => {}, () => {}));
+            } catch { /* ignore */ }
+        }
+        if (waits.length) {
+            restoring = true;
+            Promise.all(waits).then(() => {
+                restoring = false;
+                invalidate();
+            });
+        }
         invalidate();
     };
     canvas.addEventListener('webglcontextlost', onLost, false);
@@ -679,8 +886,8 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
         get tier() { return cfg; },
         /** Current pixel ratio. */
         get dpr() { return dpr; },
-        /** True between webglcontextlost and webglcontextrestored. */
-        get lost() { return lost; },
+        /** True from webglcontextlost until the restore's own work (onContextRestored promises) is done. */
+        get lost() { return lost || restoring; },
         /** Active post-processing chain, or null on the direct (low tier) path. */
         get postfx() { return postfx; },
         /** The long-exposure stacking pass while Expose is on (render/accum.js), else null. */
@@ -699,6 +906,8 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
         endCapture,
         onInvalidate,
         setTier,
+        prepareTier,
+        commitTier,
         setDprCap,
         setExposure,
         setVision,

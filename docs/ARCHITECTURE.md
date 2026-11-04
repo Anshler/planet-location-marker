@@ -17,7 +17,8 @@ formulas and accuracy, is in [ASTRONOMY.md](ASTRONOMY.md).
 ```
 index.html        import map · inline loader · feature detection · global error capture
 └─ js/main.js     composition root: builds everything, wires it together, owns boot order
-   ├─ js/core/    app state: store, bus, clock, url-state, prefs, tz, format, quality      PURE
+   ├─ js/core/    app state: store, bus, clock, url-state, prefs, tz, format, quality,    PURE
+   │              texture-plan, context-loss, diagnostics
    ├─ js/geo/     offline cities, online geocoder, lat/lon parsing, landscape profile     PURE
    ├─ js/astro/   astronomy: frames, snapshot, almanac, events, paths, worker + client    PURE
    ├─ js/data/    star-catalog decoder                                                    PURE
@@ -52,12 +53,14 @@ the UI and the render stack with literal `import('./…')` calls, so:
 
 | Area | Module | Responsibility |
 |---|---|---|
-| Entry | `index.html` | Import map (`three`, `three/addons/`). `modulepreload` for three, astronomy-engine and `main.js`. Preload for `data/cities.json`. Inline loader. Classic scripts for error capture (`window.__pcLoader`) and feature detection (`window.__pcEnv`). |
+| Entry | `index.html` | Import map (`three`, `three/addons/`). `modulepreload` for the whole boot graph (generated; §3 'Early downloads'). Preload for `data/cities.json`. Inline loader. Classic scripts for error capture (`window.__pcLoader`) and feature detection (`window.__pcEnv`), which also preloads three.js, the render stack and the Earth previews when the 3D view can run. |
 | | `js/main.js` | Boot sequence, service wiring, store-to-module subscriptions, click picking, tier switching, the intro runner, the guided-tour loader (`startTour`), `window.__app`. |
+| | `sw.js` | The service worker (classic script; §9 'The service worker'). In the repo it is the dev worker (network first); the deploy stamps a content-hashed `VERSION` into its staged copy, which installs each version atomically from `sw-manifest.json`. |
 | App glue | `js/app/actions.js` | `createActions(deps)`: the only API the UI calls besides `store` and `clock`. Also `normalizeObserver`, `eventFraming` (how a jump frames its event), `eclipseFocusExpired`, `eclipsePlayRange` and `lookSpanning`. |
 | | `js/app/mars-host.js` | `createMarsHost(deps)`: standing on Mars (loaded by `main.js bindHost` the first time `store.host` is Mars). `enter()` hands the loop a Mars snapshot source (`loop.setHost`), broadcasts `setHost('mars')`, hides the Earth-only groups (`R.earthGroups`), registers the `sat:` provider and adds `render/mars-sky.js` once a renderer exists; `leave()` undoes it. No three.js. |
 | | `js/app/eclipse-chase.js` | `ribbonPlan` (which eclipse the globe's path ribbon shows), `chaseLegs`/`chaseTarget` and `createEclipseChase` (the shadow chase behind `actions.chaseEclipse`). No three.js. |
 | | `js/app/loop.js` | `createLoop(deps)`: the frame loop with render-on-demand, guarded module calls and strikes, governor sampling, the 4 Hz readout and idle supersampling (extra jittered frames once nothing moves, `core/sampling.js`). `redraw()` draws one frame on demand (captures); `step(now, dt, io)` runs one whole frame on a caller's time base (video sessions). |
+| | `js/app/tier-switch.js` | `createTierSwitch(hooks)`: the staged tier switch's sequencing (pause, stage, compile, commit, resume; DPR steps at once; a newer request replaces a staged one; a 10 s cap), driven by `main.js makeTierSwitch` (§8, Applying a tier). No three.js. |
 | | `js/app/capture.js` | `createCapture(deps).frame(opts)`: the scene rendered once at a requested size into a 2D canvas, with the label feed's labels reprojected for that camera (`projectAnchor`, `projectLabels`, `paintLabels`). Postcards and the long exposure's Save image. `session(opts)`: the same, frame after frame at one size (the time-lapse video). No three.js. |
 | | `js/app/recorder.js` | Time-lapse video export, loaded on demand by `actions.recordVideo`: the pure frame plans (`videoPlan`: holds and clock ranges for a day, a night of star trails, the 2027 eclipse chase; `nightSpan`), `pickEncoder`, and `recordVideo` (deterministic frames on a virtual time base, WebCodecs into `mp4.js`, else MediaRecorder in real time; state restored afterwards). No three.js. |
 | | `js/app/mp4.js` | A tiny faststart MP4 muxer for one H.264 (`avcC`) or VP9 (`vpcC`) track, pure; `mp4Boxes` walks boxes (tests). |
@@ -65,7 +68,9 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/app/labels-feed.js` | `buildAnchors(state, snap, catalog, trails)` and `createLabelsFeed(deps)`: label anchors with live vectors. |
 | | `js/app/intro.js` | `playIntro(opts)`: the first-visit camera flight, pin drop and beam launch (after a pre-roll that holds the opening pose while the loader fades). |
 | | `js/app/tours.js` | Guided tours, loaded on demand: the pure step builders (`tonightSteps`, `yearSteps`, `eclipseSteps`, `ambientSteps`) and `createTourRunner` (captions, pause/resume/next, state capture and restore). No three.js. |
-| | `js/app/fallback.js` | Text-mode banner, context-lost overlay, fatal-error hand-off. |
+| | `js/app/fallback.js` | Text-mode banner (with Retry after repeated context losses), context-lost overlay, fatal-error hand-off. |
+| | `js/app/sw-client.js` | `createSwClient(deps)`, imported at idle time: registers `sw.js` (`swMode`: https hosts, or `#sw=1`; `#sw=0` unregisters), the "A new version is ready · Reload" toast, the first visit's warm-up, and the state behind `__app.sw`. No three.js. |
+| | `js/app/session.js` | `sessionStorage`, guarded (`sessionLoad`, `sessionSave`): this tab's context-loss record outlives a reload, not the tab. Saved preferences stay in `core/prefs.js`. |
 | | `js/app/extras-setup.js` | `registerExtras(extras, {fetchJson, onDso})`: registers the guest-star and comet providers at boot, the spacecraft once `data/craft.json` arrives and the deep-sky objects once `data/dso.json` does; `registerStars(extras, {getCatalog, fetchJson})`: the catalogue-star provider once `sky.json` is decoded, following the selection and fetching `data/starinfo.json` on the first star (§4, Extra objects). |
 | Core | `js/core/store.js` | Immutable slices, selector subscriptions, `DEFAULT_STATE`. |
 | | `js/core/bus.js` | Fixed event types: `readout`, `toast`, `announce`, `almanac`, `events`, `intro`. |
@@ -74,9 +79,12 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/core/tour-catalog.js` | `TOURS` (id, title, blurb, running time), `TOUR_IDS`, `isTourId`: what the Events tab lists and `#tour=` accepts. |
 | | `js/core/selection.js` | What `store.selection` may hold: a BodyId or a namespaced extra id (`EXTRA_KINDS`, `isExtraId`, `isSelectionId`, `parseSelectionId`, `normalizeSelectionId`). |
 | | `js/core/moments.js` | `MOMENTS` (famous skies as deep links: caption, sources, hash) and `FAMOUS_COMETS` (Halley's five apparitions), listed by the Events tab. |
-| | `js/core/quality.js` | `TIERS`, `detectTier`, `tierConfig`, `autoStartTier`, and `createGovernor` (downgrade only, display-cadence budget). |
+| | `js/core/quality.js` | `TIERS`, `detectTier`, `tierConfig`, `autoStartTier`, and `createGovernor` (downgrade only, display-cadence budget; `lastStep` keeps each step's EMA and budget for the diagnostics). |
+| | `js/core/context-loss.js` | The context-loss backoff (§9): `recordLoss` (a 60 s sliding window: restore, then one tier lower for the session, then text mode), `retryRecord`, `capTier`, `tierBelow`. |
+| | `js/core/diagnostics.js` | `buildDiagnostics`: the 'Copy diagnostics' report (§11), with no location: `diagHash` keeps an allowlist of hash keys, `scrubError` cuts URL fragments, queries and `loc=` pairs from error lines. |
 | | `js/core/sampling.js` | Renderer policies, pure: `halton`, `createSupersampler` (idle supersampling: which frames accumulate, their weight and jitter, when to park), `viewMotionPx`, `streakShutter` and `strobeDim` (fast-time streaks). |
 | | `js/core/prefs.js` | `localStorage` under `pc2.`, falling back to memory. |
+| | `js/core/texture-plan.js` | Which images each tier loads: `ASSETS` (URLs, bytes, colour space), `INTERIM` and `PREVIEW` stand-ins, the per-slot key choices and `keysForTier` (critical previews, primary day and night maps, deferred rest); `download`/`prefetchTextures`, the early streamed fetches `main.js` starts before the render stack exists. No three.js; `render/textures.js` re-exports it. |
 | | `js/core/tz.js`, `js/core/format.js` | Time zones (canonicalised, DST-safe) and every displayed number and string. Calendar dates before 15 Oct 1582 are shown Julian (`toCalendar`, `fromCalendar`, `parseCalendarInput`, JDN helpers); instants and `t=` stay Gregorian UTC. |
 | | `js/core/types.js` | JSDoc typedefs: the shared contract. |
 | Geo | `js/geo/cities.js` | About 1,600 GeoNames cities. Fuzzy search, `nearest`, `byTz`. |
@@ -117,13 +125,13 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/astro/sky-guide.js` | Finding it in the real sky: hands at arm's length (`handSpan`: a fist ≈ 10°, a finger ≈ 1°), `findIt` ('Face south-east, 4 fists up from the horizon, 1 fist left of the Moon.'), `guideRefs` (the Moon, bright planets and, by night, 24 bright J2000 stars as signposts), the ruler's numbers (`separationDeg`, `fmtAngle`, `rulerText`) and `edgeHit` (where an off-screen pointer meets the free area's edge). |
 | Data | `js/data/catalog.js` | Decodes `data/sky.json` into GPU-ready typed arrays in the scene frame (with B−V and sky.json's own order, `srcHip`); `applyProperMotion(catalog, years)` moves the fast stars, their constellation endpoints and name labels in place; `mergeDeepStars` appends the max tier's `data/stars8.json`. |
 | | `js/data/starinfo.js` | Decodes `data/starinfo.json` (parallax per star, proper names, Bayer and Flamsteed designations; `GENITIVE`, `designations`). |
-| Render | `js/render/context.js` | Renderer, scene, camera, tier switching, `invalidate`/`onInvalidate`, context loss, stats; `setAccumulation` (long exposures), `capture` (a one-task render at another size), video sessions (`beginCapture`, `captureCamera`/`releaseCamera`, `endCapture`), `render(ss)` (a jittered supersampling sample; a shown overlay takes the same jitter) and `setOverlay` (a second scene drawn over the first with its own camera and depth: the orrery). |
+| Render | `js/render/context.js` | Renderer, scene, camera, tier switching (`setTier`, or staged: `prepareTier` builds the post chain, `compile({paced})` warms every variant, `commitTier` applies the DPR), `invalidate`/`onInvalidate`, context loss (three's bookkeeping released while lost; drawing waits for the restore listeners' promises), stats; `setAccumulation` (long exposures), `capture` (a one-task render at another size), video sessions (`beginCapture`, `captureCamera`/`releaseCamera`, `endCapture`), `render(ss)` (a jittered supersampling sample; a shown overlay takes the same jitter) and `setOverlay` (a second scene drawn over the first with its own camera and depth: the orrery). |
 | | `js/render/postfx.js` | Composer with bloom and the final pass (FXAA when the scene target has no MSAA; the night-vision grade, `rc.setVision`). An `OverlayPass` right after the scene draws the overlay scene (`setOverlay`). While Expose is on, `AccumPass` (`accum.js`: two half-float targets, max-stacking, bright-only for the analemma) sits between the scene and the bloom; otherwise, on tiers that supersample, `SupersamplePass` (`supersample.js`: one half-float history, a hardware-blended running mean) sits there. |
 | | `js/render/streaks.js` | Fast-time star streaks, a render module for its per-frame hook: measures the camera's turn since the last frame and publishes `STREAK_UNIFORMS` (the shutter's opening as a world → view mat3, the cap), shared by the stars and the planet glyphs (`STREAK_VERT_CHUNK`), and `streakState.dim` for line art and the Milky Way. |
 | | `js/render/orrery.js` | The solar-system zoom's orrery: its own scene and camera in AU (the overlay), orbits, the Earth→body sight lines the beams fade into, sprites lit by the Sun, the Sun on the bodies' `DISC_FRAG`, the retrograde figure for a selected planet, edge arrows; live label points (`labelPoint`, `labelOffset`) and `pick`. Shaders in `shaders/orrery.glsl.js`. |
 | | `js/render/long-exposure.js` | The long exposure's controller, a render module for its per-frame hook: turns stacking on in sky view while `ui.expose` is set, resets the stack when the framing changes, gates star trails by daylight, reports `stats()`. |
-| | `js/render/textures.js` | Placeholder-first texture store with byte-weighted progress. |
-| | `js/render/earth.js`, `atmosphere.js` | Earth shader (day, night lights with close-zoom filtering, sun glint and moonglint, moonlight, twilight, sculpted clouds, the face-on aurora, eclipse shadow, footprint) and atmosphere. |
+| | `js/render/textures.js` | Placeholder-first texture store with byte-weighted progress. Takes over `main.js`'s prefetched downloads, shows a day or night map's 512 px preview while it loads (`state(key) === 'preview'`), and holds eager uploads while the shaders compile (`holdUploads`; a tier switch's `{bind: false}` hold binds a map only once it is on the GPU). `setAnisotropy(n, keys)` re-uploads through the hold. A decoded bitmap is closed once uploaded (not the ocean masks the CPU reads, nor the previews: ASSETS `keep`); `restore()` and a new anisotropy fetch a closed map again (§8, Decoded images). |
+| | `js/render/earth.js`, `atmosphere.js` | Earth shader (day, night lights with close-zoom filtering, the sharpen-in from the 512 px previews, sun glint and moonglint, moonlight, twilight, sculpted clouds, the face-on aurora, eclipse shadow, footprint) and atmosphere. |
 | | `js/render/aurora.js` | The aurora's limb-curtain shell (High and Max) and the driver of `AURORA_CHUNK` (`shaders/aurora.glsl.js`), whose uniforms the Earth and cloud materials also carry for the face-on oval on every tier. |
 | | `js/render/skyglow.js` | Uniforms of `SKYGLOW_CHUNK` (`shaders/skyglow.glsl.js`), filled from `snap.skyglow`: the moonlit sky and the city light dome per direction, for the dome, ground, stars and Milky Way. |
 | | `js/render/sky.js`, `bodies.js`, `ground.js` | Stars, constellations, Milky Way and grids; Sun (with totality's thin crescent, corona, chromosphere and prominences under `SUN_ECLIPSE`), planets and the true-scale Moon; sky-view dome and ground (totality's 360° horizon ring, the illustrative landscape and sea, twilight- and moonlit land). |
@@ -153,6 +161,7 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | Camera | `js/camera/rig.js`, `picking.js` | Orbit and sky-view camera, Earth-lock, fly-to tweens, `follow()` (the shadow chase), sidereal tracking, `setVantage()` (View from L1, Earthrise), the flat map (`setMode('map')`, `mapK`, `mapFrame`), the system zoom past 150 R (`setSystem`, `system`, `systemBlend`, `onSystemChange`), `frameSpan()` (the Earth–Moon framing), `setAiming()`/`setSkyAim()` (the phone steers the look); analytic globe, map (`pickMap`), glyph and map-point (`pickPoint`) picking. |
 | | `js/camera/aim.js` | 'Point at the sky' (loaded on first use, no three.js): device orientation → the rear camera's direction and the screen's up in ENU (`deviceVectors`), a level look (`lookOf`), an adaptive vector low-pass (`aimFilterStep`), and `createAim` (sensor events, iOS compass learning, deadband, Align offset, idle and hidden stops, wake lock). |
 | UI | `js/ui/index.js` and its modules | Shell, top bar, time bar, Sky Now, body card (with `eyepiece.js`: the 2D-canvas eyepiece portrait, also in text mode; `year-planner.js`: the planets' 12-month chart on a 2D canvas and the Sun's solstice paths in words, from the worker, also in text mode), events (with the guided tours and the Moon/Planets/Eclipses/Meteors/Seasons filters), Eclipse Companion, the tour's lower third (`tour-bar.js`), layers, settings, about, help, toasts, shortcuts, announcer; the share menu, `postcard.js` (postcard and Save-image dialog, the typographic band), `video.js` (the time-lapse video dialog: presets, frame size, progress and preview, the burned-in date stamp) and `expose.js` (Expose presets and the exposure's status pill); the vantage menu and its caption pill (`view-switch.js`: vantage points, the world map, the solar system).; the ruler and 'Point at the sky' buttons with their status pills (`sky-tools.js`); the body card's 'Find it' line.; the world map entry and the second place (`Compare with…` in the place search) |
+| | `js/ui/report.js` | About's 'Report a problem' (`mountReport`): Copy diagnostics (`actions.copyDiagnostics`; a selectable textarea when the clipboard is blocked) and `issueUrl()`, a new issue on `REPO_URL` with a short template. |
 
 ---
 
@@ -164,30 +173,79 @@ the UI and the render stack with literal `import('./…')` calls, so:
    in the device's timezone (`cities.byTz`, canonicalised; on a UTC machine this falls through),
    then the Royal Observatory Greenwich. Layers, display and quality are merged from defaults,
    prefs and the hash. `detectTier` picks the tier from the WebGL probe that `index.html` already
-   ran.
+   ran, before the observer (which may wait up to 1.5 s for `cities.json`), and the tier's day and
+   night maps start downloading at once (`prefetchTextures`, handed to the texture store later).
 2. **Clock and first snapshot.** A hash `t` starts the clock paused at that moment. Otherwise it
    starts Live.
 3. **UI.** It mounts immediately. The loop starts headless and publishes 4 Hz readouts, so the
    Sky Now table works before WebGL exists.
-4. **Render stack.** It is imported in parallel. The render context is created, then each module in
-   its own `try/catch`. Textures start as 1×1 placeholders.
-5. **Data.** `data/sky.json`, `data/cities.json` and the critical textures (day and night maps)
-   load in parallel. If the catalog arrives late, the sky module gets it through `setCatalog`.
-6. **Compile.** `rc.compile()` (three's `compileAsync`) runs behind the loader, capped at 10 s.
-7. **Render.** `loop.attach(...)` adds the renderer. Store subscriptions start driving modules.
-8. **Ready.** The loader fades when the critical textures are in, after 5 s, or when the user
-   chooses "Slow connection — continue with low detail". `status.phase` becomes `'ready'`.
+4. **Render stack.** It is imported in parallel (already downloaded: see 'Early downloads' below).
+   The render context is created, then each module in its own `try/catch`. Textures start as 1×1
+   placeholders, and a day or night slot shows its 512 px preview as soon as that is decoded.
+5. **Data.** `data/sky.json`, `data/cities.json`, the previews (critical) and the day and night maps
+   (primary) load in parallel; the texture store claims them as soon as it exists, so they decode
+   while the modules are built, and what is in before the compile starts is uploaded at once. If the catalog arrives late, the sky module gets it through
+   `setCatalog`.
+6. **Compile.** `rc.compile()` runs behind the loader, capped at 10 s: the scene (and the
+   overlay) against the post chain's input target, then the chain's own pass materials (bloom,
+   supersampling, the final pass) on a stand-in quad, with three's `compileAsync` where
+   `KHR_parallel_shader_compile` exists and `renderer.compile` otherwise (the links then happen at
+   the first frame).
+   `textures.holdUploads` keeps eager uploads back until it settles and one frame is out: an
+   upload issued while the GPU process links the shaders waits for that work on the main thread
+   (≈ 360 ms measured on a desktop GPU), while one issued afterwards takes a few ms. A map decoded
+   meanwhile is still bound; the frame that draws it uploads it. three's
+   `debug.checkShaderErrors` stays on: turning it off only moved the same wait from
+   `getProgramInfoLog` to `getProgramParameter` (5.4 s against 5.0–5.5 s under SwiftShader), and
+   it is what reports a shader that fails on an exotic driver. The inline probe's context is not
+   handed to three either: three asks for `alpha: false` and antialiasing by tier, which is only
+   known in `main.js` (hash, prefs, learned tier).
+7. **Render.** `loop.attach(...)` adds the renderer, after waiting up to 300 ms for the previews to
+   decode (a downloaded preview is a few ms from ready, and a decode that resolved after the first
+   frame would leave that frame without it). Store subscriptions start driving modules.
+8. **Ready.** The loader fades once the previews are in (or, if they fail, the day and night maps),
+   after 5 s, or when the user chooses "Slow connection — continue with low detail", and then only
+   after the loop has drawn a frame (at most 4 s more): without `KHR_parallel_shader_compile`,
+   `compile()` returns at once and the first frame is where the shaders link, so the loader leaves
+   over a drawn globe. `status.phase` becomes `'ready'`. When the day or night map replaces a
+   preview that was on screen, the Earth sharpens into it over 600 ms (`uSharpen`, instant with
+   reduced motion); a map that arrives before the first frame is simply shown. While loading,
+   texture progress moves only the loader's bar; a frame is requested when a map is in or failed.
 9. **Intro.** It plays on the first visit unless the hash has `intro=0`, a `cam`, `view=sky` or
    `tour`, or the user prefers reduced motion. Otherwise the beams launch with a short stagger. It
    holds its opening pose for the loader's 0.7 s fade (pre-roll), and the horizon disc grows out
    with the pin's ripple. A `tour=` link starts its tour here (also in text mode).
 10. **Idle work.** Deferred textures (cloud and ocean masks, Moon, Milky Way), one almanac
-    and events push from the worker, and service-worker registration (https only). The new
-    worker is handed the URLs this visit already loaded, so the next visit works offline.
+    and events push from the worker, and the service worker (`app/sw-client.js`: on https hosts,
+    or with `#sw=1` in the hash the page opened with). The worker is handed the URLs this visit
+    already loaded, so the next visit works offline with this visit's textures too (§9 'The
+    service worker').
 
 Feature detection happens in `index.html` before any module loads. With no WebGL2 or no import
 maps, the body gets `no-webgl`, the canvas is hidden, `fallback.js` shows the banner, and the panels
 carry the app.
+
+### Early downloads
+
+A cold boot would otherwise find its ~150 modules one import level at a time (main.js →
+render/context.js → postfx.js → EffectComposer.js → CopyShader.js is five round trips), and the
+Earth maps would wait for all of them. Instead every byte of the boot starts within the first
+round trips:
+
+| What | Started by | When |
+|---|---|---|
+| main.js's and the UI's static module graphs (≈ 87 files) | static `<link rel=modulepreload>` in `<head>` | as the HTML is parsed |
+| three.js and the render stack (≈ 65 files, `importRenderStack()`'s static graph) | the feature-detection script, only when WebGL2 and import maps work | right after the probe |
+| `earth_day_preview.webp`, `earth_night_preview.webp` (12 + 6 KB) | the same script: `<link rel=preload as=fetch crossorigin fetchpriority=high>` | right after the probe |
+| the tier's day and night maps | `main.js boot()` (`prefetchTextures`, same mode and credentials, so the previews' preloads are reused rather than fetched twice) | as soon as the tier is known |
+
+Text mode downloads none of the 3D files (three.js included). Both module lists are generated by
+`npm run preload` (`node scripts/lib/modgraph.mjs --write`): the core list is the static import
+closure of `js/main.js` and `js/ui/index.js`, the 3D list that of every `import()` in
+`importRenderStack()`, minus the core, three.js first. `test/repo.importmap.test.mjs` fails when
+index.html's lists are stale, so a new render module or a new static import means one
+`npm run preload`. Modules loaded on demand (tours, the recorder, Mars) and the astro worker's
+graph (a worker has its own module map) are not preloaded.
 
 ### Body classes
 
@@ -582,10 +640,12 @@ an **extra object** with a namespaced id (`core/selection.js`): `<kind>:<key>`, 
   `schedule`, which first checks that CI passed on that commit) writes a fresh copy into the
   **staged** site only — nothing is committed daily. The script validates every set (checksums,
   catalogue number, SGP4 accepts it, < 30 days old) and keeps the previous one for any that fails;
-  a CelesTrak outage leaves the committed file (the step is `continue-on-error`). `sw.js` serves
-  this one file **network-first** (3 s, then the cache) instead of cache-first per VERSION, so a
-  returning visitor gets the day's elements without a VERSION bump; it is precached too. No test
-  depends on the date, so CI stays green however old the committed file gets.
+  a CelesTrak outage leaves the committed file (the step is `continue-on-error`). It is outside
+  the service worker's version (`sw-manifest.json`'s `fresh`, `stage-site.mjs FRESH_FILES`): `sw.js`
+  serves it **network-first** (3 s, then the cache) instead of cache-first, so a returning visitor
+  gets the day's elements while the daily redeploy, which changes nothing else, is no new version;
+  it is precached too. No test depends on the date, so CI stays green however old the committed
+  file gets.
 - **Propagation** (`astro/sgp4.js`, pure): near-Earth SGP4 (Vallado et al. 2006, WGS-72), TEME →
   Earth-fixed by GMST (`temeToEf`); deep-space orbits (≥ 225 min) are rejected. Verified against
   Vallado's published vectors (`test/fixtures/sgp4-vallado.json`: 158 rows, within 1 mm).
@@ -713,6 +773,10 @@ frame(now):  dt = min(now − last, 100)
   hands over to text mode through `onRenderFailure`.
 - **No allocation.** One `FrameInfo` and one exposure object are reused. The option objects are
   frozen constants. Loops are indexed.
+- **Paused drawing.** `loop.setRenderPaused(paused, reason)` stops the drawing but not the clock or
+  the readouts. The reasons add up: `'context'` (the default: context loss, text mode) and `'tier'`
+  (a staged tier switch). Drawing resumes once none is left, so a switch that ends during a context
+  loss waits for the restore. `redraw()` draws nothing while paused.
 - **Redraw.** `loop.redraw()` draws one frame outside the cadence for `rc.capture`: the module
   updates with the current camera and the last `FrameInfo` (dt 0), the label feed's sync, then
   `rc.render()`; no DOM labels, stats or governor. `loop.labelOptions` exposes the label pool's
@@ -777,6 +841,8 @@ To add one:
 3. Add `create('foo', …)` next to the others. The order of that list is the update order. Pass
    `furniture` as the third argument for observer furniture that a vantage point hides (beams,
    pin, medallions, trails, the eclipse ribbon, the flare live there).
+4. Run `npm run preload`, so index.html preloads the new module with the rest of the render stack
+   (the repo tests fail until it does).
 
 It then receives layers, selection, tier and view changes, and its failures are contained.
 A module may draw nothing at all: `long-exposure.js` has an empty group and is a module only for
@@ -882,6 +948,13 @@ change.
   as occluders, re-read on resize and at most every 500 ms while rendering — never per frame. A
   label overflowing the viewport by ≤ 12 px is nudged inside, otherwise hidden. If you rename
   those UI classes, update `OCCLUDER_SELECTOR`.
+- **No layout reads inside a frame.** A frame only asks for the occluder rects and new labels'
+  boxes; a task queued from it (`readAfterFrame`, after the browser's own layout for that frame)
+  reads them, and the next declutter uses them. A label never shown yet waits for its box,
+  hidden but laid out, and that task places it at once; a shown label whose text changed keeps
+  its old box until then. The time bar sizes its canvas from its ResizeObserver's entries and `bindViewInsets`
+  (`main.js`) measures in a task after the frame, so a time-lapse calls `getBoundingClientRect`
+  from no frame callback at all (a CI gate, §11).
 - **Exports used by `beams.js`:** `labelExtent(id)` (measured label box, cached per id) and
   `uiOccluders()`.
 
@@ -914,7 +987,8 @@ change.
   meanwhile; so Max is ready as fast as High and sharpens in place. A GPU that cannot take a knob
   loses that knob only (`tierConfig`): under 8192 px it keeps the 4k Earth maps, under 4096 the
   4k-only features, and postfx clamps MSAA to the context. The service worker never precaches them;
-  they are cached cache-first on first use, so Max works offline after one visit.
+  they are cached on first use (checked against the version's hashes), so Max works offline after
+  one visit, and an update carries them over while their bytes are unchanged.
 - **Switching.** Settings and `?q=` pin a tier. Auto lets the governor step down, never up. If the
   frame-time EMA stays above 1.3 × the budget for 2 s, it lowers the DPR by 0.25 and then drops a
   tier, with a 5 s cooldown. Under `navigator.webdriver` the governor is never sampled.
@@ -935,8 +1009,85 @@ change.
   and write no depth; FXAA would turn a small star into an X. A context created for a composer
   tier has no canvas MSAA, so a later switch to Low keeps a lean chain (no bloom, no MSAA, FXAA)
   instead of the direct path. A Low boot keeps the direct path even if the driver refused MSAA.
-- **Applying a tier.** `applyTierCfg` calls `rc.setTier` and each module's `setQuality`, then loads
-  the tier's textures. The scene graph is never rebuilt.
+- **Applying a tier.** `applyTierCfg` hands the TierCfg to the tier switch (`app/tier-switch.js`,
+  wired by `main.js makeTierSwitch`). The scene graph is never rebuilt. A tier with the current
+  shader variants (a governor DPR step: the same tier name) applies at once, as before. Any other
+  tier is staged, so its first frame compiles and uploads nothing (`hitch-free-tier-switch`):
+  1. **Pause.** `loop.setRenderPaused(true, 'tier')`. The clock, the readouts and the panels go on.
+  2. **Stage.** `rc.prepareTier(cfg)` builds the post chain (composer on or off, MSAA target,
+     bloom, final pass, supersampling) at the current size, with no canvas resize, so nothing is
+     presented. Each module's `setQuality` sets its defines and meshes, and the tier's maps start
+     loading.
+  3. **Compile.** `rc.compile({paced: true})` compiles every scene material against the next
+     chain's input target (the canvas on the direct path), and every pass material against its
+     own target. With `KHR_parallel_shader_compile`, `compileAsync` does this off the main thread.
+     Without it, `paced` issues one new program per task, waits on a fence for the GPU process to
+     catch up with the frames and uploads queued before it (a fence's status changes only between
+     tasks, so polling it never blocks), and then links it. The main thread waits for one link at
+     a time instead of the whole batch in the first frame. Either way three's first use of each
+     new program (link status, info logs, uniform tables: `WebGLProgram.getUniforms`) runs now,
+     not in the first frame, where each of those synchronous queries would wait for that frame's
+     own draws.
+     `textures.holdUploads(compile, {bind: false})` holds the maps decoded meanwhile, and the
+     re-uploads of a new anisotropy (Max ↔ the rest; the tier's own maps, not Max's 4096 px
+     stand-ins), until the compile is done. Then they go out one per task. The commit waits for
+     the re-uploads only. A new map follows after it and becomes ready, and is bound, only after
+     its upload.
+  4. **Commit.** `rc.commitTier()` applies the DPR and sizes the composer. The resize clears the
+     canvas, so it comes after the compile: `presentIfCleared` redraws in the same task, with
+     nothing left to compile.
+  5. **Resume.** The next frame draws the new tier.
+
+  A request made while a switch is staged replaces it before anything is drawn. A compile that
+  has not settled after 10 s is given up: the switch commits and the first frame compiles the
+  rest, as before. A context lost meanwhile ends the compile, the switch commits, and drawing
+  waits for the restore. Bloom changes between Medium, High and Max (strength, radius, threshold,
+  mip scale) apply in place, without a new pass whose eight programs would compile again.
+  Measured under SwiftShader at 800 × 500 after a High boot, through `actions.setQuality`. The
+  figure is the longest main-thread block, from a 16 ms heartbeat, over three runs before and
+  seven after, on a machine shared with other jobs. A plain redraw blocks 20–80 ms. One High →
+  Medium run after the change blocked for 2.5 s; the other six stayed between 0.04 and 0.9 s.
+
+  | Switch | Before | After | Drawing paused for |
+  |---|---|---|---|
+  | High → Medium | 2.7–2.8 s | 0.04–0.9 s | 2.3–6.3 s |
+  | Medium → Low | 1.5–1.9 s | 0.04–0.21 s | 0.4–3.2 s |
+  | Low → High | 0.1–0.9 s | 0.02–0.07 s | 0.13–0.23 s |
+
+  The pause is about as long as the compile itself, which is the same work as before, except that
+  the main thread, the panels and input stay live through it. What is left on High → Medium is a
+  single program's link: the new Earth surface, cloud and atmosphere variants take 0.4–1 s each
+  on SwiftShader. SwiftShader links on the CPU and has no `KHR_parallel_shader_compile`, so these
+  numbers come from the paced path; with the extension the compile leaves the main thread
+  altogether. High → Max pauses drawing for 3.4–4.4 s there, and its 8192 px maps bind about 12 s
+  later, one upload per task. Long animation frames are no
+  measure under SwiftShader: a plain redraw reports one of about 1 s, because the frame waits for
+  the GPU process.
+- **Previews on every tier.** `earth_day_preview.webp` and `earth_night_preview.webp` (512 × 256,
+  12 and 6 KB, from the 4096 maps by `scripts/build-textures.mjs`) are the critical keys of every
+  tier: they gate the loader, stand in for the day and night maps (`PREVIEW` in
+  `core/texture-plan.js`) while those load or if they fail, and the Earth sharpens from them into
+  the tier's maps. The earth shader samples a preview only while `uSharpen` < 1, and the close-zoom
+  grain of the city lights is off on a 512 px map.
+- **Decoded images.** The texture store closes each decoded `ImageBitmap` in the task after its
+  upload, once its `onReady` listeners have read it: the GPU's copy is the only one. That is
+  33.5 MB of RAM per 4096 × 2048 map and 134 MB per 8192 × 4096 one. Measured with SwiftShader,
+  as the renderer process's resident memory once a tier's maps are in (two runs each): High
+  640–647 → 561–572 MB, Max 1085 → 584 MB. The GPU process holds the same as before. Two kinds
+  of map keep their image. One is marked ASSETS `keep`: the ocean masks `roughness2k` and `brc4k`,
+  whose pixels `render/ground.js` samples, and the two 512 px previews (0.5 MB each), the stand-ins
+  of a map that cannot be fetched again. The other is a map uploaded while the context was lost,
+  which reached no GPU. An `<img>` decode (Safari) cannot be closed. A context
+  restore (`restore()`, §9) and a new anisotropy (Max ↔ the rest) fetch a closed map again, from
+  the HTTP or service-worker cache, and decode it into the same Texture before uploading it.
+- **Coarse medium keeps the 4k day and night maps (evaluated, not changed).** The 2k pair would
+  save 521 KB of download on phones (740 → 219 KB) and 67 MB of VRAM with mips (89.5 → 22.4 MB).
+  Now that the decoded copies are closed, the RAM side is already gone. On a 390 px phone at
+  medium's 1.5 DPR the default globe view barely changes: 38 dB PSNR against the 4k maps, 6 % less
+  edge contrast. At a regional zoom (`cam=o:45,8,1.45`) the loss is plain: the day map has 32 %
+  less edge contrast (30 dB), and the city lights have 35 % less (22 dB) and turn paler. A phone
+  that really runs short of memory loses its context. The context-loss backoff (§9) then moves it
+  to low and its 2k maps for the session.
 - **One planet on every tier.** The 2k maps are the 4k maps at half size, made by
   `scripts/build-textures.mjs`: `day2k` and `night2k` from the day and night maps (filtered in
   linear light, like the GPU's own mip 1), and `clouds2k` and `roughness2k` from the blue (cloud)
@@ -968,14 +1119,64 @@ change.
 | A render module throws at creation | That feature is skipped and the rest renders. |
 | A render module throws per frame | Three strikes, then it is hidden, with one toast. |
 | The renderer throws | Text mode (`context-failed`). |
-| `webglcontextlost` | Rendering pauses (the panels keep updating) and a non-blocking "Graphics were reset — restoring…" overlay appears. On restore, `textures.restore()` runs, the context drops the old composer unreleased (its GL objects died with the lost context) and builds a new one, and rendering resumes. |
-| A texture fails | The placeholder stays, with one "Some imagery couldn't load." toast. |
+| `webglcontextlost` | Rendering pauses (the panels keep updating) and a non-blocking "Graphics were reset — restoring…" overlay appears. While the context is lost, `rc` disposes everything in the scenes, its stand-in quad and the whole post chain: every GL call is then a silent no-op, so only three's per-context bookkeeping goes, and a later `dispose()` never deletes the lost context's objects on the new one (no 'object does not belong to this context' warnings). On restore, `rc` builds a new chain for the current tier, `textures.restore()` fetches the maps whose decoded copy was closed again (one at a time, HTTP or service-worker cache) and uploads them, and nothing draws until that promise settles; then rendering resumes. The context reports itself lost before `webglcontextlost` is dispatched, so `rc.render`, `capture` and `compile` also check `gl.isContextLost()`: no frame draws in between (one that did made three throw, left the session on the direct path and logged a blit feedback loop on every frame after the restore). |
+| A second context loss within 60 s | As above, and the session is held one tier lower (`governor.pin` and the staged tier switch) with the toast "Reduced graphics detail to keep things stable" (`core/context-loss.js`). The record is in `sessionStorage` (`app/session.js`), so a tab that reloads instead of restoring (iOS) boots at that tier. Saved preferences are untouched; choosing a tier in Settings overrides it. At low there is nothing lower: it restores. |
+| A third context loss within 60 s | Text mode with the "graphics kept resetting" banner; its Retry reloads with the window cleared, held at low. Until then a reload of the tab boots in text mode too, and the feature detection skips the 3D preloads. |
+| A closed map cannot be fetched again on restore (or not within 15 s) | Its 512 px preview's image takes its place (day and night maps; others a 1 × 1 pixel of the placeholder colour), so no frame uploads a closed image; the key counts as failed, and the "Some imagery couldn't load." toast shows. |
+| Context lost during a tier switch | The compile ends at once, the switch commits, and drawing stays paused (the `'context'` reason) until the restore, which builds the chain for the committed tier. |
+| A tier switch's compile hangs | After 10 s the switch commits anyway and resumes drawing; the first frame compiles what is left. |
+| A texture fails | The placeholder stays (a day or night map keeps its 512 px preview), with one "Some imagery couldn't load." toast. If the previews fail, the loader waits for the full maps instead (or 5 s). |
 | `sky.json` fails | No stars or constellations, and a toast. |
 | The worker fails | The client falls back to the main thread transparently. |
 | All geocoders fail | Offline cities still work, and the palette shows the hint. |
 | Geolocation is denied | Toast, and the location palette opens. |
 | Bad hash values | They are dropped, with the toast "Some link settings were invalid." An out-of-range `t` is clamped, paused, and gets the 1000–3000 toast. |
 | Slow network | After 8 s the loader offers "continue with low detail". After 40 s without code, it says so. |
+| Offline, after one visit to the deployed site | Everything boots from the service worker's cache: the shell, every module (the astro worker's too), the boot data and the textures this visit's tier used. A tier never used before shows its placeholders and the imagery toast. |
+| A new version deployed while the page is open | Nothing changes under the page: the old version keeps serving it from its own cache. The new one installs in the background and the toast "A new version is ready · Reload" offers to switch. |
+| A deploy in the middle of an install | A file whose bytes are not the manifest's fails the install; the browser tries again on a later visit, keeping what was already verified. |
+| The new version fails to boot | The loader's error panel's Reload first activates a version waiting in the worker, so a fixed deploy can replace a broken one. |
+
+### The service worker
+
+`sw.js` has two modes, chosen when the site is staged.
+
+- **Staged** (the deploy). `scripts/stage-site.mjs` writes `_site/sw-manifest.json`:
+  `{version, sha256, precache, fresh, files: [[path, sha256]]}`. `files` lists every shipped file
+  except `sw.js` and the fresh files; `sha256` is taken over those lines plus `sw.js`'s source;
+  `version` is `js/version.js`'s VERSION, `+` and its first 16 hex digits. The script stamps that
+  version and `STAGED = true` into `_site/sw.js`, so any changed byte is a new worker for the
+  browser's update check, and an unchanged redeploy (the daily `data/tle.json` refresh) is not.
+  - `precache` is `index.html` and its local links (stylesheet, manifest, icons), the page's
+    whole module graph as `scripts/check-size.mjs` budgets it (`modgraph.mjs pageModules`: static
+    and dynamic imports and the astro worker's graph, ≈ 3.8 MB raw, most of which the first visit
+    has already loaded), `PRECACHE_DATA` (sky, cities, spacecraft, deep-sky objects, star details,
+    satellites) and the two Earth previews: 184 files, ≈ 4.5 MB. Textures and `data/stars8.json`
+    stay lazy.
+  - **Install** reads the manifest (its version must be the worker's), copies every file an
+    older version's cache holds with the same hash, then fetches the rest (`cache: 'no-cache'`,
+    so Pages answers 304 for what the HTTP cache has; once more with `reload` on a mismatch) and
+    checks each hash. A missing file or another deploy's bytes fail the install. There is no
+    `skipWaiting`: an update waits, and the worker posts `{type: 'update-ready'}` to open pages.
+  - **Activate** deletes every other version's cache, then claims the pages.
+  - **Fetch.** Every file in the manifest is cache-first within the version, `index.html`, `js/`
+    and `css/` included, so a page never mixes versions. A miss (a texture) is fetched and kept
+    only when its bytes match the manifest; `fresh` files are network-first (3 s, then the cache).
+    Other origins (the geocoders), `sw.js` and `sw-manifest.json` are left to the browser.
+- **Dev** (the repo as served by `npm start`, or a branch deploy). `VERSION` is `js/version.js`'s
+  (a test checks) and there is no manifest: everything in scope is network-first and cached as it
+  arrives, so edits show on reload while online and the last copy works offline.
+
+The page side is `app/sw-client.js`. It registers the worker on secure origins when the site comes
+over https from a real host, or with `#sw=1` (localhost, the smoke test); `#sw=0` unregisters it and
+deletes the `pc2-` caches. After the worker is active it posts `{type: 'precache', urls}` with the
+URLs this visit loaded (the first visit ran before the worker controlled it); the reply
+`{type: 'precached'}` sets `__app.sw.precached`. On `update-ready`, or a version found waiting at
+start, the sticky toast "A new version is ready · Reload" posts `{type: 'skip-waiting'}` to it and
+reloads on `controllerchange` (or after 4 s). A version activated from another tab reloads a hidden
+tab at once and offers the reload in a visible one; the state is in the hash, so a reload keeps the
+view. `__app.sw` is `{version, controlled, precached, staged, waiting, …}`, and the diagnostics
+report carries the version.
 
 ---
 
@@ -1023,12 +1224,23 @@ are applied live through `onExternalChange`. It writes nothing while a tour play
 
 ## 11. Debugging, testing, tooling
 
-- **`window.__app`** has `ready`, `version` and `tier`; `snapshot()` for the full-detail snapshot;
+- **`window.__app`** has `ready`, `version`, `tier` and `sw` (the service worker: version, controlled,
+  precached); `snapshot()` for the full-detail snapshot;
   `stats()` returning `{fps, frames, drawCalls, geometries, textures, beamsVisible, labelsVisible,
   phase, tier, disabled}`; and `store`, `clock` and `actions`. `__app.internals` exposes the render
   objects for console spelunking. It is not a stable API.
 - **`?debug=1`** in the hash, or the Backquote key, shows the debug overlay: fps, ms, draw calls,
   memory, tier.
+- **The diagnostics report.** About → Copy diagnostics (`actions.copyDiagnostics()`, or
+  `actions.diagnostics()` for the object; `core/diagnostics.js`) is what users paste into an
+  issue: the version, `detectTier`'s decision (tier, ceiling, reason), the setting and active tier,
+  the governor (start, pin, DPR cap, budget, cadence) and a log of the last 20 tier changes
+  (governor steps with the EMA and budget that triggered them, `governor.lastStep`; context-loss
+  step-downs), the renderer string, max texture size and DPRs, disabled modules and strike counts
+  (`loop.stats().strikes`), the tab's context losses, the last 20 `window.__pcErrors`,
+  `__app.stats()` and the URL hash. Never the place: only the hash keys in `DIAG_HASH_KEYS` stay
+  (no `loc`, `n`, `cc`, `tz`, `el`, `loc2`, `cam`, `hloc`), and fragments, queries and `loc=` pairs
+  are cut from the error lines. It is built on demand; nothing is sent anywhere.
 - **`npm test`** runs the `node:test` suites: astronomy against fixtures, core and geo, data, and
   repo rules (import-map closure, purity, no external URLs, assets exist).
 - **`npm run smoke`** opens the app in headless Chrome (SwiftShader) with every non-local host
@@ -1040,13 +1252,78 @@ are applied live through `onExternalChange`. It writes nothing while a tour play
   `--url=/#…`, `--out=shot.png`, `--eval="js"` (awaited before the screenshot). For the failure
   matrix and the intro: `--no-webgl` (text mode), `--init="js"` (runs before the page, e.g.
   `HTMLScriptElement.supports=()=>false` for no import maps), `--fail=data/sky.json,earth_day`
-  (those requests get HTTP 404 and are not judged) and `--at=1000,3000` (timed screenshots
-  `<out>-<ms>.png`; the run then skips its wait for the intro to finish).
+  (those requests get HTTP 404 and are not judged), `--at=1000,3000` (timed screenshots
+  `<out>-<ms>.png`; the run then skips its wait for the intro to finish) and `--throttle=150,9000`
+  (a slow network: round-trip ms and kbit/s, through CDP `Network.emulateNetworkConditions`).
+- **`--offline-reload`** (smoke) opens the page with `#sw=1`, waits for the worker to control it
+  and reply `precached` (on a staged `--root`: the manifest's version, every precache file cached),
+  then goes offline (CDP `Network.emulateNetworkConditions` and the server stops) and reloads. The
+  reload must get ready, receive the astro worker's events, show no imagery toast and be served by
+  the worker alone, and the acceptance checks then run offline. CI runs it on the staged site under
+  the Pages sub-path (`node scripts/stage-site.mjs _site`, then `--root=_site`;
+  `node scripts/serve.mjs --root=_site` serves the same copy). **`--context-loss`** loses and
+  restores the WebGL context (`WEBGL_lose_context`) once the app is ready: the overlay must show
+  and leave, five frames be drawn and no WebGL warning appear (CI: at Medium, and after the
+  perf gates at Low and High).
+- **Performance gates** (`--perf[=tier]`, `scripts/lib/perf-gates.mjs`) gate on counts, never on
+  milliseconds: CI runners are noisy and SwiftShader is slow, but a count moves only when the
+  code does. An init shim wraps `requestAnimationFrame` to count `getBoundingClientRect` and
+  `getClientRects` calls made inside frame callbacks, and records long animation frames. Once the
+  app is ready, a probe pauses the clock and waits for the globe to settle (supersampling history
+  full, no frame for 1.5 s), then checks:
+  - shader programs (`renderer.info.programs`) and the draw calls of a settled frame, globe and
+    sky view, within `PERF_BUDGETS` for the tier. These were measured on `perfScene` (Ho Chi Minh
+    City at 22:00 local on 4 Nov 2026, paused), plus about 10 %. The 2026-11-04 baseline was
+    low 48 programs, 21 and 12 draws; medium 59, 39 and 28; high 59, 40 and 28;
+  - no frame in 3 s on the paused globe;
+  - no frame in 3 s in the paused sky view, except on a tier that twinkles the stars: there at
+    most 32 a second, and never two frames closer than `TWINKLE_FRAME_MS − 2`;
+  - no layout read inside a frame callback during a 3 s time-lapse at 1 h/s (§7 'Labels': the
+    labels, the time bar and the view insets all read after the frame).
+
+  The boot's longest long animation frame is printed, not judged: on SwiftShader it is the shader
+  compile, 2.5–9 s here depending on tier and machine load. A new feature that adds programs or
+  draw calls raises its tier's budget deliberately, with a dated note, like the size budgets. CI
+  runs `--perf=low --context-loss` at 1440×900 and `--perf=high --context-loss` at 320×240.
+  At 1440×900 SwiftShader draws a High sky view only every 70 ms or more, which never tests the
+  30 Hz twinkle cap; at 320×240 it draws every 33 ms. The counts are the same at both sizes.
+- **Golden renders** (`node scripts/golden.mjs`, `scripts/lib/golden.mjs`) are the visual
+  regression check. Eight scenes (`--list`) are each opened in a fresh browser profile:
+  - Ho Chi Minh City at night (High and Low), the totality of 2 Aug 2027 at Luxor (globe and sky
+    view, High), Paris at sunset (sky view, High), and the phone's Medium (390×844 @3, globe and
+    the Luxor sky);
+  - all paused, with no intro, reduced motion (no twinkle) and the labels and satellites layers
+    off. Labels are DOM text, and fonts decide which planet medallions show. `data/tle.json` is
+    refreshed;
+  - text mode (WebGL disabled).
+
+  A scene settles first: textures in, no request (and in text mode no DOM change) for 2 s,
+  supersampling done, no frame drawn. Then everything but `#scene` is hidden, and the canvas is
+  captured at its own pixels: the phone at 585×1266, the desktop scenes at half size, 720×450.
+  A scene fails when more than 0.5 % of its pixels move by more than 6/255 in luma, and its
+  `<scene>.diff.png` heat map shows the golden dimmed with the changed pixels from red to yellow.
+  Text mode's golden is its visible structure: one line per element with an id, a role or an
+  aria-label, digits masked, hidden subtrees left out. It is compared line by line.
+
+  Two renders on one machine are pixel-identical. A beam glow of 10 px instead of 8 on Low moves
+  2.26 % of that scene. Renders depend on the browser build, so `test/golden/meta.json` records
+  the Chrome version, platform and WebGL renderer. A run with no goldens, or another Chrome,
+  platform or renderer, skips with a notice and exits 0. CI pins Chrome for Testing
+  (`CHROME_VERSION` in `.github/workflows/ci.yml`, installed by `browser-actions/setup-chrome`)
+  for every browser step, and the goldens are made there, never on a developer machine:
+  **to make or update the goldens**, run the CI workflow by hand (Actions → CI → Run workflow)
+  with **Render goldens** ticked. Download the `goldens` artifact, replace `test/golden/` with
+  its contents and commit. Do the same after a deliberate visual change (the failing run's
+  `golden-renders` artifact shows what moved) and after raising `CHROME_VERSION`. Locally,
+  `--update` (and `--only=a,b`, `--dir=`) writes goldens for your own Chrome, which is useful to
+  compare two versions of a change; CI skips such goldens unless they come from the pinned build.
 - **`npm run size`** enforces the per-tier transfer budgets (low 3.76 MB, medium 4.52 MB, high
   8 MB raw, re-baselined from the spec's estimate to the measured unminified module graph; low and
   medium stay under 6 MB, high under 8 MB) and the 32 MB deploy limit. Max (≈ 20.8 MB) is reported but has no budget;
   its 8192 px maps (≈ 15.2 MB) are why the deploy limit went from 12 to 32 MB (the staged site is
   ≈ 21.6 MB; GitHub Pages allows 1 GB).
+- **`npm run preload`** (`node scripts/lib/modgraph.mjs --write`, `--check` to verify) regenerates
+  index.html's boot modulepreload lists (§3 'Early downloads').
 - **`npm run textures`** (`scripts/build-textures.mjs`) re-encodes the derived textures in headless
   Chrome and rewrites `vendor/DERIVED.json`. Run it after changing a recipe or a source map, and
   review the result visually. `--check` (in CI) compares hashes only, with no browser, because

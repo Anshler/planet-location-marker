@@ -4,7 +4,7 @@
 // Per quality tier, the initial download is: the page shell (index.html, CSS, manifest),
 // the ES-module graph actually reachable from index.html (crawled through the importmap,
 // incl. the astro worker), the data files and that tier's textures (same selection rules
-// as keysForTier in js/render/textures.js, driven by TIERS from js/core/quality.js).
+// as keysForTier in js/core/texture-plan.js, driven by TIERS from js/core/quality.js).
 // Raw bytes on disk are budgeted (1 MB = 10⁶ B); gzip "wire" sizes are informational
 // (GitHub Pages compresses JS/CSS/JSON/SVG/HTML).
 //
@@ -30,7 +30,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { parseHtml, pageEntries, crawlModules } from './lib/modgraph.mjs';
+import { parseHtml, pageEntries, pageModules } from './lib/modgraph.mjs';
 import { siteFiles } from './stage-site.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -90,6 +90,9 @@ export const FILE_BUDGETS = {
     'data/starinfo.json': 160 * KB,
     // The max tier's deeper stars (scripts/build-stars.mjs; fetched on max only, outside every tier budget).
     'data/stars8.json': 1300 * KB,
+    // The 512 px Earth previews (scripts/build-textures.mjs): they ride ahead of the module graph, so they stay tiny.
+    'assets/textures/earth_day_preview.webp': 16 * KB,
+    'assets/textures/earth_night_preview.webp': 10 * KB,
     'assets/og.jpg': 250 * KB,
     'assets/icons/favicon.svg': 12 * KB,
     'assets/icons/icon-192.png': 60 * KB,
@@ -99,6 +102,7 @@ export const FILE_BUDGETS = {
 
 /** SPEC §C.5 ASSETS, used only if js/render/textures.js cannot be read. */
 const FALLBACK_ASSETS = {
+    dayPreview: 'assets/textures/earth_day_preview.webp', nightPreview: 'assets/textures/earth_night_preview.webp',
     day4k: 'assets/textures/earth_day_4096.jpg', day2k: 'assets/textures/earth_day_2048.webp',
     night4k: 'assets/textures/earth_night_4096.jpg', night2k: 'assets/textures/earth_night_2048.webp',
     roughness2k: 'assets/textures/earth_roughness_2048.webp', clouds2k: 'assets/textures/earth_clouds_2048.webp',
@@ -128,14 +132,14 @@ const wire = (rel) => {
     return COMPRESSIBLE.test(rel) ? zlib.gzipSync(fs.readFileSync(path.join(ROOT, rel)), { level: 9 }).length : s;
 };
 
-/** key → url, parsed from js/render/textures.js (it imports three, so it is read, not imported). */
+/** key → url, parsed from js/core/texture-plan.js (read, not imported, so this stays synchronous). */
 export function readAssets() {
     try {
-        const src = fs.readFileSync(path.join(ROOT, 'js/render/textures.js'), 'utf8');
-        const block = src.slice(src.indexOf('ASSETS'));
+        const src = fs.readFileSync(path.join(ROOT, 'js/core/texture-plan.js'), 'utf8');
+        const block = src.slice(src.indexOf('export const ASSETS'));
         const map = {};
         for (const m of block.matchAll(/(\w+)\s*:\s*\{\s*url\s*:\s*['"]([^'"]+)['"]/g)) map[m[1]] ??= m[2];
-        if (Object.keys(map).length >= 5) return { assets: map, source: 'js/render/textures.js' };
+        if (Object.keys(map).length >= 5) return { assets: map, source: 'js/core/texture-plan.js' };
     } catch { /* fall through */ }
     return { assets: FALLBACK_ASSETS, source: 'SPEC §C.5 (textures.js not found)' };
 }
@@ -150,12 +154,13 @@ export async function readTiers() {
     return { tiers: FALLBACK_TIERS, source: 'SPEC §E.6 (quality.js not importable)' };
 }
 
-/** A max-tier map's 4096 stand-in, loaded first (mirrors INTERIM in js/render/textures.js). */
+/** A max-tier map's 4096 stand-in, loaded first (mirrors INTERIM in js/core/texture-plan.js). */
 const INTERIM = { day8k: 'day4k', night8k: 'night4k', clouds8k: 'brc4k', moon4k: 'moon' };
 
 /**
- * Texture keys loaded at boot + idle for a tier (mirrors keysForTier: the night map follows the
- * day map, and a max map comes after its 4096 stand-in, which takes its place in the order).
+ * Texture keys loaded at boot + idle for a tier (mirrors keysForTier: the previews first, the night
+ * map follows the day map, and a max map comes after its 4096 stand-in, which takes its place in
+ * the order). test/repo.textures.test.mjs checks it against the real keysForTier.
  */
 export function tierTextureKeys(cfg) {
     const day = cfg.dayTex === 'day2k' ? 'day2k' : cfg.dayTex === 'day8k' ? 'day8k' : 'day4k';
@@ -163,7 +168,7 @@ export function tierTextureKeys(cfg) {
     const clouds = ['clouds2k', 'brc4k', 'clouds8k'].includes(cfg.clouds) ? cfg.clouds : null;
     const moon = cfg.moonTex === 'moon4k' ? 'moon4k' : 'moon';
     const stand = (k) => INTERIM[k] ?? k;
-    const keys = [stand(day), stand(night)];
+    const keys = ['dayPreview', 'nightPreview', stand(day), stand(night)];
     const push = (k) => { if (k && !keys.includes(k)) keys.push(k); };
     push({ roughness2k: 'roughness2k', roughness: 'brc4k' }[cfg.oceanMask]);
     push(stand(clouds));
@@ -184,11 +189,10 @@ export function shellAndModules() {
             shell.push(l.href.replace(/^\.\//, ''));
         }
     }
-    const { entries, external: pageExternal } = pageEntries(doc);
+    const { entries } = pageEntries(doc);
     if (entries.length && entries.every((e) => size(e.path) !== null)) {
-        const g = crawlModules(ROOT, entries, doc.importMap);
-        const external = [...pageExternal, ...g.external.map((x) => x.url)];
-        return { shell, modules: g.modules, mode: 'module graph from index.html', missing: g.missing, external };
+        const g = pageModules(ROOT);
+        return { shell, modules: g.modules, mode: 'module graph from index.html', missing: g.missing, external: g.external };
     }
     const all = siteFiles(ROOT).filter((f) => /\.m?js$/.test(f) && (f.startsWith('js/') || f.startsWith('vendor/')));
     return { shell, modules: all, mode: 'approximate: all js/ + vendor JS (index.html has no local module entry yet)', missing: [], external: [] };

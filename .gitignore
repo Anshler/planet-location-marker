@@ -8,7 +8,7 @@ data/raw/horizons/
 data/raw/textures/
 # Hipparcos New Reduction + d3-celestial stars.8 (build inputs of scripts/build-stars.mjs)
 data/raw/cache/
-# outputs of scripts/stage-site.mjs and the CI smoke runs
+# outputs of scripts/stage-site.mjs, the CI smoke runs and scripts/golden.mjs
 _site/
 smoke/
 # machine-specific interpreter path written by graphify
@@ -18,3 +18,4 @@ graphify-out/.graphify_root
 graphify-out/.graphify_labels.pending.json
 graphify-out/.graphify_labels.json.sig
 graphify-out/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/
+golden-out/

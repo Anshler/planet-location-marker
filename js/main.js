@@ -35,6 +35,8 @@ import { createActions, normalizeObserver, selectionLook, viewModeLook, eclipseF
 import { ribbonPlan } from './app/eclipse-chase.js';
 import { createLoop } from './app/loop.js';
 import { createLabelsFeed } from './app/labels-feed.js';
+import { createCapture } from './app/capture.js';
+import { photoLayers } from './app/expose.js';
 import { playIntro } from './app/intro.js';
 import { showFallback, showContextLost, hideContextLost, showFatal } from './app/fallback.js';
 
@@ -360,6 +362,7 @@ async function importRenderStack() {
         planets: import('./render/planets.js'),
         pin: import('./render/pin.js'),
         flare: import('./render/flare.js'),
+        longExposure: import('./render/long-exposure.js'),
         labels: import('./render/labels.js'),
         rig: import('./camera/rig.js'),
         picking: import('./camera/picking.js'),
@@ -646,6 +649,7 @@ function bindBodyClasses(store) {
     const sub = (sel, fn) => store.subscribe(sel, fn, { immediate: true });
     sub((s) => s.status.phase, (phase) => b.classList.toggle('is-ready', phase === 'ready'));
     sub((s) => s.ui.cinema, (v) => b.classList.toggle('is-cinema', !!v));
+    sub((s) => s.ui.expose, (v) => b.classList.toggle('is-exposing', !!v));
     sub((s) => s.view.mode, (m) => b.classList.toggle('is-sky', m === 'sky'));
     sub((s) => s.status.coarse, (v) => b.classList.toggle('is-coarse', !!v));
     sub((s) => s.status.reducedMotion, (v) => b.classList.toggle('is-reduced-motion', !!v));
@@ -878,6 +882,9 @@ async function bootRender(ctx) {
     if (!rig) throw new Error('The camera rig could not be created.');
     R.rig = rig;
     R.labels = labels;
+    // Long exposure (Expose in sky view): stacks rendered frames while ui.expose is set.
+    render.longExposure = create('longExposure', m.longExposure && (() => m.longExposure.createLongExposure(rc, { rig, store, clock })));
+    render.capture = createCapture({ getRc: () => R.rc, getLoop: () => R.loop, getFeed: () => R.labelsFeed });
     render.rig = rig;
     render.beams = beams;
     render.pin = pin;
@@ -1016,14 +1023,26 @@ function wantIntro(env, hash, store) {
 
 /** Wires store changes, input and GPU events to the render stack. */
 function bindRenderState({ store, bus, clock, rc, rig, loop, snap, astro, m, labels, labelsFeed, textures }) {
-    // Layers / selection / observer → modules.
+    // Layers / selection / observer → modules. While a long exposure runs (ui.expose) the renderers
+    // get the photo layers (no line art) and no selection (no reticle); the store keeps both.
+    const exposing = () => !!store.get().ui.expose;
+    const drawnLayers = (l) => (exposing() ? photoLayers(l) : l);
     store.subscribe((s) => s.layers, (l) => {
-        loop.broadcast('setLayers', l);
+        loop.broadcast('setLayers', drawnLayers(l));
         updateTrails({ store, clock, astro, loop, labelsFeed });
     });
     store.subscribe((s) => s.selection, (id) => {
-        loop.broadcast('setSelection', id);
+        loop.broadcast('setSelection', exposing() ? null : id);
         updateTrails({ store, clock, astro, loop, labelsFeed });
+    });
+    store.subscribe((s) => !!s.ui.expose, (on) => {
+        const st = store.get();
+        loop.broadcast('setLayers', drawnLayers(st.layers));
+        loop.broadcast('setSelection', on ? null : st.selection);
+        // No lens-flare ghosts in the stack, and steady stars (no twinkle beads along the trails).
+        const flare = R.mods.flare;
+        if (flare && !loop.isDisabled(flare)) flare.object3d.visible = !on;
+        if (R.mods.sky) loop.callModule(R.mods.sky, 'setReducedMotion', on || !!st.status.reducedMotion);
     });
     store.subscribe((s) => s.observer, (o) => {
         const pin = R.mods.pin;
@@ -1049,6 +1068,8 @@ function bindRenderState({ store, bus, clock, rc, rig, loop, snap, astro, m, lab
         if (reason === 'set') bus.emit('toast', { message: `Tracking stopped: ${what} set below the horizon.`, kind: 'info' });
     });
     store.subscribe((s) => s.view.mode, (mode, _prev, _state, source) => {
+        // A long exposure is a sky-view thing: the globe ends it.
+        if (mode !== 'sky' && store.get().ui.expose) R.actions?.expose?.(null);
         try {
             // No look of its own after an event jump, which has already aimed the rig (viewModeLook).
             const look = viewModeLook(mode, source, store.get().selection, snap);
@@ -1058,7 +1079,7 @@ function bindRenderState({ store, bus, clock, rc, rig, loop, snap, astro, m, lab
         }
     });
     store.subscribe((s) => s.status.reducedMotion, (v) => {
-        for (const mod of [R.mods.sky, R.mods.beams, R.mods.pin]) if (mod) loop.callModule(mod, 'setReducedMotion', v);
+        for (const mod of [R.mods.sky, R.mods.beams, R.mods.pin]) if (mod) loop.callModule(mod, 'setReducedMotion', v || (mod === R.mods.sky && exposing()));
         try { rig.setReducedMotion?.(v); } catch { /* the rig keeps its boot-time setting */ }
     });
     store.subscribe((s) => s.quality, () => applyTierCfg(R.governor.config()));

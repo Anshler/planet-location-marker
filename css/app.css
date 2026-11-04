@@ -1456,6 +1456,109 @@ body.tier-medium:not(.is-coarse) .glass {
 .field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 .field__label { color: var(--muted); font-size: 12px; font-weight: 650; }
 
+/* Share menu, postcard dialog, long exposure (js/ui/view-switch.js, postcard.js, expose.js) ------------ */
+.pop-share { width: 320px; padding: 8px; }
+.share-opt, .xp-opt {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    width: 100%;
+    padding: 10px 10px;
+    border: 1px solid transparent;
+    border-radius: 12px;
+    background: none;
+    color: var(--text);
+    text-align: left;
+    cursor: pointer;
+}
+.share-opt svg { flex: none; margin-top: 1px; color: var(--accent); }
+.share-opt:hover, .xp-opt:hover { background: rgba(255, 255, 255, .06); }
+.share-opt__text, .xp-opt { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.share-opt__title, .xp-opt__title { font-size: 14px; font-weight: 700; }
+.share-opt__desc, .xp-opt__desc { color: var(--muted); font-size: 12.5px; line-height: 1.35; }
+.pop-expose { width: 360px; }
+.pop-expose .pop__hint { margin-bottom: 8px; }
+.xp-opts { display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; }
+.xp-opt { border-color: var(--line); }
+.xp-opt.is-on { border-color: rgba(124, 196, 255, .42); background: var(--accent-soft); }
+.xp-opt.is-on .xp-opt__title { color: var(--accent); }
+.xp-low[hidden], .pop-expose .btn[hidden] { display: none; }
+.vb-expose.is-on { color: var(--accent); }
+.vb-expose[hidden] { display: none; }
+
+.pc { width: min(560px, 100%); }
+.pc__presets { margin-bottom: 12px; }
+.pc__presets[hidden] { display: none; }
+.pc__frame {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 200px;
+    border-radius: 12px;
+    background: #02040a;
+    overflow: hidden;
+}
+.pc__img { display: block; max-width: 100%; max-height: min(56vh, 620px); object-fit: contain; }
+.pc__img:not([src]) { visibility: hidden; }
+.pc__busy {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(2, 4, 10, .55);
+    color: var(--text-2);
+    font-size: 13px;
+    font-weight: 600;
+}
+.pc__busy[hidden] { display: none; }
+.pc__note { min-height: 18px; margin: 10px 0 12px; color: var(--muted); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.pc__actions { display: flex; justify-content: flex-end; gap: 8px; }
+.pc__actions .btn[hidden] { display: none; }
+
+/* The exposure's status pill: under the top bar, centred on the free area (beside the floating column on the phone). */
+.xp {
+    position: fixed;
+    top: calc(var(--gutter) + 54px + var(--safe-t));
+    left: calc((100vw - var(--panel-w) - var(--gutter)) / 2);
+    z-index: 11;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: max-content;
+    max-width: calc(100vw - var(--panel-w) - var(--gutter) * 4);
+    min-width: 320px;
+    padding: 7px 8px 7px 14px;
+    border-radius: var(--r-pill);
+    transform: translateX(-50%);
+    pointer-events: auto;
+    animation: toast-in var(--t2) var(--ease-out) both;
+}
+.xp[hidden] { display: none; }
+.xp__dot { flex: none; width: 9px; height: 9px; border-radius: 50%; background: var(--live); box-shadow: 0 0 10px var(--live); animation: xp-blink 1.6s ease-in-out infinite; }
+.xp.is-gated .xp__dot { background: var(--warn); box-shadow: 0 0 8px var(--warn); animation: none; }
+.xp__text { display: flex; flex: 1; flex-direction: column; min-width: 0; line-height: 1.2; }
+.xp__title { font-size: 12.5px; font-weight: 750; }
+.xp__status { overflow: hidden; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; text-overflow: ellipsis; white-space: nowrap; }
+@keyframes xp-blink { 50% { opacity: .35; } }
+.ui[data-layout="mobile"] .xp {
+    top: calc(66px + var(--safe-t));
+    left: calc(12px + var(--safe-l));
+    right: calc(64px + var(--safe-r));
+    width: auto;
+    max-width: none;
+    min-width: 0;
+    gap: 8px;
+    padding: 6px 6px 6px 12px;
+    border-radius: var(--r-2);
+    transform: none;
+}
+.ui[data-layout="mobile"] .xp .btn--sm { padding: 0 8px; }
+.ui[data-layout="text"] .vb-expose, .ui[data-layout="text"] .xp { display: none; }
+/* While exposing, the stack is the picture: no DOM labels over it. */
+body.is-exposing #labels-root { visibility: hidden; }
+
 /* 17 ─ Toasts, flash, hint, cinema, fade ----------------------------------------------------------- */
 .toasts {
     position: fixed;

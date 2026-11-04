@@ -2,7 +2,8 @@
  * Post-processing chain (SPEC §C.6, §E.6): HDR scene target (half float, MSAA)
  * → UnrealBloom (optional, at `bloom.scale` resolution) → FinalPass
  * (FXAA when the target has no MSAA + ACES tone mapping + sRGB + vignette + blue-noise dither)
- * or OutputPass.
+ * or OutputPass. While Expose (long-exposure stacking) is on, an AccumPass (render/accum.js) sits
+ * between the scene and the bloom: `setAccumulation(on)`, `accum` (its flags and frame count).
  *
  * The bloom input and the final pass scrub NaN/Inf (`pcFinite`), so one bad scene pixel stays
  * one pixel instead of being blurred into a screen-sized black block.
@@ -20,6 +21,7 @@ import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js'
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
 import { FINITE_CHUNK } from './shaders/common.glsl.js';
+import { AccumPass } from './accum.js';
 
 /**
  * Brightest value a scene pixel may feed into the bloom (the Sun core peaks near 30). With
@@ -269,6 +271,8 @@ export function createPostFx(renderer, scene, camera, cfg, size) {
     let renderPass = null;
     let bloomPass = null;
     let finalPass = null;
+    /** @type {AccumPass|null} */
+    let accumPass = null;
 
     function makeTarget(samples) {
         const s = Math.min(samples, maxSamples);
@@ -316,6 +320,7 @@ export function createPostFx(renderer, scene, camera, cfg, size) {
     function rebuildPasses() {
         composer.passes.length = 0;
         composer.addPass(renderPass);
+        if (accumPass) composer.addPass(accumPass);
         if (bloomPass) composer.addPass(bloomPass);
         composer.addPass(finalPass);
         // The scene renders into readBuffer (needsSwap is false everywhere); its depth, if any.
@@ -368,6 +373,37 @@ export function createPostFx(renderer, scene, camera, cfg, size) {
             vision = Number.isFinite(s) ? Math.min(1, Math.max(0, s)) : 0;
             if (finalPass?.uniforms?.uScotopic) finalPass.uniforms.uScotopic.value = vision;
         },
+        /**
+         * Long-exposure stacking on or off: creates the AccumPass (its two targets are allocated
+         * now, at the current size) or disposes it. Called on Expose changes only.
+         * @param {boolean} on
+         */
+        setAccumulation(on) {
+            if (!!on === !!accumPass) return;
+            if (on) accumPass = new AccumPass(hdr ? THREE.HalfFloatType : THREE.UnsignedByteType);
+            else {
+                accumPass.dispose();
+                accumPass = null;
+            }
+            rebuildPasses();
+        },
+        /**
+         * A one-off capture at another size (render/context.js capture): `true` bypasses the stack
+         * and freezes it at its size, `false` brings it back. The caller resizes around it.
+         * @param {boolean} on
+         */
+        setCapture(on) {
+            if (!accumPass) return;
+            if (on) {
+                accumPass.frozen = true;
+                accumPass.enabled = false;
+            } else {
+                accumPass.frozen = false;
+                accumPass.enabled = true;
+            }
+        },
+        /** The stacking pass while Expose is on (flags `add`, `frames`, `reset()`), else null. */
+        get accum() { return accumPass; },
         /** Applies a new tier in place: MSAA, bloom and final-pass changes only. */
         setTier(nextCfg) {
             const nextMsaa = Math.max(0, Math.round(nextCfg?.msaa ?? 0));
@@ -398,6 +434,8 @@ export function createPostFx(renderer, scene, camera, cfg, size) {
             rebuildPasses();
         },
         dispose() {
+            accumPass?.dispose();
+            accumPass = null;
             bloomPass?.dispose();
             finalPass?.dispose();
             renderPass?.dispose?.();

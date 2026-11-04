@@ -14,6 +14,13 @@
  * `rc.onInvalidate` listener, so the frame loop can either poll `rc.dirty` or
  * subscribe. `rc.render()` clears the flag.
  *
+ * Long exposure: `rc.setAccumulation(on)` adds the stacking pass (postfx.js, render/accum.js);
+ * `rc.accum` is that pass or null. A low tier booted on the direct path gets the lean composer
+ * chain (no bloom) while it is on. A restored context rebuilds the chain with a fresh stack.
+ *
+ * Capture: `rc.capture(w, h, scale, draw, read)` renders one frame at another size in one task
+ * (postcards, the exposure's 'Save image'); see capture() below.
+ *
  * Throws only from the constructor, when a WebGL2 context cannot be created
  * (three r170 has no WebGL1 path); main.js turns that into text mode.
  *
@@ -114,6 +121,8 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
     let forceResize = true;
     let presentQueued = false;
     let postfxFailed = false;
+    /** Long-exposure stacking requested (setAccumulation); re-applied to every new chain. */
+    let accumWanted = false;
     const lostCbs = new Set();
     const restoredCbs = new Set();
     const invalidateCbs = new Set();
@@ -126,9 +135,10 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
     // instead: no MSAA, no bloom, and the final pass with FXAA (postfx.js). A low boot keeps the
     // direct path whatever the driver granted: those are the weakest GPUs, and the lean chain
     // costs a half-float target and a depth texture.
-    /** The post chain a tier actually gets (see above). Called on tier changes only. */
+    // Long-exposure stacking needs a composer, so a low boot takes the lean chain while it is on.
+    /** The post chain a tier actually gets (see above). Called on tier and Expose changes only. */
     function chainCfg(c) {
-        if (c.composer || createdLow || postfxFailed) return c;
+        if (c.composer || postfxFailed || (createdLow && !accumWanted)) return c;
         return { ...c, composer: true, msaa: 0, bloom: null, finalPass: true };
     }
 
@@ -161,6 +171,7 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
         if (chain.composer && !postfx) {
             try {
                 postfx = createPostFx(renderer, scene, camera, chain, { w: size.w, h: size.h, dpr });
+                if (accumWanted) postfx.setAccumulation(true);
             } catch (err) {
                 // A broken composer must not blank the screen: render directly instead.
                 console.warn('Planet Location Marker: post-processing unavailable, rendering directly.', err);
@@ -269,6 +280,115 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
      */
     function setVision(s) {
         postfx?.setVision?.(s);
+    }
+
+    /**
+     * Long-exposure stacking on or off (the Expose mode). On the low tier's direct path this
+     * switches to the lean composer chain and back. Never per frame.
+     * @param {boolean} on
+     * @returns {boolean} true when stacking is active (false: no post chain could be built)
+     */
+    function setAccumulation(on) {
+        const want = !!on;
+        if (want === accumWanted && (!want || postfx?.accum)) return !!postfx?.accum;
+        accumWanted = want;
+        const had = postfx;
+        ensurePostFx();
+        if (postfx && postfx === had) postfx.setAccumulation(want);
+        if (postfx !== had) {
+            forceResize = true;
+            resize();
+        }
+        invalidate();
+        return !!postfx?.accum;
+    }
+
+    /**
+     * Renders one frame at `w`×`h` device pixels and hands the canvas to `read`, all in one task:
+     * the drawing buffer is not preserved (preserveDrawingBuffer: false), so it must be read before
+     * the task yields, and because the screen size is restored and redrawn before returning, the
+     * capture is never presented and nothing flashes. `scale` is the capture's pixel ratio (its CSS
+     * size is w/scale × h/scale), which sizes lines, points and labels as on a screen of that
+     * density. The camera keeps its pose; its vertical field is set so the capture's shorter side
+     * spans the same angle as the screen's shorter side, and the UI's view offset is replaced by the
+     * capture's own `insetBottom` (CSS px kept for a caption band: the view centres above it, as the
+     * rig centres it beside the UI). `rc.size` (w, h, insets) describes the capture meanwhile. A
+     * stack (Expose) is kept and bypassed. At the screen's own size nothing is resized and the frame
+     * is the screen's.
+     * `draw()` runs the module updates and rc.render() (loop.redraw), once for the capture and once
+     * after the restore.
+     * @param {number} w device px
+     * @param {number} h device px
+     * @param {number} scale capture pixel ratio (> 0)
+     * @param {()=>void} draw
+     * @param {(canvas:HTMLCanvasElement, info:{cssW:number, cssH:number, scale:number, camera:THREE.PerspectiveCamera})=>void} read
+     * @param {{insetBottom?:number}} [opts]
+     * @returns {boolean} false when nothing could be captured (context lost, disposed)
+     */
+    function capture(w, h, scale, draw, read, opts) {
+        if (lost || disposed) return false;
+        const gl = renderer.getContext();
+        const W = Math.max(16, Math.min(maxBuffer, Math.round(w)));
+        const H = Math.max(16, Math.min(maxBuffer, Math.round(h)));
+        if (W === gl.drawingBufferWidth && H === gl.drawingBufferHeight) {
+            draw();
+            read(renderer.domElement, { cssW: size.w, cssH: size.h, scale: dpr, camera });
+            return true;
+        }
+        const s = Number.isFinite(scale) && scale > 0 ? scale : 1;
+        // CSS sizes whose product with s floors to exactly W and H.
+        const cw = (W + 0.25) / s, ch = (H + 0.25) / s;
+        const saved = {
+            w: size.w, h: size.h, fov: camera.fov, aspect: camera.aspect,
+            view: camera.view && camera.view.enabled ? { ...camera.view } : null,
+            l: size.insets.left, r: size.insets.right, t: size.insets.top, b: size.insets.bottom,
+        };
+        // The screen's shorter side → the capture's shorter side.
+        const tanV = Math.tan((saved.fov * Math.PI) / 360);
+        const tanShort = Math.min(tanV, tanV * saved.aspect);
+        const aspect = cw / ch;
+        const tanV2 = aspect >= 1 ? tanShort : tanShort / aspect;
+        // Capped: a story card from a wide desktop sky view would otherwise stretch past 120°.
+        const fov = Math.min(110, (Math.atan(tanV2) * 360) / Math.PI);
+        try {
+            renderer.setPixelRatio(s);
+            renderer.setSize(cw, ch, false);
+            postfx?.setCapture(true);
+            postfx?.setSize(cw, ch, s);
+            const inset = Math.min(ch * 0.6, Math.max(0, Number(opts?.insetBottom) || 0));
+            size.w = cw;
+            size.h = ch;
+            size.insets.left = size.insets.right = size.insets.top = 0;
+            size.insets.bottom = inset;
+            camera.fov = fov;
+            camera.aspect = aspect;
+            if (inset > 0.5) camera.setViewOffset(cw, ch, 0, inset / 2, cw, ch);
+            else camera.clearViewOffset();
+            camera.updateProjectionMatrix();
+            draw();
+            read(renderer.domElement, { cssW: cw, cssH: ch, scale: s, camera });
+        } finally {
+            size.w = saved.w;
+            size.h = saved.h;
+            size.insets.left = saved.l;
+            size.insets.right = saved.r;
+            size.insets.top = saved.t;
+            size.insets.bottom = saved.b;
+            renderer.setPixelRatio(dpr);
+            renderer.setSize(size.w, size.h, false);
+            postfx?.setSize(size.w, size.h, dpr);
+            postfx?.setCapture(false);
+            camera.fov = saved.fov;
+            camera.aspect = saved.aspect;
+            const v = saved.view;
+            if (v) camera.setViewOffset(v.fullWidth, v.fullHeight, v.offsetX, v.offsetY, v.width, v.height);
+            else camera.clearViewOffset();
+            camera.updateProjectionMatrix();
+            // The resize cleared the drawing buffer: draw the screen frame before the task ends.
+            try { draw(); } catch { /* the loop redraws on its next frame */ }
+            invalidate();
+        }
+        return true;
     }
 
     /** Renders one frame (composer or direct). Never throws. */
@@ -426,7 +546,11 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
         get lost() { return lost; },
         /** Active post-processing chain, or null on the direct (low tier) path. */
         get postfx() { return postfx; },
+        /** The long-exposure stacking pass while Expose is on (render/accum.js), else null. */
+        get accum() { return postfx?.accum ?? null; },
         invalidate,
+        setAccumulation,
+        capture,
         onInvalidate,
         setTier,
         setDprCap,

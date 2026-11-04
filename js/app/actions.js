@@ -18,6 +18,7 @@ import { createEclipseChase } from './eclipse-chase.js';
 import { localSolarEclipseAt } from '../astro/events.js';
 import { serializeHash } from '../core/url-state.js';
 import { SKY_DARK_SETTINGS, AURORA_SETTINGS } from '../core/store.js';
+import { EXPOSE_KINDS, TRAILS_RATE, trailsLook, nextDarkMs, analemmaPlan } from './expose.js';
 
 export { shadowPoint };
 
@@ -1009,6 +1010,95 @@ export function createActions(deps) {
         return deps.toggleDebug();
     }
 
+    /**
+     * Long exposure (ROADMAP lighten-stacking-exposure, app/expose.js): 'trails' | 'analemma' |
+     * 'free' starts stacking in sky view (presets also set the clock and the view), null stops it.
+     * Stopping ends the analemma's own timelapse. The stacking itself is render/long-exposure.js.
+     * @param {'trails'|'analemma'|'free'|null} kind
+     * @returns {boolean} started (or stopped)
+     */
+    function expose(kind) {
+        const k = kind == null || kind === 'off' ? null : String(kind);
+        if (k !== null && !EXPOSE_KINDS.includes(k)) return false;
+        const ui = store.get().ui;
+        if (k === null) {
+            if (!ui.expose) return true;
+            if (ui.expose === 'analemma' && clock.range?.strideMs) {
+                clock.setRange(null);
+                clock.pause();
+            }
+            store.set({ ui: { ...store.get().ui, expose: null } }, 'actions');
+            say('Long exposure stopped');
+            return true;
+        }
+        if (!has3d()) {
+            toast('Long exposures need the 3D view.', 'info');
+            return false;
+        }
+        const st = store.get();
+        const o = st.observer;
+        let look;
+        scratchSnap ??= createSnapshot();
+        if (k !== 'free' && (st.view.track ?? 'none') !== 'none') setTracking('none');
+        if (k === 'trails') {
+            const dark = nextDarkMs(clock.tMs, o, scratchSnap);
+            if (dark === null) toast("The Sun doesn't set far enough here: the exposure waits for darkness.", 'info');
+            else if (dark - clock.tMs > 6e4) clock.setTime(dark, { animateMs: reducedMotion() ? 0 : JUMP_ANIMATE_MS });
+            clock.setRate(TRAILS_RATE);
+            if (!clock.playing) clock.play();
+            look = trailsLook(o.latDeg);
+        } else if (k === 'analemma') {
+            const plan = analemmaPlan(clock.tMs, o, scratchSnap);
+            // Held on its first day until the camera has turned: the stack starts with that frame.
+            clock.setRange(plan.range);
+            clock.pause();
+            look = plan.look;
+        } else if (ui.expose === 'analemma' && clock.range?.strideMs) {
+            clock.setRange(null);
+            clock.pause();
+        }
+        const r = rig();
+        if (look) {
+            const turned = Promise.resolve(r?.setMode?.('sky', { animate: !reducedMotion(), look }));
+            if (k === 'analemma') {
+                settle(turned.then(() => {
+                    if (store.get().ui.expose === 'analemma' && clock.range?.strideMs && !clock.playing) clock.play();
+                }));
+            }
+        }
+        const view = store.get().view;
+        if (view.mode !== 'sky') store.set({ view: { ...view, mode: 'sky' } }, look ? 'event' : 'actions');
+        store.set({ ui: { ...store.get().ui, expose: k } }, 'actions');
+        say(k === 'trails' ? 'Exposing star trails' : k === 'analemma' ? 'Exposing the analemma: the Sun at noon, every day for a year'
+            : 'Long exposure: every frame is stacked');
+        return true;
+    }
+
+    /**
+     * The running exposure: preset, frames stacked and the simulated span they cover, or null when
+     * none runs (render/long-exposure.js stats()).
+     * @returns {{kind:string|null, active:boolean, frames:number, fromMs:number, toMs:number, gated:boolean}|null}
+     */
+    function exposeStatus() {
+        if (!store.get().ui.expose) return null;
+        try {
+            return render.longExposure?.stats?.() ?? null;
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * Renders the scene once into a canvas (app/capture.js): postcards at their own size and aspect,
+     * or (no size) the screen frame itself, a long exposure's stack included. Null in text mode.
+     * @param {{width?:number, height?:number, scale?:number, labels?:boolean}} [opts]
+     * @returns {HTMLCanvasElement|null}
+     */
+    function capture(opts) {
+        if (!has3d()) return null;
+        return render.capture?.frame?.(opts) ?? null;
+    }
+
     return {
         setObserver, undoObserver, locateMe,
         select, flyToBody, setViewMode, cycleView, setEarthLock, setTracking, cycleTracking, telescope,
@@ -1018,6 +1108,8 @@ export function createActions(deps) {
         toggleDebug, openPalette, shareUrl, viewFromBody,
         // Eclipse 2027 (ROADMAP Phase 1): the shared path request and 'Stand in the path'.
         eclipsePath: eclipsePathFor, standInPath, playEclipse,
+        // Phase 5: long exposures and the capture path (postcards, Save image).
+        expose, exposeStatus, capture,
         /**
          * Rides the Moon's shadow: the camera follows the umbra from low orbit while the clock runs
          * the path of the central eclipse near `target` (a time or an event) in about 40 s.

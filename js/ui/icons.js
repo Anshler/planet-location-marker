@@ -93,6 +93,11 @@ const ICONS = {
     set: [['path', { d: 'M3 17.6h18' }], ['path', { d: 'M6.6 17.6a5.4 5.4 0 0 1 10.8 0' }], ['path', { d: 'M12 3.4v6.2M9.4 6.8L12 9.4l2.6-2.6' }]],
     menu: [['path', { d: 'M4.5 7h15M4.5 12h15M4.5 17h15' }]],
     dot: [['circle', { cx: 12, cy: 12, r: 4, ...F }]],
+    // Long exposure: an aperture (six blades); the postcard: a framed landscape; saving: a tray.
+    aperture: [['circle', { cx: 12, cy: 12, r: 8.6 }], ['path', { d: 'M14.6 3.8L9.4 12.6M20.4 11.2h-9.6M16.6 19.2L11.4 10.6M9.4 20.2l5.2-8.8M3.6 12.8h9.6M7.4 4.8l5.2 8.6' }]],
+    postcard: [['rect', { x: 3.4, y: 4.6, width: 17.2, height: 14.8, rx: 2.4 }], ['path', { d: 'M3.6 16.4l5-4.6 3.6 3.2 3-2.4 5.2 4.4' }], ['circle', { cx: 15.6, cy: 8.8, r: 1.5 }]],
+    download: [['path', { d: 'M12 3.6v11' }], ['path', { d: 'M7.8 10.6l4.2 4.2 4.2-4.2' }], ['path', { d: 'M4.6 15.8v2.4a2.2 2.2 0 0 0 2.2 2.2h10.4a2.2 2.2 0 0 0 2.2-2.2v-2.4' }]],
+    link: [['path', { d: 'M10.2 13.8a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.1 1.1' }], ['path', { d: 'M13.8 10.2a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.1-1.1' }]],
 };
 
 /** All available icon names (spec set plus UI extras). */

@@ -242,7 +242,8 @@ export function focusables(root) {
 
 /**
  * Keeps keyboard focus inside `el` until released. Tab / Shift+Tab wrap around,
- * and focus that escapes (e.g. a click on the canvas) is pulled back in.
+ * and focus that escapes (e.g. a click on the canvas) is pulled back in. An open popover (the
+ * Time popover from the phone sheet at full) counts as inside.
  *
  * @param {HTMLElement} el
  * @param {{initial?: HTMLElement|null, restore?: boolean}} [opts]
@@ -252,17 +253,19 @@ export function focusables(root) {
  */
 export function trapFocus(el, { initial = null, restore = true } = {}) {
     const previous = /** @type {HTMLElement|null} */ (document.activeElement);
+    const inside = (n) => el.contains(n) || !!n?.closest?.('.popover');
     const onKey = (e) => {
         if (e.key !== 'Tab') return;
         const list = focusables(el);
         if (!list.length) { e.preventDefault(); el.focus({ preventScroll: true }); return; }
         const first = list[0], last = list[list.length - 1];
         const active = document.activeElement;
-        if (e.shiftKey && (active === first || !el.contains(active))) { e.preventDefault(); last.focus(); }
-        else if (!e.shiftKey && (active === last || !el.contains(active))) { e.preventDefault(); first.focus(); }
+        if (!el.contains(active) && inside(active)) return;
+        if (e.shiftKey && (active === first || !inside(active))) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && (active === last || !inside(active))) { e.preventDefault(); first.focus(); }
     };
     const onFocusIn = (e) => {
-        if (!el.contains(/** @type {Node} */ (e.target))) {
+        if (!inside(/** @type {Element} */ (e.target))) {
             const list = focusables(el);
             (list[0] || el).focus({ preventScroll: true });
         }

@@ -7,11 +7,13 @@
  *
  * Scrubber design: a fixed playhead over a timeline that scrolls with time.
  * The visible window depends on |rate| (±12 h, ±3 d, ±30 d, ±1 yr). Its
- * background is the day/night gradient of the Sun's altitude at the observer
- * (worker `sunSeries`, with an analytic low-precision fallback so it is never
- * blank); wide windows show the seasonal day-length instead, because a
- * day/night pattern cannot be resolved there. Event ticks come from the event
- * list. Dragging scrubs relative to the window captured at drag start; release
+ * background is the sky's colour by the Sun's altitude at the observer (ui/sky-palette.js: day
+ * blues, golden-hour amber, rose-violet civil, indigo nautical, near-black night; worker
+ * `sunSeries`, with an analytic low-precision fallback so it is never blank); wide windows show
+ * the seasonal day-length instead, because a day/night pattern cannot be resolved there. Up to
+ * ±3 d, a thin band along the bottom marks when the Moon is up (brighter the fuller it is) and
+ * one along the top when the selected planet is (its colour; worker `altSeries`). Event ticks
+ * come from the event list, with gold bars over an eclipse's span. Dragging scrubs relative to the window captured at drag start; release
  * re-centres smoothly. Keyboard: ←/→ = window/48, PageUp/PageDown = window/8.
  *
  * Drawing runs on requestAnimationFrame only while time is animating, the user
@@ -28,6 +30,7 @@ import { h, on, setText, setAttr, clamp, openPopover, uid } from './dom.js';
 import { icon, swapIcon } from './icons.js';
 import { parseCalendarInput, toCalendar, fromCalendar } from '../core/tz.js';
 import { createMarsTime, marsTimeTT, marsClockText, marsSunAltDeg, marsSiteNear } from '../astro/mars-clock.js';
+import { SKY_LUT, skyLutIndex, smooth, C_DAY, C_NIGHT } from './sky-palette.js';
 
 const MIN_MS = Date.UTC(1000, 0, 1);
 const MAX_MS = Date.UTC(3000, 0, 1);
@@ -46,37 +49,16 @@ const STEP_UNITS = [
     { kind: 'year', label: 'Year', long: '1 year' },
 ];
 
-/** Day/night palette (SPEC F.2) as RGB. */
-const C_DAY = [0x2d, 0x4a, 0x6b];
-const C_NOON = [0x3a, 0x62, 0x8e];
-const C_CIVIL = [0x24, 0x30, 0x4a];
-const C_NAUT = [0x18, 0x20, 0x3a];
-const C_ASTRO = [0x10, 0x15, 0x2a];
-const C_NIGHT = [0x0a, 0x0d, 0x18];
+// The sky palette (SPEC F.2): golden hour, rose-violet civil, indigo nautical, near-black night.
+const LUT = SKY_LUT;
+const MOON_RGB = [0xd8, 0xdd, 0xe6];
+const MOON_UP_DEG = -0.27;          // the Moon's upper limb on the refracted horizon
+const BAND_PX = 3;                  // the Moon and selected-body bands, CSS px
 
-/** Altitude → colour lookup, −30°..+60° in 0.1° steps (built once). */
-const LUT_MIN = -30, LUT_STEP = 0.1, LUT_N = 901;
-const LUT = buildLut();
-
-function mix(a, b, t) { return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]; }
-function smooth(e0, e1, x) { const t = clamp((x - e0) / (e1 - e0), 0, 1); return t * t * (3 - 2 * t); }
-
-function buildLut() {
-    const lut = new Uint8ClampedArray(LUT_N * 3);
-    // Zone colours with short blends across the twilight boundaries (−18, −12, −6, −0.833°).
-    const zone = (alt) => {
-        if (alt < -18) return C_NIGHT;
-        if (alt < -12) return C_ASTRO;
-        if (alt < -6) return C_NAUT;
-        if (alt < -0.833) return C_CIVIL;
-        return mix(C_DAY, C_NOON, smooth(6, 50, alt));
-    };
-    for (let i = 0; i < LUT_N; i += 1) {
-        const alt = LUT_MIN + i * LUT_STEP;
-        const c = mix(zone(alt - 0.6), zone(alt + 0.6), 0.5);
-        lut[i * 3] = c[0]; lut[i * 3 + 1] = c[1]; lut[i * 3 + 2] = c[2];
-    }
-    return lut;
+/** '#rrggbb' → [r, g, b]. */
+function hexRgb(hex) {
+    const n = parseInt(String(hex).slice(1), 16);
+    return Number.isFinite(n) ? [n >> 16, (n >> 8) & 255, n & 255] : MOON_RGB;
 }
 
 /** Event-kind colours for scrubber ticks. */
@@ -105,6 +87,42 @@ function sunAltApprox(tMs, latDeg, lonDeg) {
     const ha = (280.46061837 + 360.98564736629 * d + lonDeg) * RAD - ra;
     const la = latDeg * RAD;
     return Math.asin(Math.sin(la) * Math.sin(dec) + Math.cos(la) * Math.cos(dec) * Math.cos(ha)) / RAD;
+}
+
+/**
+ * The Moon's illuminated fraction, low precision (Meeus 48.4 with its leading terms, ~1 %): how
+ * bright the scrubber's Moon band is at an instant.
+ * @param {number} tMs
+ * @returns {number} 0 (new) … 1 (full)
+ */
+export function moonLitApprox(tMs) {
+    const T = (tMs - 946728000000) / 3155760000000;
+    const D = (297.8501921 + 445267.1114034 * T) * RAD;
+    const M = (357.5291092 + 35999.0502909 * T) * RAD;
+    const Mp = (134.9633964 + 477198.8675055 * T) * RAD;
+    const i = Math.PI - D - (6.289 * Math.sin(Mp) - 2.1 * Math.sin(M) + 1.274 * Math.sin(2 * D - Mp)
+        + 0.658 * Math.sin(2 * D) + 0.214 * Math.sin(2 * Mp) + 0.11 * Math.sin(D)) * RAD;
+    return (1 + Math.cos(i)) / 2;
+}
+
+/**
+ * The span an eclipse covers on the time axis: a local solar eclipse from first to last contact
+ * here, a lunar eclipse through its umbral phase (else the penumbral one). Writes `out` and
+ * returns true, or false for any other event.
+ * @param {any} ev AstroEvent
+ * @param {{from:number, to:number}} out
+ * @returns {boolean}
+ */
+export function eclipseSpan(ev, out) {
+    let a = NaN, b = NaN;
+    if (ev?.kind === 'local-solar-eclipse') { a = ev.c1Ms; b = ev.c4Ms; }
+    else if (ev?.kind === 'lunar-eclipse') {
+        a = Number.isFinite(ev.u1Ms) ? ev.u1Ms : ev.p1Ms;
+        b = Number.isFinite(ev.u4Ms) ? ev.u4Ms : ev.p4Ms;
+    }
+    if (!(Number.isFinite(a) && Number.isFinite(b) && b > a)) return false;
+    out.from = a; out.to = b;
+    return true;
 }
 
 // Standing on Mars (store.host): the scrubber's day/night strip and the stamp follow the Martian
@@ -150,9 +168,11 @@ export function halfWindowFor(rate) {
  * Re-aims a cached gradient row (RGBA, one pixel per column) at a window that now starts at
  * `start`. A slide of under half a column keeps the row as it is; a longer one shifts it by whole
  * columns. Sets `out` to the columns still to compute, [from, to), and moves `cache.start` to the
- * start the row now represents (within half a column of `start`). Allocation-free.
+ * start the row now represents (within half a column of `start`). Allocation-free. `data` may
+ * hold several rows of `width` (the scrubber's gradient and its bands): shifting the buffer as a
+ * whole carries pixels across row ends only into the columns `out` names for recomputing.
  * @param {{start: number}} cache
- * @param {Uint8ClampedArray} data `width * 4` bytes
+ * @param {Uint8ClampedArray} data `rows * width * 4` bytes
  * @param {number} width columns
  * @param {number} colMs window span / width
  * @param {number} start
@@ -163,12 +183,13 @@ export function slideGradientRow(cache, data, width, colMs, start, out) {
     const k = Math.round((start - cache.start) / colMs);
     out.from = 0; out.to = 0;
     if (k === 0) return out;
+    const end = data.length;
     if (k > 0 && k < width) {
-        data.copyWithin(0, k * 4, width * 4);
+        data.copyWithin(0, k * 4, end);
         out.from = width - k; out.to = width;
         cache.start += k * colMs;
     } else if (k < 0 && -k < width) {
-        data.copyWithin(-k * 4, 0, (width + k) * 4);
+        data.copyWithin(-k * 4, 0, end + k * 4);
         out.to = -k;
         cache.start += k * colMs;
     } else {
@@ -551,8 +572,9 @@ export function mountTimebar(root, ctx) {
 
     // ================================================================ scrubber engine
     const g2d = canvas.getContext('2d', { alpha: true });
+    // Three rows: the gradient (0), the Moon band (1) and the selected body's band (2).
     const lineCanvas = document.createElement('canvas');
-    lineCanvas.height = 1;
+    lineCanvas.height = 3;
     const lineCtx = lineCanvas.getContext('2d');
     let lineImg = null;
     let cssW = 0, cssH = 0, dpr = 1;
@@ -562,14 +584,20 @@ export function mountTimebar(root, ctx) {
     const observesSize = typeof ResizeObserver === 'function';
     let scrubLeft = 0;                // viewport x of the scrubber, read with its size and per gesture
     let geom = { tickY: 0, trackY: 10, trackH: 18, labelY: 34 };
-    const series = { fromMs: 0, toMs: 0, n: 0, values: null, key: '' };
-    let seriesRev = 0;                // bumped whenever `series` gets new values (gradient cache key)
+    // Altitude series from the worker: the Sun's (the gradient), the Moon's and the selected
+    // planet's (the bands; ROADMAP sky-ribbon-scrubber), each over three windows around the view.
+    const newSeries = (id) => ({ id, fromMs: 0, toMs: 0, n: 0, values: null, key: '', ctl: null, last: 0, fails: 0 });
+    const series = newSeries('sun');
+    const moonSeries = newSeries('moon');
+    const bodySeries = newSeries('');
+    let seriesRev = 0;                // bumped whenever a series gets new values (gradient cache key)
+    let bodyRgb = MOON_RGB;
     // Gradient cache: `lineImg` holds the gradient of a window that started at `grad.start`.
     // While the window slides, whole columns are shifted and only the exposed ones computed.
     const grad = { start: 0, span: 0, width: 0, wide: false, useSeries: false, rev: -1, obsKey: '' };
     const gradCols = { from: 0, to: 0 };
     let sheen = null, sheenY = -1, sheenH = -1;
-    let seriesCtl = null, seriesLast = 0, seriesFails = 0;
+    const spanScratch = { from: 0, to: 0 };
     const labelCache = new Map();
     const tickX = new Float32Array(512);
     const tickEv = new Array(512);
@@ -598,7 +626,7 @@ export function mountTimebar(root, ctx) {
             canvas.style.width = `${w}px`;
             canvas.style.height = `${hgt}px`;
             lineCanvas.width = canvas.width;
-            lineImg = lineCtx.createImageData(canvas.width, 1);
+            lineImg = lineCtx.createImageData(canvas.width, 3);
             grad.width = 0;
         }
         const compact = ui.layout === 'mobile';
@@ -621,41 +649,79 @@ export function mountTimebar(root, ctx) {
         win.start = centre - W; win.span = 2 * W; win.range = false;
     }
 
+    /** The planet whose band the strip shows: the selection, unless it is the Sun or the Moon. */
+    function bandBody() {
+        const sel = store.get().selection;
+        return sel && sel !== 'sun' && sel !== 'moon' && sel in BODY_INDEX ? sel : '';
+    }
+
     function ensureSeries() {
         if (win.span > 6.5 * DAY) return;
         const key = ui.observerKey();
         const s0 = win.start, s1 = win.start + win.span;
-        const margin = win.span * 0.25;
-        const ok = series.values && series.key === key && s0 >= series.fromMs + margin && s1 <= series.toMs - margin;
-        if (ok) return;
         const app = ui.almanac.sun;
         if (app?.values?.length > 1 && app.key === key && s0 >= app.fromMs && s1 <= app.toMs
             && !(series.values && series.key === key && s0 >= series.fromMs && s1 <= series.toMs)) {
             series.fromMs = app.fromMs; series.toMs = app.toMs; series.n = app.values.length; series.values = app.values; series.key = key;
             seriesRev += 1;
         }
+        ensureOne(series, key);
+        if (store.get().host?.id === 'mars') return;   // the bands are the Earth observer's
+        ensureOne(moonSeries, key);
+        const id = bandBody();
+        if (id !== bodySeries.id) {
+            dropSeries(bodySeries);
+            bodySeries.id = id;
+            bodyRgb = id ? hexRgb(BODIES[BODY_INDEX[id]].color) : MOON_RGB;
+            seriesRev += 1;
+        }
+        if (id) ensureOne(bodySeries, key);
+    }
+
+    /** Requests a series for three windows around the view once it no longer covers it (backing off on failures). */
+    function ensureOne(sr, key) {
+        const s0 = win.start, s1 = win.start + win.span;
+        const margin = win.span * 0.25;
+        if (sr.values && sr.key === key && s0 >= sr.fromMs + margin && s1 <= sr.toMs - margin) return;
         const astro = ctx.services?.astro;
-        if (!astro?.call || seriesCtl) return;
-        if (performance.now() - seriesLast < Math.min(30000, 300 * 2 ** seriesFails)) return;
+        if (!astro?.call || sr.ctl) return;
+        if (performance.now() - sr.last < Math.min(30000, 300 * 2 ** sr.fails)) return;
         const c = win.start + win.span / 2;
         const fromMs = c - 1.5 * win.span, toMs = c + 1.5 * win.span, n = 288;
         const ac = new AbortController();
-        seriesCtl = ac;
-        seriesLast = performance.now();
+        const id = sr.id;
+        sr.ctl = ac;
+        sr.last = performance.now();
+        const observer = ui.astroObserver();
         let p;
-        try { p = astro.call('sunSeries', { observer: ui.astroObserver(), fromMs, toMs, n }, { signal: ac.signal }); }
-        catch { seriesCtl = null; seriesFails += 1; return; }
+        try {
+            p = id === 'sun' ? astro.call('sunSeries', { observer, fromMs, toMs, n }, { signal: ac.signal })
+                : astro.call('altSeries', { bodyId: id, observer, fromMs, toMs, n, refraction: 'normal' }, { signal: ac.signal });
+        } catch { sr.ctl = null; sr.fails += 1; return; }
         Promise.resolve(p).then((vals) => {
-            seriesCtl = null;
-            const values = vals?.values || vals;
-            if (!values || !(values.length > 1)) { seriesFails += 1; return; }
-            seriesFails = 0;
-            series.fromMs = fromMs; series.toMs = toMs; series.n = values.length; series.values = values; series.key = key;
+            if (sr.ctl !== ac) return;
+            sr.ctl = null;
+            // A Float32Array, or {values} (a typed array's own .values is its iterator method).
+            const values = ArrayBuffer.isView(vals) ? vals : vals?.values;
+            if (!ArrayBuffer.isView(values) || !(values.length > 1)) { sr.fails += 1; return; }
+            sr.fails = 0;
+            sr.fromMs = fromMs; sr.toMs = toMs; sr.n = values.length; sr.values = values; sr.key = key;
             seriesRev += 1;
             kick();
-        }, () => { seriesCtl = null; if (!ac.signal.aborted) seriesFails += 1; });
+        }, () => { if (sr.ctl === ac) sr.ctl = null; if (!ac.signal.aborted) sr.fails += 1; });
     }
-    offs.push(store.subscribe((s) => s.observer, () => { seriesCtl?.abort(); seriesCtl = null; seriesLast = 0; series.values = null; kick(); }));
+    function dropSeries(sr) { sr.ctl?.abort(); sr.ctl = null; sr.last = 0; sr.fails = 0; sr.values = null; }
+    offs.push(store.subscribe((s) => s.observer, () => { dropSeries(series); dropSeries(moonSeries); dropSeries(bodySeries); seriesRev += 1; kick(); }));
+    offs.push(store.subscribe((s) => s.selection, kick));
+
+    /** A series' value at t (linear), or NaN outside it. */
+    function seriesAt(sr, key, t) {
+        if (!sr.values || sr.key !== key || t < sr.fromMs || t > sr.toMs) return NaN;
+        const f = ((t - sr.fromMs) / (sr.toMs - sr.fromMs)) * (sr.n - 1);
+        const i = Math.min(sr.n - 2, Math.max(0, Math.floor(f)));
+        const u = f - i;
+        return sr.values[i] * (1 - u) + sr.values[i + 1] * u;
+    }
 
     /**
      * Updates the cached gradient row for the current window. A window that slid by less than
@@ -683,13 +749,20 @@ export function mountTimebar(root, ctx) {
         return true;
     }
 
-    /** Computes gradient columns [from, to) of the cached row (window start `grad.start`). */
+    /**
+     * Computes columns [from, to) of the cached rows (window start `grad.start`): the sky's colour
+     * by the Sun's altitude, then where the Moon is up (silver, brighter the fuller it is) and
+     * where the selected planet is up (in its colour); the bands stay clear on wide windows and Mars.
+     */
     function fillGradient(obs, from, to, wide, useSeries) {
         const cw = canvas.width;
         const data = lineImg.data;
+        const row = cw * 4;
         const lat = obs.latDeg, lon = obs.lonDeg;
         const mars = obs.mars === true;
-        const sv = series.values, sn = series.n, sf = series.fromMs, sspan = series.toMs - series.fromMs;
+        const key = ui.observerKey(obs);
+        const bands = !wide && !mars;
+        const body = bands && bodySeries.id ? bodyRgb : null;
         for (let x = from; x < to; x += 1) {
             const t = grad.start + ((x + 0.5) / cw) * grad.span;
             let r, g, b;
@@ -699,20 +772,21 @@ export function mountTimebar(root, ctx) {
                 g = C_NIGHT[1] + (C_DAY[1] - C_NIGHT[1]) * k;
                 b = C_NIGHT[2] + (C_DAY[2] - C_NIGHT[2]) * k;
             } else {
-                let alt;
-                if (useSeries && t >= sf && t <= sf + sspan) {
-                    const f = ((t - sf) / sspan) * (sn - 1);
-                    const i = Math.min(sn - 2, Math.max(0, Math.floor(f)));
-                    const u = f - i;
-                    alt = sv[i] * (1 - u) + sv[i + 1] * u;
-                } else {
-                    alt = mars ? marsSunAlt(t, lat, lon) : sunAltApprox(t, lat, lon);
-                }
-                const li = Math.round((clamp(alt, LUT_MIN, LUT_MIN + (LUT_N - 1) * LUT_STEP) - LUT_MIN) / LUT_STEP) * 3;
+                let alt = useSeries ? seriesAt(series, key, t) : NaN;
+                if (alt !== alt) alt = mars ? marsSunAlt(t, lat, lon) : sunAltApprox(t, lat, lon);
+                const li = skyLutIndex(alt);
                 r = LUT[li]; g = LUT[li + 1]; b = LUT[li + 2];
             }
             const o = x * 4;
             data[o] = r; data[o + 1] = g; data[o + 2] = b; data[o + 3] = 255;
+            const mo = o + row;
+            const moonUp = bands && seriesAt(moonSeries, key, t) > MOON_UP_DEG;
+            data[mo] = MOON_RGB[0]; data[mo + 1] = MOON_RGB[1]; data[mo + 2] = MOON_RGB[2];
+            data[mo + 3] = moonUp ? 70 + 185 * moonLitApprox(t) : 0;
+            const bo = mo + row;
+            const bodyUp = body !== null && seriesAt(bodySeries, key, t) > 0;
+            data[bo] = bodyRgb[0]; data[bo + 1] = bodyRgb[1]; data[bo + 2] = bodyRgb[2];
+            data[bo + 3] = bodyUp ? 235 : 0;
         }
     }
 
@@ -744,6 +818,10 @@ export function mountTimebar(root, ctx) {
         }
         g2d.fillStyle = sheen;
         g2d.fillRect(0, y, cw, th);
+        // The bands: the selected planet along the top edge, the Moon along the bottom.
+        const bh = Math.round(BAND_PX * dpr);
+        g2d.drawImage(lineCanvas, 0, 2, cw, 1, 0, y, cw, bh);
+        g2d.drawImage(lineCanvas, 0, 1, cw, 1, 0, y + th - bh, cw, bh);
         g2d.restore();
     }
 
@@ -856,11 +934,23 @@ export function mountTimebar(root, ctx) {
         const start = win.start, end = start + win.span, cw = canvas.width;
         const y = (geom.tickY + 3.5) * dpr;
         const r = 2.6 * dpr;
-        // Binary search the first event in the window (list is sorted).
+        // Binary search the first event in the window (list is sorted), 8 h early for eclipse spans.
         let lo = 0, hi = list.length;
-        while (lo < hi) { const mid = (lo + hi) >> 1; if (list[mid].tMs < start) lo = mid + 1; else hi = mid; }
+        const from = start - 8 * HOUR;
+        while (lo < hi) { const mid = (lo + hi) >> 1; if (list[mid].tMs < from) lo = mid + 1; else hi = mid; }
+        // Eclipses: a gold bar from first to last contact, under their ticks.
+        g2d.fillStyle = 'rgba(255, 204, 102, 0.8)';
+        for (let i = lo; i < list.length; i += 1) {
+            const ev = list[i];
+            if (ev.tMs > end + 8 * HOUR) break;
+            if (!eclipseSpan(ev, spanScratch) || spanScratch.to < start || spanScratch.from > end) continue;
+            const x0 = Math.max(0, ((spanScratch.from - start) / win.span) * cw);
+            const x1 = Math.min(cw, ((spanScratch.to - start) / win.span) * cw);
+            g2d.fillRect(x0, y - dpr, Math.max(2 * dpr, x1 - x0), 2 * dpr);
+        }
         for (let i = lo; i < list.length && tickCount < tickX.length; i += 1) {
             const ev = list[i];
+            if (ev.tMs < start) continue;
             if (ev.tMs > end) break;
             const x = ((ev.tMs - start) / win.span) * cw;
             tickX[tickCount] = x / dpr;
@@ -1088,7 +1178,7 @@ export function mountTimebar(root, ctx) {
             ro?.disconnect();
             clearTimeout(secTimer);
             if (raf) cancelAnimationFrame(raf);
-            seriesCtl?.abort();
+            dropSeries(series); dropSeries(moonSeries); dropSeries(bodySeries);
             closeDate(); closeLapse();
             datePop.remove(); lapsePop.remove();
             root.textContent = '';

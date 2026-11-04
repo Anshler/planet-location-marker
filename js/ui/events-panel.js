@@ -2,7 +2,9 @@
  * Events tab: the next 12 months of sky events after the *simulated* time
  * (Moon phases, oppositions, conjunctions, greatest elongations, eclipses —
  * including partial solar eclipses visible from the observer — equinoxes and
- * solstices), grouped by month, each with a Jump button. A "Next up" card leads.
+ * solstices; star occultations, Venus at greatest brilliancy, transits, the
+ * Moon's perigee and apogee extremes, Saturn's ring-plane crossings and meteor
+ * showers), grouped by month, each with a Jump button. A "Next up" card leads.
  * Above them, the guided tours (core/tour-catalog.js; actions.startTour). Below them, history
  * (ROADMAP historic-skies): the Moments library and the Famous comets (core/moments.js, links that
  * set the URL hash, so the app flies there like any shared link), and 'The sky you were born under'
@@ -23,26 +25,33 @@ import { icon } from './icons.js';
 
 const DAY = 86400e3;
 
-const FILTERS = [
+const PLANET_KINDS = new Set(['opposition', 'conjunction', 'max-elongation', 'brilliancy', 'ring-plane']);
+const MOON_KINDS = new Set(['moon-phase', 'lunar-eclipse', 'occultation', 'lunar-apsis']);
+
+export const FILTERS = [
     { id: 'all', label: 'All', test: () => true },
-    { id: 'moon', label: 'Moon', test: (e) => e.kind === 'moon-phase' || e.kind === 'lunar-eclipse' },
-    { id: 'planets', label: 'Planets', test: (e) => e.kind === 'opposition' || e.kind === 'conjunction' || e.kind === 'max-elongation' },
-    { id: 'eclipses', label: 'Eclipses', test: (e) => e.kind.includes('eclipse') },
+    { id: 'moon', label: 'Moon', test: (e) => MOON_KINDS.has(e.kind) },
+    { id: 'planets', label: 'Planets', test: (e) => PLANET_KINDS.has(e.kind) },
+    { id: 'eclipses', label: 'Eclipses', test: (e) => e.kind.includes('eclipse') || e.kind === 'transit' },
+    { id: 'meteors', label: 'Meteors', test: (e) => e.kind === 'meteor-shower' },
     { id: 'seasons', label: 'Seasons', test: (e) => e.kind === 'equinox' || e.kind === 'solstice' },
 ];
 
-const KIND_ICON = {
+export const KIND_ICON = {
     'moon-phase': 'moon-phase', opposition: 'opposition', conjunction: 'conjunction', 'max-elongation': 'elongation',
     'lunar-eclipse': 'eclipse', 'solar-eclipse': 'eclipse', 'local-solar-eclipse': 'eclipse', equinox: 'season', solstice: 'season',
+    occultation: 'occultation', brilliancy: 'brilliancy', transit: 'transit', 'lunar-apsis': 'apsis', 'ring-plane': 'rings',
+    'meteor-shower': 'meteor',
 };
 
 /** CSS colour for an event's icon. */
 function eventColor(ev) {
     switch (ev.kind) {
-        case 'moon-phase': return 'var(--body-moon)';
+        case 'moon-phase': case 'occultation': case 'lunar-apsis': return 'var(--body-moon)';
         case 'lunar-eclipse': return '#ff8a65';
-        case 'solar-eclipse': case 'local-solar-eclipse': return 'var(--warn)';
+        case 'solar-eclipse': case 'local-solar-eclipse': case 'transit': return 'var(--warn)';
         case 'equinox': case 'solstice': return 'var(--accent)';
+        case 'meteor-shower': return '#9fd4ff';
         default: return ev.bodyId && ev.bodyId in BODY_INDEX ? `var(--body-${ev.bodyId})` : 'var(--muted)';
     }
 }

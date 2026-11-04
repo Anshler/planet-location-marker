@@ -31,6 +31,8 @@ export const LAYER_GROUPS = [
             ['precession', 'Precession', null, 'The pole’s 26,000-year circle, the pole of date and the equinox points among the stars'],
             ['altAzGrid', 'Horizon grid (Sky view)', null, 'Altitude and azimuth when standing on the ground'],
             ['landscape', 'Illustrative landscape (Sky view)', null, 'Invented hills, trees and sea for your place; rise and set times use the flat horizon'],
+            ['meteors', 'Meteors (Sky view)', null, 'Shower radiants near their peak and illustrative meteors; pause for an hour’s composite'],
+            ['sunPath', 'Sun paths & analemma', null, 'Today’s and the solstices’ paths and the noon figure-8 in Sky view; the subsolar figure-8 on the globe'],
         ],
     },
     {

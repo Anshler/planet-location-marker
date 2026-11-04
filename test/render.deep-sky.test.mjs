@@ -174,7 +174,7 @@ test('telescope field for extras: a deep-sky object\'s whole outline, a star\'s 
 test('URL: the deep-sky (x) and precession (r) layers round-trip', () => {
     const on = { ...DEFAULT_STATE.layers, precession: true };
     const code = layersToCode(on);
-    assert.equal(code, 'bgoscCnmkazhldxr');
+    assert.equal(code, 'bgoscCnmkazhldxrw');
     assert.deepEqual(parseHash(`#ly=${code}`).layers, on);
     assert.equal(parseHash('#ly=bgoscCnmkazhld').layers.deepSky, false);
     assert.equal(parseHash('#sel=dso:M31').selection, 'dso:m31');

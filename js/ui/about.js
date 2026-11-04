@@ -22,6 +22,7 @@ export const CREDITS = [
     ['Stephenson & Green, Historical Supernovae and their Remnants (2002)', 'the guest stars of 1006, 1054, 1181, 1572 and 1604: dates and brightness from the records', 'Facts cited', 'https://global.oup.com/academic/product/historical-supernovae-and-their-remnants-9780198507666'],
     ['Solar System Scope', 'Earth day, night and cloud maps (via three.js examples); 8K Earth and 4K Moon maps on Max quality', 'CC BY 4.0', 'https://www.solarsystemscope.com/textures/'],
     ['NASA Visible Earth', 'Moon imagery via three.js examples', 'Public domain', 'https://visibleearth.nasa.gov/'],
+    ['International Meteor Organization', 'meteor shower calendar: peaks (solar longitude), radiants, ZHR, velocities', 'Facts, cited', 'https://www.imo.net/resources/calendar/'],
     ['Open-Meteo Geocoding', 'online place search', 'CC BY 4.0', 'https://open-meteo.com/'],
     ['Photon by Komoot', 'online place search', 'OpenStreetMap data, ODbL', 'https://photon.komoot.io/'],
     ['Nominatim', 'online place search', 'OpenStreetMap data, ODbL', 'https://www.openstreetmap.org/copyright'],
@@ -62,7 +63,8 @@ export function mountAbout(root, ctx) {
             h('p', { class: 'prose' }, 'Stars: Hipparcos via d3-celestial. Earth imagery: Solar System Scope (CC BY 4.0); Moon: NASA (on Max: Solar System Scope). '
                 + 'Cities: GeoNames (CC BY 4.0). '
                 + 'Clouds are illustrative, not live weather. In a total solar eclipse the contacts are computed, '
-                + 'but the corona’s shape, the prominences and the lunar limb behind Baily’s beads are illustrative.'),
+                + 'but the corona’s shape, the prominences and the lunar limb behind Baily’s beads are illustrative. '
+                + 'Meteor showers follow the IMO calendar; their hourly rates are expected values, and the meteors drawn in Sky view are illustrative.'),
             h('ul', { class: 'credits' }, CREDITS.map(([name, role, lic, url]) => h('li', { class: 'credit' },
                 h('span', { class: 'credit__main' }, link(url, name, 'link credit__name'), h('span', { class: 'credit__role' }, role)),
                 h('span', { class: 'credit__lic' }, lic))))),

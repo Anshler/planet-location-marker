@@ -463,7 +463,7 @@ function trailAnchors(out, trails) {
  * @param {{mode?:'orbit'|'sky'|'system', live?:LiveVectors, bodyPoint?:(id:string)=>Float64Array|null,
  *          bodyOffset?:Float64Array[], hideBody?:(id:string)=>boolean, hideObserver?:boolean,
  *          rimCardinals?:boolean, medallion?:((id:string, selected:boolean)=>number[]|null)|null,
- *          ruler?:{anchors?:()=>LabelAnchor[]}|null, parallax?:string,
+ *          ruler?:{anchors?:()=>LabelAnchor[]}|null, parallax?:string, skyExtras?:Array<{anchors?:()=>LabelAnchor[]}>,
  *          systemPoint?:((id:string)=>Float64Array|null)|null, systemOffset?:((id:string)=>Float64Array|null)|null,
  *          extras?:object|null}} [opts]
  *   `extras` (astro/extras.js registry): extra objects are labelled in orbit and sky view; when the
@@ -478,7 +478,8 @@ function trailAnchors(out, trails) {
  *   orbit-view world points and the observer/cardinal vectors (see createLabelsFeed); without it
  *   those anchors are omitted and bodies sit at their at-infinity direction. `rimCardinals` adds
  *   the orbit-view N/E/S/W letters on the horizon disc (only when the horizon layer is on).
- *   `ruler` (render/ruler.js) adds the angle ruler's reading in sky view.
+ *   `ruler` (render/ruler.js) adds the angle ruler's reading in sky view; `skyExtras`, a list of
+ *   other `{anchors()}` providers, theirs (render/meteors.js: the shower radiants).
  * @returns {LabelAnchor[]}
  */
 export function buildAnchors(state, snap, catalog, trails, opts = {}) {
@@ -526,6 +527,8 @@ export function buildAnchors(state, snap, catalog, trails, opts = {}) {
     for (const m of opts.skyMarks ?? []) trailAnchors(out, m);
     // The angle ruler's reading (render/ruler.js), sky view only.
     if (sky && opts.ruler) trailAnchors(out, opts.ruler);
+    // Other sky-view furniture with names (render/meteors.js: shower radiants).
+    if (sky && Array.isArray(opts.skyExtras)) for (const p of opts.skyExtras) trailAnchors(out, p);
     return out;
 }
 
@@ -650,7 +653,7 @@ function syncCardinals(live, snap) {
  *          getPin?:()=>object|null, getPlanets?:()=>object|null, getRuler?:()=>object|null}} deps
  */
 export function createLabelsFeed({ labels, store, snap, getCatalog = () => null, getTrails = () => null, getBeams = () => null,
-    getPin = () => null, getPlanets = () => null, getRuler = () => null, getOrrery = () => null, getSkyMarks = () => [], extras = null }) {
+    getPin = () => null, getPlanets = () => null, getRuler = () => null, getOrrery = () => null, getSkyMarks = () => [], getSkyExtras = () => [], extras = null }) {
     /** @type {LiveVectors} */
     const live = {
         bodyOrbit: BODIES.map(() => new Float64Array(3)),
@@ -723,6 +726,7 @@ export function createLabelsFeed({ labels, store, snap, getCatalog = () => null,
             rimCardinals: !!getPin()?.cardinals,
             ruler: getRuler(),
             skyMarks: getSkyMarks() ?? [],
+            skyExtras: getSkyExtras() ?? [],
             parallax,
         };
         anchors = buildAnchors(store.get(), snap, getCatalog(), getTrails(), opts);

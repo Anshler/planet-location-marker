@@ -16,10 +16,13 @@
 /** @typedef {{beams:boolean, ghostBeams:boolean, sunMoonBeams:boolean, stars:boolean, constellations:boolean,
  *   constellationNames:boolean, starNames:boolean, milkyWay:boolean, clouds:boolean, atmosphere:boolean, ecliptic:boolean,
  *   eqGrid:boolean, altAzGrid:boolean, horizon:boolean, footprint:boolean, subpoints:boolean, trails:boolean, labels:boolean,
- *   landscape:boolean, spacecraft:boolean, deepSky:boolean, precession:boolean}} Layers `landscape`: the sky view's illustrative landscape (geo/horizon.js);
+ *   landscape:boolean, spacecraft:boolean, deepSky:boolean, precession:boolean, sunPath:boolean,
+ *   meteors:boolean}} Layers `landscape`: the sky view's illustrative landscape (geo/horizon.js);
  *   `spacecraft`: the radio beams to Voyager 1 and 2, New Horizons and JWST (astro/craft.js), off by default;
  *   `deepSky`: the Messier objects and showpieces (astro/dso.js, render/dso.js), on by default; `precession`: the
- *   pole's precession circle, the pole of date and the equinox points (render/precession.js), off by default */
+ *   pole's precession circle, the pole of date and the equinox points (render/precession.js), off by default;
+ *   `sunPath`: Sun paths, the noon analemma and the subsolar figure-8 (render/sunpath.js), off by default; `meteors`:
+ *   shower radiants and illustrative meteors in sky view (render/meteors.js), on by default */
 /** A selection (core/selection.js): one of the nine BodyIds, or an extra object's namespaced id
  * `<kind>:<key>` with kind star | dso | comet | craft | guest (e.g. 'comet:halley', 'craft:voyager1'),
  * resolved by the extras registry (astro/extras.js). BODY_IDS stays the contract for the nine.
@@ -108,8 +111,10 @@
 /** @typedef {{name:string, admin:string, country:string, cc:string, lat:number, lon:number, tz:string|null, pop:number,
  *   source:'offline'|'open-meteo'|'photon'|'nominatim', score?:number}} Place */
 /** @typedef {{id:string, kind:'moon-phase'|'opposition'|'conjunction'|'max-elongation'|'lunar-eclipse'|'solar-eclipse'|
- *   'local-solar-eclipse'|'equinox'|'solstice', bodyId:BodyId|null, tMs:number, title:string, detail:string,
- *   select:BodyId|null, view:'orbit'|'sky'|null}} AstroEvent */
+ *   'local-solar-eclipse'|'equinox'|'solstice'|'occultation'|'brilliancy'|'transit'|'lunar-apsis'|'ring-plane'|'meteor-shower',
+ *   bodyId:BodyId|null, tMs:number, title:string, detail:string,
+ *   select:BodyId|null, view:'orbit'|'sky'|null, look?:{azDeg:number, altDeg:number, fovDeg?:number}}} AstroEvent
+ * `look` (meteor showers): where a sky-view jump faces when no body is selected. Phase 6 kinds: astro/events.js. */
 
 // ─────────────────────── Additional shared shapes (G2 modules) ───────────────────────
 

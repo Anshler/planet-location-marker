@@ -20,6 +20,8 @@ import { upcomingEvents } from './events.js';
 import { apparentPath, stationaryPoints } from './paths.js';
 import { eclipsePath, citiesInPath } from './eclipse-path.js';
 import { orbitPolylines, moonOrbitPolyline } from './orrery.js';
+import { visibilityYear } from './planner.js';
+import { sunFigures } from './sunpath.js';
 import { BODY_IDS } from './bodies.js';
 
 function riseSetAll({ bodyIds, observer, fromMs, toMs }) {
@@ -53,7 +55,12 @@ function eclipsePathOp({ peakMs, stepS, cities, nCities }) {
  *  - riseSet   {bodyIds?, observer, fromMs, toMs}        → {[id]: RTS} (all bodies when bodyIds is omitted)
  *  - twilight  {observer, nearMs}                        → Twilight
  *  - tonight   {observer, nearMs, tz?, hour12?}          → {nightStartMs, nightEndMs, reports, twilight}
- *  - events    {observer, fromMs, days?, tz?, hour12?}   → AstroEvent[]
+ *  - events    {observer, fromMs, days?, tz?, hour12?, skyLp?} → AstroEvent[] (skyLp: the site's artificial
+ *              zenith light, natural-sky units, for the meteor rates "under this sky")
+ *  - visibilityYear {observer, firstMidnightMs, nights?, stepMin?, startMin?, spanMin?, bodyIds?}
+ *              → PlannerYear (planner.js: a year of nights for the planets, the Sun and the Moon)
+ *  - sunFigures {observer, tMs, dayStartMs?}             → SunFigures (sunpath.js: today's, the solstices'
+ *              and the March equinox's paths, the noon analemma, the subsolar figure-8)
  *  - eclipsePath {peakMs, stepS?, cities?, nCities?}     → EclipsePath & {cities?: CityInPath[]} | null
  *              (eclipse-path.js; samples are transferred)
  *  - path      {bodyId, centerMs, halfSpanDays?, stepHours?} → ApparentPath & {stations: StationaryPoint[]}
@@ -71,7 +78,9 @@ export const OPS = Object.freeze({
     riseSet: riseSetAll,
     twilight: ({ observer, nearMs }) => twilight(observer, nearMs),
     tonight: ({ observer, nearMs, tz, hour12 }) => tonight(observer, nearMs, { tz, hour12 }),
-    events: ({ observer, fromMs, days, tz, hour12 }) => upcomingEvents(observer, fromMs, days ?? 365, { tz, hour12 }),
+    events: ({ observer, fromMs, days, tz, hour12, skyLp }) => upcomingEvents(observer, fromMs, days ?? 365, { tz, hour12, skyLp }),
+    visibilityYear: ({ observer, firstMidnightMs, ...opts }) => visibilityYear(observer, firstMidnightMs, opts),
+    sunFigures: ({ observer, tMs, dayStartMs }) => sunFigures(observer, tMs, { dayStartMs }),
     eclipsePath: eclipsePathOp,
     path: ({ bodyId, centerMs, halfSpanDays, stepHours }) => {
         const path = apparentPath(bodyId, centerMs, halfSpanDays ?? 180, stepHours ?? 24);

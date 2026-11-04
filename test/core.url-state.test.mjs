@@ -12,7 +12,7 @@ const BODY_IDS = ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn'
 const LAYER_KEYS = Object.keys(DEFAULT_STATE.layers);
 const ALLOWED_KEYS = new Set(['observer', 'observer2', 'tMs', 'live', 'rate', 'playing', 'view', 'earthLock', 'selection', 'layers', 'quality', 'skyDark', 'aurora', 'cam', 'track', 'intro', 'debug', 'invalid']);
 const SPEC_EXAMPLE = '#loc=21.0285,105.8542&n=Hanoi&cc=VN&tz=Asia/Ho_Chi_Minh&el=15&t=2027-08-02T10:07:00Z&r=3600&p=1&view=orbit&lock=1&sel=moon'
-    + '&ly=bgoscCnmkazhld&q=auto&cam=o:21.0,105.8,3.2|s:142.3,25.0,60&intro=0&debug=1';
+    + '&ly=bgoscCnmkazhldw&q=auto&cam=o:21.0,105.8,3.2|s:142.3,25.0,60&intro=0&debug=1';
 
 /** Asserts every invariant a parsed hash must satisfy. */
 function assertValid(out, label) {
@@ -96,9 +96,9 @@ test('parses the SPEC §F.4 example completely', () => {
 });
 
 test('the default layer code matches DEFAULT_STATE', () => {
-    assert.equal(DEFAULT_LAYER_CODE, 'bgoscCnmkazhldx');
+    assert.equal(DEFAULT_LAYER_CODE, 'bgoscCnmkazhldxw');
     assert.equal(LAYER_CODES.length, LAYER_KEYS.length);
-    assert.deepEqual(codeToLayers('bgoscCnmkazhldx'), { layers: { ...DEFAULT_STATE.layers }, unknown: false });
+    assert.deepEqual(codeToLayers('bgoscCnmkazhldxw'), { layers: { ...DEFAULT_STATE.layers }, unknown: false });
     assert.equal(layersToCode(null), null);
 });
 

@@ -8,6 +8,17 @@
  * and Moon–planet appulses/occultations that are visible from the observer's
  * site. Each source is isolated, so one failing search never empties the list.
  *
+ * Phase 6 (events-breadth-unused-ae, meteor-showers): occultations and close passes of five
+ * bright stars by the Moon (fixed J2000 directions, the same topocentric minimisation and
+ * observability gate as the planets, pre-minimised on the interpolated Moon table so that only
+ * observable close passes cost ephemeris calls), Venus at greatest brilliancy (SearchPeakMagnitude), transits
+ * of Mercury and Venus (SearchTransit, with the Sun's altitude here at each contact), the year's
+ * closest perigee and farthest apogee plus perigee full Moons (SearchLunarApsis), Saturn's
+ * ring-plane crossings (the sign of ring_tilt, a 2038–39 triple crossing merged into one entry)
+ * and meteor-shower maxima (astro/meteors.js, with the best hour here, the Moon and the expected
+ * rate). The geocentric searches (transits, apsides) are cached across calls in the worker; the
+ * whole addition stays within ≈ 20 ms for a 730-day list.
+ *
  * Note on SearchRelativeLongitude: per astronomy-engine, a relative longitude
  * of 0° is the opposition of an outer planet (or the inferior conjunction of
  * Mercury/Venus) and 180° is a conjunction with the Sun (superior conjunction).
@@ -17,6 +28,8 @@
 import { AE } from './ae.js';
 import { bodyById, AU_KM } from './bodies.js';
 import { aeObserverOf, compass16 } from './almanac.js';
+import { showerPeaks, radiantAt, zhrAt, hourlyRate, meteorLimitMag, EVENT_MIN_ZHR } from './meteors.js';
+import { moonSky, NATURAL_NL } from './skyglow.js';
 
 const DAY_MS = 86400000;
 const RAD2DEG = 180 / Math.PI;
@@ -34,6 +47,28 @@ const QUARTERS = ['New Moon', 'First Quarter', 'Full Moon', 'Last Quarter'];
 const GUARD = 1000;                // hard cap on iterations of any search loop (≥ quarters in 10 years)
 const SUN_LIMB_DEG = 0.27;         // AE eclipse altitudes are the refracted centre; the upper limb is this much higher
 const LUNAR_STEP_MIN = 5;          // Moon altitude sampled every 5 min across the umbral phases (≤ 1.3° apart)
+const STAR_APPULSE_MAX_DEG = 0.5;  // Moon–star passes worth a mention (occultations always)
+const CLUSTER_APPULSE_MAX_DEG = 1.0; // the Pleiades: the Moon among (or beside) the cluster
+const CLUSTER_OCCULT_DEG = 0.75;   // …and over its bright members
+const STAR_PREFILTER_DEG = 2.2;    // 6-h samples sit ≤ 1.8° along track from a ≤ 0.5° minimum
+const MEAN_MOON_KM = 384400;
+const RING_STEP_DAYS = 10;         // Saturn's ring tilt sampled every 10 days (crossings are ≥ 3 months apart)
+const RING_GROUP_DAYS = 400;       // crossings closer than this are one edge-on season
+const METEOR_STEP_H = 1;           // a shower's night sampled hourly around its maximum
+const METEOR_HALF_H = 14;
+
+/**
+ * Bright stars on the Moon's path that it can occult: ICRS J2000 RA/Dec (degrees, Hipparcos
+ * positions as given by SIMBAD). The Pleiades are represented by Alcyone (η Tau), their brightest
+ * member near the cluster's centre. Proper motion is ignored (≤ 0.2″/yr: ≤ 3.3′ over 1000 years).
+ */
+export const OCCULTATION_STARS = Object.freeze([
+    { id: 'aldebaran', name: 'Aldebaran', raDeg: 68.98016, decDeg: 16.50930, cluster: false },
+    { id: 'pleiades', name: 'the Pleiades', raDeg: 56.87115, decDeg: 24.10514, cluster: true },
+    { id: 'regulus', name: 'Regulus', raDeg: 152.09296, decDeg: 11.96721, cluster: false },
+    { id: 'spica', name: 'Spica', raDeg: 201.29825, decDeg: -11.16132, cluster: false },
+    { id: 'antares', name: 'Antares', raDeg: 247.35192, decDeg: -26.43200, cluster: false },
+].map((s) => Object.freeze(s)));
 
 /**
  * @typedef {import('../core/types.js').AstroEvent} AstroEvent
@@ -99,6 +134,24 @@ function clockFormatter(tz, hour12, seconds) {
     return fn;
 }
 
+// "21 Oct 2038" in a zone (cached per zone; an unknown zone falls back to UTC).
+const dateFormatters = new Map();
+function dateFormatter(tz) {
+    let fn = dateFormatters.get(tz);
+    if (!fn) {
+        const opts = { day: 'numeric', month: 'short', year: 'numeric' };
+        let dtf;
+        try {
+            dtf = new Intl.DateTimeFormat('en-GB', { ...opts, timeZone: tz || 'UTC' });
+        } catch {
+            dtf = new Intl.DateTimeFormat('en-GB', { ...opts, timeZone: 'UTC' });
+        }
+        fn = (ms) => dtf.format(new Date(ms));
+        dateFormatters.set(tz, fn);
+    }
+    return fn;
+}
+
 /** "6 m 25 s", "48 s" for a central phase. */
 function fmtDurS(s) {
     const r = Math.round(s);
@@ -155,6 +208,28 @@ function minimize(f, a, b, iterations = 26) {
     return fc < fd ? [c, fc] : [d, fd];
 }
 
+/**
+ * Golden-section minimisation that gives up (null) once the bracket is under an hour wide and its
+ * best value is still more than 0.4° above `limit`: the Moon moves ≤ 0.8°/h against the stars, so
+ * the true minimum cannot then be below the limit. Most monthly passes are rejected in 8 evaluations.
+ */
+function minimizeBelow(f, a, b, limit, iterations) {
+    const g = (Math.sqrt(5) - 1) / 2;
+    let c = b - g * (b - a), d = a + g * (b - a);
+    let fc = f(c), fd = f(d);
+    for (let i = 0; i < iterations; i++) {
+        if (b - a < 1 / 24 && Math.min(fc, fd) > limit + 0.4) return null;
+        if (fc < fd) {
+            b = d; d = c; fd = fc;
+            c = b - g * (b - a); fc = f(c);
+        } else {
+            a = c; c = d; fc = fd;
+            d = a + g * (b - a); fd = f(d);
+        }
+    }
+    return fc < fd ? [c, fc] : [d, fd];
+}
+
 // Indices of discrete local minima below `limit`; each brackets a true
 // minimum between its neighbours because separation curves are convex there.
 function localMinima(series, limit) {
@@ -195,11 +270,17 @@ function relativeLongitudeEvents(ctx, id, target, describe) {
 
 function describeOpposition(b, t) {
     const ill = AE.Illumination(b.ae, t);
+    // Mars swings from 1.38 to 1.67 AU from the Sun, so its oppositions range from grand to poor.
+    let mars = '';
+    if (b.id === 'mars') {
+        if (ill.helio_dist < 1.42) mars = '; a perihelic opposition, Mars near its closest to the Sun: as close and bright as it gets';
+        else if (ill.helio_dist > 1.6) mars = '; an aphelic opposition: Mars stays small and comparatively faint';
+    }
     return {
         kind: 'opposition',
         title: `${b.name} at opposition`,
         detail: `Closest and brightest for the year: mag ${fmtMag(ill.mag)}, ${ill.geo_dist.toFixed(2)} AU away, ` +
-            `up all night in ${constellationOf(ill.gc)}`,
+            `up all night in ${constellationOf(ill.gc)}${mars}`,
     };
 }
 
@@ -634,12 +715,23 @@ function appulseEvent(ctx, b, ut, minSep) {
     });
 }
 
+// The Moon's topocentric J2000 direction every MOON_STEP_DAYS over the span (shared by the
+// planet appulses and the star occultations).
+function moonTable(ctx) {
+    if (ctx.moonTopo) return ctx.moonTopo;
+    const t0 = ctx.from.ut - 1;
+    const n = Math.ceil((ctx.toMs - ctx.fromMs) / DAY_MS) + 3;
+    const m = Math.floor((n - 1) / MOON_STEP_DAYS) + 1;
+    const moon = new Float64Array(3 * m);
+    for (let k = 0; k < m; k++) moon.set(topoDir('Moon', t0 + k * MOON_STEP_DAYS, ctx.obs), 3 * k);
+    ctx.moonTopo = { t0, m, moon };
+    return ctx.moonTopo;
+}
+
 function moonAppulses(ctx) {
     const { t0, n, dirs } = dailyDirections(ctx);
     const obs = ctx.obs;
-    const m = Math.floor((n - 1) / MOON_STEP_DAYS) + 1;
-    const moon = new Float64Array(3 * m);
-    for (let k = 0; k < m; k++) moon.set(topoDir('Moon', t0 + k * MOON_STEP_DAYS, obs), 3 * k);
+    const { m, moon } = moonTable(ctx);
     const sep = new Float64Array(m);
     for (const id of PAIR_PLANETS) {
         const b = bodyById(id);
@@ -654,6 +746,332 @@ function moonAppulses(ctx) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Phase 6 sources
+// ---------------------------------------------------------------------------
+
+function starVector(s) {
+    const a = s.raDeg * Math.PI / 180, d = s.decDeg * Math.PI / 180;
+    return [Math.cos(d) * Math.cos(a), Math.cos(d) * Math.sin(a), Math.sin(d)];
+}
+
+function starEvent(ctx, star, ut, minSep) {
+    const obs = ctx.obs;
+    const time = new AE.AstroTime(ut);
+    const moonHor = horizontal('Moon', time, obs);
+    if (moonHor.altitude < 3 || horizontal('Sun', time, obs).altitude > -3) return; // observable here
+    const moonEq = AE.Equator('Moon', time, obs, false, false);
+    const moonR = Math.asin(MOON_RADIUS_KM / (moonEq.dist * AU_KM)) * RAD2DEG;
+    const occults = star.cluster ? minSep < CLUSTER_OCCULT_DEG : minSep < moonR;
+    let title;
+    if (star.cluster) title = occults ? 'The Moon passes over the Pleiades' : `Moon passes ${fmtSep(minSep)} from the Pleiades`;
+    else title = occults ? `Moon occults ${star.name}` : `Moon passes ${fmtSep(minSep)} from ${star.name}`;
+    const what = star.cluster
+        ? (occults ? '; it covers the cluster’s bright stars one by one' : '')
+        : (occults ? `; ${star.name} vanishes behind the Moon’s limb and reappears up to an hour later` : '');
+    push(ctx, {
+        id: `occultation:${star.id}:${Math.round(msOf(time) / 60000)}`,
+        kind: 'occultation', bodyId: 'moon', tMs: msOf(time), title,
+        detail: `Visible from here, ${Math.round(moonHor.altitude)}° up in the ${compass16(moonHor.azimuth)}, in ${constellationOf(moonEq.vec)}${what}`,
+        select: 'moon', view: 'sky', star: star.id, sepDeg: minSep, occultation: occults,
+    });
+}
+
+/**
+ * The Moon table's direction at fractional sample index x (Catmull–Rom through the four nearest
+ * samples, renormalised). Six-hourly samples of the topocentric Moon interpolate to ≈ 0.02°: the
+ * diurnal parallax (≤ 1°, a 24.8-h period) is the fastest term.
+ */
+function moonInterp(table, x, out) {
+    const { m, moon } = table;
+    const i = Math.min(m - 3, Math.max(1, Math.floor(x))), f = x - i;
+    const f2 = f * f, f3 = f2 * f;
+    const w0 = -0.5 * f3 + f2 - 0.5 * f, w1 = 1.5 * f3 - 2.5 * f2 + 1, w2 = -1.5 * f3 + 2 * f2 + 0.5 * f, w3 = 0.5 * f3 - 0.5 * f2;
+    for (let c = 0; c < 3; c++) {
+        out[c] = w0 * moon[3 * (i - 1) + c] + w1 * moon[3 * i + c] + w2 * moon[3 * (i + 1) + c] + w3 * moon[3 * (i + 2) + c];
+    }
+    const l = Math.hypot(out[0], out[1], out[2]);
+    out[0] /= l; out[1] /= l; out[2] /= l;
+    return out;
+}
+
+/**
+ * Close passes and occultations of the five OCCULTATION_STARS by the Moon, topocentric, kept only
+ * when the Moon is up in a dark enough sky here. Each monthly pass is first minimised on the
+ * interpolated 6-hourly Moon table (shared with the planet appulses; no ephemeris calls), and only
+ * passes that come within 0.15° of the limit are refined against AE (about an hour either side).
+ */
+function starOccultations(ctx) {
+    const table = moonTable(ctx);
+    const { t0, m, moon } = table;
+    const obs = ctx.obs;
+    const sep = new Float64Array(m);
+    const p = [0, 0, 0];
+    for (const star of OCCULTATION_STARS) {
+        const v = starVector(star);
+        const limit = star.cluster ? CLUSTER_APPULSE_MAX_DEG : STAR_APPULSE_MAX_DEG;
+        for (let k = 0; k < m; k++) sep[k] = sepDeg(dirAt(moon, k), v);
+        for (const k of localMinima(sep, STAR_PREFILTER_DEG + limit)) {
+            if (k < 2 || k > m - 3) continue;
+            const [x, est] = minimize((xi) => sepDeg(moonInterp(table, xi, p), v), k - 1, k + 1, 22);
+            if (est > limit + 0.15) continue;
+            const ut0 = t0 + x * MOON_STEP_DAYS;
+            // The refined minimum is within minutes of ut0: a Moon well down or a Sun well up there
+            // already fails the observability gate (starEvent), so it is not refined.
+            const t0Time = new AE.AstroTime(ut0);
+            if (horizontal('Moon', t0Time, obs).altitude < 0 || horizontal('Sun', t0Time, obs).altitude > 0) continue;
+            const [ut, minSep] = minimize((ut1) => sepDeg(topoDir('Moon', ut1, obs), v), ut0 - 1 / 24, ut0 + 1 / 24, 12);
+            if (minSep < limit) starEvent(ctx, star, ut, minSep);
+        }
+    }
+}
+
+/** Venus at greatest brilliancy (AE.SearchPeakMagnitude), twice in each 584-day cycle. */
+function venusBrilliancy(ctx) {
+    let pm = AE.SearchPeakMagnitude('Venus', ctx.from);
+    for (let i = 0; i < GUARD && msOf(pm.time) <= ctx.toMs; i++) {
+        const el = AE.Elongation('Venus', pm.time);
+        push(ctx, {
+            kind: 'brilliancy', bodyId: 'venus', tMs: msOf(pm.time),
+            title: `Venus at greatest brilliancy (mag ${fmtMag(pm.mag)})`,
+            detail: `At its brightest in the ${el.visibility} sky: a ${Math.round(pm.phase_fraction * 100)}%-lit crescent ` +
+                `${Math.round(el.elongation)}° from the Sun, in ${constellationOf(pm.gc)}; bright enough to cast shadows at a dark site`,
+            select: 'venus', mag: pm.mag,
+        });
+        pm = AE.SearchPeakMagnitude('Venus', pm.time.AddDays(30));
+    }
+}
+
+/**
+ * Transits of Mercury and Venus are global and rare (Mercury 13–14 a century, Venus next in
+ * 2117), so the searches are kept across calls: per planet, the transits found and the span
+ * [fromMs, toMs] they are known to be complete for.
+ */
+const transitCache = new Map();
+
+function transitsBetween(name, fromMs, toMs) {
+    const c = transitCache.get(name);
+    if (c && fromMs >= c.fromMs && toMs <= c.toMs) return c.list.filter((x) => x.peakMs >= fromMs && x.peakMs <= toMs);
+    const list = [];
+    let tr = AE.SearchTransit(name, AE.MakeTime(new Date(fromMs)));
+    let complete = toMs;
+    for (let i = 0; i < 40; i++) {
+        const t = { startMs: msOf(tr.start), peakMs: msOf(tr.peak), finishMs: msOf(tr.finish), sepArcmin: tr.separation };
+        list.push(t);
+        if (t.peakMs > toMs) { complete = t.peakMs; break; }
+        tr = AE.NextTransit(name, tr.finish);
+    }
+    transitCache.set(name, { fromMs, toMs: complete, list });
+    return list.filter((x) => x.peakMs >= fromMs && x.peakMs <= toMs);
+}
+
+function transits(ctx) {
+    for (const id of INNER) {
+        const b = bodyById(id);
+        for (const tr of transitsBetween(b.ae, ctx.fromMs - DAY_MS, ctx.toMs)) {
+            const up = [tr.startMs, tr.peakMs, tr.finishMs].map((ms) => horizontal('Sun', AE.MakeTime(new Date(ms)), ctx.obs).altitude + SUN_LIMB_DEG > 0);
+            const all = up.every(Boolean), any = up.some(Boolean);
+            let vis = 'Not visible from here: the Sun is down throughout';
+            if (all) vis = 'Visible from here from start to finish';
+            else if (any) vis = up[0] ? 'Partly visible from here: the Sun sets before it ends' : 'Partly visible from here: the Sun rises during it';
+            let visibleMs = null;
+            if (up[1]) visibleMs = tr.peakMs;
+            else if (up[0]) visibleMs = Math.min(tr.startMs + 600e3, tr.peakMs);
+            else if (up[2]) visibleMs = Math.max(tr.finishMs - 600e3, tr.peakMs);
+            push(ctx, {
+                kind: 'transit', bodyId: id, tMs: tr.peakMs,
+                title: `Transit of ${b.name} across the Sun`,
+                detail: `${b.name} crosses the Sun’s face ${ctx.clock(tr.startMs)}–${ctx.clock(tr.finishMs)}, passing ${Math.round(tr.sepArcmin)}′ from its centre at ${ctx.clock(tr.peakMs)}. ` +
+                    `${vis}. Never look at the Sun without a proper solar filter.`,
+                select: id, view: any ? 'sky' : 'orbit', visibleHere: any, visibleMs,
+                startMs: tr.startMs, finishMs: tr.finishMs, sepArcmin: tr.sepArcmin,
+            });
+        }
+    }
+}
+
+/** Lunar perigees and apogees of a calendar year (UT), cached across calls. */
+const apsisCache = new Map();
+function apsidesOfYear(year) {
+    let list = apsisCache.get(year);
+    if (list) return list;
+    list = [];
+    const end = Date.UTC(year + 1, 0, 1);
+    let a = AE.SearchLunarApsis(AE.MakeTime(new Date(Date.UTC(year, 0, 1))));
+    for (let i = 0; i < 40 && msOf(a.time) < end; i++) {
+        list.push({ perigee: a.kind === 0, ms: msOf(a.time), km: a.dist_km });
+        a = AE.NextLunarApsis(a);
+    }
+    if (apsisCache.size >= 64) apsisCache.delete(apsisCache.keys().next().value);
+    apsisCache.set(year, list);
+    return list;
+}
+
+/**
+ * The Moon's closest perigee and farthest apogee of each calendar year, and every perigee within
+ * a day of full Moon (a "perigee full Moon", the supermoon in its strict sense).
+ */
+function lunarApsides(ctx) {
+    const y0 = new Date(ctx.fromMs).getUTCFullYear(), y1 = new Date(ctx.toMs).getUTCFullYear();
+    for (let y = y0; y <= y1; y++) {
+        const list = apsidesOfYear(y);
+        let near = null, far = null;
+        for (const a of list) {
+            if (a.perigee && (!near || a.km < near.km)) near = a;
+            if (!a.perigee && (!far || a.km > far.km)) far = a;
+        }
+        for (const a of list) {
+            if (!a.perigee) continue;
+            const phase = AE.MoonPhase(AE.MakeTime(new Date(a.ms)));
+            const fromFullH = (((((phase - 180) + 180) % 360) + 360) % 360 - 180) / 12.19 * 24;
+            const full = Math.abs(fromFullH) <= 24;
+            if (!full && a !== near) continue;
+            const km = fmtThousands(Math.round(a.km / 10) * 10);
+            const larger = Math.round((MEAN_MOON_KM / a.km - 1) * 100), brighter = Math.round(((MEAN_MOON_KM / a.km) ** 2 - 1) * 100);
+            const h = Math.round(Math.abs(fromFullH));
+            const title = full ? `Perigee full Moon — a supermoon${a === near ? ` (closest of ${y})` : ''}` : `Moon at its closest for ${y}`;
+            const detail = full
+                ? `The Moon is ${km} km away, ${h < 1 ? 'within the hour of' : `${h} h ${fromFullH < 0 ? 'before' : 'after'}`} full: about ${larger}% larger and ${brighter}% brighter than an average full Moon`
+                : `Perigee at ${km} km, the Moon’s closest approach this year (${Math.round((1 - Math.cos(phase * Math.PI / 180)) * 50)}% lit)`;
+            push(ctx, {
+                kind: 'lunar-apsis', bodyId: 'moon', tMs: a.ms, title, detail, select: 'moon',
+                apsis: 'perigee', distKm: a.km, supermoon: full,
+            });
+        }
+        if (far) {
+            push(ctx, {
+                kind: 'lunar-apsis', bodyId: 'moon', tMs: far.ms, title: `Moon at its farthest for ${y}`,
+                detail: `Apogee at ${fmtThousands(Math.round(far.km / 10) * 10)} km; a full Moon now looks about 12% smaller than one at perigee`,
+                select: 'moon', apsis: 'apogee', distKm: far.km, supermoon: false,
+            });
+        }
+    }
+}
+
+/**
+ * Earth crossing the plane of Saturn's rings (ring_tilt changing sign, sampled every 10 days and
+ * bisected to minutes). Crossings within RING_GROUP_DAYS form one edge-on season, listed once at
+ * its first crossing inside the span with every date in the detail.
+ */
+function ringPlaneCrossings(ctx) {
+    const tilt = (ut) => AE.Illumination('Saturn', new AE.AstroTime(ut)).ring_tilt;
+    const a = ctx.from.ut - RING_GROUP_DAYS, b = ctx.from.ut + (ctx.toMs - ctx.fromMs) / DAY_MS + RING_GROUP_DAYS;
+    const crossings = [];
+    let pu = a, pv = tilt(a);
+    for (let u = a + RING_STEP_DAYS; u <= b + RING_STEP_DAYS; u += RING_STEP_DAYS) {
+        const v = tilt(u);
+        if ((v > 0) !== (pv > 0)) {
+            let lo = pu, hi = u, lv = pv;
+            for (let k = 0; k < 20; k++) {
+                const mid = (lo + hi) / 2, mv = tilt(mid);
+                if ((mv > 0) === (lv > 0)) { lo = mid; lv = mv; } else hi = mid;
+            }
+            crossings.push(msOf(new AE.AstroTime((lo + hi) / 2)));
+        }
+        pu = u; pv = v;
+    }
+    const day = dateFormatter(ctx.tz);
+    const groups = [];
+    for (const ms of crossings) {
+        const g = groups.at(-1);
+        if (g && ms - g.at(-1) < RING_GROUP_DAYS * DAY_MS) g.push(ms); else groups.push([ms]);
+    }
+    for (const g of groups) {
+        const at = g.find((ms) => ms >= ctx.fromMs && ms <= ctx.toMs);
+        if (at === undefined) continue;
+        const n = g.length;
+        const dates = g.map(day);
+        const list = n === 1 ? dates[0] : `${dates.slice(0, -1).join(', ')} and ${dates.at(-1)}`;
+        push(ctx, {
+            kind: 'ring-plane', bodyId: 'saturn', tMs: at,
+            title: 'Saturn’s rings edge-on',
+            detail: `Earth passes through the plane of Saturn’s rings ${n === 1 ? 'on' : n === 2 ? 'twice:' : `${n} times:`} ${list}. ` +
+                'For weeks around each crossing the rings shrink to a thin line or vanish in small telescopes',
+            select: 'saturn', crossingsMs: g,
+        });
+    }
+}
+
+/** A rounded hourly count: "fewer than 1", "4", "35" (to 5 above 10). */
+export function fmtMeteorRate(r) {
+    if (!(r >= 0.5)) return 'fewer than 1';
+    return r < 10 ? String(Math.round(r)) : String(Math.round(r / 5) * 5);
+}
+const meteorsAnHour = (r) => (r >= 0.5 && r < 1.5 ? 'about 1 meteor an hour' : `${r >= 0.5 ? 'about ' : ''}${fmtMeteorRate(r)} meteors an hour`);
+
+/**
+ * A meteor shower's maximum as seen from here: the hour around it (± METEOR_HALF_H) with the most
+ * meteors expected, from the radiant's altitude, the shower's activity profile, twilight, the Moon
+ * and (when the caller passes `skyLp`) the site's light pollution. Altitudes are geometric, from
+ * the Sun's and the radiant's RA/Dec of date at maximum with the sidereal clock running.
+ */
+function showerEvent(ctx, s, peakMs) {
+    const obs = ctx.obs;
+    const tp = AE.MakeTime(new Date(peakMs));
+    const sun = AE.Equator('Sun', tp, obs, true, true);
+    const rj = radiantAt(s, s.peak);
+    const ra0 = rj.raDeg * Math.PI / 180, de0 = rj.decDeg * Math.PI / 180;
+    const vj = new AE.Vector(Math.cos(de0) * Math.cos(ra0), Math.cos(de0) * Math.sin(ra0), Math.sin(de0), tp);
+    const rad = AE.EquatorFromVector(AE.RotateVector(AE.Rotation_EQJ_EQD(tp), vj));
+    const gast = AE.SiderealTime(tp);
+    const ill = AE.Illumination('Moon', tp);
+    const lat = obs.latitude * Math.PI / 180, slat = Math.sin(lat), clat = Math.cos(lat);
+    const altAz = (raH, decDeg, lstH) => {
+        const H = (lstH - raH) * 15 * Math.PI / 180, d = decDeg * Math.PI / 180;
+        const alt = Math.asin(Math.max(-1, Math.min(1, slat * Math.sin(d) + clat * Math.cos(d) * Math.cos(H)))) * RAD2DEG;
+        const az = ((Math.atan2(-Math.cos(d) * Math.sin(H), Math.sin(d) * clat - Math.cos(d) * Math.cos(H) * slat) * RAD2DEG) + 360) % 360;
+        return [alt, az];
+    };
+    const lp = Number.isFinite(ctx.skyLp) ? Math.max(0, ctx.skyLp) : 0;
+    let best = null;
+    for (let h = -METEOR_HALF_H; h <= METEOR_HALF_H; h += METEOR_STEP_H) {
+        const lst = gast + h * 1.00273790935 + obs.longitude / 15;
+        const [sunAlt] = altAz(sun.ra, sun.dec, lst);
+        if (sunAlt > -12) continue;
+        const [radAlt, radAz] = altAz(rad.ra, rad.dec, lst);
+        if (radAlt < 5) continue;
+        const t = tp.AddDays(h / 24);
+        const moon = horizontal('Moon', t, obs);
+        const zm = 90 - moon.altitude;
+        const moonZen = moon.altitude > 0 ? moonSky(zm, 0, zm, ill.phase_angle) : 0;
+        const zhr = zhrAt(s, s.peak + (h / 24) * 0.98565);
+        const dark = hourlyRate(zhr, radAlt, meteorLimitMag(sunAlt, (1 + moonZen) * NATURAL_NL), s.r);
+        const here = hourlyRate(zhr, radAlt, meteorLimitMag(sunAlt, (1 + moonZen + lp) * NATURAL_NL), s.r);
+        if (!best || here > best.here || (here === best.here && dark > best.dark)) {
+            best = { ms: msOf(t), radAlt, radAz, moonAlt: moon.altitude, dark, here };
+        }
+    }
+    const pct = Math.round(ill.phase_fraction * 100);
+    const base = {
+        id: `meteor-shower:${s.id}:${Math.round(peakMs / 60000)}`, kind: 'meteor-shower', bodyId: null, tMs: peakMs,
+        title: `${s.name} meteor shower peaks (ZHR ${s.zhr})`, select: null,
+        showerId: s.id, zhr: s.zhr, moonPct: pct,
+    };
+    const radCon = AE.Constellation(rj.raDeg / 15, rj.decDeg).name;
+    if (!best) {
+        return {
+            ...base, view: null, visibleHere: false, visibleMs: null,
+            detail: `Radiant in ${radCon}. From here it stays below the horizon while the sky is dark, so few if any meteors are seen. Parent: ${s.parent}`,
+        };
+    }
+    const moonTxt = best.moonAlt > 0 ? `${pct}% lit, ${Math.round(best.moonAlt)}° up` : `${pct}% lit, below the horizon`;
+    const here = lp > 0.05 && fmtMeteorRate(best.here) !== fmtMeteorRate(best.dark) ? `, ${fmtMeteorRate(best.here)} under this sky` : '';
+    const rate = meteorsAnHour(best.dark);
+    return {
+        ...base, view: 'sky', visibleHere: true, visibleMs: best.ms,
+        radiantAltDeg: best.radAlt, rateDark: best.dark, rateHere: best.here,
+        look: { azDeg: best.radAz, altDeg: Math.min(best.radAlt, 55) },
+        detail: `Best around ${ctx.clock(best.ms)}, radiant ${Math.round(best.radAlt)}° up in the ${compass16(best.radAz)} (in ${radCon}). ` +
+            `Moon ${moonTxt}. ${cap(rate)} from a dark site${here} (illustrative). Parent: ${s.parent}`,
+    };
+}
+
+function meteorShowers(ctx) {
+    for (const { shower, peakMs } of showerPeaks(ctx.fromMs, ctx.toMs, { minZhr: EVENT_MIN_ZHR })) {
+        push(ctx, showerEvent(ctx, shower, peakMs));
+    }
+}
+
 const SOURCES = [
     moonPhases,
     oppositionsAndConjunctions,
@@ -664,6 +1082,12 @@ const SOURCES = [
     seasons,
     planetPairings,
     moonAppulses,
+    starOccultations,
+    venusBrilliancy,
+    transits,
+    lunarApsides,
+    ringPlaneCrossings,
+    meteorShowers,
 ];
 
 /**
@@ -684,12 +1108,27 @@ const SOURCES = [
  *  - lunar-eclipse: `p1Ms u1Ms u2Ms maxMs u3Ms u4Ms p4Ms`.
  * Both carry `visibleMs`: when to look from here (maximum when the body is up
  * then, else just inside the part above the horizon; null when not visible).
+ * Phase 6 kinds:
+ *  - occultation: the Moon and a bright star (`star`: an OCCULTATION_STARS id,
+ *    `sepDeg`, `occultation`), select 'moon', view 'sky';
+ *  - brilliancy: Venus at greatest brilliancy (`mag`);
+ *  - transit: Mercury or Venus across the Sun (`startMs`, `finishMs`,
+ *    `sepArcmin`, `visibleHere`, `visibleMs`);
+ *  - lunar-apsis: the year's closest perigee or farthest apogee, or a perigee
+ *    full Moon (`apsis`, `distKm`, `supermoon`);
+ *  - ring-plane: Earth crossing Saturn's ring plane (`crossingsMs`: the whole
+ *    edge-on season);
+ *  - meteor-shower: a shower's maximum (`showerId`, `zhr`, `moonPct`,
+ *    `visibleHere`, `visibleMs`: the best hour here, `radiantAltDeg`, `rateDark`
+ *    and `rateHere` per hour, `look` {azDeg, altDeg}: where to face); bodyId null.
  * Times in titles and details use `opts.tz`, else `observer.tz`, else UTC.
+ * `opts.skyLp` is the site's artificial zenith light in natural-sky units
+ * (skyglow `lpZenith`), for the meteor rates "under this sky".
  * Typical cost: 50–100 ms for a year, so run it in the astro worker.
  * @param {ObserverLike & {tz?:string|null}} observer
  * @param {number} fromMs
  * @param {number} [days=365] Clamped to 1..3660.
- * @param {{tz?:string, hour12?:boolean}} [opts]
+ * @param {{tz?:string, hour12?:boolean, skyLp?:number}} [opts]
  * @returns {AstroEvent[]}
  */
 export function upcomingEvents(observer, fromMs, days = 365, opts = {}) {
@@ -705,6 +1144,9 @@ export function upcomingEvents(observer, fromMs, days = 365, opts = {}) {
         from: AE.MakeTime(new Date(fromMs)),
         events: [],
         daily: null,
+        moonTopo: null,
+        tz,
+        skyLp: Number.isFinite(opts?.skyLp) ? opts.skyLp : 0,
         clock: clockFormatter(tz, !!opts?.hour12, false),
         clockS: clockFormatter(tz, !!opts?.hour12, true),
     };

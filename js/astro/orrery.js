@@ -57,6 +57,11 @@ export const ORBIT_SAMPLES = 256;
 export const MOON_SAMPLES = 128;
 /** Sidereal month, days (the Moon's orbit polyline). */
 const MOON_PERIOD_D = 27.321661;
+/**
+ * The Moon's drawn orbit is its actual path over the month around its centre, so the Moon stays on
+ * it while sim time is within half a month of the centre: re-sampled a quarter month away.
+ */
+export const MOON_ORBIT_REFRESH_MS = MOON_PERIOD_D / 4 * 864e5;
 /** Sight lines kept for the retrograde figure, and the step as a fraction of the synodic period. */
 export const SIGHT_COUNT = 24;
 const SIGHT_STEPS_PER_SYNODIC = 110;
@@ -235,12 +240,29 @@ export function orbitPolylines(centerMs, n = ORBIT_SAMPLES, nMoon = MOON_SAMPLES
             put32(points, (b * ns + i) * 3, v.x, v.y, v.z);
         }
     }
+    const { moon } = moonOrbitPolyline(centerMs, nm);
+    return { centerMs, n: ns, nMoon: nm, ids: [...ORBIT_IDS], points, moon };
+}
+
+/**
+ * One sidereal month of the Moon's geocentric path centred on `centerMs` (AU, scene axes). The
+ * real orbit turns and stretches within months (evection, the apsides' and nodes' precession), so
+ * the orrery re-samples it on its own schedule (MOON_ORBIT_REFRESH_MS), not the planets' century.
+ * The worker's 'moonOrbit' op; 128 GeoMoon evaluations.
+ * @param {number} centerMs
+ * @param {number} [nMoon]
+ * @returns {{centerMs:number, nMoon:number, moon:Float32Array}}
+ */
+export function moonOrbitPolyline(centerMs, nMoon = MOON_SAMPLES) {
+    if (!Number.isFinite(centerMs)) throw new RangeError('moonOrbitPolyline: centerMs must be finite');
+    const nm = Math.max(8, Math.min(1024, Math.round(nMoon) || MOON_SAMPLES));
+    const t0 = AE.MakeTime(new Date(centerMs));
     const moon = new Float32Array(nm * 3);
     for (let i = 0; i < nm; i++) {
         const m = AE.GeoMoon(t0.AddDays(MOON_PERIOD_D * (i / nm - 0.5)));
         put32(moon, i * 3, m.x, m.y, m.z);
     }
-    return { centerMs, n: ns, nMoon: nm, ids: [...ORBIT_IDS], points, moon };
+    return { centerMs, nMoon: nm, moon };
 }
 
 /**

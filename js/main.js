@@ -946,6 +946,7 @@ async function bootRender(ctx) {
     // The solar-system zoom's orrery: its own scene and camera, drawn over the main scene.
     const orrery = create('orrery', m.orrery && (() => m.orrery.createOrrery(rc, {
         requestOrbits: (centerMs) => (R.astro ? R.astro.call('orbits', { centerMs }) : Promise.reject(new Error('no astro client'))),
+        requestMoonOrbit: (centerMs) => (R.astro ? R.astro.call('moonOrbit', { centerMs }) : Promise.reject(new Error('no astro client'))),
     })));
     if (orrery) rc.setOverlay?.(orrery.scene, orrery.camera);
 

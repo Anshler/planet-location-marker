@@ -12,7 +12,9 @@
  * Sun and the body sprites, in render order.
  *
  *  - Orbits: one period of each planet's orbit and the Moon's (the worker's 'orbits' op, sampled
- *    once and again only when sim time moves a century away), preallocated line segments.
+ *    once and again only when sim time moves a century away), preallocated line segments. The
+ *    Moon's month changes within months (evection, precession): it is re-sampled on its own
+ *    ('moonOrbit') a quarter month from its centre, so the Moon stays on its ring.
  *  - Sight lines: from the Earth's centre to each body (snapshot helio.posS, so along its
  *    geocentric direction), continuing faintly past it; the beams fade into them (FrameInfo
  *    systemBlend). The Sun and Moon lines follow the Sun-and-Moon beams layer.
@@ -38,7 +40,7 @@
  */
 import * as THREE from 'three';
 import { BODIES, BODY_INDEX, AU_ER, AU_KM } from '../astro/bodies.js';
-import { ORBIT_IDS, SIGHT_COUNT, sightStepMs, sightAt, edgeExit } from '../astro/orrery.js';
+import { ORBIT_IDS, SIGHT_COUNT, MOON_ORBIT_REFRESH_MS, sightStepMs, sightAt, edgeExit } from '../astro/orrery.js';
 import { DISC_FRAG } from './shaders/bodies.glsl.js';
 import { SPRITE_VERT, SPRITE_FRAG, SUN_VERT, ARROW_VERT, ARROW_FRAG } from './shaders/orrery.glsl.js';
 
@@ -100,11 +102,13 @@ function smooth(e0, e1, x) { const t = clamp((x - e0) / (e1 - e0), 0, 1); return
  * Creates the orrery module.
  * @param {object} rc RenderContext
  * @param {{requestOrbits?:(centerMs:number)=>Promise<{centerMs:number, n:number, nMoon:number, ids:string[],
- *   points:Float32Array, moon:Float32Array}>}} [deps] the worker's 'orbits' op
+ *   points:Float32Array, moon:Float32Array}>, requestMoonOrbit?:(centerMs:number)=>Promise<{centerMs:number,
+ *   nMoon:number, moon:Float32Array}>}} [deps] the worker's 'orbits' and 'moonOrbit' ops
  * @returns {object} RenderModule & {scene, camera, labelPoint(id), labelOffset(id), pick(ndcX, ndcY), shown}
  */
 export function createOrrery(rc, deps = {}) {
     const requestOrbits = typeof deps.requestOrbits === 'function' ? deps.requestOrbits : null;
+    const requestMoonOrbit = typeof deps.requestMoonOrbit === 'function' ? deps.requestMoonOrbit : null;
     const group = new THREE.Group();     // the module's object3d in the main scene: empty
     group.name = 'orrery';
     const scene = new THREE.Scene();
@@ -130,6 +134,9 @@ export function createOrrery(rc, deps = {}) {
     let orbitCenter = NaN;
     let orbitPending = false;
     let orbitFailedAt = -Infinity;
+    let moonCenter = NaN;
+    let moonPending = false;
+    let moonFailedAt = -Infinity;
     const orbitGeo = new THREE.BufferGeometry();
     const orbitMat = new THREE.LineBasicMaterial({ vertexColors: true, blending: THREE.AdditiveBlending, ...NO_DEPTH });
     orbitMat.name = 'orrery.orbits';
@@ -185,27 +192,35 @@ export function createOrrery(rc, deps = {}) {
         const pa = orbitGeo.getAttribute('position');
         pa.array.set(res.points);
         pa.needsUpdate = true;
-        if (res.moon instanceof Float32Array && res.moon.length >= 24) {
-            let ma = moonGeo.getAttribute('position');
-            if (!ma || ma.array.length !== res.moon.length) {
-                ma = new THREE.BufferAttribute(new Float32Array(res.moon.length), 3);
-                moonGeo.setAttribute('position', ma);
-            }
-            ma.array.set(res.moon);
-            ma.needsUpdate = true;
-            moonGeo.computeBoundingSphere();
-        }
+        installMoon(res);
         orbitGeo.computeBoundingSphere();
         orbitCenter = res.centerMs;
         orbits.visible = true;
+        rc?.invalidate?.();
+    }
+
+    function installMoon(res) {
+        if (!res || !(res.moon instanceof Float32Array) || res.moon.length < 24) return;
+        let ma = moonGeo.getAttribute('position');
+        if (!ma || ma.array.length !== res.moon.length) {
+            ma = new THREE.BufferAttribute(new Float32Array(res.moon.length), 3);
+            moonGeo.setAttribute('position', ma);
+        }
+        ma.array.set(res.moon);
+        ma.needsUpdate = true;
+        moonGeo.computeBoundingSphere();
+        moonCenter = res.centerMs;
         moonOrbit.visible = true;
         rc?.invalidate?.();
     }
 
     function maybeRequestOrbits(tMs) {
         if (!requestOrbits || orbitPending || !Number.isFinite(tMs)) return;
-        if (Number.isFinite(orbitCenter) && Math.abs(tMs - orbitCenter) < ORBIT_REFRESH_MS) return;
         const wall = typeof performance !== 'undefined' ? performance.now() : Date.now();
+        if (Number.isFinite(orbitCenter) && Math.abs(tMs - orbitCenter) < ORBIT_REFRESH_MS) {
+            maybeRequestMoon(tMs, wall);
+            return;
+        }
         if (wall - orbitFailedAt < ORBIT_RETRY_MS) return;
         orbitPending = true;
         Promise.resolve().then(() => requestOrbits(tMs)).then((res) => {
@@ -215,6 +230,21 @@ export function createOrrery(rc, deps = {}) {
             orbitPending = false;
             orbitFailedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
             console.warn('[orrery] orbits unavailable', err);
+        });
+    }
+
+    function maybeRequestMoon(tMs, wall) {
+        if (!requestMoonOrbit || moonPending) return;
+        if (Number.isFinite(moonCenter) && Math.abs(tMs - moonCenter) < MOON_ORBIT_REFRESH_MS) return;
+        if (wall - moonFailedAt < ORBIT_RETRY_MS) return;
+        moonPending = true;
+        Promise.resolve().then(() => requestMoonOrbit(tMs)).then((res) => {
+            moonPending = false;
+            installMoon(res);
+        }, (err) => {
+            moonPending = false;
+            moonFailedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+            console.warn('[orrery] the Moon orbit unavailable', err);
         });
     }
 

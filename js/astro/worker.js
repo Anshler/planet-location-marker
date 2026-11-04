@@ -19,7 +19,7 @@ import { riseTransitSet, twilight, tonight, sunAltitudeSeries, aeObserverOf } fr
 import { upcomingEvents } from './events.js';
 import { apparentPath, stationaryPoints } from './paths.js';
 import { eclipsePath, citiesInPath } from './eclipse-path.js';
-import { orbitPolylines } from './orrery.js';
+import { orbitPolylines, moonOrbitPolyline } from './orrery.js';
 import { BODY_IDS } from './bodies.js';
 
 function riseSetAll({ bodyIds, observer, fromMs, toMs }) {
@@ -60,6 +60,8 @@ function eclipsePathOp({ peakMs, stepS, cities, nCities }) {
  *  - sunSeries {observer, fromMs, toMs, n}               → Float32Array(n)
  *  - orbits    {centerMs, n?, nMoon?}                    → {centerMs, n, nMoon, ids, points, moon} (orrery.js
  *              orbitPolylines: one period of every planet's orbit and the Moon's; arrays transferred)
+ *  - moonOrbit {centerMs, nMoon?}                        → {centerMs, nMoon, moon} (orrery.js moonOrbitPolyline:
+ *              the Moon's month alone, re-sampled far more often; transferred)
  *  - almanac   {observer, dayStartMs, dayEndMs?, nearMs?, sunFromMs?, sunToMs?, n?, tz?, hour12?}
  *              → {riseSet, twilight, tonight, sunSeries:{fromMs, toMs, values}} in one round trip
  *  - ping      {}                                        → 'pong'
@@ -77,6 +79,7 @@ export const OPS = Object.freeze({
     },
     sunSeries: ({ observer, fromMs, toMs, n }) => sunAltitudeSeries(observer, fromMs, toMs, n),
     orbits: ({ centerMs, n, nMoon }) => orbitPolylines(centerMs, n, nMoon),
+    moonOrbit: ({ centerMs, nMoon }) => moonOrbitPolyline(centerMs, nMoon),
     almanac: (args) => {
         const { observer, dayStartMs } = args;
         const dayEndMs = args.dayEndMs ?? dayStartMs + 86400000;

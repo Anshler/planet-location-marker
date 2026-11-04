@@ -128,6 +128,33 @@ test('orbitPolylines: closed loops at the right radii, the Moon 0.0026 AU round 
     assert.throws(() => O.orbitPolylines(NaN), RangeError);
 });
 
+test('moonOrbitPolyline: the Moon stays on its ring within the refresh window, not a half-year on', () => {
+    const c = OPPOSITION;
+    const ring = O.moonOrbitPolyline(c);
+    assert.equal(ring.nMoon, O.MOON_SAMPLES);
+    assert.deepEqual(Array.from(ring.moon), Array.from(O.orbitPolylines(c, 16).moon), 'the same samples as orbitPolylines');
+    const s = createSnapshot();
+    const fromRing = (tMs) => {
+        computeSnapshot(tMs, HCMC, s, { detail: 'frame' });
+        const m = BODY_INDEX.moon;
+        const mx = s.helio.posS[m * 3] - s.helio.earthS[0], my = s.helio.posS[m * 3 + 1] - s.helio.earthS[1], mz = s.helio.posS[m * 3 + 2] - s.helio.earthS[2];
+        const p = ring.moon, n = p.length / 3;
+        let best = Infinity;
+        for (let i = 0; i < n; i++) {
+            const j = ((i + 1) % n) * 3, ax = p[i * 3], ay = p[i * 3 + 1], az = p[i * 3 + 2];
+            const bx = p[j] - ax, by = p[j + 1] - ay, bz = p[j + 2] - az;
+            const t = Math.max(0, Math.min(1, ((mx - ax) * bx + (my - ay) * by + (mz - az) * bz) / (bx * bx + by * by + bz * bz)));
+            best = Math.min(best, Math.hypot(mx - ax - t * bx, my - ay - t * by, mz - az - t * bz));
+        }
+        return best * AU_ER;
+    };
+    for (const dt of [0, 0.5, -0.5, 1].map((k) => k * O.MOON_ORBIT_REFRESH_MS)) {
+        assert.ok(fromRing(c + dt) < 0.05, `${(dt / 864e5).toFixed(1)} d from the centre: ${fromRing(c + dt).toFixed(3)} R off the ring`);
+    }
+    assert.ok(fromRing(c + 182 * 864e5) > 0.5, 'a half-year on, a stale ring is visibly off (hence the refresh)');
+    assert.throws(() => O.moonOrbitPolyline(NaN), RangeError);
+});
+
 test('sight lines: Mars turns back around its 2027 opposition (the retrograde figure), steps independent of the frame time', () => {
     const step = O.sightStepMs('Mars');
     near(step / 864e5, 7.09, 0.05, 'Mars step (days)');

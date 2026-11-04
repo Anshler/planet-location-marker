@@ -1,5 +1,5 @@
 /**
- * 'Report a problem' (About; context-loss-backoff-and-diagnostics): Copy diagnostics puts the
+ * 'Report a problem' (Display › About this app; context-loss-backoff-and-diagnostics): Copy diagnostics puts the
  * report of actions.copyDiagnostics (core/diagnostics.js: version, graphics, recent errors, never
  * the place) on the clipboard, or shows it to select by hand where copying is blocked, and a link
  * opens a new GitHub issue on REPO_URL with a short template to paste it into. Nothing is sent by
@@ -17,7 +17,7 @@ import { icon } from './icons.js';
  * @returns {string}
  */
 export function issueUrl() {
-    const body = `**What happened?**\n\n\n**What did you expect?**\n\n\n**Diagnostics** (About → Copy diagnostics, then paste here; `
+    const body = `**What happened?**\n\n\n**What did you expect?**\n\n\n**Diagnostics** (Display › About this app › Copy diagnostics, then paste here; `
         + `it holds no location):\n\n\`\`\`json\n\n\`\`\`\n\n${APP_NAME} ${VERSION}\n`;
     return `${REPO_URL}/issues/new?${new URLSearchParams({ body })}`;
 }

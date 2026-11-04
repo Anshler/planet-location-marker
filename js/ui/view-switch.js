@@ -151,7 +151,7 @@ export function mountViewSwitch(root, ctx) {
                 hidden: () => !gl() || (!document.fullscreenEnabled && !document.webkitFullscreenEnabled), run: () => ui.act('toggleFullscreen') },
             { icon: 'download', name: 'Install the app', detail: 'Open it like an app, offline too', hidden: () => !offerNow(), run: () => install(ctx) },
             { icon: 'info', name: 'About, credits and help', detail: 'Version, accuracy, credits, privacy, report a problem',
-                run: () => ui.openPanel('about', { focus: true }) },
+                run: () => ui.openPanel('display', { reveal: 'about' }) },
         ],
     });
 

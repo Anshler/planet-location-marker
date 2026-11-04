@@ -241,38 +241,40 @@ export function focusables(root) {
 }
 
 /**
- * Keeps keyboard focus inside `el` until released. Tab / Shift+Tab wrap around,
- * and focus that escapes (e.g. a click on the canvas) is pulled back in. An open popover (the
- * Time popover from the phone sheet at full) counts as inside.
+ * Keeps keyboard focus inside `el` (or several roots, in Tab order: the phone sheet and its tab
+ * bar) until released. Tab / Shift+Tab wrap around, and focus that escapes (e.g. a click on the
+ * canvas) is pulled back in. An open popover (the Time popover from the phone sheet at full)
+ * counts as inside.
  *
- * @param {HTMLElement} el
+ * @param {HTMLElement|HTMLElement[]} roots
  * @param {{initial?: HTMLElement|null, restore?: boolean}} [opts]
- *   `initial`: element to focus now (default: first focusable, else `el` itself);
+ *   `initial`: element to focus now (default: first focusable, else the first root itself);
  *   `restore`: return focus to the previously focused element on release (default true).
  * @returns {() => void} release
  */
-export function trapFocus(el, { initial = null, restore = true } = {}) {
+export function trapFocus(roots, { initial = null, restore = true } = {}) {
     const previous = /** @type {HTMLElement|null} */ (document.activeElement);
-    const inside = (n) => el.contains(n) || !!n?.closest?.('.popover');
+    const all = [roots].flat();
+    const el = all[0];
+    const within = (n) => all.some((r) => r.contains(n));
+    const list = () => all.flatMap(focusables);
+    const inside = (n) => within(n) || !!n?.closest?.('.popover');
     const onKey = (e) => {
         if (e.key !== 'Tab') return;
-        const list = focusables(el);
-        if (!list.length) { e.preventDefault(); el.focus({ preventScroll: true }); return; }
-        const first = list[0], last = list[list.length - 1];
+        const items = list();
+        if (!items.length) { e.preventDefault(); el.focus({ preventScroll: true }); return; }
+        const first = items[0], last = items[items.length - 1];
         const active = document.activeElement;
-        if (!el.contains(active) && inside(active)) return;
+        if (!within(active) && inside(active)) return;
         if (e.shiftKey && (active === first || !inside(active))) { e.preventDefault(); last.focus(); }
         else if (!e.shiftKey && (active === last || !inside(active))) { e.preventDefault(); first.focus(); }
     };
     const onFocusIn = (e) => {
-        if (!inside(/** @type {Element} */ (e.target))) {
-            const list = focusables(el);
-            (list[0] || el).focus({ preventScroll: true });
-        }
+        if (!inside(/** @type {Element} */ (e.target))) (list()[0] || el).focus({ preventScroll: true });
     };
     document.addEventListener('keydown', onKey, true);
     document.addEventListener('focusin', onFocusIn, true);
-    const target = initial || focusables(el)[0] || el;
+    const target = initial || list()[0] || el;
     if (target === el && !el.hasAttribute('tabindex')) el.setAttribute('tabindex', '-1');
     // Defer so the opening click/keypress does not immediately steal focus back.
     requestAnimationFrame(() => { if (el.isConnected) target.focus({ preventScroll: true }); });

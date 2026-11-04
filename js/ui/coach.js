@@ -1,21 +1,14 @@
 /**
- * Coach marks (ROADMAP first-run-touch-onboarding): three one-sentence tips, each a spotlight
- * cut out of a dimmed screen around the control it names:
+ * Coach marks (ROADMAP first-run-touch-onboarding): three one-sentence tips, each a spotlight cut
+ * out of a dimmed screen around what it names: a world (its label, or its row in Up now: the
+ * highest up other than the Sun), the time bar's scrubber, the Globe | Sky | Map switch.
  *
- *   1. a world: its label at the end of its beam (desktop), its chip under the time bar (phone)
- *      or its row in Sky now: the highest body up other than the Sun;
- *   2. the time bar's scrubber;
- *   3. the Globe | Sky switch.
- *
- * They run once, after the first visit's intro (bus 'intro' 'done'; on that visit under reduced
- * motion, when the app is ready), never in text mode, during a tour or with the interface hidden,
- * and are remembered in prefs (`coachSeen`). `ui.showTips()` replays them (Settings, the help
- * dialog, the phone's ⋯ menu). Esc, Skip or a tap outside the tip ends them; a tap on the
- * spotlight or Next moves on. The tip is a modal dialog: focus moves to Next, stays inside, and
- * returns where it was; each step is announced politely. A missing or off-screen target skips its
- * step. Motion follows the interface's reduced-motion rules (the spotlight then jumps).
- *
- * The geometry helpers (`featuredWorld`, `spotRect`, `placeTip`) are pure.
+ * They run once (prefs `coachSeen`) after the first visit's intro (or when ready under reduced
+ * motion), never in text mode, a tour or the hidden interface; `ui.showTips()` replays them. Esc,
+ * Skip or a tap outside ends them; the spotlight or Next moves on. The tip is a modal dialog (focus
+ * on Next, trapped, restored), each step announced; a missing target skips its step. The geometry
+ * helpers (`featuredWorld`, `spotRect`, `placeTip`) are pure. Returning visitors (introSeen,
+ * `uiVersion` < 2) get one 'what moved' toast when ready.
  *
  * @module ui/coach
  */
@@ -29,12 +22,12 @@ const MARGIN = 12;
 
 /** The steps: [id, title, text with a mouse, text on touch]; the world step's text names its target. */
 export const COACH_STEPS = Object.freeze([
-    ['world', 'Meet a world', 'Click a world, at the end of its beam or in Sky now, to see where it is, when it rises and how to find it. Keys 1–9 pick one too.',
-        'Tap a world, at the end of its beam or here, to see where it is, when it rises and how to find it.'],
+    ['world', 'Meet a world', 'Click a world, at the end of its beam or in Up now, to see where it is, when it rises and how to find it. Keys 1–9 pick one too.',
+        'Tap a world, at the end of its beam or in Up now, to see where it is, when it rises and how to find it.'],
     ['time', 'Travel in time', 'Drag the time bar to move through hours and days. Space plays and pauses; Now brings you back.',
         'Drag the time bar to move through hours and days. ▶ plays time; Now brings you back.'],
-    ['view', 'Look up', 'Sky stands you on the ground under the real sky; Globe takes you back to space (V).',
-        'Sky stands you on the ground under the real sky; Globe takes you back to space.'],
+    ['view', 'Choose a view', 'Globe, Sky or Map: choose how you look. V switches Globe and Sky; M opens the map.',
+        'Globe, Sky or Map: choose how you look.'],
 ]);
 
 /**
@@ -130,7 +123,7 @@ export function mountCoach(root, ctx) {
         if (id === 'view') return visible(q('.ui .seg--view')) ? q('.ui .seg--view') : null;
         const ids = featuredWorld(ui.snap?.bodies, ui.altAz);
         const panel = q('.ui .panel')?.getBoundingClientRect();
-        for (const sel of ui.layout === 'mobile' ? ['.ui .strip .bchip[data-id="?"]'] : ['#labels-root .lbl--body[data-id="?"]:not(.is-hidden)', '.ui .tabpanel--sky:not([hidden]) .body-row[data-id="?"]']) {
+        for (const sel of ['#labels-root .lbl--body[data-id="?"]:not(.is-hidden)', '.ui .tabpanel--sky:not([hidden]) .body-row[data-id="?"]']) {
             for (const b of ids) {
                 const el = q(sel.replace('?', b));
                 // A beam label under the desktop panel does not count.
@@ -241,6 +234,16 @@ export function mountCoach(root, ctx) {
         if (ctx.env.reducedMotion) offs.push(store.subscribe((s) => s.status?.phase, (p) => { if (p === 'ready') arm(1200); }, { immediate: true }));
         else offs.push(bus.on('intro', (p) => { if (p === 'done') arm(1500); }));
     }
+
+    // What moved in the redesign, said once to those who knew the old tabs.
+    const moved = (p) => {
+        const back = loadPref('introSeen', false);
+        if (loadPref('uiVersion', 0) >= 2 || (back && p !== 'ready')) return;
+        savePref('uiVersion', 2);
+        if (back) bus.emit('toast', { message: 'Settings are now in Display, and tours and history are in Explore.', actionLabel: 'Show me',
+            onAction: () => ui.openPanel('display'), timeoutMs: 10000 });
+    };
+    offs.push(store.subscribe((s) => s.status?.phase, moved, { immediate: true }));
 
     ui.showTips = () => start(true);
     ui.coachOpen = () => !layer.hidden;

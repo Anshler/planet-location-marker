@@ -54,7 +54,10 @@ browser, and nothing needs the network.
     opens the **Time** panel: go to a date (with quick jumps to sunset, midnight and sunrise),
     the step size, which way time runs, a loop between two moments, the time zone and the
     24-hour clock, and what the time bar's colours and marks mean.
-- **Sky Now and body details.**
+- **Five panels: Up now, Details, Events, Explore and Display.** On a phone they sit in a tab bar
+  at the bottom that is always there, under a sheet you drag up; tapping a world in the view
+  raises the sheet to its details.
+- **Up now and body details.**
   - For every body: altitude and azimuth with a compass arrow, rise, transit and set, magnitude,
     phase, distance, elongation and constellation.
   - RA and Dec, both J2000 and of date.
@@ -77,6 +80,12 @@ browser, and nothing needs the network.
     the actual overlap of an eclipse.
   - Add to calendar: any event, or every eclipse of the next 12 months, as an .ics file made
     offline, with a reminder 30 minutes before and a link back to that sky.
+  - The next 8 weeks first, then the rest of the year; each row jumps to its event.
+- **Explore.** Guided tours, the sky you were born under, Moments in history and Famous comets
+  (each a link to that sky), a second place to compare with, and standing on Mars.
+- **Display.** Every layer, grouped for the view you are in (the other view's layers wait in one
+  closed group), Reset layers, the sky's light pollution and aurora, quality, night vision and
+  About this app.
 - **Put yourself anywhere, offline.**
   - Search about 1,600 cities, with no network needed. Each result shows its local time and its
     sky at that moment ('06:14 · sunrise in 12 min', 'night, Moon up').
@@ -96,26 +105,26 @@ browser, and nothing needs the network.
   version is ready · Reload" instead of mixing old and new files.
 - **Fast everywhere.**
   - Three automatic quality tiers, with a governor that steps down when frames get slow, plus a
-    manual Max (Settings → Quality) with 8K Earth maps and every effect at full detail, for fast GPUs.
+    manual Max (Display → Quality) with 8K Earth maps and every effect at full detail, for fast GPUs.
   - The scene renders only when something changes.
   - A text mode with full sky tables and the Sky dome on devices without WebGL 2.
   - If the graphics keep resetting (a phone short of GPU memory), it steps down a quality tier for
     the session, and after a third reset within a minute it falls back to text mode, with Retry.
-- **Report a problem.** About → Copy diagnostics copies one JSON report (version, graphics, quality
+- **Report a problem.** Display → About this app → Copy diagnostics copies one JSON report (version, graphics, quality
   decisions, recent errors; never your location) to paste into a new issue, which the button next
   to it opens prefilled.
 - **Accessible.** Full keyboard control, screen-reader announcements, focus rings that show
   over a bright sky, and the system's display settings: `prefers-reduced-motion`,
   `prefers-reduced-transparency` (solid panels), `prefers-contrast: more` (brighter text, edged
   panels and chips) and `forced-colors` (Windows High Contrast).
-- **Night vision for real observing.** Settings → Night vision, <kbd>Shift</kbd>+<kbd>N</kbd> or
+- **Night vision for real observing.** Display → Night vision, <kbd>Shift</kbd>+<kbd>N</kbd> or
   the ⋯ menu turns the whole screen dim red, so your eyes stay dark-adapted, and keeps the
   screen awake (also in Sky view on a phone). It is a setting of the device, never part of a
   shared link.
 - **Made for the device in your hand.** On a touch screen the tips talk in taps and drags, Help
   opens on the gestures (⋯ → Gestures and help), and a first visit ends with three short
-  interface tips (⋯ → Interface tips replays them). It installs as an app: About →
-  Install app, or Share → Add to Home Screen on an iPhone, with shortcuts to Sky view and Events.
+  interface tips (⋯ → Interface tips replays them). It installs as an app: ⋯ → Install the
+  app or Display → About this app, or Share → Add to Home Screen on an iPhone, with shortcuts to Sky view and Events.
 
 ## Keyboard shortcuts
 
@@ -188,7 +197,8 @@ Useful URL options (in the hash):
 - `#debug=1` shows the performance overlay.
 - `#q=low` forces a quality tier (`low`, `medium`, `high` or `max`).
 - `#t=2027-02-06T16:00:00Z&p=0` freezes time at a moment.
-- `#tab=events` opens a panel tab (`sky`, `details`, `events`, `layers`, `settings` or `about`).
+- `#tab=events` opens a panel tab (`sky`, `details`, `events`, `explore` or `display`; the old
+  `layers`, `settings` and `about` open Display at their part).
 - `#sw=1` registers the service worker on `localhost` too (it registers by itself only on https
   hosts); `#sw=0` unregisters it and deletes its caches. Without a staged manifest, the worker
   fetches everything from the network first, so edits show up on reload.

@@ -8,6 +8,7 @@
 
 import { h, on, kbd, trapFocus } from './dom.js';
 import { icon } from './icons.js';
+import { LAYER_GROUPS } from './layers.js';
 
 const MOD = /Mac|iPhone|iPad/.test(globalThis.navigator?.platform || '') ? '⌘' : 'Ctrl';
 
@@ -40,16 +41,8 @@ export const SHORTCUTS = [
         ['Shift+N', 'Night vision: a dim red screen that stays awake'],
         ['F', 'Fullscreen'],
     ] },
-    { title: 'Layers', rows: [
-        ['B', 'Beams'],
-        ['C', 'Constellation lines'],
-        ['Shift+C', 'Constellation names'],
-        ['Shift+M', 'Milky Way'],
-        ['E', 'Ecliptic'],
-        ['G', 'Equatorial grid'],
-        ['O', 'Visibility footprint'],
-        ['T', 'Path of selected body'],
-    ] },
+    // The layers with a key, named as in Display (LAYER_GROUPS).
+    { title: 'Layers', rows: LAYER_GROUPS.flatMap((g) => g.items.filter((it) => it[2]).map(([, label, keys]) => [keys.join('+'), label])) },
     { title: 'App', rows: [
         [`/|${MOD}+K`, 'Search places'],
         ['S', 'Share link'],
@@ -62,7 +55,7 @@ export const SHORTCUTS = [
 export const GESTURES = [
     ['Drag', 'Turn the globe; in Sky view, look around'],
     ['Pinch', 'Zoom in and out'],
-    ['Tap a world', 'Meet it: the end of its beam, a row in Sky now or a chip under the time bar'],
+    ['Tap a world', 'Meet it: the end of its beam or a row in Up now'],
     ['Tap the Earth', 'Stand there instead (Undo in the message)'],
     ['Double-tap', 'Fly closer; in Sky view, glide there and zoom in'],
     ['Drag the time bar', 'Travel through hours and days; ▶ plays time, Now comes back'],

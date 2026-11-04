@@ -1,5 +1,5 @@
 /**
- * Sky Now: one row per body — colour dot, name, a mini sky compass (needle at the
+ * Up now: one row per body — colour dot, name, a mini sky compass (needle at the
  * azimuth, dot at the polar-projected altitude), "34° · SE" or, below the horizon, a countdown
  * ("rises in 3 h 36 min"), "Rises 21:14" / "Sets 05:02", magnitude, an Up / Down badge and a
  * 24-h altitude sparkline (tonight's noon-to-noon series, ui/tonight.js). Bodies above
@@ -10,8 +10,6 @@
  *
  * This list is also the text alternative to the 3D view (and the main content
  * of text mode), so every row carries a full spoken label.
- *
- * `mountBodyStrip` renders the mobile peek strip of body chips (dot, name, alt).
  *
  * Two places (store.observer2, ROADMAP two-observers): a card above the list sets the selected body
  * (else the Moon) as seen from both side by side, altitude and azimuth, and how far apart its two
@@ -94,7 +92,7 @@ export function downText(ui, rs, t) {
 }
 
 /**
- * Mounts the Sky Now list.
+ * Mounts the Up now list.
  * @param {HTMLElement} root tab panel
  * @param {any} ctx UiCtx
  * @returns {{update(snap:any): void, destroy(): void}}
@@ -137,7 +135,7 @@ export function mountSkyNow(root, ctx) {
     const dome = mountSkyDome(ctx);
     const tonightCard = mountTonight(ctx);
     root.append(
-        h('div', { class: 'section-head' }, h('h2', { class: 'panel-title' }, 'Sky now'), status),
+        status,
         summary, dome.el, tonightCard.el, compare, empty, list,
         // Keys on a mouse and keyboard, gestures on a touch-first device (body.is-coarse, css/app.css).
         h('p', { class: 'note for-fine' }, 'Tip: press ', h('kbd', { class: 'kbd' }, '1'), '–', h('kbd', { class: 'kbd' }, '9'),
@@ -469,87 +467,3 @@ export function shownMag(b) {
     if (b.id === 'moon' && Number.isFinite(b.phaseFrac) && b.phaseFrac < 0.005) return null;
     return b.mag;
 }
-
-/**
- * Mounts the mobile peek strip of body chips.
- * @param {HTMLElement} root `.strip`
- * @param {any} ctx UiCtx
- * @returns {{update(snap:any): void, destroy(): void}}
- */
-export function mountBodyStrip(root, ctx) {
-    const { store, ui } = ctx;
-    const offs = [];
-    const scroller = h('div', { class: 'strip__scroll', role: 'group', 'aria-label': 'Bodies' });
-    root.append(scroller);
-    /** @type {Record<string, {chip: HTMLElement, alt: HTMLElement}>} */
-    const chips = {};
-    for (const b of BODIES) {
-        const alt = h('span', { class: 'bchip__alt' }, '—');
-        const chip = h('button', {
-            class: 'bchip', type: 'button', 'data-id': b.id, style: { '--c': `var(--body-${b.id})` }, 'aria-pressed': 'false',
-        }, h('span', { class: 'dot', 'aria-hidden': 'true' }), h('span', { class: 'bchip__name' }, b.name), alt);
-        scroller.appendChild(chip);
-        chips[b.id] = { chip, alt, name: chip.querySelector('.bchip__name') };
-    }
-    offs.push(on(scroller, 'click', (e) => {
-        const chip = /** @type {HTMLElement} */ (e.target).closest('.bchip');
-        if (!chip) return;
-        ui.act('select', chip.dataset.id, { fly: true });
-        ui.openPanel('details', { sheet: 'half' });
-    }));
-    /**
-     * Scrolls the strip (and only the strip: never the page or the sheet) so the selected chip
-     * is fully visible. A no-op while the strip is detached, as it is at mount and on desktop.
-     * @param {boolean} smooth
-     */
-    function reveal(smooth) {
-        const sel = store.get().selection;
-        const chip = sel && chips[sel]?.chip;
-        if (!chip || !scroller.isConnected || !scroller.clientWidth) return;
-        const s = scroller.getBoundingClientRect(), c = chip.getBoundingClientRect();
-        const dx = c.left < s.left ? c.left - s.left - 4 : c.right > s.right ? c.right - s.right + 4 : 0;
-        if (Math.abs(dx) < 1) return;
-        const left = scroller.scrollLeft + dx;
-        if (typeof scroller.scrollTo === 'function') scroller.scrollTo({ left, behavior: smooth && !ui.reducedMotion() ? 'smooth' : 'auto' });
-        else scroller.scrollLeft = left;
-    }
-    offs.push(store.subscribe((st) => st.selection, (sel) => {
-        for (const id in chips) {
-            chips[id].chip.setAttribute('aria-pressed', String(sel === id));
-            chips[id].chip.classList.toggle('is-selected', sel === id);
-        }
-        reveal(true);
-    }, { immediate: true }));
-    // The strip joins the sheet on the phone layout after mount (a shared link's selection is
-    // already set by then), and the sheet settles a frame later.
-    offs.push(ui.on('layout', () => {
-        reveal(false);
-        requestAnimationFrame(() => reveal(false));
-    }));
-
-    function update(snap) {
-        if (!snap?.bodies) return;
-        const table = hostBodies(snap.host);
-        for (const b of snap.bodies) {
-            const c = chips[b.id];
-            if (!c) continue;
-            const nm = table[BODY_INDEX[b.id]].name;
-            if (c.name.textContent !== nm) c.name.textContent = nm;
-            const { alt, az } = ui.altAz(b);
-            if (!Number.isFinite(alt)) continue;
-            const up = isUp(b, alt);
-            const r = Math.round(alt);
-            setText(c.alt, up ? `${Math.max(0, r)}°` : `${r < 0 ? '−' : ''}${Math.abs(r)}°`);
-            c.chip.classList.toggle('is-down', !up);
-            setAttr(c.chip, 'aria-label', up
-                ? `${ui.bodyName(b.id)}, ${Math.round(alt)} degrees up, ${ui.compassWords(az)}`
-                : `${ui.bodyName(b.id)}, below the horizon`);
-        }
-    }
-    if (ui.snap) update(ui.snap);
-
-    return { update, destroy() { offs.forEach((off) => off()); root.textContent = ''; } };
-}
-
-/** Exposed for the details card and events panel icons. */
-export const bodyIcon = (id) => icon(id === 'sun' ? 'sun' : id === 'moon' ? 'moon' : 'planet', { size: 16 });

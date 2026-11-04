@@ -57,7 +57,7 @@ const pad2 = (n) => (n < 10 ? '0' : '') + n;
  * @param {{store:any, bus:any, clock:any, actions:any, services:{cities?:any, geocoder?:any, astro?:any, tz:any, format:any},
  *          env?:{coarse?:boolean, reducedMotion?:boolean, firstRun?:boolean}}} ctx
  *   env.firstRun: a first visit on a plain link (main.js), when the coach marks follow the intro
- * @returns {{update(snapFull:any): void, destroy(): void}}
+ * @returns {{update(snapFull:any): void, openPanel(id:string, opts?:any): void, destroy(): void}}
  */
 export function mountUI(rootEl, ctx) {
     const ui = createUiHub(ctx, rootEl);
@@ -102,6 +102,7 @@ export function mountUI(rootEl, ctx) {
 
     return {
         update,
+        openPanel: (id, opts) => ui.openPanel(id, opts),
         destroy() {
             offs.forEach((off) => off());
             narrator();
@@ -611,7 +612,7 @@ function createUiHub(ctx, rootEl) {
         /** True when transitions should be cuts. */
         reducedMotion: () => !!(ctx.store.get().status?.reducedMotion || ctx.env?.reducedMotion || prefersReducedMotion()),
         // Navigation hooks, replaced by the shell / view switch / toast modules.
-        openPanel: (_tab) => {},
+        openPanel: (_tab, _opts) => {},
         openPalette: () => { ctx.store.set({ ui: { ...ctx.store.get().ui, palette: true } }); },
         closePalette: () => { ctx.store.set({ ui: { ...ctx.store.get().ui, palette: false } }); },
         toggleHelp: (force) => {

@@ -7,7 +7,7 @@
  * and a <title>.
  *
  * Spec names: play pause step-back step-fwd live search locate pin globe sky
- * share layers info calendar settings close help fullscreen chevron-up
+ * share layers info calendar close help fullscreen chevron-up
  * sun moon planet eye eye-off undo copy — plus UI extras listed in ICON_NAMES.
  *
  * @module ui/icons
@@ -39,7 +39,6 @@ const ICONS = {
     layers: [['path', { d: 'M12 3.6l8.4 4.6L12 12.8 3.6 8.2z' }], ['path', { d: 'M3.6 12.2l8.4 4.6 8.4-4.6' }], ['path', { d: 'M3.6 16.1l8.4 4.6 8.4-4.6' }]],
     info: [['circle', { cx: 12, cy: 12, r: 8.8 }], ['path', { d: 'M12 11v5.6' }], ['circle', { cx: 12, cy: 7.7, r: 1.05, ...F }]],
     calendar: [['rect', { x: 3.8, y: 5.2, width: 16.4, height: 15, rx: 2.6 }], ['path', { d: 'M3.8 10h16.4M8.3 3.2v3.6M15.7 3.2v3.6' }], ['circle', { cx: 8.5, cy: 14.2, r: 1, ...F }], ['circle', { cx: 12, cy: 14.2, r: 1, ...F }], ['circle', { cx: 15.5, cy: 14.2, r: 1, ...F }]],
-    settings: [['path', { d: 'M4 7h9.2M17.8 7H20M4 17h2.2M10.8 17H20' }], ['circle', { cx: 15.5, cy: 7, r: 2.3 }], ['circle', { cx: 8.5, cy: 17, r: 2.3 }]],
     close: [['path', { d: 'M6.5 6.5l11 11M17.5 6.5l-11 11' }]],
     help: [['circle', { cx: 12, cy: 12, r: 8.8 }], ['path', { d: 'M9.6 9.6a2.5 2.5 0 1 1 3.6 2.25c-.75.36-1.2 1-1.2 1.8v.5' }], ['circle', { cx: 12, cy: 16.9, r: 1.05, ...F }]],
     fullscreen: [['path', { d: 'M4 9V6a2 2 0 0 1 2-2h3M15 4h3a2 2 0 0 1 2 2v3M20 15v3a2 2 0 0 1-2 2h-3M9 20H6a2 2 0 0 1-2-2v-3' }]],
@@ -58,7 +57,6 @@ const ICONS = {
     plus: [['path', { d: 'M12 5.5v13M5.5 12h13' }]],
     check: [['path', { d: 'M5 12.6l4.4 4.4L19 7.4' }]],
     external: [['path', { d: 'M14 4h6v6M20 4l-8.6 8.6' }], ['path', { d: 'M18 14.2v3.8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3.8' }]],
-    events: [['path', { d: 'M12 3.4l1.8 5.1 5.4.2-4.3 3.3 1.5 5.2L12 14.2l-4.4 3 1.5-5.2-4.3-3.3 5.4-.2z' }]],
     timelapse: [['path', { d: 'M17 3.4l3 3-3 3' }], ['path', { d: 'M4 11.2v-.8a4 4 0 0 1 4-4h12' }], ['path', { d: 'M7 20.6l-3-3 3-3' }], ['path', { d: 'M20 12.8v.8a4 4 0 0 1-4 4H4' }]],
     target: [['circle', { cx: 12, cy: 12, r: 7.6 }], ['circle', { cx: 12, cy: 12, r: 2.6 }], ['path', { d: 'M12 2.6v2.6M12 18.8v2.6M2.6 12h2.6M18.8 12h2.6' }]],
     path: [['path', { d: 'M3.6 17.4c2.8-6.6 6.2-9.9 9.8-9.4 2.4.4 3.4 2.6 2.2 4.2-1.2 1.5-3.6.9-3.2-1 .5-2.6 3.8-4.6 8-4.4', 'stroke-dasharray': '2.2 2.6' }], ['circle', { cx: 20.4, cy: 6.8, r: 1.4, ...F }]],

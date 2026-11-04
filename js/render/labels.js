@@ -21,7 +21,7 @@
  * `viewport.insets`, CSS px per edge, e.g. rc.size.insets) by at most NUDGE_MAX
  * px is nudged inside, otherwise it is hidden; a label that touches a floating
  * UI element (OCCLUDER_SELECTOR: top bar items, view bar items, time bar,
- * panel, sheet, the mode chips, the Eclipse Companion) is hidden. Those rects
+ * panel, sheet, the phone's tab bar, the mode chips, the Eclipse Companion) is hidden. Those rects
  * are re-measured at most every 500 ms while rendering, on resize, and once
  * after rendering goes idle, never per frame; `uiOccluders()` shares them with
  * beams.js so beam labels steer clear. Every 100 ms a greedy rectangle declutter
@@ -63,7 +63,7 @@ const PAD = 3;            // px of breathing room between labels
 const EDGE = 4;           // label boxes keep this far inside the free area
 const NUDGE_MAX = 12;     // px a label may be shifted to stay inside it; beyond that it hides
 /** Floating UI chrome that hides labels beneath it (G7's DOM, read-only). */
-const OCCLUDER_SELECTOR = '.ui .topbar > *, .ui .viewbar > *, .ui .timebar, .ui .panel, .ui .sheet, .ui .status-stack > *, .ui .ecl';
+const OCCLUDER_SELECTOR = '.ui .topbar > *, .ui .viewbar > *, .ui .timebar, .ui .panel, .ui .sheet, .ui .navbar, .ui .status-stack > *, .ui .ecl';
 const OCCLUDER_MS = 500;
 const OCCLUDER_MAX = 32;
 

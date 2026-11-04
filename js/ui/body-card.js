@@ -69,8 +69,8 @@ export function mountBodyCard(root, ctx) {
     const empty = h('div', { class: 'card-empty' },
         h('div', { class: 'card-empty__icon', 'aria-hidden': 'true' }, icon('target', { size: 28 })),
         h('h2', { class: 'card-empty__title' }, 'Pick a body'),
-        h('p', { class: 'card-empty__text for-fine' }, 'Click a planet in the sky, a row in Sky now, or press 1–9.'),
-        h('p', { class: 'card-empty__text for-coarse' }, 'Tap a world at the end of its beam, a row in Sky now, or a name below.'),
+        h('p', { class: 'card-empty__text for-fine' }, 'Click a planet in the sky, a row in Up now, or press 1–9.'),
+        h('p', { class: 'card-empty__text for-coarse' }, 'Tap a world at the end of its beam, a row in Up now, or a name below.'),
         pickGrid);
     offs.push(on(pickGrid, 'click', (e) => {
         const b = /** @type {HTMLElement} */ (e.target).closest('[data-id]');
@@ -109,7 +109,7 @@ export function mountBodyCard(root, ctx) {
     const actRise = actionBtn('vantage', 'Earthrise', 'Watch the Earth rise over the Moon’s limb from lunar orbit (Esc returns)', true);
     const actPath = actionBtn('path', 'Path ±6 months', 'Show its apparent path for six months either side', true);
     const actFoot = actionBtn('footprint', 'Show where it’s visible', 'Highlight where on Earth it is above the horizon', true);
-    const actCompare = actionBtn('compare', 'Compare with…', 'See it from a second place too: its own pin and beams, side by side in Sky now');
+    const actCompare = actionBtn('compare', 'Compare with…', 'See it from a second place too: its own pin and beams, side by side in Up now');
     const actions = h('div', { class: 'card__actions' }, actLook, actCenter, actScope, actTrack, actFrom, actRise, actPath, actFoot, actCompare);
 
     const facts = {};

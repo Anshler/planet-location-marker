@@ -1,6 +1,6 @@
 # UI redesign: a calm skeleton
 
-Status: **approved spec**, ready to implement in four chunks (§13). Branch `p7/redesign`, base `40131ce`. Chunks 1 and 2 are implemented; their deviations are in §15.
+Status: **approved spec**, ready to implement in four chunks (§13). Branch `p7/redesign`, base `40131ce`. Chunks 1, 2 and 3 are implemented; their deviations are in §15.
 
 The owner asked for this: "We've added quite a bit so the UI is getting quite dense and complex. Complex is fine but it has to be intuitive — see if we can improve that."
 
@@ -1677,4 +1677,89 @@ the right thing and records it here.
 - **Bytes.** The chunk is −0.5 KB raw (estimate −1.0); the redesign is −1.1 KB against `40131ce`
   (medium 5,828,349 B, low 5,071,449 B; the −8 KB cumulative estimate assumed chunk 1's −7 KB). To
   get there the rewritten `timebar.js` JSDoc was shortened (§11, cut 1).
+
+### Chunk 3 (five tabs, Explore, Display and the phone tab bar)
+
+- **The Events tab's icon is `calendar`, not `events`.** `events` was a second five-point star, so
+  the tab bar showed two stars side by side (Up now's `star`), the very clash P4 complained of. The
+  `events` icon is deleted, and so is `settings` (no tab uses it now).
+- **`where` checked in the render.** Each layer was toggled in both views and the screenshots
+  diffed (paused clock, reduced motion), with the code read where a framing could not show it.
+  One value differs from §4.11: **Spacecraft is `both`**, not `globe`. Its beams are the globe's,
+  but in Sky view the layer shows JWST, New Horizons and the Voyagers as labelled points. Clouds
+  are `globe` by `render/earth.js` (Low quality draws none, so the diff could not show them), and
+  precession, Path ±6 months, satellites and deep-sky objects are `both` by their modules (no
+  Sky-view gate). The Milky Way showed no diff in Sky view only because Greenwich is Bortle 9.
+- **The raise rule lives with the panel write** (`main.js showPicked`). A store write that leaves
+  `ui.panel` unchanged notifies no one, and the shell's own selection rule has usually switched to
+  Details already, so the shell could not see a `'labels'` or `'click'` source. The four pick
+  paths (a label, the orrery, a sky object, the map) now write `panel: 'details'` and, on a phone
+  at peek, `sheet: 'half'` in one write. Jumps, moments and tours still do not raise the sheet. The
+  label path's source is `'click'` too.
+- **`reveal` from links.** `mountUI` returns `openPanel`, which `main.js` keeps as `R.ui` (it replaces
+  `R.uiMounted`), so `#tab=settings` and `#tab=about` reveal at boot and on `hashchange`. `parseHash`
+  gives `reveal` next to `panel`, and an alias is looked up with `Object.hasOwn` (`tab=constructor`
+  stays invalid). Revealed sections carry `scroll-margin`, so the eyebrow is not cut at the sheet's
+  top.
+- **Tab bar and tablets.**
+  - The bar is 57 px tall (56 px tabs plus its top border).
+  - The 560-px column applies to every mobile layout 600 px or wider, not only coarse ones. An
+    800-px desktop window gets it too, and the globe shows beside it there as well.
+  - On those widths the tab bar floats 12 px above the bottom edge, with rounded lower corners
+    under the sheet's rounded top. The floating column stays whole at every snap, because the
+    sheet no longer covers it; the hide-above-peek rule applies under 600 px only.
+- **The tablist uses `rovingKeys`** (§8.1 lists it there). All four arrows therefore move through
+  the tabs in both orientations. An arrow at peek also raises the sheet, as a tap does.
+- **Explore.**
+  - The Two places and Stand on Mars cards reuse the tour cards' look (an icon in the title, then a
+    line) instead of a new card with a chevron. This saves the CSS.
+  - With a second place, a note row "Comparing with {place}" with [Change] and [Remove] follows
+    them.
+  - "Show my sky" lowers the phone sheet like a moment does.
+- **Events.**
+  - The 8-week window applies under All. The other filters show the whole year (§4.9).
+  - Next up stays above the filters, as drawn. Its buttons are labelled "Jump to it" (or "Watch
+    this pass") and "Add to calendar".
+  - A row's detail is its `aria-describedby`.
+  - A checked filter chip has the accent fill. Its ✓ is §9.5, which is chunk 4.
+  - At 1440×900 the tab is 1,788 px tall with 33 tab stops. It was 14,437 px and 237 stops before.
+- **Display.**
+  - Light pollution and Aurora are `.field`s: a label over the control. Aurora's Kp is in the hint
+    (`ovalSummary` already starts with it).
+  - Replay intro hides without the 3D view, where it would only say it needs it. Text mode's App
+    row is therefore Reset all settings alone.
+  - The layer rows keep their descriptions, as §4.11 says. That puts Display at 2.8 screens in
+    globe view and 2.5 in Sky view at 1440×900, over §14's 1.6. Getting under it is left to
+    chunk 4: compact rows, or descriptions behind ⓘ.
+- **About.**
+  - The hero drops its version pill, because the group's summary says the version (R5).
+  - The hero's name is an `h3` under Display's hidden `h2`.
+  - Install stays between the hero and Report a problem.
+  - The issue template reads "Display › About this app › Copy diagnostics".
+- **Up now.** Its visible "Sky now" heading goes: every pane opens with a hidden `h2` from the
+  shell. The status badge sits alone above the summary until chunk 4 rewrites the summary.
+  User-facing "Sky now" in the Details empty state, the compare texts, the coach and Help now reads
+  "Up now".
+- **Coach.** Step 3's title is "Choose a view". The phone's step 1 uses the desktop's selectors,
+  because labels under the sheet, the column and the tab bar are already occluded.
+- **What-moved toast.** It lives in `coach.js` and shows once the app is ready. A visitor without
+  `introSeen` has `uiVersion` set to 2 at once. Text-mode visitors never get it: no intro ever set
+  their `introSeen`.
+- **Text mode.** The toolbar now comes before the panel (§3.4's order).
+- **Renamed:** `.pt__more` is now `.fold`, shared by the Time popover and Display.
+- **Bytes.** The chunk is +0.7 KB raw, so the redesign stands at −0.4 KB against `40131ce` (estimate
+  −12 KB; medium 5,829,068 B, low 5,072,168 B). To stay at or under zero, the chunk also deleted:
+  - 47 `X[hidden] { display: none }` rules that `.ui [hidden] { display: none !important }` already
+    covers (−2.0 KB);
+  - the dead `.panel-title`, `.safe-probe` and `.pill--version`;
+  - the unused `bodyIcon` and `bodyColor` exports;
+  - the `events` and `settings` icons.
+
+  It also shortened the rewritten modules' JSDoc (§11 cut 1). Cuts 2–4 were not needed.
+- **Left for chunk 4:**
+  - Up now's "Change" link (Display's `conditions` reveal is ready for it);
+  - Details › More › Compare (the card's Compare button still works);
+  - the §10.5 forced-colours additions for `.navbar`, `.mode` and the rest (only the radio chip's
+    selector was carried over);
+  - the text-mode golden and the manifest screenshots.
 

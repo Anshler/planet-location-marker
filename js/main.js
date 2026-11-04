@@ -141,7 +141,8 @@ const R = {
     /** @type {number|null} */ virtualNow: null,
     /** The service-worker client (app/sw-client.js), once registration has run. */
     /** @type {any} */ sw: null,
-    uiMounted: false,
+    /** The mounted interface (ui/index.js mountUI): update, openPanel, destroy. */
+    /** @type {any} */ ui: null,
 };
 
 const app = {
@@ -706,10 +707,11 @@ async function boot() {
         && st1.view.mode === 'orbit' && st1.view.vantage === 'none' && st1.host.id === 'earth';
     try {
         const { mountUI } = await uiModP;
-        mountUI(document.getElementById('ui-root'), {
+        R.ui = mountUI(document.getElementById('ui-root'), {
             store, bus, clock, actions, services, extras, env: { coarse: env.coarse, reducedMotion: env.reducedMotion, firstRun },
         });
-        R.uiMounted = true;
+        // tab=settings / tab=about: the old tab's section, opened inside Display.
+        if (hash.reveal) R.ui.openPanel(hash.panel, { reveal: hash.reveal });
     } catch (err) {
         console.error('[main] the interface failed to load; the 3D view keeps running', err);
     }
@@ -1704,7 +1706,7 @@ function bindRenderState({ store, bus, clock, rc, rig, loop, snap, astro, m, lab
         }
         if (isSelectionId(id)) {
             R.actions.select(id);
-            store.set({ ui: { ...store.get().ui, panel: 'details' } }, 'labels');
+            showPicked(store);
             return;
         }
         const a = labelsFeed?.anchorById?.(id);
@@ -1871,6 +1873,13 @@ function bindViewInsets(rig, store) {
     schedule();
 }
 
+/** A world picked in the view opens its card; a phone's sheet at its peek rises to half with it. */
+function showPicked(store) {
+    const ui = store.get().ui;
+    const raise = ui.sheet === 'peek' && document.getElementById('ui-root')?.dataset.layout === 'mobile';
+    store.set({ ui: { ...ui, panel: 'details', ...(raise ? { sheet: 'half' } : {}) } }, 'click');
+}
+
 /**
  * A click (not a drag) on the canvas: a body glyph selects it (double-click flies to it);
  * the globe in orbit view moves the observer (double-click flies closer); in sky view a
@@ -1899,7 +1908,7 @@ function handleSceneClick({ store, rc, rig, snap, pick, ndc, dbl }) {
         if (id === 'earth') settle(R.actions.setSystem?.(false));
         else if (id && isBodyId(id)) {
             R.actions.select(id);
-            store.set({ ui: { ...store.get().ui, panel: 'details' } }, 'click');
+            showPicked(store);
         }
         return;
     }
@@ -1934,7 +1943,7 @@ function handleSceneClick({ store, rc, rig, snap, pick, ndc, dbl }) {
     if (!id) id = pickSkyObject({ store, rc, rig, snap, pick, ndc, camera });
     if (id && isSelectionId(id)) {
         R.actions.select(id, { fly: dbl });
-        store.set({ ui: { ...store.get().ui, panel: 'details' } }, 'click');
+        showPicked(store);
         return;
     }
     if (store.get().view.mode === 'sky') {
@@ -2032,7 +2041,7 @@ function handleMapClick({ store, rc, rig, snap, pick, ndc, dbl, camera }) {
     }
     if (id && isBodyId(id) && !dbl) {
         R.actions.select(id);
-        store.set({ ui: { ...store.get().ui, panel: 'details' } }, 'click');
+        showPicked(store);
         return;
     }
     if (dbl) {
@@ -2299,6 +2308,7 @@ function applyHash(p) {
     if (p.panel) {
         const ui = store.get().ui;
         store.set({ ui: { ...ui, panel: p.panel, sheet: ui.sheet === 'peek' ? 'half' : ui.sheet } }, 'url');
+        if (p.reveal) R.ui?.openPanel(p.panel, { reveal: p.reveal });
     }
     if (R.bus) reportHashProblems(p, R.bus);
     if (p.tour) settle(startTour(p.tour));
@@ -2513,7 +2523,7 @@ function registerServiceWorker() {
 
 boot().catch((err) => {
     console.error('[main] boot failed', err);
-    if (R.uiMounted && R.store) {
+    if (R.ui && R.store) {
         // The panels work: keep them, explain the missing globe. Never a blank screen.
         try {
             enterTextMode('context-failed');

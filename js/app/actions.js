@@ -68,12 +68,13 @@ const MAX_PATHS = 4;
 
 /** Human names of the layer switches (announcements). */
 export const LAYER_LABELS = Object.freeze({
-    beams: 'Beams', ghostBeams: 'Through-Earth beams', sunMoonBeams: 'Sun and Moon beams', stars: 'Stars',
+    beams: 'Beams', ghostBeams: 'Beams through the Earth', sunMoonBeams: 'Sun and Moon beams', stars: 'Stars',
     constellations: 'Constellation lines', constellationNames: 'Constellation names', starNames: 'Star names',
-    milkyWay: 'Milky Way', clouds: 'Clouds', atmosphere: 'Atmosphere', ecliptic: 'Ecliptic', eqGrid: 'Equatorial grid (of date)',
-    altAzGrid: 'Horizon grid', horizon: 'Horizon disc', footprint: 'Visibility footprint', subpoints: 'Sub-points',
-    trails: 'Path of selected body', labels: 'Labels', landscape: 'Illustrative landscape',
-    sunPath: 'Sun paths and analemma', meteors: 'Meteors', satellites: 'Satellites',
+    milkyWay: 'Milky Way', deepSky: 'Deep-sky objects', clouds: 'Clouds', atmosphere: 'Atmosphere', ecliptic: 'Ecliptic',
+    eqGrid: 'Equatorial grid (RA/Dec)', precession: 'The pole’s 26,000-year circle (precession)', altAzGrid: 'Horizon grid',
+    horizon: 'Horizon disc', footprint: 'Where it’s up on Earth', subpoints: 'Overhead points', trails: 'Path ±6 months',
+    labels: 'Labels', landscape: 'Illustrative landscape', sunPath: 'Sun paths and the analemma', meteors: 'Meteors',
+    satellites: 'Satellites', spacecraft: 'Spacecraft',
 });
 
 const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));

@@ -62,7 +62,9 @@ export const VIEW_MODES = Object.freeze(['orbit', 'sky', 'map']);
  * ui.panel choices: the panel's tabs (ui/shell.js TABS, in display order). `tab=` in the URL opens
  * one (the install shortcut to Events); it is read, never written.
  */
-export const PANELS = Object.freeze(['sky', 'details', 'events', 'layers', 'settings', 'about']);
+export const PANELS = Object.freeze(['sky', 'details', 'events', 'explore', 'display']);
+/** The old tabs' ids, still read by `tab=`: [the tab that holds them now, the section it reveals]. */
+export const PANEL_ALIASES = Object.freeze({ layers: ['display'], settings: ['display', 'conditions'], about: ['display', 'about'] });
 
 /**
  * host: the world the observer stands on (ROADMAP stand-on-mars, `host=mars` + `hloc=` in the URL).

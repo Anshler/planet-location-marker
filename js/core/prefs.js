@@ -11,7 +11,7 @@
 export const PREFIX = 'pc2.';
 /** The preference keys used by the app. Other keys are accepted for forward compatibility. */
 export const PREF_KEYS = Object.freeze(['observer', 'layers', 'quality', 'display', 'introSeen', 'geocache', 'recentPlaces',
-    'qualityLearned', 'tonightOpen', 'skyDome', 'installHint', 'coachSeen']);
+    'qualityLearned', 'tonightOpen', 'skyDome', 'installHint', 'coachSeen', 'uiVersion']);
 
 /** @type {Map<string, string>} key → JSON text; mirrors every successful or attempted save. */
 const memory = new Map();

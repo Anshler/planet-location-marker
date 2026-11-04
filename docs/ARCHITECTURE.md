@@ -161,7 +161,7 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/render/sunpath.js` | Layer `sunPath` (`y`): today's path with hour ticks, the solstice and equinox paths and the noon analemma as line layers in the observer's ENU frame (sky view), and the subsolar figure-8 as a line on the globe (Earth-fixed); figures from the worker via `request(snap)` (main.js `requestSunFigures`), only while the layer is on. `stats()`. |
 | Camera | `js/camera/rig.js`, `picking.js` | Orbit and sky-view camera, Earth-lock, fly-to tweens, `follow()` (the shadow chase), sidereal tracking, `setVantage()` (View from L1, Earthrise), the flat map (`setMode('map')`, `mapK`, `mapFrame`), the system zoom past 150 R (`setSystem`, `system`, `systemBlend`, `onSystemChange`), `frameSpan()` (the Earth–Moon framing), `setAiming()`/`setSkyAim()` (the phone steers the look); analytic globe, map (`pickMap`), glyph and map-point (`pickPoint`) picking. |
 | | `js/camera/aim.js` | 'Point at the sky' (loaded on first use, no three.js): device orientation → the rear camera's direction and the screen's up in ENU (`deviceVectors`), a level look (`lookOf`), an adaptive vector low-pass (`aimFilterStep`), and `createAim` (sensor events, iOS compass learning, deadband, Align offset, idle and hidden stops; holds the shared wake lock's `'aim'` reason, `deps.wake`). |
-| UI | `js/ui/index.js` and its modules | Shell, top bar, time bar (its strip coloured by `sky-palette.js`, the sky's colours by the Sun's altitude; the Time popover: go to, stepping, loop, time zone, 24-hour clock, legend), Sky Now (with `tonight.js`: the Tonight card's dusk-to-dawn chart and the rows' 24-h sparklines, and `sky-dome.js`: the all-sky chart, the hero of text mode, both also in text mode), body card (with `eyepiece.js`: the 2D-canvas eyepiece portrait, also in text mode; `year-planner.js`: the planets' 12-month chart on a 2D canvas and the Sun's solstice paths in words, from the worker, also in text mode), events (with the guided tours and the Moon/Planets/Eclipses/Meteors/Seasons filters; `event-glyphs.js`: each event's inline SVG glyph; `ics.js`: 'Add to calendar', the pure RFC 5545 builder and the file hand-off), Eclipse Companion, the tour's lower third (`tour-bar.js`), layers, settings (with the Night vision switch, `actions.setNightVision`; Shift+N in `shortcuts.js`, before plain N), about, help, toasts, shortcuts, announcer; the share menu, `postcard.js` (postcard and Save-image dialog, the typographic band), `video.js` (the time-lapse video dialog: presets, frame size, progress and preview, the burned-in date stamp) and `expose.js` (the long-exposure presets and the exposure's mode chip); the toolbar (`view-switch.js`: `[Globe | Sky | Map] [Tools] [Share] [⋯]`, menus built by `dom.js menu()`, the viewpoint, map, telescope and following chips); the status stack (`modes.js`: `ui.modes`, one chip per active mode, the shortcut flash, Esc's `exitTop`); the ruler's and pointing's chips (`sky-tools.js`); the body card's 'Find it' line; the second place (`Compare with…` in the place search); the place search's sky preview per result (`location.js placeSky`); first-run onboarding: `intro-caption.js` (the intro's title card), `coach.js` (the three coach marks, `ui.showTips()`), `install.js` (About's Install group, ⋯ › Install the app and the one-time iOS hint), the help dialog's gestures and mouse (`help.js GESTURES`, `MOUSE`) and the ⋯ menu on every layout (`view-switch.js`) |
+| UI | `js/ui/index.js` and its modules | Shell, top bar, time bar (its strip coloured by `sky-palette.js`, the sky's colours by the Sun's altitude; the Time popover: go to, stepping, loop, time zone, 24-hour clock, legend), the five panel tabs (`shell.js TABS`: Up now, Details, Events, Explore, Display; on the phone in the bottom tab bar), Up now (with `tonight.js`: the Tonight card's dusk-to-dawn chart and the rows' 24-h sparklines, and `sky-dome.js`: the all-sky chart, the hero of text mode, both also in text mode), body card (with `eyepiece.js`: the 2D-canvas eyepiece portrait, also in text mode; `year-planner.js`: the planets' 12-month chart on a 2D canvas and the Sun's solstice paths in words, from the worker, also in text mode), events (the calendar: the Moon/Planets/Eclipses/Meteors/Satellites/Seasons filters as a radiogroup, 8 weeks then 'Show the rest'; `event-glyphs.js`: each event's inline SVG glyph; `ics.js`: 'Add to calendar', the pure RFC 5545 builder and the file hand-off), Eclipse Companion, the tour's lower third (`tour-bar.js`), Explore (`explore.js`: the guided tours, the sky you were born under, Moments and Famous comets, a second place, Stand on Mars), Display (`layers.js mountDisplay`: the layer switches grouped by the current view, Sky conditions, Quality, Comfort with the Night vision switch, `actions.setNightVision`, Shift+N in `shortcuts.js`, before plain N, About this app from `about.js`, Replay intro and Reset all settings), help, toasts, shortcuts, announcer; the share menu, `postcard.js` (postcard and Save-image dialog, the typographic band), `video.js` (the time-lapse video dialog: presets, frame size, progress and preview, the burned-in date stamp) and `expose.js` (the long-exposure presets and the exposure's mode chip); the toolbar (`view-switch.js`: `[Globe | Sky | Map] [Tools] [Share] [⋯]`, menus built by `dom.js menu()`, the viewpoint, map, telescope and following chips); the status stack (`modes.js`: `ui.modes`, one chip per active mode, the shortcut flash, Esc's `exitTop`); the ruler's and pointing's chips (`sky-tools.js`); the body card's 'Find it' line; the second place (`Compare with…` in the place search); the place search's sky preview per result (`location.js placeSky`); first-run onboarding: `intro-caption.js` (the intro's title card), `coach.js` (the three coach marks, `ui.showTips()`), `install.js` (About this app's Install group, ⋯ › Install the app and the one-time iOS hint), the help dialog's gestures and mouse (`help.js GESTURES`, `MOUSE`) and the ⋯ menu on every layout (`view-switch.js`) |
 | | `js/ui/report.js` | About's 'Report a problem' (`mountReport`): Copy diagnostics (`actions.copyDiagnostics`; a selectable textarea when the clipboard is blocked) and `issueUrl()`, a new issue on `REPO_URL` with a short template. |
 
 ---
@@ -462,7 +462,31 @@ critical CSS read them.
   step buttons themselves, which `arrange()` moves there), a Loop `<details>` (open while a range
   runs; From, To, one loop's length, Playback Loop | Back and forth | Once), Show times in
   (`actions.setTzMode`, announcing 'Times in {zone}.', and the 24-hour switch, `display.hour12`)
-  and a legend of the scrubber. Settings no longer holds the zone or the 24-hour clock.
+  and a legend of the scrubber.
+- **Panels, the phone's tab bar and Display** (docs/roadmap/UI-REDESIGN.md §3, §4.6, §4.9–4.11).
+  `shell.js TABS` are the five tabs of `store.PANELS`: Up now (`sky`), Details, Events, Explore and
+  Display; each pane opens with a visually hidden `h2`. The old ids still open from links
+  (`PANEL_ALIASES`: `layers` → Display, `settings` → Display revealing `conditions`, `about` → Display
+  revealing `about`). `ui.openPanel(id, {focus, sheet, reveal})` (also on `mountUI`'s return, for
+  `main.js` at boot and on `hashchange`) shows a tab; `reveal` names a `[data-reveal]` section, which
+  is opened if a `<details>`, scrolled to, its summary or first control focused and `.is-flash`ed
+  for 1.2 s. The desktop rail (64 px) shows each tab's icon over its label. On the phone the same
+  tablist node moves into `nav.navbar`, a solid bar of five 56-px tabs under the sheet (`--nav-h`);
+  the sheet sits on it and its head is the handle and the time bar only. `measureSheet` works above
+  the tab bar: peek is the head, half `clamp((vh − nav) / 2, head + 120, full)`, full all but 56 px.
+  A tab tapped (or arrowed) at peek raises the sheet to half; a world picked in the view (its label,
+  the orrery, a sky object, the map: `main.js showPicked`) opens Details and, at peek, raises it
+  too, so its name shows; a Jump, a moment or a tour does not. Above peek the floating column keeps
+  only the view segment, and none at full; the focus trap at full covers the sheet and the tab bar
+  (`trapFocus` takes several roots). Tablets in portrait (≥ 600 px) get a 560-px sheet and tab bar
+  on the left, the globe beside them. Display's layers (`LAYER_GROUPS`, each with `where`: 'globe'
+  (the map and the solar system count as the globe), 'sky' or 'both', checked against the render
+  modules) list the current view's first (`layersFor(view)`, pure) and the other view's in one closed
+  'Only in Sky view' / 'Only on the globe' group; Reset layers writes `DEFAULT_STATE.layers` once.
+  The help table's Layers rows and the shortcut flashes take their names from `LAYER_GROUPS`, and
+  `actions.LAYER_LABELS` repeats them (`test/ui.layers.test.mjs`). Returning visitors (`introSeen`,
+  pref `uiVersion` below 2) get one toast saying where Settings, tours and history went
+  (`coach.js`).
 - **The eclipse in focus**, `ui.eclipse = {peakMs, kind, local, eventId}`: set by a jump to a solar
   eclipse, cleared by any other jump and once simulated time is more than a day from `peakMs`
   (`main.js`, on `readout`, never during the jump's sweep). Render and HUD modules key their
@@ -841,7 +865,7 @@ an **extra object** with a namespaced id (`core/selection.js`): `<kind>:<key>`, 
 - **The BODIES contract.** It is kept: slot 4 (`id 'mars'`, key 5) holds the Earth in a Mars
   snapshot (`astro/bodies.js EARTH_TARGET`, `hostBodies(host)`), so beam and glyph instances, the 1–9
   keys and `sel=mars` stay valid. Names and colours come from `hostBodies(snap.host)` (labels feed,
-  edge chips, Sky now, the body strip, the card, the UI hub's `bodyName`); CSS turns `--body-mars`
+  edge chips, Up now, the card, the UI hub's `bodyName`); CSS turns `--body-mars`
   blue under `body.is-mars`.
 - **The scene.** The camera stays on the unit sphere where the Martian zenith points
   (`observer.posS = upS`): the hidden globe lies under the ground. Earth-only modules are created
@@ -868,10 +892,10 @@ an **extra object** with a namespaced id (`core/selection.js`): `<kind>:<key>`, 
   gives the Gregorian date), its day and month ticks, and the Time popover's Go to, which reads typed dates on
   or before 4 Oct 1582 as Julian (`tz.parseCalendarInput`; a Julian date the native picker cannot
   hold makes it a text field). Instants, the clock and `t=` stay Gregorian UTC.
-- The Events tab ends with 'The sky you were born under' (a date and time in the time-bar zone →
+- The Explore tab holds 'The sky you were born under' (a date and time in the time-bar zone →
   sky view at that instant and `skyCaption` of the next readout), the Moments and the Famous comets
   (`core/moments.js`: links whose `href` is the hash; the app applies it like any link and the
-  phone sheet drops to its peek).
+  phone sheet drops to its peek; the first four and three, then 'Show all').
 
 ---
 
@@ -1146,7 +1170,7 @@ change.
 - **Choosing the tier.** `detectTier` uses the renderer string, touch input, device memory, max
   texture size and Save-Data. Software renderers get Low. Touch devices are capped at Medium.
   Discrete GPUs get High. Auto never picks Max (`isAutoTier`).
-- **Max.** "No budget": Settings → Quality → Max, `#q=max`, or a saved choice. It is always pinned,
+- **Max.** "No budget": Display → Quality → Max, `#q=max`, or a saved choice. It is always pinned,
   so the governor never touches it. Its 8192 px Earth maps and 4096 px Moon load only on Max, after
   the 4096 (and 1024 Moon) maps of the same imagery (`INTERIM` in `textures.js`), which show
   meanwhile; so Max is ready as fast as High and sharpens in place. A GPU that cannot take a knob
@@ -1154,7 +1178,7 @@ change.
   4k-only features, and postfx clamps MSAA to the context. The service worker never precaches them;
   they are cached on first use (checked against the version's hashes), so Max works offline after
   one visit, and an update carries them over while their bytes are unchanged.
-- **Switching.** Settings and `?q=` pin a tier. Auto lets the governor step down, never up. If the
+- **Switching.** Display's Quality and `?q=` pin a tier. Auto lets the governor step down, never up. If the
   frame-time EMA stays above 1.3 × the budget for 2 s, it lowers the DPR by 0.25 and then drops a
   tier, with a 5 s cooldown. Under `navigator.webdriver` the governor is never sampled.
 - **Budget.** 16.7 ms (33.4 ms on touch), or the display's own frame interval when that is longer:
@@ -1257,7 +1281,7 @@ change.
   `scripts/build-textures.mjs`: `day2k` and `night2k` from the day and night maps (filtered in
   linear light, like the GPU's own mip 1), and `clouds2k` and `roughness2k` from the blue (cloud)
   and green (water) channels of `brc4k`. The shader reads both cloud maps through one density
-  curve and both water masks through one window. A Settings change or a governor step therefore
+  curve and both water masks through one window. A Quality change or a governor step therefore
   changes sharpness and effects, never the colours, the coastlines or the weather. The night map
   follows the day map (`nightKeyFor`), so medium on a GPU under 8192 px also gets `night2k`.
 - **Every tier loads a water mask.** Low loads the 56 KB `roughness2k` that medium uses. The
@@ -1285,7 +1309,7 @@ change.
 | A render module throws per frame | Three strikes, then it is hidden, with one toast. |
 | The renderer throws | Text mode (`context-failed`). |
 | `webglcontextlost` | Rendering pauses (the panels keep updating) and a non-blocking "Graphics were reset — restoring…" overlay appears. While the context is lost, `rc` disposes everything in the scenes, its stand-in quad and the whole post chain: every GL call is then a silent no-op, so only three's per-context bookkeeping goes, and a later `dispose()` never deletes the lost context's objects on the new one (no 'object does not belong to this context' warnings). On restore, `rc` builds a new chain for the current tier, `textures.restore()` fetches the maps whose decoded copy was closed again (one at a time, HTTP or service-worker cache) and uploads them, and nothing draws until that promise settles; then rendering resumes. The context reports itself lost before `webglcontextlost` is dispatched, so `rc.render`, `capture` and `compile` also check `gl.isContextLost()`: no frame draws in between (one that did made three throw, left the session on the direct path and logged a blit feedback loop on every frame after the restore). |
-| A second context loss within 60 s | As above, and the session is held one tier lower (`governor.pin` and the staged tier switch) with the toast "Reduced graphics detail to keep things stable" (`core/context-loss.js`). The record is in `sessionStorage` (`app/session.js`), so a tab that reloads instead of restoring (iOS) boots at that tier. Saved preferences are untouched; choosing a tier in Settings overrides it. At low there is nothing lower: it restores. |
+| A second context loss within 60 s | As above, and the session is held one tier lower (`governor.pin` and the staged tier switch) with the toast "Reduced graphics detail to keep things stable" (`core/context-loss.js`). The record is in `sessionStorage` (`app/session.js`), so a tab that reloads instead of restoring (iOS) boots at that tier. Saved preferences are untouched; choosing a tier in Display overrides it. At low there is nothing lower: it restores. |
 | A third context loss within 60 s | Text mode with the "graphics kept resetting" banner; its Retry reloads with the window cleared, held at low. Until then a reload of the tab boots in text mode too, and the feature detection skips the 3D preloads. |
 | A closed map cannot be fetched again on restore (or not within 15 s) | Its 512 px preview's image takes its place (day and night maps; others a 1 × 1 pixel of the placeholder colour), so no frame uploads a closed image; the key counts as failed, and the "Some imagery couldn't load." toast shows. |
 | Context lost during a tier switch | The compile ends at once, the switch commits, and drawing stays paused (the `'context'` reason) until the restore, which builds the chain for the committed tier. |
@@ -1381,8 +1405,10 @@ report carries the version.
   stands just over the limb.
 - `host=mars` stands on Mars (sky view; §4 'Standing on Mars'); `hloc=lat,lon` is the areographic
   site, planetocentric °N/°E, written only off Jezero Crater. `sel=moon:phobos` selects a moon of Mars.
-- `tab` opens a panel tab (`core/store.js PANELS`: `sky`, `details`, `events`, `layers`,
-  `settings`, `about`) and raises the phone's sheet to half. Like `tour`, it is read, never written.
+- `tab` opens a panel tab (`core/store.js PANELS`: `sky`, `details`, `events`, `explore`, `display`)
+  and raises the phone's sheet to half. The old tabs' ids are aliases (`PANEL_ALIASES`): `layers`
+  opens Display, `settings` opens it at Sky conditions and `about` with About this app open; an
+  alias is never reported invalid. Like `tour`, it is read, never written.
   The installed app's Events shortcut is `./#tab=events`; its Sky view shortcut is `./#view=sky`.
 - Night vision (`display.red`) is never written to or read from the hash: it is a preference of
   the device you observe with (saved with the display prefs), not part of the sky being shared, so

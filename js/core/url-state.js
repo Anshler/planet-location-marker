@@ -17,8 +17,9 @@
 // compare with (two-observers): its own pin and dashed beams on the globe, side by side in Sky now.
 // `host=mars` stands on Mars (stand-on-mars: the sky view from an areographic site); `hloc` is that
 // site, planetocentric °N,°E, written only when it is not Jezero Crater (the default). `tab` opens a
-// panel tab (store PANELS, e.g. the install shortcut's `tab=events`); like `tour`, it is read, never
-// written.
+// panel tab (store PANELS, e.g. the install shortcut's `tab=events`, or an old tab's id from
+// PANEL_ALIASES: `settings` and `about` also give `reveal`, the section to open); like `tour`, it is
+// read, never written.
 //
 // parseHash never throws: values are validated, clamped (time, elevation, camera) or dropped, and
 // every key that was present but not usable as written is listed in `invalid` (for the
@@ -27,7 +28,7 @@
 // short; `t` is omitted while Live.
 
 import { MIN_MS, MAX_MS, snapRate } from './clock.js';
-import { DEFAULT_STATE, SKY_DARK_SETTINGS, AURORA_SETTINGS, VANTAGE_SETTINGS, VIEW_MODES, HOST_DEFAULT, PANELS } from './store.js';
+import { DEFAULT_STATE, SKY_DARK_SETTINGS, AURORA_SETTINGS, VANTAGE_SETTINGS, VIEW_MODES, HOST_DEFAULT, PANELS, PANEL_ALIASES } from './store.js';
 import { canonTz, daysInMonth } from './tz.js';
 import { isTourId } from './tour-catalog.js';
 import { normalizeSelectionId, isSelectionId } from './selection.js';
@@ -460,8 +461,8 @@ function parseViewKeys(params, out, invalid) {
     }
     if (params.has('tab')) {
         const v = params.get('tab').trim().toLowerCase();
-        if (PANELS.includes(v)) out.panel = v;
-        else if (v !== '') invalid.push('tab');
+        const to = PANELS.includes(v) ? [v] : Object.hasOwn(PANEL_ALIASES, v) ? PANEL_ALIASES[v] : null;
+        if (to) { out.panel = to[0]; if (to[1]) out.reveal = to[1]; } else if (v !== '') invalid.push('tab');
     }
 }
 

@@ -8,7 +8,7 @@
  * unavailable". The input is an ARIA combobox driving a listbox with
  * `aria-activedescendant`; ↑/↓ move, Enter chooses, Esc closes.
  *
- * 'Stand on Mars…' (`ui.palette === 'mars'`, and whenever the palette opens while the observer
+ * Explore's 'Stand on Mars' (`ui.palette === 'mars'`, and whenever the palette opens while the observer
  * stands on Mars) swaps the search for the Martian landing sites and an areographic lat/lon form
  * (actions.standOnMars), with 'Search places on Earth' and 'Back to Earth' beside them.
  *
@@ -145,15 +145,11 @@ export function mountLocation(root, ctx) {
     const locateLabel = h('span', null, 'Use my location');
     const locateBtn = h('button', { class: 'btn btn--soft', type: 'button' }, icon('locate', { size: 16 }), locateLabel);
     const pickBtn = h('button', { class: 'btn btn--soft', type: 'button' }, icon('globe', { size: 16 }), 'Pick on the globe');
-    // A second place to compare with (two-observers): `ui.palette === 'compare'` turns the palette into
-    // its picker; the foot then offers to remove it instead.
-    const compareBtn = h('button', { class: 'btn btn--soft', type: 'button', title: 'Add a second place: its own pin and beams, side by side in Sky now' },
-        icon('compare', { size: 16 }), 'Compare with…');
+    // A second place to compare with (two-observers; opened from Explore and Details): `ui.palette ===
+    // 'compare'` turns the palette into its picker, whose foot offers to remove it.
     const uncompareBtn = h('button', { class: 'btn btn--soft', type: 'button', hidden: true }, icon('close', { size: 16 }), 'Remove second place');
     const compareHead = h('p', { class: 'palette__mode', hidden: true });
-    // Stand on Mars (ROADMAP stand-on-mars): the landing sites and an areographic lat/lon.
-    const marsBtn = h('button', { class: 'btn btn--soft', type: 'button', title: 'See the sky from a landing site on Mars' },
-        icon('planet', { size: 16 }), 'Stand on Mars…');
+    // Stand on Mars (ROADMAP stand-on-mars; opened from Explore): the landing sites and an areographic lat/lon.
     const marsLat = h('input', { class: 'input input--num', type: 'number', min: '-90', max: '90', step: 'any', inputmode: 'decimal', 'aria-label': 'Latitude on Mars, degrees north' });
     const marsLon = h('input', { class: 'input input--num', type: 'number', min: '-180', max: '360', step: 'any', inputmode: 'decimal', 'aria-label': 'Longitude on Mars, degrees east' });
     const marsErr = h('p', { class: 'pop__error', role: 'alert', hidden: true });
@@ -183,7 +179,7 @@ export function mountLocation(root, ctx) {
             input, clearBtn, escHint, closeBtn),
         list,
         marsBox,
-        h('div', { class: 'palette__foot' }, h('div', { class: 'btn-row' }, locateBtn, pickBtn, compareBtn, uncompareBtn, marsBtn), status));
+        h('div', { class: 'palette__foot' }, h('div', { class: 'btn-row' }, locateBtn, pickBtn, uncompareBtn), status));
     const layer = h('div', { class: 'modal-layer palette-layer', hidden: true }, h('div', { class: 'modal-backdrop' }), dialog);
     root.appendChild(layer);
 
@@ -517,16 +513,9 @@ export function mountLocation(root, ctx) {
         if (after !== before && after?.source === 'geo') ui.closePalette();
         else if (!layer.hidden) input.focus();
     }));
-    offs.push(on(compareBtn, 'click', () => {
-        store.set({ ui: { ...store.get().ui, palette: 'compare' } });
-        input.focus();
-    }));
     offs.push(on(uncompareBtn, 'click', () => {
         ui.act('setObserver2', null);
         ui.closePalette();
-    }));
-    offs.push(on(marsBtn, 'click', () => {
-        store.set({ ui: { ...store.get().ui, palette: 'mars' } });
     }));
     offs.push(on(marsSites, 'click', (e) => {
         const b = /** @type {HTMLElement} */ (e.target).closest('.mars-site');
@@ -584,13 +573,12 @@ export function mountLocation(root, ctx) {
         compareHead.hidden = !on;
         compareHead.textContent = on
             ? (o2 ? `Compare with a second place (now ${o2.name || 'set'}): its beams are drawn dashed, in amber.`
-                : 'Compare with a second place: its own pin and dashed amber beams, side by side in Sky now.')
+                : 'Compare with a second place: its own pin and dashed amber beams, side by side in Up now.')
             : '';
         dialog.setAttribute('aria-label', on ? 'Compare with a second place' : 'Change location');
         input.placeholder = on ? 'Search the second place, or type coordinates' : 'Search a city, or type coordinates (e.g. 48.86, 2.35)';
         locateBtn.hidden = on;
         pickBtn.hidden = on;
-        compareBtn.hidden = on;
         uncompareBtn.hidden = !on || !o2;
         dialog.classList.toggle('is-compare', on);
     }
@@ -618,7 +606,7 @@ export function mountLocation(root, ctx) {
         // The search row and the list go; the foot's buttons follow the compare mode as setCompare left them.
         compareHead.nextElementSibling.hidden = on;
         list.hidden = on;
-        for (const el of [locateBtn, pickBtn, compareBtn, marsBtn]) el.hidden = on || comparing;
+        for (const el of [locateBtn, pickBtn]) el.hidden = on || comparing;
         if (on) {
             const host = store.get().host;
             homeBtn.hidden = host?.id !== 'mars';

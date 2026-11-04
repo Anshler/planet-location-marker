@@ -3,45 +3,43 @@
  * three layouts without re-mounting anything (state and listeners survive):
  *
  * - **desktop** (≥ 900 px, unless coarse and < 1100 px): top-left wordmark + location
- *   chip, right 380-px glass panel (collapsible to a 56-px rail), bottom time bar
+ *   chip, right 380-px glass panel (collapsible to a 64-px rail), bottom time bar
  *   spanning to the panel, view switch above the time bar's right end;
- * - **mobile**: top bar, floating right column, and a bottom sheet with three snap
- *   points (peek 132 px + safe area, half 50dvh, full 100dvh − 56 px), drag snapping
- *   with a 0.5 px/ms fling threshold, an `aria-expanded` handle and a focus trap at full;
- * - **text** (`body.no-webgl`): a readable single-column document with Sky Now first.
+ * - **mobile**: top bar, floating right column, a tab bar (`nav.navbar`: the tablist, moved) and a
+ *   bottom sheet above it (head: the handle and the time bar) with three snaps (peek, half, full),
+ *   a 0.5 px/ms fling, an `aria-expanded` handle and, at full, a trap over the sheet and tab bar;
+ * - **text** (`body.no-webgl`): a readable single-column document with Up now first.
  *
- * In every layout the status stack (ui/modes.js, the mode chips) follows the top bar, so its
- * chips come after the location chip in the Tab order. Tabs follow the WAI-ARIA tabs pattern
- * (roving tabindex, arrows / Home / End).
+ * In every layout the status stack (ui/modes.js) follows the top bar, so its chips come after the
+ * location chip in the Tab order. Tabs follow the WAI-ARIA tabs pattern (rovingKeys). `ui.openPanel(id,
+ * {focus, sheet, reveal})` shows a tab; `reveal` opens, scrolls to, focuses and flashes a section.
  *
  * @module ui/shell
  */
 
-import { h, on, trapFocus, clamp } from './dom.js';
+import { h, on, trapFocus, clamp, focusables, rovingKeys } from './dom.js';
 import { icon } from './icons.js';
 import { mountTopbar } from './topbar.js';
 import { mountTimebar } from './timebar.js';
 import { mountViewSwitch } from './view-switch.js';
-import { mountSkyNow, mountBodyStrip } from './sky-now.js';
+import { mountSkyNow } from './sky-now.js';
 import { mountBodyCard } from './body-card.js';
 import { mountEventsPanel } from './events-panel.js';
-import { mountLayers } from './layers.js';
-import { mountSettings } from './settings.js';
-import { mountAbout } from './about.js';
+import { mountExplore } from './explore.js';
+import { mountDisplay } from './layers.js';
 import { mountLocation } from './location.js';
 import { mountHelp } from './help.js';
 import { mountEclipseHud } from './eclipse-hud.js';
 import { mountTourBar } from './tour-bar.js';
 import { mountModes } from './modes.js';
 
-/** Panel tabs, in display order. */
+/** Panel tabs, in display order (store PANELS). */
 export const TABS = [
-    { id: 'sky', label: 'Sky', icon: 'sky', title: 'Sky now', mount: mountSkyNow },
-    { id: 'details', label: 'Details', icon: 'target', title: 'Selected body', mount: mountBodyCard },
-    { id: 'events', label: 'Events', icon: 'events', title: 'Upcoming events', mount: mountEventsPanel },
-    { id: 'layers', label: 'Layers', icon: 'layers', title: 'Layers', mount: mountLayers },
-    { id: 'settings', label: 'Settings', icon: 'settings', title: 'Settings', mount: mountSettings },
-    { id: 'about', label: 'About', icon: 'info', title: 'About', mount: mountAbout },
+    { id: 'sky', label: 'Up now', icon: 'star', title: 'What is in the sky now', mount: mountSkyNow },
+    { id: 'details', label: 'Details', icon: 'target', title: 'The selected object', mount: mountBodyCard },
+    { id: 'events', label: 'Events', icon: 'calendar', title: 'Upcoming events', mount: mountEventsPanel },
+    { id: 'explore', label: 'Explore', icon: 'history', title: 'Tours, history and other places', mount: mountExplore },
+    { id: 'display', label: 'Display', icon: 'layers', title: 'Layers and settings', mount: mountDisplay },
 ];
 
 const SNAPS = ['peek', 'half', 'full'];
@@ -67,7 +65,6 @@ export function mountShell(root, ctx) {
     const topbarEl = h('header', { class: 'topbar' });
     const viewbarEl = h('div', { class: 'viewbar' });
     const timebarEl = h('section', { class: 'timebar glass', 'aria-label': 'Time controls' });
-    const stripEl = h('div', { class: 'strip' });
     const hudEl = h('section', { class: 'ecl glass' });
     const overlay = h('div', { class: 'ui-overlay' });
 
@@ -79,8 +76,10 @@ export function mountShell(root, ctx) {
         'data-tip': 'Collapse panel', 'data-tip-side': 'left',
     }, icon('panel-close', { size: 18 }));
     const body = h('div', { class: 'panel__body' });
-    const panelEl = h('aside', { class: 'panel glass', 'aria-label': 'Sky information' },
-        h('div', { class: 'panel__head' }, tablist, collapseBtn), body);
+    const panelHead = h('div', { class: 'panel__head' }, tablist, collapseBtn);
+    const panelEl = h('aside', { class: 'panel glass', 'aria-label': 'Sky information' }, panelHead, body);
+    // The phone's tab bar: the same tablist, moved (applyLayout).
+    const nav = h('nav', { class: 'navbar', 'aria-label': 'Panels' });
     tablist.appendChild(ink);
 
     /** @type {Record<string, {tab: HTMLElement, pane: HTMLElement, mod: any}>} */
@@ -93,7 +92,7 @@ export function mountShell(root, ctx) {
         const pane = h('section', {
             class: `tabpanel tabpanel--${t.id}`, role: 'tabpanel', id: `tp-${t.id}`, 'aria-labelledby': `tab-${t.id}`,
             tabindex: '0', hidden: true,
-        });
+        }, h('h2', { class: 'sr-only' }, t.label));
         tablist.appendChild(tab);
         body.appendChild(pane);
         tabs[t.id] = { tab, pane, mod: null };
@@ -107,11 +106,10 @@ export function mountShell(root, ctx) {
     const sheetHead = h('div', { class: 'sheet__head' });
     const sheetBody = h('div', { class: 'sheet__body', id: 'sheet-body' });
     const sheet = h('section', { class: 'sheet', 'aria-label': 'Time and sky panel' }, handle, sheetHead, sheetBody);
-    const safeProbe = h('div', { class: 'safe-probe', 'aria-hidden': 'true' });
 
     // ------------------------------------------------------------------ misc overlays
     const cinemaExit = h('button', { class: 'cinema-exit', type: 'button' }, icon('eye', { size: 18 }), 'Show interface');
-    overlay.append(cinemaExit, safeProbe);
+    overlay.append(cinemaExit);
 
     // ------------------------------------------------------------------ mount modules
     // The status stack first: the modules below set their mode chips as they mount.
@@ -120,8 +118,6 @@ export function mountShell(root, ctx) {
     const timebar = mountTimebar(timebarEl, ctx);
     children.push(timebar);
     children.push(mountViewSwitch(viewbarEl, ctx));
-    const strip = mountBodyStrip(stripEl, ctx);
-    children.push(strip);
     const hud = mountEclipseHud(hudEl, ctx);
     children.push(hud);
     for (const t of TABS) {
@@ -167,20 +163,10 @@ export function mountShell(root, ctx) {
         if (!btn) return;
         openPanel(btn.dataset.tab);
     }));
-    offs.push(on(tablist, 'keydown', (e) => {
-        const ids = TABS.map((t) => t.id);
-        const i = ids.indexOf(activeTab);
-        let next = -1;
-        const vertical = panelEl.classList.contains('is-rail');
-        if (e.key === (vertical ? 'ArrowDown' : 'ArrowRight')) next = (i + 1) % ids.length;
-        else if (e.key === (vertical ? 'ArrowUp' : 'ArrowLeft')) next = (i - 1 + ids.length) % ids.length;
-        else if (e.key === 'Home') next = 0;
-        else if (e.key === 'End') next = ids.length - 1;
-        if (next < 0) return;
-        e.preventDefault();
-        e.stopPropagation();
-        setStoreUi({ panel: ids[next] });
-        selectTab(ids[next], { focusTab: true });
+    offs.push(rovingKeys(tablist, TABS.map((t) => tabs[t.id].tab), (tab) => {
+        setStoreUi({ panel: tab.dataset.tab });
+        selectTab(tab.dataset.tab, { focusTab: true });
+        if (ui.layout === 'mobile' && currentSnap === 'peek') setSnap('half');
     }));
 
     // ------------------------------------------------------------------ rail (desktop)
@@ -200,11 +186,12 @@ export function mountShell(root, ctx) {
 
     // ------------------------------------------------------------------ open a panel
     /**
-     * Shows a tab, expanding the rail or raising the sheet as needed.
+     * Shows a tab, expanding the rail or raising the sheet as needed; `reveal` opens, scrolls to,
+     * focuses and flashes one of its sections.
      * @param {string} id
-     * @param {{focus?: boolean, sheet?: 'half'|'full'}} [opts]
+     * @param {{focus?: boolean, sheet?: 'half'|'full', reveal?: string}} [opts]
      */
-    function openPanel(id, { focus = false, sheet: sheetSnap } = {}) {
+    function openPanel(id, { focus = false, sheet: sheetSnap, reveal } = {}) {
         setStoreUi({ panel: id });
         selectTab(id);
         if (ui.layout === 'desktop' && railed) setRail(false);
@@ -212,7 +199,17 @@ export function mountShell(root, ctx) {
             const want = sheetSnap || 'half';
             if (SNAPS.indexOf(currentSnap) < SNAPS.indexOf(want)) setSnap(want, { animate: true });
         }
-        if (focus) requestAnimationFrame(() => tabs[id]?.pane.focus({ preventScroll: true }));
+        const pane = tabs[activeTab].pane;
+        const sec = reveal && pane.querySelector(`[data-reveal="${reveal}"]`);
+        if (sec) {
+            if (sec.tagName === 'DETAILS') sec.open = true;
+            requestAnimationFrame(() => {
+                sec.scrollIntoView({ block: 'nearest' });
+                (sec.querySelector('summary') || focusables(sec)[0])?.focus({ preventScroll: true });
+                sec.classList.add('is-flash');
+                setTimeout(() => sec.classList.remove('is-flash'), 1200);
+            });
+        } else if (focus) requestAnimationFrame(() => pane.focus({ preventScroll: true }));
     }
     ui.openPanel = openPanel;
 
@@ -226,18 +223,17 @@ export function mountShell(root, ctx) {
     // ------------------------------------------------------------------ sheet behaviour
     let currentSnap = 'peek';
     let releaseTrap = null;
-    let heights = { peek: 132, half: 400, full: 700 };
-    let headH = 132;
+    let heights = { peek: 100, half: 300, full: 550 };
+    let headH = 100;
 
+    /** Heights above the tab bar: peek is the head (handle and time bar), half leaves ≥ 120 px of content. */
     function measureSheet() {
-        const vh = window.innerHeight;
-        const safe = safeProbe.offsetHeight || 0;
-        headH = Math.max(120, Math.round(handle.offsetHeight + (sheetHead.offsetHeight || 112)));
-        // Peek shows the handle, the time bar and the body strip.
-        const peekContent = Math.round(handle.offsetHeight + timebarEl.offsetHeight + stripEl.offsetHeight);
-        const full = Math.max(240, vh - 56);
-        const peek = Math.min(full, Math.max(132, peekContent) + safe);
-        const half = clamp(Math.round(vh * 0.5), Math.min(full, peek + 60), full);
+        // The tab bar's top (fixed, so offsetTop is in the viewport; a tablet's floats 12 px up).
+        const above = nav.offsetTop || window.innerHeight - 56;
+        headH = Math.round(handle.offsetHeight + (sheetHead.offsetHeight || 82));
+        const full = Math.max(240, above - 56);
+        const peek = Math.min(full, headH);
+        const half = clamp(Math.round(above * 0.5), Math.min(full, peek + 120), full);
         heights = { peek, half, full };
         root.style.setProperty('--sheet-full', `${full}px`);
         root.style.setProperty('--sheet-head-h', `${headH}px`);
@@ -257,11 +253,11 @@ export function mountShell(root, ctx) {
         handle.setAttribute('aria-expanded', String(name !== 'peek'));
         handle.setAttribute('aria-label', name === 'full' ? 'Collapse panel' : 'Expand panel');
         if (!fromStore) setStoreUi({ sheet: name });
-        // Focus trap only while the sheet covers the screen.
+        // Focus trap only while the sheet covers the screen: the sheet and the tab bar.
         if (name === 'full' && ui.layout === 'mobile') {
             if (!releaseTrap) {
-                const inside = sheet.contains(document.activeElement) ? /** @type {HTMLElement} */ (document.activeElement) : handle;
-                releaseTrap = trapFocus(sheet, { initial: inside, restore: false });
+                const a = /** @type {HTMLElement} */ (document.activeElement);
+                releaseTrap = trapFocus([sheet, nav], { initial: sheet.contains(a) || nav.contains(a) ? a : handle, restore: false });
             }
         } else if (releaseTrap) { releaseTrap(); releaseTrap = null; }
         if (changed) ui.emit('sheet', name);
@@ -276,7 +272,7 @@ export function mountShell(root, ctx) {
         const onHandle = !!t.closest('.sheet__handle');
         const inHead = !!t.closest('.sheet__head');
         if (!onHandle && !inHead) return;
-        if (!onHandle && t.closest('button, a, input, select, textarea, [role="slider"], .strip, .tb-scrub')) return;
+        if (!onHandle && t.closest('button, a, input, select, textarea, [role="slider"], .tb-scrub')) return;
         const vis = heights[currentSnap];
         drag = { id: e.pointerId, y0: e.clientY, vis0: vis, vis, lastY: e.clientY, lastT: e.timeStamp, v: 0, moved: false };
     }));
@@ -354,16 +350,18 @@ export function mountShell(root, ctx) {
         if (releaseTrap) { releaseTrap(); releaseTrap = null; }
         if (mode === 'mobile') {
             setRail(false);
-            sheetHead.append(timebarEl, stripEl);
+            sheetHead.append(timebarEl);
             sheetBody.append(panelEl);
-            root.append(skip, topbarEl, modes.el, hudEl, viewbarEl, sheet, overlay);
+            nav.append(tablist);
+            root.append(skip, topbarEl, modes.el, hudEl, viewbarEl, sheet, nav, overlay);
         } else {
             sheetBody.inert = false;
-            // Text mode: the Eclipse Companion sits inline above Sky now.
-            if (mode === 'text') root.append(skip, topbarEl, modes.el, timebarEl, hudEl, panelEl, viewbarEl, overlay);
+            panelHead.prepend(tablist);
+            // Text mode: the Eclipse Companion inline, then the toolbar, above Up now.
+            if (mode === 'text') root.append(skip, topbarEl, modes.el, timebarEl, hudEl, viewbarEl, panelEl, overlay);
             else root.append(skip, topbarEl, modes.el, hudEl, viewbarEl, timebarEl, panelEl, overlay);
             sheet.remove();
-            stripEl.remove();
+            nav.remove();
         }
         ui.emit('layout', mode);
         requestAnimationFrame(() => {
@@ -455,13 +453,13 @@ export function mountShell(root, ctx) {
     applyLayout();
     selectTab(store.get().ui?.panel || 'sky');
     // A selection that was there before the shell (a shared link's `sel=`) opens its card too,
-    // unless a tab other than Sky is already showing.
+    // unless a tab other than Up now is already showing.
     if (activeTab === 'sky') showSelection(store.get().selection);
 
     return {
         overlay,
         update(snap) {
-            for (const c of [children[0], timebar, strip, hud]) {
+            for (const c of [children[0], timebar, hud]) {
                 try { c?.update?.(snap); } catch (err) { console.error('[ui] update failed', err); }
             }
             const mod = tabs[activeTab]?.mod;

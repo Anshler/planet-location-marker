@@ -595,7 +595,23 @@ async function interfaceChecks(evaluate) {
         check('sel= opens Details', tab === 'true', `#tab-details aria-selected=${tab}`);
     }
     const layout = await evaluate(`document.getElementById('ui-root')?.dataset.layout ?? ''`).catch(() => '');
+    // The toolbar's three menus are there whenever the 3D view is (UI-REDESIGN §4.2).
+    if (layout !== 'text') {
+        const missing = await evaluate(`['.vb-tools', '.vb-share', '.vb-more'].filter((s) => !document.querySelector('.viewbar ' + s))`)
+            .catch((e) => [`threw: ${e.message}`]);
+        check('toolbar: Tools, Share, More', Array.isArray(missing) && missing.length === 0, missing?.length ? `missing ${missing}` : 'all three');
+    }
     if (layout !== 'mobile') return;
+    // The phone's tab bar shows all five tabs with the sheet at its peek (§3.3).
+    const tabs = await evaluate(`(() => {
+        const st = window.__app.store, ui = st.get().ui;
+        if (ui.sheet !== 'peek') st.set({ ui: { ...ui, sheet: 'peek' } });
+        return [...document.querySelectorAll('.navbar [role="tab"]')].filter((t) => {
+            const r = t.getBoundingClientRect();
+            return r.width >= 44 && r.height >= 44 && r.top >= 0 && r.bottom <= innerHeight && t.checkVisibility?.() !== false;
+        }).length;
+    })()`).catch(() => -1);
+    check('phone tab bar visible at peek', tabs === 5, `${tabs} of 5 tabs visible`);
     // 4–17 Nov 2026 holds every weekday with one- and two-digit days ("Wed 11 Nov", "Mon 16 Nov").
     const clipped = await evaluate(`(async () => {
         const c = window.__app.clock, t0 = c.tMs, wasLive = c.live, wasPlaying = c.playing;

@@ -578,15 +578,26 @@ test('a single cam= without view= names the view; view= wins when both are given
 
 test('tab= opens a panel tab: read, validated, never written', async () => {
     const { PANELS } = await import('../js/core/store.js');
-    assert.deepEqual([...PANELS], ['sky', 'details', 'events', 'layers', 'settings', 'about']);
-    assert.equal(parseHash('#tab=events').panel, 'events');
-    assert.equal(parseHash('#view=sky&tab=Settings').panel, 'settings');
+    assert.deepEqual([...PANELS], ['sky', 'details', 'events', 'explore', 'display']);
+    assert.equal(parseHash('#tab=events').panel, 'events', 'the manifest shortcut');
+    assert.equal(parseHash('#tab=explore').panel, 'explore');
+    assert.equal(parseHash('#tab=display').reveal, undefined);
     const bad = parseHash('#tab=console');
     assert.equal(bad.panel, undefined);
     assert.deepEqual(bad.invalid, ['tab']);
     assert.equal(parseHash('#tab=').invalid, undefined, 'empty: ignored');
     const state = { ...DEFAULT_STATE, ui: { ...DEFAULT_STATE.ui, panel: 'events' } };
     assert.ok(!serializeHash({ state }).includes('tab'), 'the open tab is not part of a link');
+});
+
+test('tab= reads the old tabs as Display, revealing their section; an alias is never invalid', () => {
+    for (const [v, reveal] of [['layers', undefined], ['settings', 'conditions'], ['Settings', 'conditions'], ['about', 'about']]) {
+        const p = parseHash(`#view=sky&tab=${v}`);
+        assert.equal(p.panel, 'display', v);
+        assert.equal(p.reveal, reveal, v);
+        assert.equal(p.invalid, undefined, v);
+    }
+    for (const v of ['constructor', '__proto__', 'toString']) assert.deepEqual(parseHash(`#tab=${v}`).invalid, ['tab'], v);
 });
 
 test('the shell mounts exactly the PANELS tabs, in order', async () => {

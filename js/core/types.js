@@ -54,7 +54,7 @@
  *   display:{tzMode:'observer'|'device'|'utc', hour12:boolean, skyDark:'auto'|'pristine'|'1'|'2'|'3'|'4'|'5'|'6'|'7'|'8'|'9',
  *     aurora:'quiet'|'typical'|'storm', red:boolean},     // red: night vision (a device preference, never in links)
  *   quality:{setting:'auto'|'low'|'medium'|'high'|'max', active:'low'|'medium'|'high'|'max', ceiling:'low'|'medium'|'high'},
- *   ui:{panel:'sky'|'details'|'events'|'layers'|'settings'|'about', sheet:'peek'|'half'|'full', cinema:boolean, help:boolean, palette:boolean,
+ *   ui:{panel:'sky'|'details'|'events'|'explore'|'display', sheet:'peek'|'half'|'full', cinema:boolean, help:boolean, palette:boolean,
  *       ruler?:RulerState|null, aim?:AimState|null,
  *       eclipse:EclipseFocus|null, tour:TourState|null},
  *   status:{phase:'boot'|'loading'|'ready'|'error', progress:number, webgl:boolean, onlineSearch:'unknown'|'ok'|'down',
@@ -166,7 +166,7 @@
 /** Result of `parseHash`. Every key is optional; `invalid` lists keys that were present but rejected or clamped.
  * @typedef {{ observer?:Observer&{cc:string}, observer2?:Observer&{cc:string}, tMs?:number, live?:boolean, rate?:number, playing?:boolean,
  *   view?:'orbit'|'sky'|'map', earthLock?:boolean, selection?:SelectionId|null, layers?:Layers,
- *   quality?:'auto'|'low'|'medium'|'high'|'max', skyDark?:string, aurora?:'quiet'|'typical'|'storm', cam?:CamView, track?:'body'|'stars', vantage?:'l1'|'moon', host?:{id:'mars', latDeg:number, lonDeg:number}, intro?:boolean, debug?:boolean, tour?:string, panel?:string, invalid?:string[] }} HashState */
+ *   quality?:'auto'|'low'|'medium'|'high'|'max', skyDark?:string, aurora?:'quiet'|'typical'|'storm', cam?:CamView, track?:'body'|'stars', vantage?:'l1'|'moon', host?:{id:'mars', latDeg:number, lonDeg:number}, intro?:boolean, debug?:boolean, tour?:string, panel?:string, reveal?:'conditions'|'about', invalid?:string[] }} HashState */
 
 /** Device probe for `detectTier` (js/core/quality.js).
  * @typedef {{webgl2:boolean, rendererString?:string, maxTextureSize?:number, dpr?:number, deviceMemory?:number, cores?:number,

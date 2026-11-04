@@ -323,7 +323,7 @@ export function mountTimebar(root, ctx) {
         playSeg.el,
         lapseErr,
         h('div', { class: 'pt__row pt__end' }, stopBtn, h('button', { class: 'btn btn--primary', type: 'submit' }, icon('play', { size: 14 }), 'Start')));
-    const loopBox = h('details', { class: 'pt__more' }, h('summary', null, 'Loop between two moments'), loopForm);
+    const loopBox = h('details', { class: 'fold' }, h('summary', null, 'Loop between two moments'), loopForm);
 
     // Show times in.
     const tzSeg = segmented({
@@ -335,7 +335,7 @@ export function mountTimebar(root, ctx) {
         label: '24-hour clock', checked: !store.get().display?.hour12,
         onChange: (on24) => store.set({ display: { ...store.get().display, hour12: !on24 } }),
     });
-    const legend = h('details', { class: 'pt__more' }, h('summary', null, 'What the time bar shows'),
+    const legend = h('details', { class: 'fold' }, h('summary', null, 'What the time bar shows'),
         h('ul', { class: 'pt__body pt__legend' }, ['The colour is the Sun’s height: day, twilight, night.', 'The top edge shows when the selected planet is up.',
             'The bottom edge shows when the Moon is up.', 'Gold bars are eclipses, and ticks are events.'].map((t) => h('li', null, t))));
 

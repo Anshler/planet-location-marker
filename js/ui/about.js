@@ -1,9 +1,8 @@
 /**
- * About tab: what the app is, 'Install app' when the browser offers it (ui/install.js), the
- * accuracy statement, credits, licence links, a privacy note and 'Report a problem'
- * (ui/report.js: Copy diagnostics and a new issue on REPO_URL). (This file and
- * js/geo/geocode.js are the only places
- * allowed to hold external https URLs — credit links.)
+ * About this app, inside Display (ui/layers.js): what the app is, 'Install app' when the browser
+ * offers it (ui/install.js), 'Report a problem' (ui/report.js: Copy diagnostics and a new issue on
+ * REPO_URL), the accuracy statement, credits, a privacy note and the licence links. (This file and
+ * js/geo/geocode.js are the only places allowed to hold external https URLs — credit links.)
  *
  * @module ui/about
  */
@@ -34,8 +33,8 @@ export const CREDITS = [
 ];
 
 /**
- * Mounts the About tab.
- * @param {HTMLElement} root tab panel
+ * Mounts About this app.
+ * @param {HTMLElement} root its group's body
  * @param {any} ctx UiCtx
  * @returns {{destroy(): void}}
  */
@@ -54,9 +53,10 @@ export function mountAbout(root, ctx) {
         h('div', { class: 'about-hero' },
             brandMark(40),
             h('div', null,
-                h('h2', { class: 'about-hero__name' }, APP_NAME, h('span', { class: 'pill pill--version' }, `v${VERSION}`)),
+                h('h3', { class: 'about-hero__name' }, APP_NAME),
                 h('p', { class: 'about-hero__tag' }, 'Stand anywhere on Earth. See where every world is right now.'))),
         install.el,
+        report.el,
         h('div', { class: 'group' },
             h('h3', { class: 'group-title' }, 'Accuracy'),
             h('p', { class: 'prose' }, 'Positions computed in your browser with astronomy-engine (VSOP87/ELP; accurate to about 1 arcminute, 1800–2200).'),
@@ -80,7 +80,6 @@ export function mountAbout(root, ctx) {
             h('h3', { class: 'group-title' }, 'Privacy'),
             h('p', { class: 'prose' }, 'Everything is computed on this device and nothing is tracked. A place search is sent to the online geocoders only '
                 + 'when you type in the search box; “Use my location” is used only on this device.')),
-        report.el,
         h('div', { class: 'btn-row btn-row--wrap' },
             link(REPO_URL, 'Source code', 'btn btn--soft'),
             h('a', { class: 'btn btn--soft', href: 'THIRD_PARTY_NOTICES.md', target: '_blank', rel: 'noopener' }, 'Third-party notices')),

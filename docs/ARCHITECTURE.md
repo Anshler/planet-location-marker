@@ -17,7 +17,8 @@ formulas and accuracy, is in [ASTRONOMY.md](ASTRONOMY.md).
 ```
 index.html        import map · inline loader · feature detection · global error capture
 └─ js/main.js     composition root: builds everything, wires it together, owns boot order
-   ├─ js/core/    app state: store, bus, clock, url-state, prefs, tz, format, quality      PURE
+   ├─ js/core/    app state: store, bus, clock, url-state, prefs, tz, format, quality,    PURE
+   │              texture-plan
    ├─ js/geo/     offline cities, online geocoder, lat/lon parsing, landscape profile     PURE
    ├─ js/astro/   astronomy: frames, snapshot, almanac, events, paths, worker + client    PURE
    ├─ js/data/    star-catalog decoder                                                    PURE
@@ -52,7 +53,7 @@ the UI and the render stack with literal `import('./…')` calls, so:
 
 | Area | Module | Responsibility |
 |---|---|---|
-| Entry | `index.html` | Import map (`three`, `three/addons/`). `modulepreload` for three, astronomy-engine and `main.js`. Preload for `data/cities.json`. Inline loader. Classic scripts for error capture (`window.__pcLoader`) and feature detection (`window.__pcEnv`). |
+| Entry | `index.html` | Import map (`three`, `three/addons/`). `modulepreload` for the whole boot graph (generated; §3 'Early downloads'). Preload for `data/cities.json`. Inline loader. Classic scripts for error capture (`window.__pcLoader`) and feature detection (`window.__pcEnv`), which also preloads three.js, the render stack and the Earth previews when the 3D view can run. |
 | | `js/main.js` | Boot sequence, service wiring, store-to-module subscriptions, click picking, tier switching, the intro runner, the guided-tour loader (`startTour`), `window.__app`. |
 | App glue | `js/app/actions.js` | `createActions(deps)`: the only API the UI calls besides `store` and `clock`. Also `normalizeObserver`, `eventFraming` (how a jump frames its event), `eclipseFocusExpired`, `eclipsePlayRange` and `lookSpanning`. |
 | | `js/app/mars-host.js` | `createMarsHost(deps)`: standing on Mars (loaded by `main.js bindHost` the first time `store.host` is Mars). `enter()` hands the loop a Mars snapshot source (`loop.setHost`), broadcasts `setHost('mars')`, hides the Earth-only groups (`R.earthGroups`), registers the `sat:` provider and adds `render/mars-sky.js` once a renderer exists; `leave()` undoes it. No three.js. |
@@ -77,6 +78,7 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/core/quality.js` | `TIERS`, `detectTier`, `tierConfig`, `autoStartTier`, and `createGovernor` (downgrade only, display-cadence budget). |
 | | `js/core/sampling.js` | Renderer policies, pure: `halton`, `createSupersampler` (idle supersampling: which frames accumulate, their weight and jitter, when to park), `viewMotionPx`, `streakShutter` and `strobeDim` (fast-time streaks). |
 | | `js/core/prefs.js` | `localStorage` under `pc2.`, falling back to memory. |
+| | `js/core/texture-plan.js` | Which images each tier loads: `ASSETS` (URLs, bytes, colour space), `INTERIM` and `PREVIEW` stand-ins, the per-slot key choices and `keysForTier` (critical previews, primary day and night maps, deferred rest); `download`/`prefetchTextures`, the early streamed fetches `main.js` starts before the render stack exists. No three.js; `render/textures.js` re-exports it. |
 | | `js/core/tz.js`, `js/core/format.js` | Time zones (canonicalised, DST-safe) and every displayed number and string. Calendar dates before 15 Oct 1582 are shown Julian (`toCalendar`, `fromCalendar`, `parseCalendarInput`, JDN helpers); instants and `t=` stay Gregorian UTC. |
 | | `js/core/types.js` | JSDoc typedefs: the shared contract. |
 | Geo | `js/geo/cities.js` | About 1,600 GeoNames cities. Fuzzy search, `nearest`, `byTz`. |
@@ -122,8 +124,8 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/render/streaks.js` | Fast-time star streaks, a render module for its per-frame hook: measures the camera's turn since the last frame and publishes `STREAK_UNIFORMS` (the shutter's opening as a world → view mat3, the cap), shared by the stars and the planet glyphs (`STREAK_VERT_CHUNK`), and `streakState.dim` for line art and the Milky Way. |
 | | `js/render/orrery.js` | The solar-system zoom's orrery: its own scene and camera in AU (the overlay), orbits, the Earth→body sight lines the beams fade into, sprites lit by the Sun, the Sun on the bodies' `DISC_FRAG`, the retrograde figure for a selected planet, edge arrows; live label points (`labelPoint`, `labelOffset`) and `pick`. Shaders in `shaders/orrery.glsl.js`. |
 | | `js/render/long-exposure.js` | The long exposure's controller, a render module for its per-frame hook: turns stacking on in sky view while `ui.expose` is set, resets the stack when the framing changes, gates star trails by daylight, reports `stats()`. |
-| | `js/render/textures.js` | Placeholder-first texture store with byte-weighted progress. |
-| | `js/render/earth.js`, `atmosphere.js` | Earth shader (day, night lights with close-zoom filtering, sun glint and moonglint, moonlight, twilight, sculpted clouds, the face-on aurora, eclipse shadow, footprint) and atmosphere. |
+| | `js/render/textures.js` | Placeholder-first texture store with byte-weighted progress. Takes over `main.js`'s prefetched downloads, shows a day or night map's 512 px preview while it loads (`state(key) === 'preview'`), and holds eager uploads while the shaders compile (`holdUploads`). |
+| | `js/render/earth.js`, `atmosphere.js` | Earth shader (day, night lights with close-zoom filtering, the sharpen-in from the 512 px previews, sun glint and moonglint, moonlight, twilight, sculpted clouds, the face-on aurora, eclipse shadow, footprint) and atmosphere. |
 | | `js/render/aurora.js` | The aurora's limb-curtain shell (High and Max) and the driver of `AURORA_CHUNK` (`shaders/aurora.glsl.js`), whose uniforms the Earth and cloud materials also carry for the face-on oval on every tier. |
 | | `js/render/skyglow.js` | Uniforms of `SKYGLOW_CHUNK` (`shaders/skyglow.glsl.js`), filled from `snap.skyglow`: the moonlit sky and the city light dome per direction, for the dome, ground, stars and Milky Way. |
 | | `js/render/sky.js`, `bodies.js`, `ground.js` | Stars, constellations, Milky Way and grids; Sun (with totality's thin crescent, corona, chromosphere and prominences under `SUN_ECLIPSE`), planets and the true-scale Moon; sky-view dome and ground (totality's 360° horizon ring, the illustrative landscape and sea, twilight- and moonlit land). |
@@ -164,19 +166,37 @@ the UI and the render stack with literal `import('./…')` calls, so:
    in the device's timezone (`cities.byTz`, canonicalised; on a UTC machine this falls through),
    then the Royal Observatory Greenwich. Layers, display and quality are merged from defaults,
    prefs and the hash. `detectTier` picks the tier from the WebGL probe that `index.html` already
-   ran.
+   ran, before the observer (which may wait up to 1.5 s for `cities.json`), and the tier's day and
+   night maps start downloading at once (`prefetchTextures`, handed to the texture store later).
 2. **Clock and first snapshot.** A hash `t` starts the clock paused at that moment. Otherwise it
    starts Live.
 3. **UI.** It mounts immediately. The loop starts headless and publishes 4 Hz readouts, so the
    Sky Now table works before WebGL exists.
-4. **Render stack.** It is imported in parallel. The render context is created, then each module in
-   its own `try/catch`. Textures start as 1×1 placeholders.
-5. **Data.** `data/sky.json`, `data/cities.json` and the critical textures (day and night maps)
-   load in parallel. If the catalog arrives late, the sky module gets it through `setCatalog`.
+4. **Render stack.** It is imported in parallel (already downloaded: see 'Early downloads' below).
+   The render context is created, then each module in its own `try/catch`. Textures start as 1×1
+   placeholders, and a day or night slot shows its 512 px preview as soon as that is decoded.
+5. **Data.** `data/sky.json`, `data/cities.json`, the previews (critical) and the day and night maps
+   (primary) load in parallel. If the catalog arrives late, the sky module gets it through
+   `setCatalog`.
 6. **Compile.** `rc.compile()` (three's `compileAsync`) runs behind the loader, capped at 10 s.
+   `textures.holdUploads` keeps eager uploads back until it settles and one frame is out: an
+   upload issued while the GPU process links the shaders waits for that work on the main thread
+   (≈ 360 ms measured on a desktop GPU), while one issued afterwards takes a few ms. A map decoded
+   meanwhile is still bound; the frame that draws it uploads it. three's
+   `debug.checkShaderErrors` stays on: turning it off only moved the same wait from
+   `getProgramInfoLog` to `getProgramParameter` (5.4 s against 5.0–5.5 s under SwiftShader), and
+   it is what reports a shader that fails on an exotic driver. The inline probe's context is not
+   handed to three either: three asks for `alpha: false` and antialiasing by tier, which is only
+   known in `main.js` (hash, prefs, learned tier).
 7. **Render.** `loop.attach(...)` adds the renderer. Store subscriptions start driving modules.
-8. **Ready.** The loader fades when the critical textures are in, after 5 s, or when the user
-   chooses "Slow connection — continue with low detail". `status.phase` becomes `'ready'`.
+8. **Ready.** The loader fades once the previews are in (or, if they fail, the day and night maps),
+   after 5 s, or when the user chooses "Slow connection — continue with low detail", and then only
+   after the loop has drawn a frame (at most 4 s more): without `KHR_parallel_shader_compile`,
+   `compile()` returns at once and the first frame is where the shaders link, so the loader leaves
+   over a drawn globe. `status.phase` becomes `'ready'`. When the day or night map replaces a
+   preview that was on screen, the Earth sharpens into it over 600 ms (`uSharpen`, instant with
+   reduced motion); a map that arrives before the first frame is simply shown. While loading,
+   texture progress moves only the loader's bar; a frame is requested when a map is in or failed.
 9. **Intro.** It plays on the first visit unless the hash has `intro=0`, a `cam`, `view=sky` or
    `tour`, or the user prefers reduced motion. Otherwise the beams launch with a short stagger. It
    holds its opening pose for the loader's 0.7 s fade (pre-roll), and the horizon disc grows out
@@ -188,6 +208,28 @@ the UI and the render stack with literal `import('./…')` calls, so:
 Feature detection happens in `index.html` before any module loads. With no WebGL2 or no import
 maps, the body gets `no-webgl`, the canvas is hidden, `fallback.js` shows the banner, and the panels
 carry the app.
+
+### Early downloads
+
+A cold boot would otherwise find its ~150 modules one import level at a time (main.js →
+render/context.js → postfx.js → EffectComposer.js → CopyShader.js is five round trips), and the
+Earth maps would wait for all of them. Instead every byte of the boot starts within the first
+round trips:
+
+| What | Started by | When |
+|---|---|---|
+| main.js's and the UI's static module graphs (≈ 87 files) | static `<link rel=modulepreload>` in `<head>` | as the HTML is parsed |
+| three.js and the render stack (≈ 65 files, `importRenderStack()`'s static graph) | the feature-detection script, only when WebGL2 and import maps work | right after the probe |
+| `earth_day_preview.webp`, `earth_night_preview.webp` (12 + 6 KB) | the same script: `<link rel=preload as=fetch crossorigin fetchpriority=high>` | right after the probe |
+| the tier's day and night maps | `main.js boot()` (`prefetchTextures`, same mode and credentials, so the previews' preloads are reused rather than fetched twice) | as soon as the tier is known |
+
+Text mode downloads none of the 3D files (three.js included). Both module lists are generated by
+`npm run preload` (`node scripts/lib/modgraph.mjs --write`): the core list is the static import
+closure of `js/main.js` and `js/ui/index.js`, the 3D list that of every `import()` in
+`importRenderStack()`, minus the core, three.js first. `test/repo.importmap.test.mjs` fails when
+index.html's lists are stale, so a new render module or a new static import means one
+`npm run preload`. Modules loaded on demand (tours, the recorder, Mars) and the astro worker's
+graph (a worker has its own module map) are not preloaded.
 
 ### Body classes
 
@@ -777,6 +819,8 @@ To add one:
 3. Add `create('foo', …)` next to the others. The order of that list is the update order. Pass
    `furniture` as the third argument for observer furniture that a vantage point hides (beams,
    pin, medallions, trails, the eclipse ribbon, the flare live there).
+4. Run `npm run preload`, so index.html preloads the new module with the rest of the render stack
+   (the repo tests fail until it does).
 
 It then receives layers, selection, tier and view changes, and its failures are contained.
 A module may draw nothing at all: `long-exposure.js` has an empty group and is a module only for
@@ -937,6 +981,12 @@ change.
   instead of the direct path. A Low boot keeps the direct path even if the driver refused MSAA.
 - **Applying a tier.** `applyTierCfg` calls `rc.setTier` and each module's `setQuality`, then loads
   the tier's textures. The scene graph is never rebuilt.
+- **Previews on every tier.** `earth_day_preview.webp` and `earth_night_preview.webp` (512 × 256,
+  12 and 6 KB, from the 4096 maps by `scripts/build-textures.mjs`) are the critical keys of every
+  tier: they gate the loader, stand in for the day and night maps (`PREVIEW` in
+  `core/texture-plan.js`) while those load or if they fail, and the Earth sharpens from them into
+  the tier's maps. The earth shader samples a preview only while `uSharpen` < 1, and the close-zoom
+  grain of the city lights is off on a 512 px map.
 - **One planet on every tier.** The 2k maps are the 4k maps at half size, made by
   `scripts/build-textures.mjs`: `day2k` and `night2k` from the day and night maps (filtered in
   linear light, like the GPU's own mip 1), and `clouds2k` and `roughness2k` from the blue (cloud)
@@ -969,7 +1019,7 @@ change.
 | A render module throws per frame | Three strikes, then it is hidden, with one toast. |
 | The renderer throws | Text mode (`context-failed`). |
 | `webglcontextlost` | Rendering pauses (the panels keep updating) and a non-blocking "Graphics were reset — restoring…" overlay appears. On restore, `textures.restore()` runs, the context drops the old composer unreleased (its GL objects died with the lost context) and builds a new one, and rendering resumes. |
-| A texture fails | The placeholder stays, with one "Some imagery couldn't load." toast. |
+| A texture fails | The placeholder stays (a day or night map keeps its 512 px preview), with one "Some imagery couldn't load." toast. If the previews fail, the loader waits for the full maps instead (or 5 s). |
 | `sky.json` fails | No stars or constellations, and a toast. |
 | The worker fails | The client falls back to the main thread transparently. |
 | All geocoders fail | Offline cities still work, and the palette shows the hint. |
@@ -1040,13 +1090,16 @@ are applied live through `onExternalChange`. It writes nothing while a tour play
   `--url=/#…`, `--out=shot.png`, `--eval="js"` (awaited before the screenshot). For the failure
   matrix and the intro: `--no-webgl` (text mode), `--init="js"` (runs before the page, e.g.
   `HTMLScriptElement.supports=()=>false` for no import maps), `--fail=data/sky.json,earth_day`
-  (those requests get HTTP 404 and are not judged) and `--at=1000,3000` (timed screenshots
-  `<out>-<ms>.png`; the run then skips its wait for the intro to finish).
+  (those requests get HTTP 404 and are not judged), `--at=1000,3000` (timed screenshots
+  `<out>-<ms>.png`; the run then skips its wait for the intro to finish) and `--throttle=150,9000`
+  (a slow network: round-trip ms and kbit/s, through CDP `Network.emulateNetworkConditions`).
 - **`npm run size`** enforces the per-tier transfer budgets (low 3.76 MB, medium 4.52 MB, high
   8 MB raw, re-baselined from the spec's estimate to the measured unminified module graph; low and
   medium stay under 6 MB, high under 8 MB) and the 32 MB deploy limit. Max (≈ 20.8 MB) is reported but has no budget;
   its 8192 px maps (≈ 15.2 MB) are why the deploy limit went from 12 to 32 MB (the staged site is
   ≈ 21.6 MB; GitHub Pages allows 1 GB).
+- **`npm run preload`** (`node scripts/lib/modgraph.mjs --write`, `--check` to verify) regenerates
+  index.html's boot modulepreload lists (§3 'Early downloads').
 - **`npm run textures`** (`scripts/build-textures.mjs`) re-encodes the derived textures in headless
   Chrome and rewrites `vendor/DERIVED.json`. Run it after changing a recipe or a source map, and
   review the result visually. `--check` (in CI) compares hashes only, with no browser, because

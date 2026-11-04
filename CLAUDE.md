@@ -16,6 +16,7 @@ npm start                     # node scripts/serve.mjs → http://localhost:8080
 npm test                      # node --test "test/**/*.test.mjs" (zero dependencies)
 npm run smoke                 # headless Chrome, every non-local host blocked, SPEC §H assertions
 npm run size                  # transfer budgets per quality tier
+npm run preload               # regenerate index.html's boot modulepreload lists (scripts/lib/modgraph.mjs)
 npm run vendor                # re-fetch pinned vendor files, verify sha256 (vendor/VENDOR.json)
 npm run data                  # rebuild data/sky.json, data/milkyway.png, data/cities.json from data/raw
 npm run textures              # re-encode the derived 2k textures in headless Chrome (vendor/DERIVED.json; --check in CI)
@@ -100,7 +101,8 @@ js/ui/          DOM interface; talks to the app only via store, clock, actions
   - **Governor.** The governor samples consecutive rendered frames only.
 - **Render modules** implement `{object3d, apply(snap), update(fi), setLayers, setViewMode,
   setSelection, setQuality, dispose}`. `main.js` adds them to the scene, and they never add
-  themselves. Add a new one in `importRenderStack()` and the `create(...)` list in `main.js`.
+  themselves. Add a new one in `importRenderStack()` and the `create(...)` list in `main.js`, then
+  run `npm run preload` (index.html preloads the boot graph; a repo test checks the list).
 - **State.** `store` holds observer, selection, view, layers, display, quality, ui and status.
   `clock` owns simulated time (Live, the rate ladder, tweens, range loops, clamped to 1000–3000).
   The URL hash mirrors both (`core/url-state.js`, throttled `replaceState`).

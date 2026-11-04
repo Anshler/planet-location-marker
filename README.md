@@ -114,6 +114,8 @@ Maintenance scripts:
 - `npm run vendor` re-fetches the pinned third-party files and verifies their SHA-256.
 - `npm run data` rebuilds `data/sky.json`, `data/milkyway.png` and `data/cities.json` from
   `data/raw/`.
+- `npm run preload` regenerates the boot module preload lists in `index.html` after a module is
+  added or its static imports change (`npm test` says when they are stale).
 
 Useful URL options (in the hash):
 
@@ -171,7 +173,7 @@ Planet Location Marker is MIT-licensed (see [LICENSE](LICENSE)). It bundles:
 | Astronomy | [Astronomy Engine](https://github.com/cosinekitty/astronomy) 2.1.19 by Don Cross | MIT |
 | Stars, constellations, Milky Way | ESA Hipparcos, via [d3-celestial](https://github.com/ofrohn/d3-celestial) by Olaf Frohn | BSD-3-Clause |
 | Cities | [GeoNames](https://www.geonames.org/) | CC BY 4.0 |
-| Earth textures (and the 2k maps made from them) | [Solar System Scope](https://www.solarsystemscope.com/textures/), via the three.js examples | CC BY 4.0 |
+| Earth textures (and the 2k maps and 512 px previews made from them) | [Solar System Scope](https://www.solarsystemscope.com/textures/), via the three.js examples | CC BY 4.0 |
 | Max quality: 8K Earth day, night and cloud maps, 4K Moon (made from their 8K map) | [Solar System Scope](https://www.solarsystemscope.com/textures/) | CC BY 4.0 |
 | Moon texture | NASA imagery, via the three.js examples | public domain |
 

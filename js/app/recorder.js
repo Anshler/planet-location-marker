@@ -177,7 +177,9 @@ function recorderMime(env) {
  *   render: main's holder (rig, capture, eclipsePath ribbon, video: {getLoop, getRc, setNow})
  * @param {{preset:'day'|'night'|'eclipse', size?:'landscape'|'vertical', fps?:number, seconds?:number, labels?:boolean,
  *          signal?:AbortSignal, onProgress?:(p:{done:number, total:number, preview?:HTMLCanvasElement})=>void,
- *          paint?:(ctx:CanvasRenderingContext2D, w:number, h:number, tMs:number)=>void, name?:string}} opts
+ *          paint?:(ctx:CanvasRenderingContext2D, w:number, h:number, tMs:number)=>void, stampBand?:number,
+ *          name?:string}} opts stampBand: the bottom band `paint` covers, a share of the frame's shorter side
+ *          (labels keep out of it and the view centres above it, as a postcard's caption)
  * @returns {Promise<{blob:Blob, name:string, mime:string, frames:number, width:number, height:number, fps:number,
  *   method:string}|{error:string}>} error: 'unsupported' | 'busy' | 'no-3d' | 'no-night' | 'no-path' | 'cancelled' | 'changed' | 'failed'
  */
@@ -278,7 +280,8 @@ export async function recordVideo(deps, opts) {
         loop.step(vNow, frameMs);
         own--;
         const scale = Math.min(W, H) / 540;
-        session = render.capture.session({ width: W, height: H, scale, labels: opts.labels !== false, stack: preset === 'night' });
+        const band = opts.paint && opts.stampBand > 0 ? Math.min(0.5, opts.stampBand) * Math.min(W, H) / scale : 0;
+        session = render.capture.session({ width: W, height: H, scale, labels: opts.labels !== false, insetBottom: band, stack: preset === 'night' });
         if (!session) throw new Error('capture session unavailable');
         const canvas = session.canvas;
 

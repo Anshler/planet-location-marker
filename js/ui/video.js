@@ -59,6 +59,9 @@ export function videoSupport(env = globalThis) {
     return { kind: null, text: ERRORS.unsupported };
 }
 
+/** The stamp's band at the bottom of a frame, as a share of its shorter side (recorder stampBand). */
+export const STAMP_BAND = 230 / 1080;
+
 /**
  * Burns the stamp into a frame: the date and time (eyebrow), the place (or the eclipse), the brand.
  * @param {CanvasRenderingContext2D} ctx
@@ -69,11 +72,12 @@ export function videoSupport(env = globalThis) {
 export function paintStamp(ctx, W, H, words) {
     const s = Math.min(W, H) / 1080;
     const pad = Math.round(44 * s);
-    const g = ctx.createLinearGradient(0, H - 230 * s, 0, H);
+    const band = STAMP_BAND * Math.min(W, H);
+    const g = ctx.createLinearGradient(0, H - band, 0, H);
     g.addColorStop(0, 'rgba(3, 6, 13, 0)');
     g.addColorStop(1, 'rgba(3, 6, 13, .7)');
     ctx.fillStyle = g;
-    ctx.fillRect(0, H - 230 * s, W, 230 * s);
+    ctx.fillRect(0, H - band, W, band);
     ctx.save();
     ctx.textBaseline = 'alphabetic';
     ctx.textAlign = 'left';
@@ -203,7 +207,7 @@ export function mountVideo(host, ctx) {
         const stem = fileStem(ctx, ctx.clock.tMs);
         const res = await ui.act('recordVideo', {
             preset, size, signal: abort.signal, name: stem,
-            paint: (c2d, W, H, t) => paintStamp(c2d, W, H, wordsAt(t)),
+            paint: (c2d, W, H, t) => paintStamp(c2d, W, H, wordsAt(t)), stampBand: STAMP_BAND,
             onProgress: ({ done, total, preview: frame }) => {
                 const pct = Math.round((100 * done) / total);
                 bar.firstChild.style.width = `${pct}%`;

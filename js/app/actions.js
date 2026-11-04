@@ -1039,7 +1039,8 @@ export function createActions(deps) {
         const ui = store.get().ui;
         const cinema = !ui.cinema;
         store.set({ ui: { ...ui, cinema } }, 'actions');
-        say(cinema ? 'Interface hidden. Press H to show it again.' : 'Interface shown');
+        say(!cinema ? 'Interface shown' : store.get().status.coarse ? 'Interface hidden. Tap Show interface to bring it back.'
+            : 'Interface hidden. Press H to show it again.');
     }
 
     function resetCamera() {

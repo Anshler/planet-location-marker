@@ -1536,6 +1536,9 @@ body.no-webgl .vb-ruler, body.no-webgl .vb-point { display: none; }
 .help__row dd { flex: 1 1 auto; min-width: 0; order: 1; margin: 0; color: var(--text-2); font-size: 13px; }
 .help__keys { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 4px; }
 .help__or { width: 2px; }
+.help__row .help__gesture { flex: 0 0 38%; order: 0; color: var(--text); font-size: 13px; font-weight: 650; }
+.help__foot { margin-top: 12px; }
+body.is-coarse .help:not(.is-keys) .help__grid { display: none; }
 .share { width: min(520px, 100%); }
 .share__row { display: flex; gap: 8px; margin-top: 14px; }
 .share__msg { min-height: 18px; margin-top: 8px; color: var(--ok); font-size: 12.5px; }
@@ -2299,6 +2302,13 @@ body.is-sky .ui .glass { border-color: rgba(255, 255, 255, .1); }
 body.is-coarse .ui .icon-btn { min-width: 40px; min-height: 40px; }
 body.is-coarse .ui .switch-row { min-height: 48px; }
 body.is-coarse .ui .chip { height: 34px; }
+
+/* Touch-first copy: .for-fine shows with a mouse and keyboard, .for-coarse on touch; key caps and key
+   hints hide on touch (the help dialog's key table keeps them), and the place search gets its Cancel. */
+body:not(.is-coarse) .for-coarse, body.is-coarse .for-fine { display: none !important; }
+:is(.btn, .dialog__title) > :is(.for-fine, .for-coarse) { display: inline-flex; align-items: center; gap: inherit; }
+body.is-coarse .ui :is(.kbd, .kbds, .switch-row__keys):not(.help *) { display: none; }
+body.is-coarse .ui .palette__close { display: inline-flex; height: 40px; padding: 0 8px; background: none; color: var(--accent); font-weight: 650; }
 
 /* 21 ─ Motion ----------------------------------------------------------------------------------------- */
 @keyframes spin { to { transform: rotate(360deg); } }

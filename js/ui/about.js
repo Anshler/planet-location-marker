@@ -10,6 +10,7 @@ import { APP_NAME, VERSION, REPO_URL } from '../version.js';
 import { h, on } from './dom.js';
 import { icon } from './icons.js';
 import { brandMark } from './topbar.js';
+import { helpButton } from './help.js';
 
 /** Third-party credits: [name, version/role, licence, url]. */
 export const CREDITS = [
@@ -41,8 +42,8 @@ export function mountAbout(root, ctx) {
     const link = (href, text, cls = 'link') => h('a', { class: cls, href, target: '_blank', rel: 'noopener noreferrer' },
         text, icon('external', { size: 13 }));
 
-    const keysBtn = h('button', { class: 'btn btn--soft', type: 'button' }, icon('keyboard', { size: 16 }), 'Keyboard shortcuts');
-    offs.push(on(keysBtn, 'click', () => ui.toggleHelp(true)));
+    const keys = helpButton(ui);
+    offs.push(keys.off);
 
     root.append(
         h('div', { class: 'about-hero' },
@@ -76,7 +77,7 @@ export function mountAbout(root, ctx) {
         h('div', { class: 'btn-row btn-row--wrap' },
             link(REPO_URL, 'Source code', 'btn btn--soft'),
             h('a', { class: 'btn btn--soft', href: 'THIRD_PARTY_NOTICES.md', target: '_blank', rel: 'noopener' }, 'Third-party notices'),
-            keysBtn),
+            keys.el),
         h('p', { class: 'note' }, `${APP_NAME} ${VERSION}. Made for curious people everywhere.`));
 
     return { destroy() { offs.forEach((off) => off()); root.textContent = ''; } };

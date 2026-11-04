@@ -1,6 +1,8 @@
 /**
  * Help overlay (`?`): the keyboard shortcut table from SPEC F.3, as a modal
- * dialog bound to `state.ui.help`.
+ * dialog bound to `state.ui.help`. On a touch-first device (body.is-coarse) it opens on the
+ * gestures instead, with the key table one tap away (a tablet may have a keyboard).
+ * `helpButton(ui)` is the 'Keyboard shortcuts' / 'Gestures and help' button of Settings and About.
  *
  * @module ui/help
  */
@@ -56,6 +58,30 @@ export const SHORTCUTS = [
     ] },
 ];
 
+/** Touch gestures: [gesture, what it does]. */
+export const GESTURES = [
+    ['Drag', 'Turn the globe; in Sky view, look around'],
+    ['Pinch', 'Zoom in and out'],
+    ['Tap a world', 'Meet it: the end of its beam, a row in Sky now or a chip under the time bar'],
+    ['Tap the Earth', 'Stand there instead (Undo in the message)'],
+    ['Double-tap', 'Fly closer; in Sky view, glide there and zoom in'],
+    ['Drag the time bar', 'Travel through hours and days; ▶ plays time, Now comes back'],
+    ['Drag the panel’s handle', 'Raise or lower the panel (phones)'],
+    ['Tap the place name', 'Search for somewhere else'],
+];
+
+/**
+ * The button that opens this dialog: 'Keyboard shortcuts' with a mouse, 'Gestures and help' on touch.
+ * @param {any} ui the UI hub
+ * @returns {{el: HTMLElement, off: () => void}}
+ */
+export function helpButton(ui) {
+    const el = h('button', { class: 'btn btn--soft', type: 'button' },
+        h('span', { class: 'for-fine' }, icon('keyboard', { size: 16 }), 'Keyboard shortcuts'),
+        h('span', { class: 'for-coarse' }, icon('help', { size: 16 }), 'Gestures and help'));
+    return { el, off: on(el, 'click', () => ui.toggleHelp(true)) };
+}
+
 function keysEl(spec) {
     const wrap = h('span', { class: 'help__keys' });
     spec.split('|').forEach((alt, i) => {
@@ -75,15 +101,23 @@ export function mountHelp(root, ctx) {
     const { store, ui } = ctx;
     const offs = [];
     const closeBtn = h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Close' }, icon('close', { size: 18 }));
+    const keysBtn = h('button', { class: 'btn btn--soft btn--sm', type: 'button', 'aria-expanded': 'false' },
+        icon('keyboard', { size: 16 }), 'Keyboard shortcuts');
     const dialog = h('div', { class: 'dialog help glass', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'help-title' },
         h('header', { class: 'dialog__head' },
-            h('h2', { class: 'dialog__title', id: 'help-title' }, icon('keyboard', { size: 20 }), 'Keyboard shortcuts'),
+            h('h2', { class: 'dialog__title', id: 'help-title' },
+                h('span', { class: 'for-fine' }, icon('keyboard', { size: 20 }), 'Keyboard shortcuts'),
+                h('span', { class: 'for-coarse' }, icon('help', { size: 20 }), 'Gestures')),
             closeBtn),
+        h('section', { class: 'help__group help__touch for-coarse' },
+            h('dl', { class: 'help__list' }, GESTURES.map(([g, d]) => h('div', { class: 'help__row' },
+                h('dt', { class: 'help__gesture' }, g), h('dd', null, d))))),
         h('div', { class: 'help__grid' }, SHORTCUTS.map((g) => h('section', { class: 'help__group' },
             h('h3', { class: 'group-title' }, g.title),
             h('dl', { class: 'help__list' }, g.rows.map(([k, d]) => h('div', { class: 'help__row' },
                 h('dt', null, keysEl(k)), h('dd', null, d))))))),
-        h('p', { class: 'note' }, 'Shortcuts are ignored while typing in a field, except Esc. On touch screens, drag to rotate and pinch to zoom.'));
+        h('p', { class: 'note for-fine' }, 'Shortcuts are ignored while typing in a field, except Esc. On touch screens, drag to rotate and pinch to zoom.'),
+        h('div', { class: 'btn-row help__foot for-coarse' }, keysBtn));
     const layer = h('div', { class: 'modal-layer help-layer', hidden: true }, h('div', { class: 'modal-backdrop' }), dialog);
     root.appendChild(layer);
 
@@ -97,6 +131,10 @@ export function mountHelp(root, ctx) {
     }
     const close = () => ui.toggleHelp(false);
     offs.push(on(closeBtn, 'click', close));
+    offs.push(on(keysBtn, 'click', () => {
+        const open = dialog.classList.toggle('is-keys');
+        keysBtn.setAttribute('aria-expanded', String(open));
+    }));
     offs.push(on(layer.querySelector('.modal-backdrop'), 'click', close));
     offs.push(on(dialog, 'keydown', (e) => {
         if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }

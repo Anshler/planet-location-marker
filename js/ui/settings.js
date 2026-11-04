@@ -3,7 +3,7 @@
  * time display zone (Observer / Device / UTC), 24-hour clock, sky darkness
  * (Auto from location / Pristine / Bortle 1–9), aurora activity (Quiet / Typical / Storm: the
  * modelled ovals, not live data), Earth-lock,
- * Replay intro, keyboard shortcuts and Reset all settings (with confirmation).
+ * Replay intro, keyboard shortcuts (gestures on touch) and Reset all settings (with confirmation).
  *
  * @module ui/settings
  */
@@ -12,6 +12,7 @@ import { DEFAULT_STATE } from '../core/store.js';
 import { ovalSummary } from '../astro/geomag.js';
 import { h, on, setText, segmented, switchRow } from './dom.js';
 import { icon } from './icons.js';
+import { helpButton } from './help.js';
 
 const TIER_NAME = { low: 'Low', medium: 'Medium', high: 'High', max: 'Max' };
 /** Bortle's names for classes 1…9. */
@@ -86,7 +87,7 @@ export function mountSettings(root, ctx) {
 
     // Actions.
     const replay = h('button', { class: 'btn btn--soft', type: 'button' }, icon('play', { size: 14 }), 'Replay intro');
-    const keys = h('button', { class: 'btn btn--soft', type: 'button' }, icon('keyboard', { size: 16 }), 'Keyboard shortcuts');
+    const keys = helpButton(ui);
     const reset = h('button', { class: 'btn btn--danger-ghost', type: 'button' }, icon('undo', { size: 16 }), 'Reset all settings');
     const confirmYes = h('button', { class: 'btn btn--danger', type: 'button' }, 'Reset');
     const confirmNo = h('button', { class: 'btn btn--ghost', type: 'button' }, 'Cancel');
@@ -102,11 +103,11 @@ export function mountSettings(root, ctx) {
         h('div', { class: 'group' }, h('h3', { class: 'group-title' }, h('label', { for: skyId }, 'Sky darkness')), skyDark, skyHint),
         h('div', { class: 'group' }, h('h3', { class: 'group-title' }, h('label', { for: auroraId }, 'Aurora activity')), aurora, auroraHint),
         h('div', { class: 'group' }, h('h3', { class: 'group-title' }, 'View'), lock.el),
-        h('div', { class: 'group group--actions' }, h('div', { class: 'btn-row' }, replay, keys), reset, confirm),
+        h('div', { class: 'group group--actions' }, h('div', { class: 'btn-row' }, replay, keys.el), reset, confirm),
         motion);
 
     offs.push(on(replay, 'click', () => ui.act('replayIntro')));
-    offs.push(on(keys, 'click', () => ui.toggleHelp(true)));
+    offs.push(keys.off);
     offs.push(on(reset, 'click', () => { confirm.hidden = false; reset.hidden = true; confirmNo.focus(); }));
     offs.push(on(confirmNo, 'click', () => { confirm.hidden = true; reset.hidden = false; reset.focus(); }));
     offs.push(on(confirmYes, 'click', () => {

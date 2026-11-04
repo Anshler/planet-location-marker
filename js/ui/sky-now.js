@@ -139,8 +139,11 @@ export function mountSkyNow(root, ctx) {
     root.append(
         h('div', { class: 'section-head' }, h('h2', { class: 'panel-title' }, 'Sky now'), status),
         summary, dome.el, tonightCard.el, compare, empty, list,
-        h('p', { class: 'note' }, 'Tip: press ', h('kbd', { class: 'kbd' }, '1'), '–', h('kbd', { class: 'kbd' }, '9'),
-            ' to select a body, ', h('kbd', { class: 'kbd' }, 'V'), ' to stand on the ground and look up.'));
+        // Keys on a mouse and keyboard, gestures on a touch-first device (body.is-coarse, css/app.css).
+        h('p', { class: 'note for-fine' }, 'Tip: press ', h('kbd', { class: 'kbd' }, '1'), '–', h('kbd', { class: 'kbd' }, '9'),
+            ' to select a body, ', h('kbd', { class: 'kbd' }, 'V'), ' to stand on the ground and look up.'),
+        h('p', { class: 'note for-coarse' }, 'Tip: tap a row, or a world at the end of its beam, to meet it. '
+            + 'Sky view stands you on the ground to look up.'));
 
     /** @type {Record<string, any>} */
     const rows = {};

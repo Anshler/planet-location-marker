@@ -293,8 +293,9 @@ body.is-intro-out #ui-root{animation:pc-ui-in .9s cubic-bezier(.2,.7,.2,1) both}
   w.__pcEnv = env;
 
   var reduced = mq('(prefers-reduced-motion: reduce)');
+  var coarse = mq('(pointer: coarse)');
   if (!env.webgl2 || !env.importmap) b.classList.add('no-webgl');
-  if (mq('(pointer: coarse)')) b.classList.add('is-coarse');
+  if (coarse) b.classList.add('is-coarse');
   if (reduced) b.classList.add('is-reduced-motion');
 
   var nameMeta = d.querySelector('meta[name="application-name"]');
@@ -305,16 +306,23 @@ body.is-intro-out #ui-root{animation:pc-ui-in .9s cubic-bezier(.2,.7,.2,1) both}
   }
   $('pc-ld-reload').addEventListener('click', function () { w.location.reload(); });
 
-  // Rotating tips.
-  var tips = [
+  // Rotating tips: gestures on a touch-first device, keys elsewhere.
+  var tips = (coarse ? [
+    'Drag to turn the globe · pinch to zoom',
+    'Tap a world at the end of its beam to meet it',
+    'Tap anywhere on Earth to stand there instead',
+    'Drag the time bar to travel through time',
+    'Switch to Sky view to stand on the ground and look up'
+  ] : [
     'Drag to orbit the globe · scroll or pinch to zoom',
     'Press <kbd>V</kbd> to stand on the ground and look up',
     'Press <kbd>1</kbd>–<kbd>9</kbd> for the Sun, the Moon and each planet',
     'Click anywhere on Earth to stand there instead',
-    '<kbd>Space</kbd> pauses time · <kbd>[</kbd> and <kbd>]</kbd> change its speed',
+    '<kbd>Space</kbd> pauses time · <kbd>[</kbd> and <kbd>]</kbd> change its speed'
+  ]).concat([
     'Every position is computed in your browser — no network needed',
     'A beam that dives into the Earth points at a world below your horizon'
-  ];
+  ]);
   var tipEl = $('pc-ld-tip');
   var tipIndex = Math.floor(Math.random() * tips.length);
   function showTip() {

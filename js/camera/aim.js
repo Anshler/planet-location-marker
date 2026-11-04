@@ -227,9 +227,13 @@ export function createAim(deps) {
         const eps = fov / 1600;
         const dAz = Math.abs(wrap180(look.azDeg - sent.azDeg)) * Math.cos(look.altDeg * DEG);
         if (!(dAz < eps) || !(Math.abs(look.altDeg - sent.altDeg) < eps)) {
-            sent.azDeg = look.azDeg;
-            sent.altDeg = look.altDeg;
-            try { rig.setSkyAim?.(look.azDeg, look.altDeg); } catch (err) { console.error('[aim] setSkyAim failed', err); }
+            let ok = false;
+            try { ok = rig.setSkyAim?.(look.azDeg, look.altDeg) !== false; } catch (err) { console.error('[aim] setSkyAim failed', err); }
+            // Only a look the rig took counts as sent (a refused one, while tracking, goes again).
+            if (ok) {
+                sent.azDeg = look.azDeg;
+                sent.altDeg = look.altDeg;
+            }
         }
     }
 

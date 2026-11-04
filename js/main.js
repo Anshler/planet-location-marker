@@ -1178,6 +1178,8 @@ function bindRenderState({ store, bus, clock, rc, rig, loop, snap, astro, m, lab
             store.set({ view: { ...st.view, track: 'none' } }, 'rig');
             return;
         }
+        // Tracking (Telescope, K) takes the look: the phone no longer steers it.
+        if (kind !== 'none' && R.aim?.active) R.aim.stop('track');
         try { rig.setTracking?.(kind, st.selection); } catch (err) { console.error('[main] tracking failed', err); }
     });
     rig.onTrackEnd?.(({ reason, kind, id }) => {
@@ -1804,6 +1806,7 @@ let aimModP = null;
 const ALIGN_MAX_DEG = 35;
 const AIM_STOP_TOASTS = Object.freeze({
     idle: 'Stopped following the phone after 2 minutes without movement.',
+    track: 'Stopped following the phone: tracking holds the view now.',
     nodata: "This device doesn't report which way it is pointing.",
     unsupported: "This browser can't read the phone's orientation.",
 });

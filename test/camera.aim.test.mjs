@@ -200,3 +200,29 @@ test('createAim: iOS learns the compass correction while upright', async () => {
     nearAz(aim.look.azDeg, 45, 0.5, 'kept');
     aim.stop();
 });
+
+test('createAim: a look the rig refused (tracking holds the view) is sent again', async () => {
+    const env = fakeEnv();
+    let take = true;
+    const tried = [];
+    env.rig.setSkyAim = (az, alt) => { tried.push([az, alt]); return take; };
+    const aim = createAim({ win: env.win, nav: env.nav, rig: env.rig, now: env.now });
+    const started = aim.start();
+    env.advance(16);
+    env.fire('deviceorientationabsolute', { alpha: 0, beta: 110, gamma: 0, absolute: true });
+    assert.equal(await started, 'ok');
+    assert.equal(tried.length, 1);
+    take = false;
+    for (let i = 0; i < 200; i++) {
+        env.advance(16);
+        env.fire('deviceorientationabsolute', { alpha: 90, beta: 110, gamma: 0, absolute: true });
+    }
+    const n = tried.length;
+    assert.ok(n >= 2, 'the turn was offered');
+    // Tracking ends: the same still phone takes the view back without moving again.
+    take = true;
+    env.advance(16);
+    env.fire('deviceorientationabsolute', { alpha: 90, beta: 110, gamma: 0, absolute: true });
+    assert.ok(tried.length > n, 'resent once the rig takes it');
+    aim.stop('user');
+});

@@ -119,6 +119,10 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
     renderer.setClearColor(0x000000, 1);
     // Count every draw of a frame (the composer issues several render() calls).
     renderer.info.autoReset = false;
+    // The context reports itself lost at once, but 'webglcontextlost' is dispatched in a later task:
+    // a frame in between would draw on a dead context (programs with no info log make three throw).
+    const ctxGl = renderer.getContext();
+    const deadGl = () => { try { return ctxGl.isContextLost(); } catch { return true; } };
 
     const scene = new THREE.Scene();
     scene.name = 'planet-location-marker';
@@ -383,7 +387,7 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
      * @returns {boolean} false when nothing could be captured (context lost, disposed)
      */
     function capture(w, h, scale, draw, read, opts) {
-        if (lost || restoring || disposed || session) return false;
+        if (lost || restoring || disposed || session || deadGl()) return false;
         const gl = renderer.getContext();
         const W = Math.max(16, Math.min(maxBuffer, Math.round(w)));
         const H = Math.max(16, Math.min(maxBuffer, Math.round(h)));
@@ -523,7 +527,7 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
      * @param {{x:number, y:number, weight:number}|null} [ss]
      */
     function render(ss) {
-        if (lost || restoring || disposed) return;
+        if (lost || restoring || disposed || deadGl()) return;
         renderer.info.reset();
         const jitter = ss && postfx?.supersample && !postfx.accum ? ss : null;
         const e = camera.projectionMatrix.elements;
@@ -549,6 +553,8 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
                 renderOverlay();
             }
         } catch (err) {
+            // Lost in the middle of the frame: nothing is broken, and the restore draws again.
+            if (deadGl()) return;
             if (postfx) {
                 // Fall back to direct rendering for the rest of the session.
                 console.warn('Planet Location Marker: post-processing failed, rendering directly.', err);
@@ -640,7 +646,7 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
      * @returns {Promise<void>} never rejects
      */
     async function compile({ paced = false } = {}) {
-        if (lost || restoring || disposed) return;
+        if (lost || restoring || disposed || deadGl()) return;
         const parallel = !!renderer.extensions?.has?.('KHR_parallel_shader_compile');
         const n0 = renderer.info.programs?.length ?? 0;
         let offLost = null;

@@ -32,14 +32,14 @@ const LY_CRAFT = layersToCode({ ...DEFAULT_STATE.layers, spacecraft: true });
 /** @type {ReadonlyArray<Moment>} */
 export const MOMENTS = Object.freeze([
     {
-        id: 'cairo-1006', title: 'The brightest star ever seen', when: 'Cairo, May 1006',
+        id: 'cairo-1006', title: 'The brightest star ever seen', when: 'Cairo, night of 30 April 1006',
         caption: 'A guest star low in Lupus, perhaps a quarter as bright as the Moon: the physician Ali ibn Ridwan saw it light the ground.',
         sources: ['Ali ibn Ridwan, commentary on Ptolemy’s Tetrabiblos', 'Goldstein 1965, AJ 70, 105'],
         hash: link({ lat: 30.0444, lon: 31.2357, n: 'Cairo', tz: 'Africa/Cairo', t: '1006-05-06T21:00:00Z', sel: 'guest:sn1006', cam: 's:180,18,70' }),
     },
     {
-        id: 'kaifeng-1054', title: 'A guest star by the Moon', when: 'Kaifeng, dawn of 4 July 1054',
-        caption: 'Song astronomers record a new star near ζ Tauri, bright enough to see by day for 23 days: the Crab supernova. A pictograph at Chaco Canyon may record the same dawn.',
+        id: 'kaifeng-1054', title: 'A guest star in Taurus', when: 'Kaifeng, dawn of 4 July 1054',
+        caption: 'Song astronomers record a new star near ζ Tauri, bright enough to see by day for 23 days: the Crab supernova. A pictograph at Chaco Canyon may record the dawn of 5 July, when the crescent Moon stood beside it.',
         sources: ['Song Huiyao (Song dynasty records)', 'Stephenson & Green, Historical Supernovae (2002)'],
         hash: link({ lat: 34.7972, lon: 114.3076, n: 'Kaifeng', tz: 'Asia/Shanghai', t: '1054-07-09T20:50:00Z', sel: 'guest:sn1054', cam: 's:86,24,64' }),
     },
@@ -113,7 +113,7 @@ export const MOMENTS = Object.freeze([
 
 /** Halley's five apparitions in the app's millennium: the best naked-eye view of each. */
 export const FAMOUS_COMETS = Object.freeze([
-    { id: 'halley-1066', title: '1066 · Hastings', detail: 'Mag 0.6 in the west after sunset, its tail 15° long',
+    { id: 'halley-1066', title: '1066 · Hastings', detail: 'Mag 0.6 in the west after sunset, its tail over 20° long',
         hash: link({ lat: 50.911, lon: 0.487, n: 'Hastings', tz: 'Europe/London', t: '1066-04-30T20:45:00Z', sel: 'comet:halley', cam: 's:283,17,72' }) },
     { id: 'halley-1456', title: '1456 · Florence', detail: 'Toscanelli’s comet: mag 2.3 before dawn in the north-east',
         hash: link({ lat: 43.7696, lon: 11.2558, n: 'Florence', tz: 'Europe/Rome', t: '1456-06-21T02:00:00Z', sel: 'comet:halley', cam: 's:50,14,72' }) },

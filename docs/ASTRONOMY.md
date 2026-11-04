@@ -1133,7 +1133,7 @@ latitude differ by up to 0.34° (Mars's flattening, 1/170); the site is taken as
 (Mercury, Venus, Jupiter, Uranus, Neptune; Saturn with its ring tilt as seen from Mars; the Moon's
 Allen-style law), and the Earth from Mallama & Hilton (2018): V = −3.99 − 1.060·10⁻³α + 2.054·10⁻⁴α².
 The Earth peaks near −2.5 as an evening or morning star, at most ~47° from the Sun; the Moon within
-0.3° of it at +1 … +4. The Sun is 21–25′ across, two thirds of its size from Earth (1/r).
+0.3° of it at +1 … +4. The Sun is 19–23′ across, two thirds of its size from Earth (1/r).
 
 **The Mars clock** follows Allison & McEwen (2000) as implemented by NASA GISS's Mars24: the mean
 anomaly, the fictitious mean Sun and seven planetary perturbers give Ls; the equation of time
@@ -1187,7 +1187,7 @@ roofs, in Mars colours. The light-time beam is a guide, not a ray.
 | Pin on a sphere against the WGS84 ellipsoid | ≤ 21 km in position | ≤ 11″ on the Moon's direction from the pin (globe view, the umbra on the globe), negligible for everything farther. The sky view and the observer's obscuration use AE's WGS84 topocentric directions. The zenith direction is exact (geodetic). |
 | Beam far endpoint at 2000 Earth radii | `camDist / 2000` rad | 0.1° at the default 3.4 ER view. The beam is a line from the pin, so seen from elsewhere it converges at 2000 ER. |
 | Polar motion (ignored) | ≤ 0.5″ (≈ 15 m) | |
-| Star proper motion | < 1.7′ per millennium (stars under 100 mas/yr, left at J2000); ≲ 1′ (the 1,183 movers, linear, no radial velocity) | §5d. Arcturus in 1000 within 1′ of a rigorous space-motion calculation. The max tier's deeper stars do not move. |
+| Star proper motion | < 1.7′ per millennium (stars under 100 mas/yr, left at J2000); ≲ 2′ (the 1,183 movers, linear, no radial velocity: 61 Cygni A 1.7′ and α Cen 1.1′ over ±1000 years) | §5d. Arcturus in 1000 within 1′ of a rigorous space-motion calculation. The max tier's deeper stars do not move. |
 | Star distances and light-times | Hipparcos σ_ϖ (Betelgeuse ± 13 %) | §5e. The departure year is rounded to that error. |
 | Deep-sky objects | position ≤ 0.05°; distance 10–30 %; drawing illustrative | §5f. |
 | Precession circle beyond 1000–3000 | 1–7° | Fixed obliquity and rate; labelled illustrative (§5d). Within 1000–3000 the track is Astronomy Engine's. |

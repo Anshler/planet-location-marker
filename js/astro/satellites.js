@@ -54,7 +54,7 @@ export const SAT_INFO = Object.freeze({
     tiangong: { norad: 48274, name: 'Tiangong', full: 'Tiangong (China Space Station, Tianhe core)', kindLabel: 'Space station', color: '#ffc78f', stdMag: -0.6, priority: 84,
         note: 'China’s space station: the Tianhe core module (2021) with the Wentian and Mengtian laboratories, crewed since 2021.' },
     hubble: { norad: 20580, name: 'Hubble', full: 'Hubble Space Telescope', kindLabel: 'Space telescope', color: '#b9c8ff', stdMag: 2.2, priority: 82,
-        note: 'Launched in 1990 and serviced five times by Space Shuttle crews; its 28.5° orbit keeps it below the horizon north of about 60° latitude.' },
+        note: 'Launched in 1990 and serviced five times by Space Shuttle crews; its 28.5° orbit keeps it below the horizon north of about 50° latitude (and south of 50° S).' },
     'sl16-22285': { norad: 22285, name: 'Zenit stage (1992)', full: 'SL-16 R/B: a Zenit-2 second stage', kindLabel: 'Rocket body', color: '#d7c3a6', stdMag: 2.3, priority: 64,
         note: 'An 11 m spent Zenit-2 upper stage, one of the brightest pieces of debris in orbit; it tumbles, so it can flicker.' },
     'sl16-25407': { norad: 25407, name: 'Zenit stage (1998)', full: 'SL-16 R/B: a Zenit-2 second stage', kindLabel: 'Rocket body', color: '#d7c3a6', stdMag: 2.3, priority: 63,

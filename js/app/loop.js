@@ -4,8 +4,8 @@
 //     t = clock.tick(now)
 //     snapshot ('frame' detail) when the observer or the sky site changed, the clock jumped or sim
 //         time moved ≥ 0.5 s (any amount in a sky view narrower than FINE_FOV_DEG, where 0.5 s of
-//         diurnal motion is pixels) → snap.skyglow (the night sky at the site) and snap.aurora (the
-//         auroral ovals for the activity setting) → every module.apply(snap)
+//         diurnal motion is pixels, and in lunar orbit) → snap.skyglow (the night sky at the site)
+//         and snap.aurora (the auroral ovals for the activity setting) → every module.apply(snap)
 //     readout ('full' detail) at most every 250 ms when sim time or the observer changed → bus 'readout'
 //     moving = rig.update(dt, snap)
 //     render when something is dirty or in motion (camera motion, tweens, time-lapse, intro,
@@ -188,7 +188,7 @@ export function createLoop(deps) {
     /** @type {FrameInfo} */
     const fi = {
         dtMs: 0, timeS: 0, camera: null, viewMode: 'orbit', skyBlend: 0, snap,
-        pulsesActive: false, simRate: 0, exposure,
+        pulsesActive: false, simRate: 0, exposure, moonFront: false,
     };
     // upS is the snapshot's live zenith: the label pool derives is-below for direction anchors from it,
     // and in sky view (horizon) hides star and constellation names that the ground covers — the
@@ -314,8 +314,11 @@ export function createLoop(deps) {
         const obs = store.get().observer;
         const rendering = rc !== null && !renderPaused && !renderFailed;
 
-        // 1. Frame-detail snapshot for the renderers.
-        const fine = rendering && rig !== null && rig.mode === 'sky' && !!rig.camera && rig.camera.fov < FINE_FOV_DEG;
+        // 1. Frame-detail snapshot for the renderers. A telescope-narrow sky view and lunar orbit
+        // (the Earthrise vantage: in 0.5 s the orbiter covers 0.8 km and the Earth climbs 1.5 px of
+        // an 18° view) recompute it whenever sim time moved.
+        const fine = rendering && rig !== null && !!rig.camera
+            && ((rig.mode === 'sky' && rig.camera.fov < FINE_FOV_DEG) || rig.vantage === 'moon');
         if (rendering && (observerDirty || jumped || !snapValid
             || (fine ? t !== snap.tMs : Math.abs(t - snap.tMs) >= SNAP_STALE_MS))) {
             try {
@@ -399,6 +402,7 @@ export function createLoop(deps) {
                 fi.snap = snap;
                 fi.pulsesActive = (clock.playing && Math.abs(clock.rate) > 1) || introPlaying;
                 fi.simRate = clock.playing && Number.isFinite(clock.rate) ? clock.rate : 0;
+                fi.moonFront = !!(rig && rig.moonFront);
 
                 for (let i = 0; i < modules.length; i++) callModule(modules[i], 'update', fi);
 

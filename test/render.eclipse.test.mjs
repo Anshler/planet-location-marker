@@ -115,7 +115,7 @@ test('totality: beads module registered, not depth-tested, flare follows the bri
 test('the path ribbon: registered in main.js, above the clouds, drawn after them, Earth-fixed, one geometry per eclipse', () => {
     const main = stripComments(read('js/main.js'));
     assert.match(main, /eclipsePath: import\('\.\/render\/eclipse-path\.js'\)/, 'importRenderStack');
-    assert.match(main, /create\('eclipsePath', m\.eclipsePath && \(\(\) => m\.eclipsePath\.createEclipsePath\(rc\)\)\)/, 'create list');
+    assert.match(main, /create\('eclipsePath', m\.eclipsePath && \(\(\) => m\.eclipsePath\.createEclipsePath\(rc\)\), furniture\)/, 'create list (in the furniture a vantage hides)');
     const src = stripComments(read('js/render/eclipse-path.js'));
     const earth = stripComments(read('js/render/earth.js'));
     const cloudR = Number(earth.match(/const CLOUD_RADIUS = ([\d.]+);/)[1]);

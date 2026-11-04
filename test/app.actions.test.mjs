@@ -100,6 +100,39 @@ function makeActions(extra = {}) {
     return { store, clock, calls, actions, toasts };
 }
 
+test('setVantage: a globe-view pose (sky view switches to the globe), cleared by Globe or Sky; needs the 3D view', () => {
+    // Text mode (no rig): refused with a toast.
+    const text = makeActions();
+    assert.equal(text.actions.setVantage('l1'), false);
+    assert.equal(text.store.get().view.vantage, 'none');
+    assert.equal(text.toasts.length, 1);
+    // With a rig (the store is what the actions change; main.js hands it to the rig).
+    const flights = [];
+    const rig = { flyToLatLon: (...a) => { flights.push(a); return Promise.resolve(true); }, setMode: () => Promise.resolve(true) };
+    const { store, actions } = makeActions({ render: { rig } });
+    assert.equal(actions.setVantage('mars'), false);
+    store.set({ view: { ...store.get().view, mode: 'sky' } });
+    assert.equal(actions.setVantage('moon'), true);
+    assert.deepEqual([store.get().view.mode, store.get().view.vantage], ['orbit', 'moon']);
+    assert.equal(actions.setVantage('l1'), true);
+    assert.equal(store.get().view.vantage, 'l1');
+    // 'Globe' is the way back even though the view is already the globe; 'Sky' leaves it too.
+    actions.setViewMode('orbit');
+    assert.deepEqual([store.get().view.mode, store.get().view.vantage], ['orbit', 'none']);
+    actions.setVantage('moon');
+    actions.setViewMode('sky');
+    assert.deepEqual([store.get().view.mode, store.get().view.vantage], ['sky', 'none']);
+    // A globe-view event jump keeps the vantage (L1 watches the shadow cross the disc).
+    actions.setViewMode('orbit');
+    actions.setVantage('l1');
+    actions.jumpToEvent({ kind: 'solar-eclipse', tMs: Date.parse('2027-08-02T10:07:00Z'), select: 'sun', view: 'orbit', eclipseKind: 'total', geo: { latDeg: 25.5, lonDeg: 33.2 } });
+    assert.equal(store.get().view.vantage, 'l1');
+    assert.deepEqual(flights, [], 'no flight over the shadow');
+    // A sky-view event leaves it.
+    actions.jumpToEvent({ kind: 'opposition', tMs: Date.parse('2027-09-01T00:00:00Z'), select: 'saturn', view: 'sky' });
+    assert.deepEqual([store.get().view.mode, store.get().view.vantage], ['sky', 'none']);
+});
+
 test('jumpToEvent: a total solar eclipse plays from C2 − 20 s and becomes the eclipse in focus', () => {
     const { store, calls, actions } = makeActions();
     const ev = localSolarEclipseAt(LUXOR, Date.parse('2027-08-02T10:05:00Z'));

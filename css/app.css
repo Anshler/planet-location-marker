@@ -1611,6 +1611,43 @@ body.tier-medium:not(.is-coarse) .glass {
 }
 .cinema-exit:focus-visible { opacity: 1; }
 
+/* Vantage points (js/ui/view-switch.js): the menu, and the caption pill while one is shown. The
+   observer's labels stay off there (main.js toggles body.is-vantage with the 3D furniture). */
+.vmenu { width: 320px; padding: 6px; }
+.vmenu__item {
+    display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 9px 10px;
+    border: 0; border-radius: 10px; background: none; color: var(--text); text-align: left; cursor: pointer;
+}
+.vmenu__item:hover, .vmenu__item:focus-visible { background: rgba(255, 255, 255, .07); }
+.vmenu__item svg { flex: none; margin-top: 1px; color: var(--muted); }
+.vmenu__item[aria-checked="true"] svg, .vmenu__item[aria-checked="true"] .vmenu__name { color: var(--accent); }
+.vmenu__text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.vmenu__name { font-size: 13.5px; font-weight: 700; }
+.vmenu__detail { color: var(--muted); font-size: 12px; line-height: 1.35; }
+.vcap {
+    position: fixed;
+    top: calc(var(--gutter) + 54px + var(--safe-t));
+    left: calc((100vw - var(--panel-w) - var(--gutter)) / 2);
+    z-index: 9;
+    display: flex; align-items: center; gap: 10px;
+    max-width: calc(100vw - var(--panel-w) - var(--gutter) * 4);
+    padding: 6px 6px 6px 12px;
+    border-radius: var(--r-pill);
+    pointer-events: auto;
+    translate: -50% 0;   /* not transform: toast-in animates that */
+    animation: toast-in var(--t2) var(--ease-out) both;
+}
+.vcap[hidden] { display: none; }
+.vcap__icon { display: flex; color: var(--accent); }
+.vcap__text { display: flex; flex-direction: column; min-width: 0; line-height: 1.25; }
+.vcap__name { font-size: 13px; font-weight: 750; }
+.vcap__detail { overflow: hidden; color: var(--muted); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+.vcap__back { flex: none; height: 32px; padding: 0 12px; border-radius: var(--r-pill); }
+.ui[data-layout="mobile"] .vcap { top: calc(66px + var(--safe-t)); left: calc(12px + var(--safe-l)); max-width: calc(100vw - 84px); translate: none; }
+.ui[data-layout="text"] .vcap { display: none; }
+body.is-vantage #labels-root { visibility: hidden; }
+body.no-webgl .vb-vantage, body.no-webgl .vcap { display: none; }
+
 .fade-overlay { position: fixed; inset: 0; z-index: 60; background: #000; opacity: 0; pointer-events: none; }
 .fade-overlay.is-on { animation: veil 220ms ease-out both; }
 @keyframes veil { from { opacity: .85; } to { opacity: 0; } }
@@ -1834,6 +1871,7 @@ body.is-ready #ui-root .timebar { animation-delay: 140ms; }
 .ui.is-cinema .sheet,
 .ui.is-cinema .toasts,
 .ui.is-cinema .ecl,
+body.is-cinema .vcap,
 body.is-cinema .ui .topbar,
 body.is-cinema .ui .panel,
 body.is-cinema .ui .timebar,

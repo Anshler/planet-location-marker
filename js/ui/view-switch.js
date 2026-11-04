@@ -3,6 +3,10 @@
  * only), tracking (Sky only: off → the selected body → the stars, K), Share, Fullscreen and Help. On mobile it becomes a floating column
  * (Globe/Sky, lock, share).
  *
+ * Vantage points (globe view): a menu button offers 'View from L1' and 'Earthrise'
+ * (actions.setVantage); while one is shown a caption pill names it under the top bar with a way
+ * back, and 'Globe' (or Esc) returns to the globe.
+ *
  * Owns the share UX (SPEC F.4): `actions.share()` → 'shared' (system sheet, no
  * toast) | 'copied' ("Link copied") | 'failed' (a dialog with a selectable link
  * and a Copy button). Under reduced motion, view and place changes are cuts, so
@@ -11,8 +15,19 @@
  * @module ui/view-switch
  */
 
-import { h, on, setAttr, trapFocus } from './dom.js';
+import { h, on, setAttr, trapFocus, openPopover } from './dom.js';
 import { icon, swapIcon } from './icons.js';
+
+/** The vantage menu: [kind, name, detail]. */
+const VANTAGE_ITEMS = Object.freeze([
+    ['none', 'Globe', 'Orbit the Earth from close by'],
+    ['l1', 'View from L1', 'The sunlit Earth from 1.5 million km, as NASA’s DSCOVR sees it'],
+    ['moon', 'Earthrise', 'The Earth rising over the Moon’s limb, from lunar orbit'],
+]);
+const VANTAGE_CAPTION = Object.freeze({
+    l1: ['View from L1', '1.5 million km sunward'],
+    moon: ['Earthrise', 'Lunar orbit, 150 km up · play time to watch it rise'],
+});
 
 /**
  * Mounts the view switch.
@@ -40,14 +55,56 @@ export function mountViewSwitch(root, ctx) {
         icon('help', { size: 19 }));
     const trackBtn = h('button', { class: 'icon-btn icon-btn--glass glass vb-track', type: 'button', 'aria-pressed': 'false', 'aria-label': 'Tracking', 'data-tip': 'Track', 'data-kbd': 'K' },
         icon('crosshair', { size: 19 }));
-    root.append(seg, lockBtn, trackBtn, shareBtn, fsBtn, helpBtn);
+    const vantBtn = h('button', { class: 'icon-btn icon-btn--glass glass vb-vantage', type: 'button', 'aria-haspopup': 'menu', 'aria-expanded': 'false', 'aria-label': 'Vantage points', 'data-tip': 'Vantage points' },
+        icon('vantage', { size: 19 }));
+    root.append(seg, lockBtn, vantBtn, trackBtn, shareBtn, fsBtn, helpBtn);
     root.setAttribute('role', 'toolbar');
     root.setAttribute('aria-label', 'View');
 
     const setMode = (mode) => {
-        if (store.get().view?.mode === mode) return;
+        const v = store.get().view;
+        // 'Globe' is also the way back from a vantage point.
+        if (v?.mode === mode && (v?.vantage ?? 'none') === 'none') return;
         ui.act('setViewMode', mode);
     };
+
+    // ---------------------------------------------------------------- vantage points
+    const vantItems = VANTAGE_ITEMS.map(([kind, name, detail]) => h('button', {
+        class: 'vmenu__item', type: 'button', role: 'menuitemradio', 'aria-checked': 'false', 'data-kind': kind,
+    }, icon(kind === 'none' ? 'globe' : kind === 'l1' ? 'sun' : 'moon', { size: 18 }),
+    h('span', { class: 'vmenu__text' }, h('span', { class: 'vmenu__name' }, name), h('span', { class: 'vmenu__detail' }, detail))));
+    const vantMenu = h('div', { class: 'popover vmenu', role: 'menu', 'aria-label': 'Vantage points', hidden: true }, ...vantItems);
+    (ui.root || document.body).appendChild(vantMenu);
+    let vantPop = null;
+    const closeVant = () => { vantPop?.close(); vantPop = null; };
+    offs.push(on(vantBtn, 'click', () => {
+        if (vantPop) { closeVant(); return; }
+        const cur = store.get().view?.vantage ?? 'none';
+        for (const b of vantItems) setAttr(b, 'aria-checked', String(b.dataset.kind === cur));
+        vantPop = openPopover(vantBtn, vantMenu, { placement: 'top', onClose: () => { vantPop = null; } });
+    }));
+    offs.push(on(vantMenu, 'click', (e) => {
+        const b = /** @type {HTMLElement} */ (e.target).closest('[data-kind]');
+        if (!b) return;
+        closeVant();
+        ui.act('setVantage', b.dataset.kind);
+    }));
+    offs.push(on(vantMenu, 'keydown', (e) => {
+        if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+        e.preventDefault();
+        const i = vantItems.indexOf(/** @type {any} */ (document.activeElement));
+        vantItems[(i + (e.key === 'ArrowDown' ? 1 : vantItems.length - 1)) % vantItems.length].focus();
+    }));
+    // The caption while a vantage is shown.
+    const capName = h('span', { class: 'vcap__name' });
+    const capDetail = h('span', { class: 'vcap__detail' });
+    const capBack = h('button', { class: 'btn btn--soft vcap__back', type: 'button', 'aria-label': 'Back to the globe (Esc)', title: 'Back to the globe (Esc)' },
+        icon('globe', { size: 16 }), h('span', null, 'Globe'));
+    const caption = h('div', { class: 'vcap glass', role: 'status', hidden: true },
+        h('span', { class: 'vcap__icon', 'aria-hidden': 'true' }, icon('vantage', { size: 18 })),
+        h('span', { class: 'vcap__text' }, capName, capDetail), capBack);
+    (ui.root || document.body).appendChild(caption);
+    offs.push(on(capBack, 'click', () => ui.act('setVantage', 'none')));
     offs.push(on(globeBtn, 'click', () => setMode('orbit')));
     offs.push(on(skyBtn, 'click', () => setMode('sky')));
     offs.push(on(seg, 'keydown', (e) => {
@@ -68,14 +125,26 @@ export function mountViewSwitch(root, ctx) {
     function syncView() {
         const v = store.get().view || {};
         const sky = v.mode === 'sky';
-        setAttr(globeBtn, 'aria-checked', String(!sky));
+        const vt = v.vantage ?? 'none';
+        const noGl = store.get().status?.webgl === false;
+        // In a vantage point 'Globe' is the way back, so it reads as not selected.
+        const globe = !sky && vt === 'none';
+        setAttr(globeBtn, 'aria-checked', String(globe));
         setAttr(skyBtn, 'aria-checked', String(sky));
         globeBtn.tabIndex = sky ? -1 : 0;
         skyBtn.tabIndex = sky ? 0 : -1;
-        globeBtn.classList.toggle('is-on', !sky);
+        globeBtn.classList.toggle('is-on', globe);
         skyBtn.classList.toggle('is-on', sky);
         seg.dataset.mode = sky ? 'sky' : 'orbit';
-        lockBtn.hidden = sky;
+        vantBtn.hidden = sky || noGl;
+        vantBtn.classList.toggle('is-on', vt !== 'none');
+        caption.hidden = vt === 'none' || noGl;
+        if (vt !== 'none' && VANTAGE_CAPTION[vt]) {
+            capName.textContent = VANTAGE_CAPTION[vt][0];
+            capDetail.textContent = VANTAGE_CAPTION[vt][1];
+        }
+        if (sky) closeVant();
+        lockBtn.hidden = sky || vt !== 'none';
         setAttr(lockBtn, 'aria-pressed', String(!!v.earthLock));
         swapIcon(lockBtn, v.earthLock ? 'lock' : 'unlock', 19);
         lockBtn.dataset.tip = v.earthLock ? 'View locked to Earth' : 'View free — lock to Earth';
@@ -178,6 +247,9 @@ export function mountViewSwitch(root, ctx) {
             offs.forEach((off) => off());
             clearTimeout(fadeTimer);
             release?.();
+            closeVant();
+            vantMenu.remove();
+            caption.remove();
             layer.remove();
             fade.remove();
             root.textContent = '';

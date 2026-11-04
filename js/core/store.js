@@ -41,12 +41,18 @@ export const SKY_DARK_SETTINGS = Object.freeze(['auto', 'pristine', '1', '2', '3
 export const AURORA_SETTINGS = Object.freeze(['quiet', 'typical', 'storm']);
 
 /**
+ * view.vantage choices (`vt=` in the URL; globe view only): 'l1', the sunlit Earth from 1.5 million km
+ * sunward (DSCOVR), and 'moon', Earthrise from a low lunar orbit (astro/vantage.js, camera/rig.js).
+ */
+export const VANTAGE_SETTINGS = Object.freeze(['none', 'l1', 'moon']);
+
+/**
  * The initial application state (SPEC §C.3). Frozen: copy before modifying.
  * @type {Readonly<AppState>}
  */
 export const DEFAULT_STATE = deepFreeze({
     observer: { latDeg: 51.4769, lonDeg: -0.0005, elevM: 0, name: 'Royal Observatory Greenwich', country: 'United Kingdom', tz: 'Europe/London', tzApprox: false, source: 'default' },
-    selection: null, view: { mode: 'orbit', earthLock: true, track: 'none' },
+    selection: null, view: { mode: 'orbit', earthLock: true, track: 'none', vantage: 'none' },
     layers: {
         beams: true, ghostBeams: true, sunMoonBeams: true, stars: true, constellations: true, constellationNames: true, starNames: true,
         milkyWay: true, clouds: true, atmosphere: true, ecliptic: false, eqGrid: false, altAzGrid: true, horizon: true, footprint: false,

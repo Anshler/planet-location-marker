@@ -33,6 +33,12 @@ export const USER_SOURCES = Object.freeze(['click', 'city', 'search', 'geo', 'ma
 const OBSERVER_SOURCES = new Set(['default', 'url', 'saved', 'tzguess', 'click', 'city', 'search', 'geo', 'manual']);
 const VIEW_MODES = new Set(['orbit', 'sky']);
 const TRACK_KINDS = new Set(['none', 'body', 'stars']);
+const VANTAGE_KINDS = new Set(['none', 'l1', 'moon']);
+/** Vantage points (globe view, url `vt`): their names in the menu, the caption and announcements. */
+export const VANTAGES = Object.freeze({
+    l1: Object.freeze({ name: 'View from L1', detail: 'The sunlit Earth from 1.5 million km sunward, as NASA’s DSCOVR sees it' }),
+    moon: Object.freeze({ name: 'Earthrise', detail: 'The Earth rising over the Moon’s limb, from a 150 km lunar orbit' }),
+});
 /** The telescope's narrowest framing (the rig's sky-view floor). */
 export const TELESCOPE_FOV_MIN = 0.2;
 const TZ_MODES = new Set(['observer', 'device', 'utc']);
@@ -540,12 +546,43 @@ export function createActions(deps) {
         return snap?.bodies?.[BODY_INDEX[id]] ?? null;
     }
 
-    /** @param {'orbit'|'sky'} mode */
+    /**
+     * Globe or sky view. Either one also leaves a vantage point: 'Globe' is the way back from it.
+     * @param {'orbit'|'sky'} mode
+     */
     function setViewMode(mode) {
         if (!VIEW_MODES.has(mode)) return;
         const view = store.get().view;
-        if (view.mode === mode) return;
-        store.set({ view: { ...view, mode } }, 'actions');
+        const vt = view.vantage ?? 'none';
+        if (view.mode === mode && vt === 'none') return;
+        store.set({ view: { ...view, mode, vantage: 'none' } }, 'actions');
+        if (vt !== 'none' && mode === 'orbit') say('Back to the globe');
+    }
+
+    /**
+     * Vantage points (the rig's setVantage; url `vt`): 'l1' looks back at the sunlit Earth from
+     * 1.5 million km sunward, 'moon' watches it rise from a low lunar orbit, 'none' flies back to
+     * the globe. They are globe-view poses, so from sky view this also switches to the globe. Needs
+     * the 3D view; ends a shadow chase.
+     * @param {'none'|'l1'|'moon'} kind
+     * @returns {boolean} applied
+     */
+    function setVantage(kind) {
+        if (!VANTAGE_KINDS.has(kind)) return false;
+        const st = store.get();
+        if ((st.view.vantage ?? 'none') === kind) return true;
+        if (kind !== 'none') {
+            if (!has3d()) {
+                toast('Vantage points need the 3D view.', 'info');
+                return false;
+            }
+            if (st.status.introPlaying) return false;
+            chase.stop();
+        }
+        const mode = kind === 'none' ? st.view.mode : 'orbit';
+        store.set({ view: { ...st.view, mode, vantage: kind } }, 'actions');
+        say(kind === 'none' ? 'Back to the globe' : `${VANTAGES[kind].name}: ${VANTAGES[kind].detail}`);
+        return true;
     }
 
     function cycleView() {
@@ -603,7 +640,7 @@ export function createActions(deps) {
         if (store.get().selection !== id) store.set({ selection: id }, 'actions');
         rig().telescope?.(fov);
         const view = store.get().view;
-        store.set({ view: { ...view, mode: 'sky', track: 'body' } }, 'actions');
+        store.set({ view: { ...view, mode: 'sky', track: 'body', vantage: 'none' } }, 'actions');
         say(`Telescope on ${BODIES[BODY_INDEX[id]].name}`);
         return true;
     }
@@ -823,12 +860,14 @@ export function createActions(deps) {
         // Aim before the view changes: the rig then already heads for the event's mode, and the
         // view.mode subscriber (main.js) joins that transition instead of queuing a second leg. The
         // 'event' source tells it not to add a look of its own from the pre-sweep frame.
-        if (rig()) {
+        // A vantage point stays put in globe view: L1 watches the eclipse shadow cross the disc.
+        if (rig() && !(mode === 'orbit' && (view.vantage ?? 'none') !== 'none')) {
             try {
                 aimAtEvent(ev, plan, mode, animateMs);
             } catch { /* the jump itself still happens */ }
         }
-        if (view.mode !== mode) store.set({ view: { ...view, mode } }, 'event');
+        // The fresh view: the aim may already have ended a vantage point (the rig's onVantageEnd).
+        if (view.mode !== mode) store.set({ view: { ...store.get().view, mode, vantage: 'none' } }, 'event');
     }
 
     /** ui.eclipse = {peakMs, kind, local, eventId} for a solar eclipse event, else null. */
@@ -899,7 +938,7 @@ export function createActions(deps) {
                 settle(r.setMode?.('sky', { animate: !reducedMotion(), look }));
             } catch { /* the timelapse still runs */ }
         }
-        if (view.mode !== mode) store.set({ view: { ...view, mode } }, 'event');
+        if (view.mode !== mode) store.set({ view: { ...store.get().view, mode, vantage: 'none' } }, 'event');
         return true;
     }
 
@@ -1011,7 +1050,7 @@ export function createActions(deps) {
 
     return {
         setObserver, undoObserver, locateMe,
-        select, flyToBody, setViewMode, cycleView, setEarthLock, setTracking, cycleTracking, telescope,
+        select, flyToBody, setViewMode, cycleView, setEarthLock, setTracking, cycleTracking, telescope, setVantage,
         toggleLayer, setQuality, setTzMode, setSkyDark, setAuroraActivity, share,
         toggleFullscreen, toggleCinema, resetCamera, replayIntro, jumpToEvent,
         // Extensions beyond SPEC §C.9 (used by shortcuts / the shell when present).

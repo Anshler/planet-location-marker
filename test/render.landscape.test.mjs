@@ -56,8 +56,8 @@ test('materials sharing a program all declare the lift; the alt-az grid passes n
     assert.doesNotMatch(layer('sky.altaz'), /refraction/);
     assert.equal((skyJs.match(/\.\.\.refr,/g) || []).length, 2, 'stars and the Milky Way');
     const bodiesJs = read('js/render/bodies.js');
-    assert.equal((bodiesJs.match(/\.\.\.refr,/g) || []).length, 5, 'Sun, aureole, glyphs, reticle, Moon');
-    assert.match(bodiesJs, /name: 'bodies\.moon\.depth', vertexShader: MOON_VERT, uniforms: \{ \.\.\.refr \}/);
+    assert.equal((bodiesJs.match(/\.\.\.refr,/g) || []).length, 6, 'Sun, aureole, glyphs, reticle, Moon and its depth pass');
+    assert.match(bodiesJs, /name: 'bodies\.moon\.depth', vertexShader: MOON_VERT, uniforms: \{ \.\.\.refr, uNearZ: moonNearZ \}/);
     assert.match(read('js/render/trails.js'), /refraction: refr/);
     assert.match(read('js/render/totality.js'), /uRefrK: \{ value: 0 \}/);
 });

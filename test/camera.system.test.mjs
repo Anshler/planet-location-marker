@@ -180,3 +180,24 @@ test('the crossfade follows the orbit distance and is 0 in sky view', () => {
     h.run(32, s);
     assert.equal(h.rig.systemBlend, 0);
 });
+
+test('setSystem(false) also homes the orrery the orbit controls show (110–150 R, no system zoom)', async () => {
+    const h = makeRig();
+    const s = snapAt(T_OPP, HCMC);
+    h.rig.setView('o:20,100,140');
+    h.rig.update(0, s);
+    h.run(32, s);
+    assert.equal(h.rig.system, false, 'the orbit controls');
+    assert.equal(h.rig.systemShown, true, 'yet the orrery is shown (the caption says Solar system)');
+    const p = h.rig.setSystem(false);
+    h.run(3000, s);
+    assert.equal(await p, true);
+    near(h.camera.position.length(), 3.4, 1e-6, 'home over the observer');
+    assert.equal(h.rig.systemShown, false);
+    // Inside the globe range with no orrery, it does nothing.
+    h.rig.setView('o:20,100,40');
+    h.run(32, s);
+    assert.equal(await h.rig.setSystem(false), true);
+    h.run(32, s);
+    near(h.camera.position.length(), 40, 1e-6, 'left alone');
+});

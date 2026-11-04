@@ -2893,7 +2893,14 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         setSystem(on, opts = {}) {
             const animate = opts?.animate !== false;
             if (!on) {
-                if (!sys.on) return Promise.resolve(true);
+                if (!sys.on) {
+                    // The orrery shown by the orbit controls alone (zoomed out into the crossfade,
+                    // a deep link, the way back from the map or a vantage): home all the same.
+                    if (mode === 'orbit' && !vantageOwns() && sys.blend > 0) {
+                        return afterTransition(() => homeNow({ animate: animate && !reduced }));
+                    }
+                    return Promise.resolve(true);
+                }
                 if (!animate || reduced) {
                     exitSystem();
                     return homeNow({ animate: false });

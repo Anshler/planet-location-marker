@@ -6,9 +6,10 @@
  * point, expose, share).
  *
  * Vantage points (globe view): a menu button offers 'View from L1' and 'Earthrise'
- * (actions.setVantage) and the flat 'World map' (view mode 'map', M); while one is shown a caption
- * pill names it under the top bar with a way back (the map's also keys its twilight lines), and
- * 'Globe' (or Esc) returns to the globe.
+ * (actions.setVantage), the flat 'World map' (view mode 'map', M) and 'Solar system'
+ * (actions.setSystem, the zoom out into the orrery); while one is shown a caption pill names it
+ * under the top bar with a way back (the map's also keys its twilight lines; the solar system's
+ * says what is to scale), and 'Globe' (or Esc) returns to the globe.
  *
  * Owns the share UX (SPEC F.4): the Share button opens a two-option popover. 'Share link' is
  * `actions.share()` → 'shared' (system sheet, no toast) | 'copied' ("Link copied") | 'failed' (a
@@ -33,13 +34,15 @@ const VANTAGE_ITEMS = Object.freeze([
     ['map', 'World map', 'The globe unrolled: night, twilight and where each body is overhead (M)'],
     ['l1', 'View from L1', 'The sunlit Earth from 1.5 million km, as NASA’s DSCOVR sees it'],
     ['moon', 'Earthrise', 'The Earth rising over the Moon’s limb, from lunar orbit'],
+    ['system', 'Solar system', 'Zoom out until the beams become lines across the solar system'],
 ]);
 const VANTAGE_CAPTION = Object.freeze({
     l1: ['View from L1', '1.5 million km sunward'],
     moon: ['Earthrise', 'Lunar orbit, 150 km up · play time to watch it rise'],
     map: ['World map', 'Lines: sunset · civil · nautical · astronomical twilight · dots: overhead now'],
+    system: ['Solar system', 'Distances to scale · planets enlarged, not to scale'],
 });
-const ITEM_ICON = Object.freeze({ none: 'globe', map: 'map', l1: 'sun', moon: 'moon' });
+const ITEM_ICON = Object.freeze({ none: 'globe', map: 'map', l1: 'sun', moon: 'moon', system: 'planet' });
 
 /**
  * Mounts the view switch.
@@ -78,7 +81,8 @@ export function mountViewSwitch(root, ctx) {
 
     const setMode = (mode) => {
         const v = store.get().view;
-        // 'Globe' is also the way back from a vantage point.
+        // 'Globe' is also the way back from a vantage point and from the solar system.
+        if (mode === 'orbit' && v?.mode === 'orbit' && v?.system) { ui.act('setSystem', false); return; }
         if (v?.mode === mode && (v?.vantage ?? 'none') === 'none') return;
         ui.act('setViewMode', mode);
     };
@@ -95,7 +99,7 @@ export function mountViewSwitch(root, ctx) {
     offs.push(on(vantBtn, 'click', () => {
         if (vantPop) { closeVant(); return; }
         const v = store.get().view;
-        const cur = v?.mode === 'map' ? 'map' : v?.vantage ?? 'none';
+        const cur = v?.mode === 'map' ? 'map' : v?.system ? 'system' : v?.vantage ?? 'none';
         for (const b of vantItems) setAttr(b, 'aria-checked', String(b.dataset.kind === cur));
         vantPop = openPopover(vantBtn, vantMenu, { placement: 'top', onClose: () => { vantPop = null; } });
     }));
@@ -103,8 +107,11 @@ export function mountViewSwitch(root, ctx) {
         const b = /** @type {HTMLElement} */ (e.target).closest('[data-kind]');
         if (!b) return;
         closeVant();
+        const v = store.get().view;
         if (b.dataset.kind === 'map') ui.act('setViewMode', 'map');
-        else if (b.dataset.kind === 'none' && store.get().view?.mode === 'map') ui.act('setViewMode', 'orbit');
+        else if (b.dataset.kind === 'system') ui.act('setSystem', true);
+        else if (b.dataset.kind === 'none' && v?.mode === 'map') ui.act('setViewMode', 'orbit');
+        else if (b.dataset.kind === 'none' && v?.system) ui.act('setSystem', false);
         else ui.act('setVantage', b.dataset.kind);
     }));
     offs.push(on(vantMenu, 'keydown', (e) => {
@@ -123,7 +130,9 @@ export function mountViewSwitch(root, ctx) {
         h('span', { class: 'vcap__text' }, capName, capDetail), capBack);
     (ui.root || document.body).appendChild(caption);
     offs.push(on(capBack, 'click', () => {
-        if (store.get().view?.mode === 'map') ui.act('setViewMode', 'orbit');
+        const v = store.get().view;
+        if (v?.mode === 'map') ui.act('setViewMode', 'orbit');
+        else if (v?.system) ui.act('setSystem', false);
         else ui.act('setVantage', 'none');
     }));
     offs.push(on(globeBtn, 'click', () => setMode('orbit')));
@@ -146,10 +155,11 @@ export function mountViewSwitch(root, ctx) {
         const v = store.get().view || {};
         const sky = v.mode === 'sky';
         const map = v.mode === 'map';
-        // The map shares the vantage caption and menu (it is another way of looking at the Earth).
-        const vt = map ? 'map' : v.vantage ?? 'none';
+        const sys = !sky && !map && !!v.system;
+        // The map and the solar system share the vantage caption and menu (other ways of looking at the Earth).
+        const vt = map ? 'map' : sys ? 'system' : v.vantage ?? 'none';
         const noGl = store.get().status?.webgl === false;
-        // In a vantage point (or the map) 'Globe' is the way back, so it reads as not selected.
+        // In a vantage point (the map, the solar system) 'Globe' is the way back, so it reads as not selected.
         const globe = !sky && vt === 'none';
         setAttr(globeBtn, 'aria-checked', String(globe));
         setAttr(skyBtn, 'aria-checked', String(sky));

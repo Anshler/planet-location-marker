@@ -8,7 +8,9 @@
 // `trk` is sky-view tracking: b (the selected body) or s (the stars); absent = none. `vt` is a
 // vantage point of the globe view: l1 (the sunlit Earth from L1) or moon (Earthrise from lunar
 // orbit); it implies the globe view, and its `cam` is the orbit pose it returns to. A sky `cam`
-// keeps its field to 0.2° (the telescope zoom) with three significant digits. `tour` starts a
+// keeps its field to 0.2° (the telescope zoom) with three significant digits. An orbit `cam` past
+// 150 Earth radii is the solar-system zoom (camera/rig.js; up to 80 AU, ≈ 1.88 million R, written
+// in whole radii from 1000 R). `tour` starts a
 // guided tour (core/tour-catalog.js) once the app is ready; it is read, never written back.
 // `view=map` is the flat world map (the globe unrolled); its `cam` is `m:lat,lon,dist` (the map's
 // centre and the camera's distance from the plane). `loc2` (with `n2`, `tz2`) is a second place to
@@ -40,7 +42,8 @@ const KNOWN_KEYS = new Set(['loc', 'n', 'cc', 'tz', 'el', 't', 'r', 'p', 'view',
 const MAX_HASH_LEN = 4096;
 const NAME_MAX = 80;
 const ELEV_MIN = -500, ELEV_MAX = 9000;
-const CAM = Object.freeze({ distMin: 1.08, distMax: 150, altMin: -10, altMax: 89, fovMin: 0.2, fovMax: 100, mapMin: 0.05, mapMax: 20 });
+// distMax: the solar-system zoom's 80 AU (astro/orrery.js SYSTEM_MAX_R ≈ 1.876e6 R) rounded up; the rig clamps.
+const CAM = Object.freeze({ distMin: 1.08, distMax: 2e6, altMin: -10, altMax: 89, fovMin: 0.2, fovMax: 100, mapMin: 0.05, mapMax: 20 });
 const TRACK_CODES = Object.freeze({ b: 'body', s: 'stars' });
 // Unambiguous (the dot must be present to reach the fraction), so matching is linear even on
 // pathological 4 KB digit runs.
@@ -210,7 +213,8 @@ export function camToCode(cam) {
         const lon = pick(c, ['lonDeg', 'lon', 'subLonDeg', 'subLon']);
         const dist = pick(c, ['distance', 'dist', 'd', 'r']);
         if (![lat, lon, dist].every(Number.isFinite)) return '';
-        return `o:${fmtNum(clamp(lat, -90, 90), 2)},${fmtNum(wrapLon(lon), 2)},${fmtNum(clamp(dist, CAM.distMin, CAM.distMax), 2)}`;
+        const d = clamp(dist, CAM.distMin, CAM.distMax);
+        return `o:${fmtNum(clamp(lat, -90, 90), 2)},${fmtNum(wrapLon(lon), 2)},${fmtNum(d, d >= 1000 ? 0 : 2)}`;
     }
     if (mode === 'map' || mode === 'm') {
         const lat = pick(c, ['latDeg', 'lat']);

@@ -35,7 +35,7 @@
 /** `observer2`: a second place to compare with (ROADMAP two-observers), or null. view.mode 'map' is
  * the flat world map (the globe unrolled; camera/rig.js, geo/mapview.js).
  * @typedef {{ observer:Observer, observer2:Observer|null, selection:BodyId|null,
- *   view:{mode:'orbit'|'sky'|'map', earthLock:boolean, track:'none'|'body'|'stars', vantage:'none'|'l1'|'moon'},
+ *   view:{mode:'orbit'|'sky'|'map', earthLock:boolean, track:'none'|'body'|'stars', vantage:'none'|'l1'|'moon', system:boolean},
  *   layers:Layers,
  *   display:{tzMode:'observer'|'device'|'utc', hour12:boolean, skyDark:'auto'|'pristine'|'1'|'2'|'3'|'4'|'5'|'6'|'7'|'8'|'9',
  *     aurora:'quiet'|'typical'|'storm'},
@@ -79,6 +79,8 @@
  *   libration:{elonDeg:number, elatDeg:number},     // the Moon's libration; refreshed at 'full' only
  *   skyglow:import('../astro/skyglow.js').Skyglow,  // the night sky's brightness; filled by the frame loop
  *   aurora:import('../astro/geomag.js').Aurora,     // geomagnetic pole, magnetic noon, oval table; filled by the frame loop
+ *   helio:{earthS:Float64Array, posS:Float64Array}, // heliocentric AU, scene axes, Sun at the origin (every detail level):
+ *                              // the Earth's position, and per BODIES index (×3) the Earth + the body's geocentric vector
  *   second:object|null         // the second place's Snapshot at the same instant (two-observers); set by the frame loop
  *   }} Snapshot */
 /** TierCfg. `dprCap` is Infinity on max (no cap). `msaa` is a request: postfx clamps it to MAX_SAMPLES.
@@ -92,9 +94,10 @@
  * supersample: idle supersampling's sample cap (0 = off); streakPx: the fast-time streak cap (device px, 0 = off). */
 /** @typedef {{ dtMs:number, timeS:number, camera:any, viewMode:'orbit'|'sky', skyBlend:number, snap:Snapshot,
  *   pulsesActive:boolean, simRate:number, exposure:{stars:number, planets:number, milkyWay:number, vision:number},
- *   moonFront:boolean, mapK:number, map:object|null }} FrameInfo `moonFront`: the camera is in lunar orbit (or flying there), so the Moon
+ *   moonFront:boolean, mapK:number, map:object|null, systemBlend:number }} FrameInfo `moonFront`: the camera is in lunar orbit (or flying there), so the Moon
  *   draws in front of everything and the near plane ignores it (camera/rig.js, astro/vantage.js). `mapK`: the globe → flat
- *   map morph, 0 … 1 (rig.mapK); `map`: the map plane's frame (geo/mapview.js createMapFrame) while mapK > 0, else null. */
+ *   map morph, 0 … 1 (rig.mapK); `map`: the map plane's frame (geo/mapview.js createMapFrame) while mapK > 0, else null.
+ *   `systemBlend` (0…1): the globe → orrery crossfade of the solar-system zoom (rig.systemBlend; the camera 80 → 150 R out). */
 /** @typedef {{name:string, admin:string, country:string, cc:string, lat:number, lon:number, tz:string|null, pop:number,
  *   source:'offline'|'open-meteo'|'photon'|'nominatim', score?:number}} Place */
 /** @typedef {{id:string, kind:'moon-phase'|'opposition'|'conjunction'|'max-elongation'|'lunar-eclipse'|'solar-eclipse'|

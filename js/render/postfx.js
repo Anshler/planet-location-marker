@@ -7,6 +7,9 @@
  * Otherwise, on tiers that supersample when idle, a SupersamplePass (render/supersample.js) sits
  * there: `setSupersample(on)`, and `render(ss)` with ss = {weight} blends the frame into its running
  * mean (ss = null skips the pass). Once a few samples are in, FXAA steps aside (uFxaa).
+ * `setOverlay({scene, camera}|null)` adds an OverlayPass right after the scene: a second scene
+ * (the solar-system zoom's orrery) drawn into the same target over a cleared depth buffer, so the
+ * stack and the supersampling mean both take it in (render/context.js jitters its camera too).
  *
  * The bloom input and the final pass scrub NaN/Inf (`pcFinite`), so one bad scene pixel stays
  * one pixel instead of being blurred into a screen-sized black block.
@@ -23,6 +26,7 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { Pass } from 'three/addons/postprocessing/Pass.js';
 import { FINITE_CHUNK } from './shaders/common.glsl.js';
 import { AccumPass } from './accum.js';
 import { SupersamplePass } from './supersample.js';
@@ -252,6 +256,30 @@ function bloomEquals(a, b) {
 }
 
 /**
+ * A second scene drawn over the first into the scene target (needsSwap false like every pass
+ * here), its depth cleared first; skipped while the overlay scene is hidden.
+ */
+class OverlayPass extends Pass {
+    constructor() {
+        super();
+        this.needsSwap = false;
+        /** @type {{scene:THREE.Scene, camera:THREE.Camera}|null} */
+        this.overlay = null;
+    }
+
+    render(renderer, writeBuffer, readBuffer) {
+        const o = this.overlay;
+        if (!o || !o.scene.visible) return;
+        const ac = renderer.autoClear;
+        renderer.autoClear = false;
+        renderer.setRenderTarget(readBuffer);
+        renderer.clearDepth();
+        renderer.render(o.scene, o.camera);
+        renderer.autoClear = ac;
+    }
+}
+
+/**
  * Creates the composer for a tier that has `composer: true`.
  * @param {THREE.WebGLRenderer} renderer
  * @param {THREE.Scene} scene
@@ -284,6 +312,7 @@ export function createPostFx(renderer, scene, camera, cfg, size) {
     let accumPass = null;
     /** @type {SupersamplePass|null} */
     let ssPass = null;
+    const overlayPass = new OverlayPass();
 
     function makeTarget(samples) {
         const s = Math.min(samples, maxSamples);
@@ -331,6 +360,8 @@ export function createPostFx(renderer, scene, camera, cfg, size) {
     function rebuildPasses() {
         composer.passes.length = 0;
         composer.addPass(renderPass);
+        // The orrery over the scene, before either history pass (and the bloom) takes the frame in.
+        if (overlayPass.overlay) composer.addPass(overlayPass);
         // One or the other: a long exposure stacks, otherwise idle frames may supersample.
         if (accumPass) composer.addPass(accumPass);
         else if (ssPass) composer.addPass(ssPass);
@@ -444,6 +475,15 @@ export function createPostFx(renderer, scene, camera, cfg, size) {
                 accumPass.frozen = false;
                 accumPass.enabled = true;
             }
+        },
+        /**
+         * The overlay scene drawn after the main one (render/context.js setOverlay), or null.
+         * @param {{scene:THREE.Scene, camera:THREE.Camera}|null} o
+         */
+        setOverlay(o) {
+            const had = !!overlayPass.overlay;
+            overlayPass.overlay = o && o.scene && o.camera ? o : null;
+            if (had !== !!overlayPass.overlay) rebuildPasses();
         },
         /** The stacking pass while Expose is on (flags `add`, `frames`, `reset()`), else null. */
         get accum() { return accumPass; },

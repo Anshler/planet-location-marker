@@ -155,7 +155,8 @@ export function createFlare(rc, deps = {}) {
     }
 
     function update(fi) {
-        const enabled = !!cfg && !!cfg.flare && haveSnap;
+        // Not out in the solar-system zoom: the orrery's Sun is not at infinity.
+        const enabled = !!cfg && !!cfg.flare && haveSnap && !(fi && fi.systemBlend >= 0.5);
         const cam = fi && (fi.camera || (rc && rc.camera));
         if (!enabled || !cam) { mesh.visible = false; vis = 0; return; }
         const skyBlend = Number.isFinite(fi.skyBlend) ? clamp(fi.skyBlend, 0, 1) : 0;

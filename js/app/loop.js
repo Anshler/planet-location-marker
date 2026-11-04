@@ -78,14 +78,18 @@ const OPT_FULL = Object.freeze({ detail: 'full' });
 
 /**
  * The label feed's mode for a frame: 'map' as soon as the globe starts to unroll (the labels ride
- * the morph to their places on the map), 'sky' once the sky view is past halfway, else 'orbit'.
+ * the morph to their places on the map), 'sky' once the sky view is past halfway, 'system' once the
+ * solar-system zoom's crossfade into the orrery is (rig.systemBlend), else 'orbit'. The rig keeps the
+ * map and the system zoom apart (systemBlend is 0 while mapK > 0).
  * @param {number} skyBlend
  * @param {number} mapK
- * @returns {'orbit'|'sky'|'map'}
+ * @param {number} [systemBlend]
+ * @returns {'orbit'|'sky'|'map'|'system'}
  */
-export function labelMode(skyBlend, mapK) {
+export function labelMode(skyBlend, mapK, systemBlend = 0) {
     if (mapK > MAP_HIDE_K) return 'map';
-    return skyBlend >= 0.5 ? 'sky' : 'orbit';
+    if (skyBlend >= 0.5) return 'sky';
+    return systemBlend >= 0.5 ? 'system' : 'orbit';
 }
 
 /** Human names for strike toasts. */
@@ -104,6 +108,7 @@ const FEATURE_NAMES = Object.freeze({
     pin: 'The location pin',
     pin2: 'The second place’s pin',
     flare: 'The lens flare',
+    orrery: 'The solar-system view',
     longExposure: 'Long exposure',
     labels: 'Sky labels',
     rig: 'Camera motion',
@@ -222,7 +227,7 @@ export function createLoop(deps) {
     /** @type {FrameInfo} */
     const fi = {
         dtMs: 0, timeS: 0, camera: null, viewMode: 'orbit', skyBlend: 0, snap,
-        pulsesActive: false, simRate: 0, exposure, moonFront: false, mapK: 0, map: null,
+        pulsesActive: false, simRate: 0, exposure, moonFront: false, mapK: 0, map: null, systemBlend: 0,
     };
     // upS is the snapshot's live zenith: the label pool derives is-below for direction anchors from it,
     // and in sky view (horizon) hides star and constellation names that the ground covers — the
@@ -536,6 +541,7 @@ export function createLoop(deps) {
                 fi.moonFront = !!(rig && rig.moonFront);
                 fi.mapK = mapK;
                 fi.map = mapK > 0 && rig ? rig.mapFrame ?? null : null;
+                fi.systemBlend = rig && Number.isFinite(rig.systemBlend) ? rig.systemBlend : 0;
 
                 for (let i = 0; i < modules.length; i++) callModule(modules[i], 'update', fi);
 
@@ -561,7 +567,7 @@ export function createLoop(deps) {
 
                 if (labels && !disabled.has(labels)) {
                     try {
-                        syncLabels(camera, cfg, skyBlend, mapK, fi.map);
+                        syncLabels(camera, cfg, skyBlend, mapK, fi.map, fi.systemBlend);
                         labels.update(camera, rc.size, labelOpts);
                     } catch (err) {
                         strike(labels, 'update', err);
@@ -609,14 +615,14 @@ export function createLoop(deps) {
     }
 
     /** The label feed's live points and the label pool's options for this frame's camera and view. */
-    function syncLabels(camera, cfg, skyBlend, mapK = 0, map = null) {
+    function syncLabels(camera, cfg, skyBlend, mapK = 0, map = null, systemBlend = 0) {
         if (labelsFeed) {
             labelView.starExposure = exposure.stars;
             labelView.magLimit = cfg && Number.isFinite(cfg.starMagLimit) ? cfg.starMagLimit : 6;
             labelView.viewportH = rc.size && rc.size.h > 0 ? rc.size.h : 0;
             labelView.mapK = mapK;
             labelView.map = map;
-            labelsFeed.sync(camera, labelMode(skyBlend, mapK), labelView);
+            labelsFeed.sync(camera, labelMode(skyBlend, mapK, systemBlend), labelView);
         }
         const obsc = snap.eclipse ? snap.eclipse.obscurationAtObserver : 0;
         const tierCap = cfg && Number.isFinite(cfg.labelCap) ? cfg.labelCap : 24;
@@ -649,10 +655,13 @@ export function createLoop(deps) {
             t = clock.tMs;
         }
         const obs = store.get().observer;
+        const obs2 = store.get().observer2 ?? null;
         if (observerDirty || jumped || !snapValid || t !== snap.tMs) {
             try {
                 computeSnapshot(t, obs, snap, OPT_FRAME);
                 fillSkyglow(snap);
+                // The second place's beams and pin follow the session's time as well.
+                snap.second = computeSecond(t, obs2, snap2, OPT_FRAME);
                 snapValid = true;
                 for (let i = 0; i < modules.length; i++) callModule(modules[i], 'apply', snap);
                 if (hooks.onApply) hooks.onApply(snap);
@@ -664,6 +673,7 @@ export function createLoop(deps) {
             try {
                 computeSnapshot(t, obs, snapFull, OPT_FULL);
                 fillSkyglow(snapFull);
+                snapFull.second = computeSecond(t, obs2, snapFull2, OPT_FULL);
                 fullValid = true;
                 fullT = t;
                 lastFull = now;
@@ -677,6 +687,7 @@ export function createLoop(deps) {
         jumped = false;
         let mode = 'orbit';
         let skyBlend = 0;
+        let mapK = 0;
         if (rig && !disabled.has(rig)) {
             try {
                 rig.update(dt, snap);
@@ -685,6 +696,13 @@ export function createLoop(deps) {
             }
             mode = rig.mode === 'sky' ? 'sky' : 'orbit';
             skyBlend = Number.isFinite(rig.skyBlend) ? rig.skyBlend : (mode === 'sky' ? 1 : 0);
+            mapK = Number.isFinite(rig.mapK) ? rig.mapK : 0;
+        }
+        // As in frame(): the flat map hides the space groups while the globe is unrolled.
+        const hideForMap = mapK > MAP_HIDE_K;
+        if (hideForMap !== lastMapHide) {
+            lastMapHide = hideForMap;
+            for (let i = 0; i < mapHidden.length; i++) mapHidden[i].visible = !hideForMap;
         }
         if (mode !== lastMode || skyBlend !== lastSkyBlend) {
             lastMode = mode;
@@ -705,10 +723,14 @@ export function createLoop(deps) {
         fi.pulsesActive = clock.playing && Math.abs(clock.rate) > 1;
         fi.simRate = clock.playing && Number.isFinite(clock.rate) ? clock.rate : 0;
         fi.moonFront = !!(rig && rig.moonFront);
+        fi.mapK = mapK;
+        fi.map = mapK > 0 && rig ? rig.mapFrame ?? null : null;
+        // The orrery's update() shows its scene from this, so rc.render() draws it in the video too.
+        fi.systemBlend = rig && Number.isFinite(rig.systemBlend) ? rig.systemBlend : 0;
         for (let i = 0; i < modules.length; i++) callModule(modules[i], 'update', fi);
         if (labels && !disabled.has(labels)) {
             try {
-                syncLabels(camera, cfg, skyBlend, fi.mapK, fi.map);
+                syncLabels(camera, cfg, skyBlend, fi.mapK, fi.map, fi.systemBlend);
             } catch (err) {
                 reportOnce('labelsFeed.sync(step)', err);
             }
@@ -870,7 +892,7 @@ export function createLoop(deps) {
             if (labelsFeed && labels && !disabled.has(labels)) {
                 try {
                     labelView.viewportH = rc.size && rc.size.h > 0 ? rc.size.h : 0;
-                    labelsFeed.sync(camera, labelMode(fi.skyBlend, fi.mapK), labelView);
+                    labelsFeed.sync(camera, labelMode(fi.skyBlend, fi.mapK, fi.systemBlend), labelView);
                 } catch (err) {
                     reportOnce('labelsFeed.sync(redraw)', err);
                 }

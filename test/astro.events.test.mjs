@@ -9,6 +9,7 @@ const DAY = 864e5;
 const HANOI = { latDeg: 21.0285, lonDeg: 105.8542, elevM: 15 };
 const MADRID = { latDeg: 40.4168, lonDeg: -3.7038, elevM: 650 };
 const KINDS = new Set(['moon-phase', 'opposition', 'conjunction', 'max-elongation', 'lunar-eclipse', 'solar-eclipse',
+    'occultation', 'brilliancy', 'transit', 'lunar-apsis', 'ring-plane', 'meteor-shower',
     'local-solar-eclipse', 'equinox', 'solstice']);
 
 // The searches are the expensive part, so compute each list once.

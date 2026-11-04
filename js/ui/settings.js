@@ -126,7 +126,8 @@ export function mountSettings(root, ctx) {
         const st = store.get();
         quality.set(st.quality?.setting || 'auto');
         const active = TIER_NAME[st.quality?.active] || 'Medium';
-        setText(running, st.quality?.setting === 'max' ? MAX_CAPTION
+        // Max held lower for the session (repeated GPU context losses) says what runs instead.
+        setText(running, st.quality?.setting === 'max' && st.quality?.active === 'max' ? MAX_CAPTION
             : `Running: ${active}${st.quality?.setting === 'auto' ? ' · chosen automatically for this device' : ''}`);
         tzMode.set(st.display?.tzMode || 'observer');
         const mode = st.display?.tzMode || 'observer';

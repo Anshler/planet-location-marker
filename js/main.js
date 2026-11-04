@@ -114,6 +114,8 @@ const R = {
     /** The device probe and detectTier's decision (the diagnostics report). */
     /** @type {any} */ env: null,
     /** @type {any} */ decision: null,
+    /** This tab's context-loss record (core/context-loss.js), mirrored to sessionStorage when it can be. */
+    /** @type {any} */ losses: null,
     /** Tier changes made for the app (governor steps, context-loss step-downs), newest last; at most 20. */
     /** @type {any[]} */ tierLog: [],
     /** @type {any} */ catalog: null,
@@ -458,6 +460,7 @@ async function boot() {
     // Earlier context losses in this tab (iOS reloads instead of restoring): the 3D view may have
     // given up, or the session is held at a lower tier.
     const losses = lossRecord(sessionLoad(LOSS_KEY));
+    R.losses = losses;
     const unstable = env.can3d && losses.text;
     if (unstable) env.can3d = false;
 
@@ -898,7 +901,7 @@ function enterTextMode(reason, err) {
     hideContextLost();
     showFallback(reason, {
         onRetry: () => {
-            sessionSave(LOSS_KEY, retryRecord(sessionLoad(LOSS_KEY)));
+            sessionSave(LOSS_KEY, retryRecord(R.losses));
             location.reload();
         },
     });
@@ -1650,7 +1653,9 @@ function bindRenderState({ store, bus, clock, rc, rig, loop, snap, astro, m, lab
     // lower, a third gives up on the 3D view. Drawing resumes once the maps are back on the GPU.
     rc.onContextLost?.(() => {
         loop.setRenderPaused(true);
-        const { record, action } = recordLoss(sessionLoad(LOSS_KEY), Date.now(), store.get().quality.active);
+        // Counted in memory too: without sessionStorage the window still works within the page.
+        const { record, action } = recordLoss(R.losses, Date.now(), store.get().quality.active);
+        R.losses = record;
         sessionSave(LOSS_KEY, record);
         if (action === 'text') {
             enterTextMode('context-unstable');
@@ -1719,7 +1724,7 @@ function diagnostics() {
         version: VERSION, nowMs: Date.now(), decision: R.decision, quality: st?.quality, renderer: env.rendererString,
         maxTex: R.rc?.renderer?.capabilities?.maxTextureSize ?? env.maxTextureSize, dpr: window.devicePixelRatio, renderDpr: R.rc?.dpr,
         viewport: [window.innerWidth, window.innerHeight], coarse: env.coarse, userAgent: navigator.userAgent, webgl: st?.status.webgl,
-        governor: R.governor, tierLog: R.tierLog, disabled: ls.disabled, strikes: ls.strikes, losses: sessionLoad(LOSS_KEY),
+        governor: R.governor, tierLog: R.tierLog, disabled: ls.disabled, strikes: ls.strikes, losses: R.losses,
         errors: window.__pcErrors, stats: app.stats(), hash: location.hash,
     });
 }

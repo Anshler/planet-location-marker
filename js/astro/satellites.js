@@ -229,9 +229,17 @@ export function lookAt(sat, tMs, obs, out, full = true) {
     if (az < 0) az += 360;
     out.azDeg = az;
     if (!full) return true;
-    const r = Math.hypot(e[0], e[1], e[2]);
-    out.heightKm = r - EARTH_RADIUS_KM;
-    out.latDeg = Math.atan2(e[2], Math.hypot(e[0], e[1])) / DEG;
+    // Geodetic latitude and height on WGS-84 (Bowring's formula, one step: well under 1 m at LEO),
+    // as the observer is placed; the geocentric ones differ by up to 0.19° and 13 km.
+    const p = Math.hypot(e[0], e[1]);
+    const b = WGS84_A * (1 - WGS84_F), ep2 = WGS84_E2 / (1 - WGS84_E2);
+    const th = Math.atan2(e[2] * WGS84_A, p * b);
+    const st = Math.sin(th), ct = Math.cos(th);
+    const phi = Math.atan2(e[2] + ep2 * b * st * st * st, p - WGS84_E2 * WGS84_A * ct * ct * ct);
+    const sp = Math.sin(phi);
+    const N = WGS84_A / Math.sqrt(1 - WGS84_E2 * sp * sp);
+    out.heightKm = Math.abs(Math.cos(phi)) > 1e-9 ? p / Math.cos(phi) - N : Math.abs(e[2]) - b;
+    out.latDeg = phi / DEG;
     out.lonDeg = Math.atan2(e[1], e[0]) / DEG;
     // Inertial speed (TEME velocity).
     out.speedKmS = Math.hypot(_vteme[0], _vteme[1], _vteme[2]);

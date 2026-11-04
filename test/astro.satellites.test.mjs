@@ -218,3 +218,18 @@ test('standing on Mars, Earth satellites stay out of the sky between snapshots t
     prov.advance(snap, 'sat:iss', out, t + 1000);
     assert.equal(out.present, false);
 });
+
+test('a satellite’s sub-point and height are geodetic (WGS-84), as the observer is', () => {
+    const obs = observerEf(0, 0, 0);
+    const look = createLook();
+    const iss = SATS.find((s) => s.id === 'sat:iss');
+    // Round trip: the reported latitude, longitude and height put back on WGS-84 give the same point.
+    let worst = 0;
+    for (let k = 0; k < 120; k++) {
+        const t = iss.epochMs + k * 47e3;
+        assert.ok(lookAt(iss, t, obs, look, true));
+        const back = observerEf(look.latDeg, look.lonDeg, look.heightKm * 1000);
+        worst = Math.max(worst, Math.hypot(back.ef[0] - look.ef[0], back.ef[1] - look.ef[1], back.ef[2] - look.ef[2]));
+    }
+    assert.ok(worst < 0.01, `round trip within 10 m: ${worst * 1000} m`);
+});

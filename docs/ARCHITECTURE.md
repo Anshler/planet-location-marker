@@ -770,8 +770,9 @@ change.
   existed carry no `d`, so they open with the flat horizon.
 - `cam` is `o:lat,lon,dist` (the sub-camera point), `s:az,alt,fov` or, with `view=map`,
   `m:lat,lon,dist` (the map's centre and the camera's distance from the plane). An orbit distance
-  past 150 R (up to 80 AU, whole radii) is the solar-system zoom: lat/lon is then its view direction
-  at `t`.
+  past 150 R (up to 80 AU, whole radii) is the solar-system zoom: lat/lon is then its direction
+  (pivot → camera) in J2000 ecliptic latitude and longitude, fixed in space, so a live link opens
+  on the same view later.
 - `loc2`, `n2`, `tz2` are a second place to compare with (its pin, dashed beams and Sky now's
   side-by-side card). They are links only, never saved.
 - `sel` selects a body and opens its card (the Details tab), as a click on it would.

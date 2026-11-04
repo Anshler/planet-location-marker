@@ -229,3 +229,19 @@ test('frameSpan (Show both beams) keeps the globe: no orrery at its pose on a de
         near(r.rig.systemBlend, ORR.systemBlend(d2), 1e-9, `${w}×${h}: the hold has ended (${d2.toFixed(1)} R)`);
     }
 });
+
+test('a system link is fixed in space: the same cam at another hour (a live link) shows the same view', () => {
+    const fwd = (tMs) => {
+        const h = makeRig();
+        const s = snapAt(tMs, HCMC);
+        h.rig.setView('o:24.56,104.15,140729');
+        h.rig.update(0, s);
+        h.camera.updateMatrixWorld();
+        const v = h.rig.getView();
+        near(v.latDeg, 24.56, 1e-9, 'lat round-trips');
+        near(v.lonDeg, 104.15, 1e-9, 'lon round-trips');
+        return h.camera.getWorldDirection(new THREE.Vector3());
+    };
+    const a = fwd(T_OPP), b = fwd(T_OPP + 6 * 3600e3);
+    assert.ok(a.angleTo(b) < 1e-6, `the view does not turn with the Earth (${(a.angleTo(b) / D).toFixed(3)}°)`);
+});

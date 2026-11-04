@@ -698,9 +698,9 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         }
         mapv.k = 0;
         if (v.mode === 'orbit' && v.distance > MAX_DIST) {
-            // The system zoom: lat/lon is the view direction in Earth-local terms at this instant.
-            const p = v.latDeg * DEG, l = v.lonDeg * DEG, cp = Math.cos(p);
-            toWorld(_v2.set(cp * Math.cos(l), Math.sin(p), -cp * Math.sin(l)), _v2);
+            // The system zoom: lat/lon is its direction (pivot → camera) in J2000 ecliptic terms.
+            eclipticDir(v.lonDeg * DEG, v.latDeg * DEG, _sysV);
+            _v2.set(_sysV[0], _sysV[1], _sysV[2]);
             mode = 'orbit';
             skyBlend = 0;
             dropVantage('view');
@@ -2974,9 +2974,13 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
             if (mode === 'map') {
                 return { mode: 'map', latDeg: mapv.yT / MAP_SCALE / DEG, lonDeg: wrap180(mapv.xT / MAP_SCALE / DEG), distance: mapv.dT };
             }
-            // A vantage (url `vt`) reports the orbit pose it returns to; the system zoom its view
-            // direction (in Earth-local terms now) and distance from the pivot.
+            // A vantage (url `vt`) reports the orbit pose it returns to; the system zoom past 150 R
+            // its direction (pivot → camera) in J2000 ecliptic latitude and longitude, fixed in
+            // space (a live link opens on the same view later), and its distance from the pivot.
             let r;
+            if (sys.on && sys.distT > MAX_DIST) {
+                return { mode: 'orbit', latDeg: sys.lat / DEG, lonDeg: wrap180(sys.lon / DEG), distance: sys.distT };
+            }
             if (sys.on) {
                 eclipticDir(sys.lon, sys.lat, _sysV);
                 toLocal(_v1.set(_sysV[0], _sysV[1], _sysV[2]), _v1);

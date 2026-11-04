@@ -14,9 +14,9 @@ const VERSION_JS = read('js/version.js');
 const VERSION = VERSION_JS.match(/export const VERSION\s*=\s*'([^']+)'/)?.[1];
 const SITE_URL = VERSION_JS.match(/export const SITE_URL\s*=\s*'([^']+)'/)?.[1];
 
-test('every texture in js/render/textures.js ASSETS exists', () => {
+test('every texture in js/core/texture-plan.js ASSETS exists', () => {
     const { assets, source } = readAssets();
-    assert.equal(source, 'js/render/textures.js', 'ASSETS parsed from the real module');
+    assert.equal(source, 'js/core/texture-plan.js', 'ASSETS parsed from the real module');
     for (const [key, url] of Object.entries(assets)) {
         assert.ok(!url.startsWith('/') && !/^[a-z]+:/i.test(url), `${key}: relative URL`);
         assert.ok(exists(url), `${key}: ${url} exists`);

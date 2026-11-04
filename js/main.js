@@ -5,8 +5,9 @@
 //   2. clock + first snapshot
 //   3. UI mounted at once (panels work before WebGL exists); headless loop publishes readouts
 //   4. render context + modules (each in try/catch), placeholders until textures arrive
-//   5. sky.json / cities.json / critical textures in parallel
-//   6. rc.compile()   7. loop renders   8. loader hides when the critical textures are ready or after 5 s
+//   5. sky.json / cities.json / textures in parallel (the tier's maps start in step 1, before the
+//      render stack has loaded; the 512 px previews even earlier, from index.html)
+//   6. rc.compile()   7. loop renders   8. loader hides when the previews are in or after 5 s
 //   9. first-visit intro   10. idle: deferred textures, almanac push, service worker
 //
 // Static imports are limited to modules that need neither three.js nor the import map, so text
@@ -21,6 +22,7 @@ import { createClock, scrubSpanMs } from './core/clock.js';
 import { parseHash, bindUrl } from './core/url-state.js';
 import { isTourId } from './core/tour-catalog.js';
 import { detectTier, createGovernor, isTier, autoStartTier, learnedTierRecord } from './core/quality.js';
+import { keysForTier, prefetchTextures, setMaxTextureSize } from './core/texture-plan.js';
 import * as prefs from './core/prefs.js';
 import * as tz from './core/tz.js';
 import * as format from './core/format.js';
@@ -461,19 +463,6 @@ async function boot() {
     } catch {
         hash = {};
     }
-    const savedObserver = loadSavedObserver();
-    let observer = null;
-    let observerFromDefault = false;
-    if (hash.observer) {
-        observer = normalizeObserver(hash.observer, { cities, tz });
-    } else if (savedObserver) {
-        observer = normalizeObserver(savedObserver, { cities, tz });
-    } else {
-        const index = await withTimeout(cityIndexP, CITY_GUESS_WAIT_MS);
-        observer = guessObserver(index);
-        observerFromDefault = observer.source === 'default' && !index;
-    }
-
     let decision = { tier: 'low', ceiling: 'low', textMode: !env.can3d, reason: 'text' };
     try {
         decision = detectTier({
@@ -496,6 +485,31 @@ async function boot() {
     const qualitySetting = [hash.quality, savedQuality].find((q) => QUALITY_SETTINGS.includes(q)) ?? 'auto';
     let active = governor.pin(qualitySetting === 'auto' ? null : qualitySetting);
     if (window.__pcSlow && qualitySetting === 'auto') active = governor.pin('low');
+    // The tier's Earth maps start now, in parallel with the UI and the render stack (the previews
+    // are already on their way: index.html preloads them, and these fetches reuse that).
+    let texPrefetch = null;
+    if (env.can3d) {
+        try {
+            setMaxTextureSize(env.maxTextureSize);
+            const k = keysForTier(governor.config());
+            texPrefetch = prefetchTextures([...k.critical, ...k.primary], (...a) => fetch(...a));
+        } catch (err) {
+            console.error('[main] texture prefetch failed', err);
+        }
+    }
+
+    const savedObserver = loadSavedObserver();
+    let observer = null;
+    let observerFromDefault = false;
+    if (hash.observer) {
+        observer = normalizeObserver(hash.observer, { cities, tz });
+    } else if (savedObserver) {
+        observer = normalizeObserver(savedObserver, { cities, tz });
+    } else {
+        const index = await withTimeout(cityIndexP, CITY_GUESS_WAIT_MS);
+        observer = guessObserver(index);
+        observerFromDefault = observer.source === 'default' && !index;
+    }
 
     const layers = { ...DEFAULT_STATE.layers, ...(loadSavedLayers() ?? {}), ...(hash.layers ?? {}) };
     // A vantage point (vt=) is a globe-view pose, and needs the 3D view.
@@ -679,7 +693,7 @@ async function boot() {
         enterTextMode(env.webgl2 ? 'no-importmap' : 'no-webgl2');
     } else {
         try {
-            await bootRender({ env, hash, store, bus, clock, actions, render, loop, snap, governor, renderModsP, skyJsonP, astro, cities });
+            await bootRender({ env, hash, store, bus, clock, actions, render, loop, snap, governor, renderModsP, skyJsonP, astro, cities, texPrefetch });
         } catch (err) {
             enterTextMode('context-failed', err);
         }
@@ -946,7 +960,7 @@ let currentCfg = null;
 let readyFlag = false;
 
 async function bootRender(ctx) {
-    const { env, hash, store, bus, clock, render, loop, snap, governor, renderModsP, skyJsonP, astro, cities } = ctx;
+    const { env, hash, store, bus, clock, render, loop, snap, governor, renderModsP, skyJsonP, astro, cities, texPrefetch } = ctx;
     const m = await renderModsP;
     if (!m?.context?.createRenderContext) throw new Error('The 3D engine could not be loaded.');
     loader.progress(0.35, 'Building the globe');
@@ -963,13 +977,15 @@ async function bootRender(ctx) {
     let texWarned = false;
     try {
         textures = m.textures.createTextureStore(rc.renderer, {
+            prefetched: texPrefetch,
             onProgress: (ev) => {
                 if (ev?.error && !texWarned) {
                     texWarned = true;
                     bus.emit('toast', { message: "Some imagery couldn't load.", kind: 'warn' });
                 }
+                // Chunks move only the loader's bar (until ready); a frame is due when a map is in or failed.
                 updateLoaderProgress();
-                loop.invalidate();
+                if (ev?.done || ev?.error) loop.invalidate();
             },
         });
     } catch (err) {
@@ -1184,11 +1200,15 @@ async function bootRender(ctx) {
         afterCatalog();
     } else catalogP.then(installCatalog);
 
-    // 5. Critical textures, 6. compile.
-    const keys = textures && m.textures.keysForTier ? m.textures.keysForTier(currentCfg) : { critical: [], deferred: [] };
+    // 5. Previews and the tier's maps (most already downloading), 6. compile. No eager upload
+    // while the shaders compile: it would wait on the main thread for the GPU process (textures.js).
+    const keys = textures && m.textures.keysForTier ? m.textures.keysForTier(currentCfg) : { critical: [], primary: [], deferred: [] };
     const criticalP = textures ? textures.load(keys.critical) : Promise.resolve();
+    const primaryP = textures ? textures.load(keys.primary) : Promise.resolve();
     updateLoaderProgress();
-    await withTimeout(rc.compile(), COMPILE_MAX_WAIT_MS);
+    const compileP = withTimeout(rc.compile(), COMPILE_MAX_WAIT_MS);
+    textures?.holdUploads?.(compileP);
+    await compileP;
     compiled = true;
     updateLoaderProgress();
 
@@ -1217,13 +1237,17 @@ async function bootRender(ctx) {
     });
     bindRenderState({ store, bus, clock, rc, rig, loop, snap, astro, m, labels, labelsFeed, textures });
 
-    // 8. Ready: critical imagery, or 5 s, or "continue with low detail".
+    // 8. Ready: the previews (or, if they failed, the maps), or 5 s, or "continue with low detail".
     const slowP = loader.slow.then(() => 'slow');
-    const outcome = await Promise.race([criticalP.then(() => 'textures'), delay(READY_MAX_WAIT_MS).then(() => 'timeout'), slowP]);
+    const imageryP = criticalP.then(() => (keys.critical.every((k) => textures.isReady(k)) ? 'previews' : primaryP.then(() => 'textures')));
+    const outcome = await Promise.race([imageryP, delay(READY_MAX_WAIT_MS).then(() => 'timeout'), slowP]);
     if (outcome === 'slow' && store.get().quality.setting === 'auto') {
         governor.pin('low');
         store.set({ quality: { ...store.get().quality, active: 'low' } }, 'boot');
     }
+    // The loader leaves over a drawn globe: without KHR_parallel_shader_compile, compile() returns
+    // at once and the first frame is where the shaders link.
+    await drawnFrame(loop, 4000);
     readyFlag = true;
     setPhase('ready', 1);
 
@@ -1247,6 +1271,24 @@ async function bootRender(ctx) {
 }
 
 let compiled = false;
+
+/**
+ * Resolves once the loop has drawn a frame after this call, or after `maxMs` (a hidden tab has no
+ * animation frames).
+ * @param {{stats?:()=>{frames?:number}, invalidate?:()=>void}} loop
+ * @param {number} maxMs
+ */
+function drawnFrame(loop, maxMs) {
+    const count = () => loop.stats?.().frames ?? 0;
+    const f0 = count();
+    let done = false;
+    loop.invalidate?.();
+    const drawn = new Promise((resolve) => {
+        const tick = () => (done || count() > f0 ? resolve() : requestAnimationFrame(tick));
+        requestAnimationFrame(tick);
+    });
+    return Promise.race([drawn, delay(maxMs)]).then(() => { done = true; });
+}
 
 function updateLoaderProgress() {
     if (readyFlag) return;
@@ -1882,7 +1924,7 @@ function applyTierCfg(cfg) {
         try {
             t.setAnisotropy?.(cfg.anisotropy);
             const keys = R.texMod.keysForTier(cfg);
-            settle(t.load(readyFlag ? [...keys.critical, ...keys.deferred] : keys.critical));
+            settle(t.load([...keys.critical, ...keys.primary, ...(readyFlag ? keys.deferred : [])]));
         } catch (err) {
             console.error('[main] texture set for the new tier failed', err);
         }

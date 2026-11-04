@@ -13,141 +13,21 @@
  * honoured (Safari, Firefox < 98), with an <img> element.
  */
 import * as THREE from 'three';
+import {
+    ASSETS, INTERIM, PREVIEW, interimKeyFor, previewKeyFor, setMaxTextureSize, dayKeyFor, nightKeyFor, moonKeyFor,
+    maskKeyFor, cloudsKeyFor, keysForTier, download,
+} from '../core/texture-plan.js';
 
-/**
- * Every image the app loads. `bytes` are the on-disk sizes used to weight
- * loader progress; `cs` is the colour space ('srgb' for colour, 'linear' for data).
- *
- * The .webp maps are made from the vendored 4096 maps by scripts/build-textures.mjs
- * (vendor/DERIVED.json): day2k and night2k are those maps at half size, filtered like
- * their own mip 1, and clouds2k and roughness2k are the blue (cloud) and green (water)
- * channels of brc4k as grey, so every tier shows the same planet, water and weather.
- * Every browser that runs the 3D view (it needs import maps) decodes WebP.
- *
- * The max tier's maps (day8k, night8k, clouds8k, moon4k) are loaded by that tier only. They are
- * Solar System Scope's 8192 px originals of the same imagery (clouds8k is their cloud map as
- * clamped grey WebP, moon4k their 8192 px Moon at half size), and while they download and decode
- * the slot shows its 4096 map (INTERIM), so max starts as fast as high and sharpens in place.
- */
-export const ASSETS = {
-    day8k: { url: 'assets/textures/earth_day_8192.jpg', bytes: 4565e3, cs: 'srgb' },
-    night8k: { url: 'assets/textures/earth_night_8192.jpg', bytes: 3144e3, cs: 'srgb' },
-    clouds8k: { url: 'assets/textures/earth_clouds_8192.webp', bytes: 4816e3, cs: 'linear' },
-    moon4k: { url: 'assets/textures/moon_4096.webp', bytes: 2693e3, cs: 'srgb' },
-    day4k: { url: 'assets/textures/earth_day_4096.jpg', bytes: 473e3, cs: 'srgb' },
-    day2k: { url: 'assets/textures/earth_day_2048.webp', bytes: 144e3, cs: 'srgb' },
-    night4k: { url: 'assets/textures/earth_night_4096.jpg', bytes: 267e3, cs: 'srgb' },
-    night2k: { url: 'assets/textures/earth_night_2048.webp', bytes: 75e3, cs: 'srgb' },
-    roughness2k: { url: 'assets/textures/earth_roughness_2048.webp', bytes: 56e3, cs: 'linear' },
-    clouds2k: { url: 'assets/textures/earth_clouds_2048.webp', bytes: 235e3, cs: 'linear' },
-    brc4k: { url: 'assets/textures/earth_bump_roughness_clouds_4096.jpg', bytes: 1508e3, cs: 'linear' },
-    moon: { url: 'assets/textures/moon_1024.jpg', bytes: 238e3, cs: 'srgb' },
-    milkyway: { url: 'data/milkyway.png', bytes: 200e3, cs: 'linear', mipmaps: false },
+// The plan (which keys each tier loads, and their URLs) is pure: js/core/texture-plan.js.
+export {
+    ASSETS, INTERIM, PREVIEW, interimKeyFor, previewKeyFor, dayKeyFor, nightKeyFor, moonKeyFor, maskKeyFor, cloudsKeyFor,
+    keysForTier,
 };
 
 /** Placeholder colours (sRGB hex) shown until a key loads; everything else is black. */
 const PLACEHOLDER_HEX = {
-    day8k: 0x1b3a5c, day4k: 0x1b3a5c, day2k: 0x1b3a5c, moon: 0x888888, moon4k: 0x888888,
+    day8k: 0x1b3a5c, day4k: 0x1b3a5c, day2k: 0x1b3a5c, dayPreview: 0x1b3a5c, moon: 0x888888, moon4k: 0x888888,
 };
-
-/**
- * The map a slot shows while its max-tier map loads: the same imagery at 4096 px (clouds8k's is
- * brc4k's blue channel, which the high tier draws).
- */
-export const INTERIM = Object.freeze({ day8k: 'day4k', night8k: 'night4k', clouds8k: 'brc4k', moon4k: 'moon' });
-
-/**
- * The stand-in for a key while it loads, or null when the key has none.
- * @param {string|null} key
- * @returns {string|null}
- */
-export function interimKeyFor(key) {
-    return (key && INTERIM[key]) || null;
-}
-
-/** Learned from the renderer by createTextureStore; drives the day-map choice on medium. */
-let maxTextureSize = 16384;
-
-/**
- * Day-map key for a tier. SPEC risk 4: on medium, devices whose max texture
- * size is under 8192 (older iOS) keep the 2k map to save memory. A GPU that
- * cannot hold an 8192 texture keeps the 4k map on max.
- * @param {{name?:string, dayTex?:'day2k'|'day4k'|'day8k'}} cfg TierCfg
- * @returns {'day2k'|'day4k'|'day8k'}
- */
-export function dayKeyFor(cfg) {
-    const want = cfg?.dayTex === 'day2k' ? 'day2k' : cfg?.dayTex === 'day8k' ? 'day8k' : 'day4k';
-    if (want === 'day8k' && maxTextureSize < 8192) return 'day4k';
-    if (want === 'day4k' && cfg?.name === 'medium' && maxTextureSize < 8192) return 'day2k';
-    return want;
-}
-
-/**
- * Night-lights key for a tier: it follows the day map, so a tier that saves memory
- * with the 2k day map does not hold a 4k night map either.
- * @param {{name?:string, dayTex?:'day2k'|'day4k'|'day8k'}} cfg TierCfg
- * @returns {'night2k'|'night4k'|'night8k'}
- */
-export function nightKeyFor(cfg) {
-    const day = dayKeyFor(cfg);
-    return day === 'day2k' ? 'night2k' : day === 'day8k' ? 'night8k' : 'night4k';
-}
-
-/**
- * Moon-map key for a tier: the 4096 map on max (when the GPU takes 4096), else the 1024 one.
- * @param {{moonTex?:'moon'|'moon4k'}} cfg TierCfg
- * @returns {'moon'|'moon4k'}
- */
-export function moonKeyFor(cfg) {
-    return cfg?.moonTex === 'moon4k' && maxTextureSize >= 4096 ? 'moon4k' : 'moon';
-}
-
-/**
- * Ocean-mask key for a tier, or null when the mask is derived from the day map. Both
- * masks are the same roughness data (water ~ 0): brc4k's green channel, or its 2k copy.
- * Every tier ships one: the derived mask (the stand-in while a mask loads) reads the day
- * map's chroma, which WebP and JPEG store at half resolution, so it loses small islands.
- * @param {{oceanMask?:'derived'|'roughness2k'|'roughness'}} cfg
- * @returns {'roughness2k'|'brc4k'|null}
- */
-export function maskKeyFor(cfg) {
-    if (cfg?.oceanMask === 'roughness2k') return 'roughness2k';
-    if (cfg?.oceanMask === 'roughness') return 'brc4k';
-    return null;
-}
-
-/**
- * Cloud-map key for a tier, or null when the tier has no clouds.
- * @param {{clouds?:'none'|'clouds2k'|'brc4k'|'clouds8k'}} cfg
- * @returns {'clouds2k'|'brc4k'|'clouds8k'|null}
- */
-export function cloudsKeyFor(cfg) {
-    if (cfg?.clouds === 'clouds2k') return 'clouds2k';
-    if (cfg?.clouds === 'brc4k') return 'brc4k';
-    if (cfg?.clouds === 'clouds8k') return maxTextureSize < 8192 ? 'brc4k' : 'clouds8k';
-    return null;
-}
-
-/**
- * Which keys a tier needs: the day and night maps gate the loader (critical);
- * everything else streams in during idle time (deferred), most visible first.
- * A max-tier map gates nothing: its 4096 stand-in (INTERIM) takes its place in
- * that order, and the max maps themselves come last.
- * @param {object} cfg TierCfg
- * @returns {{critical:string[], deferred:string[]}}
- */
-export function keysForTier(cfg) {
-    const day = dayKeyFor(cfg), night = nightKeyFor(cfg), clouds = cloudsKeyFor(cfg), moon = moonKeyFor(cfg);
-    const stand = (k) => interimKeyFor(k) ?? k;
-    const deferred = [];
-    const push = (k) => { if (k && !deferred.includes(k)) deferred.push(k); };
-    push(maskKeyFor(cfg));
-    push(stand(clouds));
-    push(stand(moon));
-    push('milkyway');
-    for (const k of [day, night, clouds, moon]) if (interimKeyFor(k)) push(k);
-    return { critical: [stand(day), stand(night)], deferred };
-}
 
 /**
  * True where createImageBitmap honours {imageOrientation:'flipY'}. Safari and
@@ -163,23 +43,47 @@ function bitmapDecodeUsable() {
     return true;
 }
 
+/** The next task after the next animation frame (the frame is submitted by then); a task in Node. */
+function afterFrame() {
+    return new Promise((resolve) => {
+        if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => setTimeout(resolve, 0));
+        else setTimeout(resolve, 0);
+    });
+}
+
 /**
  * Creates the texture store.
+ *
+ * `prefetched` (core/texture-plan.js prefetchTextures) holds downloads main.js started before the
+ * render stack existed; a key whose URL is there takes that download over (once) instead of
+ * fetching again, and its progress counts the bytes already in.
+ *
+ * Eager upload: a decoded map is uploaded at once (renderer.initTexture), out of the render frame,
+ * except while `holdUploads(p)` holds them: from the start of rc.compile() until it settles and
+ * one frame is out. An upload issued while the GPU process links the boot shaders waits for that
+ * work on the main thread (≈ 360 ms measured on a desktop GPU); afterwards it takes a few ms. A
+ * held map is still ready and bound: a frame drawn meanwhile uploads it itself.
+ *
+ * Previews: get(key) of a day or night map returns its 512 px preview (PREVIEW) while the map
+ * loads, once the preview is in (state 'preview'); onReady(key) still fires for the map itself.
  * @param {THREE.WebGLRenderer|null} renderer used for anisotropy, max size and eager upload
- * @param {{onProgress?:(p:{loaded:number,total:number,key?:string,done?:boolean,error?:Error})=>void}} [opts]
+ * @param {{onProgress?:(p:{loaded:number,total:number,key?:string,done?:boolean,error?:Error})=>void,
+ *   prefetched?:Map<string, ReturnType<typeof download>>|null}} [opts]
  * @returns {{
  *   get:(key:string)=>THREE.Texture,
  *   onReady:(key:string, cb:(tex:THREE.Texture)=>void)=>(()=>void),
  *   load:(keys:string[])=>Promise<void>,
  *   progress:()=>{loaded:number,total:number},
  *   isReady:(key:string)=>boolean,
+ *   state:(key:string)=>'idle'|'loading'|'preview'|'ready'|'failed',
+ *   holdUploads:(until:Promise<unknown>)=>void,
  *   setAnisotropy:(n?:number)=>void,
  *   restore:()=>void,
  *   dispose:()=>void }}
  */
-export function createTextureStore(renderer, { onProgress } = {}) {
+export function createTextureStore(renderer, { onProgress, prefetched = null } = {}) {
     const caps = renderer?.capabilities;
-    if (caps?.maxTextureSize) maxTextureSize = caps.maxTextureSize;
+    if (caps?.maxTextureSize) setMaxTextureSize(caps.maxTextureSize);
     const maxAnisotropy = Math.max(1, caps?.getMaxAnisotropy?.() ?? 1);
     // 8x unless the tier asks for more (max: 16x, or whatever the GPU tops out at).
     let anisotropy = Math.min(8, maxAnisotropy);
@@ -190,6 +94,22 @@ export function createTextureStore(renderer, { onProgress } = {}) {
     const entries = new Map();
     const placeholders = new Map();
     let disposed = false;
+    /** While uploads are held (holdUploads): the textures decoded meanwhile, uploaded afterwards. */
+    let gate = null;
+    const held = [];
+
+    function upload(tex) {
+        if (gate) { held.push(tex); return; }
+        try { renderer?.initTexture?.(tex); } catch { /* upload lazily on first use instead */ }
+    }
+
+    /** One held upload per task, each after a frame, so two large maps never share a long task. */
+    async function flushHeld() {
+        while (held.length && !gate && !disposed) {
+            upload(held.shift());
+            if (held.length) await afterFrame();
+        }
+    }
 
     function entryOf(key) {
         let e = entries.get(key);
@@ -232,26 +152,16 @@ export function createTextureStore(renderer, { onProgress } = {}) {
         try { onProgress({ ...progress(), ...extra }); } catch { /* a UI callback must not break loading */ }
     }
 
-    async function fetchBlob(url, e, key) {
-        const res = await fetch(url, { credentials: 'same-origin' });
-        if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
-        if (!res.body || typeof res.body.getReader !== 'function') {
-            const blob = await res.blob();
-            e.received = blob.size;
-            return blob;
-        }
-        const reader = res.body.getReader();
-        const chunks = [];
-        let n = 0;
-        for (;;) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            chunks.push(value);
-            n += value.byteLength;
+    /** The key's image as a Blob: the prefetched download of its URL, or a new one. */
+    function fetchBlob(url, e, key) {
+        const dl = prefetched?.get(url) ?? download(url, fetch);
+        prefetched?.delete(url);
+        e.received = dl.received;
+        dl.onChunk = (n) => {
             e.received = n;
             emit({ key });
-        }
-        return new Blob(chunks, { type: res.headers.get('Content-Type') || '' });
+        };
+        return dl.promise;
     }
 
     async function decode(blob) {
@@ -311,7 +221,7 @@ export function createTextureStore(renderer, { onProgress } = {}) {
                 const decoded = await decode(blob);
                 if (disposed) { decoded.image.close?.(); return; }
                 const tex = makeTexture(key, decoded);
-                try { renderer?.initTexture?.(tex); } catch { /* upload lazily on first use instead */ }
+                upload(tex);
                 e.tex = tex;
                 e.state = 'ready';
                 emit({ key, done: true });
@@ -329,10 +239,12 @@ export function createTextureStore(renderer, { onProgress } = {}) {
     }
 
     return {
-        /** The loaded texture, or the key's placeholder until it is ready. */
+        /** The loaded texture, else its preview once that is in (day and night maps), else the key's placeholder. */
         get(key) {
             const e = entries.get(key);
-            return e?.state === 'ready' ? e.tex : placeholderFor(key);
+            if (e?.state === 'ready') return e.tex;
+            const p = entries.get(previewKeyFor(key));
+            return p?.state === 'ready' ? p.tex : placeholderFor(key);
         },
         /** Calls cb(tex) when the key is ready (synchronously if it already is). Returns off(). */
         onReady(key, cb) {
@@ -354,6 +266,23 @@ export function createTextureStore(renderer, { onProgress } = {}) {
         /** True once the key's real texture is available. */
         isReady(key) {
             return entries.get(key)?.state === 'ready';
+        },
+        /** 'preview' while a day or night map loads (or failed) and get() returns its preview. */
+        state(key) {
+            const st = entries.get(key)?.state ?? 'idle';
+            return st !== 'ready' && entries.get(previewKeyFor(key))?.state === 'ready' ? 'preview' : st;
+        },
+        /**
+         * Holds eager uploads until `until` settles and one more frame is out (rc.compile() at boot).
+         * @param {Promise<unknown>} until
+         */
+        holdUploads(until) {
+            const g = Promise.resolve(until).then(() => {}, () => {}).then(afterFrame).then(() => {
+                if (gate !== g) return;
+                gate = null;
+                flushHeld();
+            });
+            gate = g;
         },
         /**
          * Sets the anisotropic filtering of every mipmapped map (TierCfg.anisotropy; absent = 8x),
@@ -378,6 +307,7 @@ export function createTextureStore(renderer, { onProgress } = {}) {
         /** Frees GPU and decoded-image memory. The store is unusable afterwards. */
         dispose() {
             disposed = true;
+            held.length = 0;
             for (const e of entries.values()) {
                 if (e.tex) {
                     e.tex.dispose();

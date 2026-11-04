@@ -260,15 +260,15 @@ test('stage-site ships the site and nothing else', () => {
 
 test('check-size: tier texture selection mirrors keysForTier', () => {
     assert.deepEqual(tierTextureKeys({ dayTex: 'day2k', oceanMask: 'roughness2k', clouds: 'none', flare: false }),
-        ['day2k', 'night2k', 'roughness2k', 'moon', 'milkyway'], 'low');
-    assert.deepEqual(tierTextureKeys({ dayTex: 'day2k', oceanMask: 'derived', clouds: 'none', flare: false }), ['day2k', 'night2k', 'moon', 'milkyway'],
+        ['dayPreview', 'nightPreview', 'day2k', 'night2k', 'roughness2k', 'moon', 'milkyway'], 'low');
+    assert.deepEqual(tierTextureKeys({ dayTex: 'day2k', oceanMask: 'derived', clouds: 'none', flare: false }), ['dayPreview', 'nightPreview', 'day2k', 'night2k', 'moon', 'milkyway'],
         'a derived mask loads nothing');
     assert.deepEqual(tierTextureKeys({ dayTex: 'day4k', oceanMask: 'roughness2k', clouds: 'clouds2k', flare: true }),
-        ['day4k', 'night4k', 'roughness2k', 'clouds2k', 'moon', 'milkyway']);
+        ['dayPreview', 'nightPreview', 'day4k', 'night4k', 'roughness2k', 'clouds2k', 'moon', 'milkyway']);
     assert.deepEqual(tierTextureKeys({ dayTex: 'day2k', oceanMask: 'roughness2k', clouds: 'clouds2k', flare: true }),
-        ['day2k', 'night2k', 'roughness2k', 'clouds2k', 'moon', 'milkyway'], 'medium on a small GPU');
+        ['dayPreview', 'nightPreview', 'day2k', 'night2k', 'roughness2k', 'clouds2k', 'moon', 'milkyway'], 'medium on a small GPU');
     assert.deepEqual(tierTextureKeys({ dayTex: 'day4k', oceanMask: 'roughness', clouds: 'brc4k', flare: true }),
-        ['day4k', 'night4k', 'brc4k', 'moon', 'milkyway']);
+        ['dayPreview', 'nightPreview', 'day4k', 'night4k', 'brc4k', 'moon', 'milkyway']);
     assert.deepEqual(TIER_BUDGETS, { low: 5.0e6, medium: 5.79e6, high: 8e6 });
     // SPEC §E.6 as amended: low and medium stay under 6 MB, high under 8 MB (owner, 2026-11-05),
     // and the tiers grow with quality.
@@ -278,7 +278,7 @@ test('check-size: tier texture selection mirrors keysForTier', () => {
     assert.deepEqual(INFO_TIERS, ['max']);
     assert.equal(TIER_BUDGETS.max, undefined);
     assert.deepEqual(tierTextureKeys({ dayTex: 'day8k', oceanMask: 'roughness', clouds: 'clouds8k', moonTex: 'moon4k', flare: true }),
-        ['day4k', 'night4k', 'brc4k', 'moon', 'milkyway', 'day8k', 'night8k', 'clouds8k', 'moon4k'], 'max');
+        ['dayPreview', 'nightPreview', 'day4k', 'night4k', 'brc4k', 'moon', 'milkyway', 'day8k', 'night8k', 'clouds8k', 'moon4k'], 'max');
     // The staged site carries the max maps (≈ 15 MB) with headroom; GitHub Pages allows 1 GB.
     assert.equal(STAGING_BUDGET, 32e6);
 });

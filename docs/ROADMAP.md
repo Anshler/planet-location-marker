@@ -116,16 +116,16 @@ Globe photorealism.
 | done | `sky-postcard` | Sky Postcard: share the current view as a designed image, not just a link ★ | 4 | M | 1515699 (Share → Postcard: 1080×1350 / 1200×630 / 1080×1920 rendered at size, typographic band, navigator.share). |
 | done | `guided-tours` | Guided tours: "Tonight from here", "A year in a minute", the 2027 eclipse, and an ambient mode ★ | 4 | L | 93b54eb (Tonight from here, A year in a minute, Eclipse 2027, Ambient; #tour=; restores state; text mode). |
 | done | `earthrise-vantage` | Vantage points: Earthrise from the Moon, and the DSCOVR view from L1 ★ | 4 | L | b57fde1 (View from L1 with the eclipse shadow on the disc; Earthrise from 150 km lunar orbit; vt= in URL). |
-| todo | `ar-sky-pointing` | Point your phone at the sky: compass-driven Sky view, off-screen pointers and wake lock ★ | 4 | L |  |
+| done | `ar-sky-pointing` | Point your phone at the sky: compass-driven Sky view, off-screen pointers and wake lock ★ | 4 | L | d33ce37 (off-screen edge chips on all devices; 'Point at the sky' on phones with Align calibration, wake lock, auto-stop). |
 | done | `intro-preroll-matchcut` | Intro: let the opening breathe, and match-cut from the loader's globe | 2 | S | 93b54eb (pre-roll done; loader match-cut partial). |
-| todo | `fast-time-star-streaks` | Velocity streaks to stop star strobing in fast time | 2 | M |  |
-| todo | `timelapse-video-export` | Record a time-lapse: deterministic 1080p or vertical video with labels and a date stamp burned in | 3 | L |  |
-| todo | `globe-to-map-morph` | Unroll the globe: an animated globe-to-world-map morph with the terminator, twilight bands, sub-body points and tides ★ | 3 | L |  |
+| done | `fast-time-star-streaks` | Velocity streaks to stop star strobing in fast time | 2 | M | 981a870 (render/streaks.js; subtle, reduced-motion aware, off on low). |
+| done | `timelapse-video-export` | Record a time-lapse: deterministic 1080p or vertical video with labels and a date stamp burned in | 3 | L | 981a870 (Share → Video: deterministic frames, WebCodecs + in-repo MP4 muxer, MediaRecorder fallback; presets A day / Star trails / Eclipse chase). |
+| done | `globe-to-map-morph` | Unroll the globe: an animated globe-to-world-map morph with the terminator, twilight bands, sub-body points and tides ★ | 3 | L | a6d1e37 (M or vantage menu; view=map, cam=m:; twilight contour lines; sub-body dots; map picking). |
 | todo | `orrery-zoom-out` | Powers of ten: zoom out until the beams become lines across the solar system ★ | 4 | XL |  |
-| todo | `two-observers` | Same sky, two places: a second pin whose beams converge on the Moon | 3 | L |  |
-| todo | `sky-soundscape` | Hear the sky: a generative, spatial soundscape that goes silent at totality | 2 | M |  |
-| todo | `idle-supersampling` | Progressive supersampling when idle: render-on-demand's spare frames turned into perfectly anti-aliased stills | 2 | M |  |
-| todo | `angle-ruler-and-fists` | Find it in the real sky: an angle ruler plus 'fists at arm's length' guidance | 3 | M |  |
+| done | `two-observers` | Same sky, two places: a second pin whose beams converge on the Moon | 3 | L | a6d1e37 (observer2 via 'Compare with…', loc2/n2/tz2 links; beams converge on the Moon; side-by-side Sky panel). |
+| todo | `sky-soundscape` | Hear the sky: a generative, spatial soundscape that goes silent at totality | 2 | M | Skipped in batch 2 (optional). |
+| done | `idle-supersampling` | Progressive supersampling when idle: render-on-demand's spare frames turned into perfectly anti-aliased stills | 2 | M | 981a870 (Halton-jittered progressive average when settled; medium 8 / high+max 16 samples; off on low). |
+| done | `angle-ruler-and-fists` | Find it in the real sky: an angle ruler plus 'fists at arm's length' guidance | 3 | M | d33ce37 (A-key ruler with fists; body card 'Find it' line, text mode too). |
 
 ## Phase 6: Time machine & sky content
 
@@ -215,3 +215,6 @@ Use the 1000–3000 range and the unused Astronomy Engine APIs.
 - 2026-11-05: Phase 5 batch 1 merged at b57fde1 (capture, tours, vantage); npm test (647), size, smoke, smoke:mobile, text
   mode pass. Budgets low 4.0 / medium 4.76 MB (high 5.92 of 8). main.js now has one drawnLayers(state) for both the vantage
   and long-exposure layer rules.
+- 2026-11-05: Phase 5 batch 2 — skyi, quality and views merged at a6d1e37 (npm test 702, size, smoke, smoke:mobile, text mode pass;
+  low 4.20 / medium 4.96 / high 6.18 MB). The orrery branch conflicted in 17 files with the map/aiming/recorder work, so
+  its merge was aborted and handed to a single integration agent (wip/p5-orrery-merged from a6d1e37).

@@ -1782,8 +1782,12 @@ function bindViewInsets(rig, store) {
             console.error('[main] view insets failed', err);
         }
     };
+    // Measured in a task queued from a frame callback, i.e. just after that frame's own layout:
+    // the reads then cost nothing. Inside the callback they would lay out the UI's pending class
+    // changes first, then the browser would lay out again for the frame's own DOM writes.
+    const afterFrame = () => setTimeout(measure, 0);
     const schedule = () => {
-        if (!frame) frame = requestAnimationFrame(measure);
+        if (!frame) frame = requestAnimationFrame(afterFrame);
     };
     // Classes and the layout anywhere in the UI; inline styles only where they move the sheet
     // (the root's --sheet-h and the sheet's drag transform). Watching `style` on the whole

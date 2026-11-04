@@ -560,7 +560,7 @@ export function mountTimebar(root, ctx) {
     // the scrubber is measured on every draw, as a fallback.
     let geomDirty = true;
     const observesSize = typeof ResizeObserver === 'function';
-    let scrubLeft = 0;                // viewport x of the scrubber, read with its size and per gesture
+    let scrubLeft = 0;                // viewport x of the scrubber, read with its first size and per gesture
     let geom = { tickY: 0, trackY: 10, trackH: 18, labelY: 34 };
     const series = { fromMs: 0, toMs: 0, n: 0, values: null, key: '' };
     let seriesRev = 0;                // bumped whenever `series` gets new values (gradient cache key)
@@ -582,13 +582,23 @@ export function mountTimebar(root, ctx) {
     let lastAria = 0;
     const win = { start: 0, span: 1, range: false };
 
-    /** Reads the scrubber's box only when something flagged it: draw() never forces a layout. */
+    let roW = 0, roH = 0;             // the scrubber's box as the ResizeObserver last reported it
+    /**
+     * Sizes the canvas only when something flagged it. The size comes from the ResizeObserver's
+     * entry, so draw() (a frame callback) never reads layout; only a first draw before the
+     * observer's first entry, or a browser without one, reads the box (and the left edge with it).
+     */
     function resizeCanvas() {
         if (!geomDirty && observesSize) return;
-        const r = scrub.getBoundingClientRect();
-        scrubLeft = r.left;
-        const w = Math.max(40, Math.round(r.width));
-        const hgt = Math.max(24, Math.round(r.height));
+        let bw = roW, bh = roH;
+        if (!(bw > 0 && bh > 0)) {
+            const r = scrub.getBoundingClientRect();
+            scrubLeft = r.left;
+            bw = r.width;
+            bh = r.height;
+        }
+        const w = Math.max(40, Math.round(bw));
+        const hgt = Math.max(24, Math.round(bh));
         const d = Math.min(2, window.devicePixelRatio || 1);
         if (w === cssW && hgt === cssH && d === dpr && !geomDirty) return;
         if (w !== cssW || hgt !== cssH || d !== dpr || !lineImg) {
@@ -1066,7 +1076,14 @@ export function mountTimebar(root, ctx) {
     offs.push(ui.on('events', kick));
     offs.push(ui.on('almanac', kick));
     offs.push(on(window, 'resize', () => { geomDirty = true; kick(); }));
-    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(() => { geomDirty = true; kick(); }) : null;
+    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver((entries) => {
+        const e = entries[entries.length - 1];
+        const box = e?.borderBoxSize?.[0];
+        roW = box ? box.inlineSize : e?.contentRect?.width ?? 0;
+        roH = box ? box.blockSize : e?.contentRect?.height ?? 0;
+        geomDirty = true;
+        kick();
+    }) : null;
     ro?.observe(scrub);
     // Live 1× does not animate the clock: refresh the seconds on the second boundary.
     let secTimer = 0;

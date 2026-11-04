@@ -2044,6 +2044,30 @@ body.is-map .vb-track, body.is-map .vb-expose { display: none; }
 .fade-overlay.is-on { animation: veil 220ms ease-out both; }
 @keyframes veil { from { opacity: .85; } to { opacity: 0; } }
 
+/* Coach marks (ui/coach.js): a spotlight cut out of a dimmed screen, and its tip. Above popovers, below dialogs and toasts. */
+.coach { position: fixed; inset: 0; z-index: 38; pointer-events: auto; }
+.coach__spot {
+    position: fixed;
+    border-radius: 14px;
+    box-shadow: 0 0 0 2px rgba(124, 196, 255, .85), 0 0 22px 4px rgba(124, 196, 255, .35), 0 0 0 200vmax rgba(3, 6, 13, .62);
+    pointer-events: none;
+    transition: left var(--t2) var(--ease-out), top var(--t2) var(--ease-out), width var(--t2) var(--ease-out), height var(--t2) var(--ease-out);
+}
+.coach__tip {
+    position: fixed;
+    width: min(320px, calc(100vw - 24px));
+    padding: 14px 16px 12px;
+    border: 1px solid var(--line-2);
+    border-radius: 16px;
+    box-shadow: 0 18px 48px rgba(0, 0, 0, .55);
+    animation: pop-in var(--t1) var(--ease-out) both;
+}
+.coach__count { color: var(--accent); font-size: 11px; font-weight: 750; letter-spacing: .08em; text-transform: uppercase; }
+.coach__title { margin-top: 4px !important; font-size: 16px; font-weight: 780; }
+.coach__text { margin-top: 6px !important; color: var(--text-2); font-size: 13.5px; line-height: 1.45; }
+.coach__acts { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+.ui:not([data-layout="mobile"]) .vb-more { display: none; }
+
 /* The intro's title card (ui/intro-caption.js): on <body>, outside #ui-root, which the intro hides. */
 .intro-cap {
     position: fixed;

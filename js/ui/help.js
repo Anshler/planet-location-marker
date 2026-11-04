@@ -101,8 +101,9 @@ export function mountHelp(root, ctx) {
     const { store, ui } = ctx;
     const offs = [];
     const closeBtn = h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Close' }, icon('close', { size: 18 }));
-    const keysBtn = h('button', { class: 'btn btn--soft btn--sm', type: 'button', 'aria-expanded': 'false' },
+    const keysBtn = h('button', { class: 'btn btn--soft btn--sm for-coarse', type: 'button', 'aria-expanded': 'false' },
         icon('keyboard', { size: 16 }), 'Keyboard shortcuts');
+    const tipsBtn = h('button', { class: 'btn btn--soft btn--sm', type: 'button' }, icon('sparkle', { size: 16 }), 'Show interface tips');
     const dialog = h('div', { class: 'dialog help glass', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'help-title' },
         h('header', { class: 'dialog__head' },
             h('h2', { class: 'dialog__title', id: 'help-title' },
@@ -117,7 +118,7 @@ export function mountHelp(root, ctx) {
             h('dl', { class: 'help__list' }, g.rows.map(([k, d]) => h('div', { class: 'help__row' },
                 h('dt', null, keysEl(k)), h('dd', null, d))))))),
         h('p', { class: 'note for-fine' }, 'Shortcuts are ignored while typing in a field, except Esc. On touch screens, drag to rotate and pinch to zoom.'),
-        h('div', { class: 'btn-row help__foot for-coarse' }, keysBtn));
+        h('div', { class: 'btn-row help__foot' }, keysBtn, tipsBtn));
     const layer = h('div', { class: 'modal-layer help-layer', hidden: true }, h('div', { class: 'modal-backdrop' }), dialog);
     root.appendChild(layer);
 
@@ -131,6 +132,7 @@ export function mountHelp(root, ctx) {
     }
     const close = () => ui.toggleHelp(false);
     offs.push(on(closeBtn, 'click', close));
+    offs.push(on(tipsBtn, 'click', () => { close(); ui.showTips?.(); }));
     offs.push(on(keysBtn, 'click', () => {
         const open = dialog.classList.toggle('is-keys');
         keysBtn.setAttribute('aria-expanded', String(open));
@@ -140,6 +142,7 @@ export function mountHelp(root, ctx) {
         if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
     }));
     offs.push(store.subscribe((s) => s.ui?.help, (v) => show(!!v), { immediate: true }));
+    offs.push(store.subscribe((s) => s.status?.webgl, (gl) => { tipsBtn.hidden = gl === false; }, { immediate: true }));
 
     return { destroy() { offs.forEach((off) => off()); release?.(); layer.remove(); } };
 }

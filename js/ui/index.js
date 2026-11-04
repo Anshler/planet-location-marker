@@ -30,6 +30,7 @@ import { mountAnnouncer } from './announcer.js';
 import { bindShortcuts } from './shortcuts.js';
 import { mountInstallHint } from './install.js';
 import { mountIntroCaption } from './intro-caption.js';
+import { mountCoach } from './coach.js';
 import { toCalendar, fromCalendar } from '../core/tz.js';
 import { isExtraId } from '../core/selection.js';
 
@@ -54,7 +55,8 @@ const pad2 = (n) => (n < 10 ? '0' : '') + n;
  * Mounts the complete UI.
  * @param {HTMLElement} rootEl  `#ui-root`
  * @param {{store:any, bus:any, clock:any, actions:any, services:{cities?:any, geocoder?:any, astro?:any, tz:any, format:any},
- *          env?:{coarse?:boolean, reducedMotion?:boolean}}} ctx
+ *          env?:{coarse?:boolean, reducedMotion?:boolean, firstRun?:boolean}}} ctx
+ *   env.firstRun: a first visit on a plain link (main.js), when the coach marks follow the intro
  * @returns {{update(snapFull:any): void, destroy(): void}}
  */
 export function mountUI(rootEl, ctx) {
@@ -76,6 +78,7 @@ export function mountUI(rootEl, ctx) {
     const summary = startSceneSummary(uctx);
     const installHint = mountInstallHint(uctx);
     const introCap = mountIntroCaption(uctx);
+    const coach = mountCoach(overlay, uctx);
 
     // ---- data from the app ------------------------------------------------
     offs.push(ctx.bus.on('readout', (snap) => update(snap)));
@@ -107,6 +110,7 @@ export function mountUI(rootEl, ctx) {
             summary();
             installHint();
             introCap.destroy();
+            coach.destroy();
             ui.dispose();
             toasts.destroy();
             flash.destroy();
@@ -618,6 +622,9 @@ function createUiHub(ctx, rootEl) {
             ctx.store.set({ ui: { ...u, help: typeof force === 'boolean' ? force : !u.help } });
         },
         share: async () => act('share'),
+        // The coach marks (ui/coach.js): replay them; are they on screen?
+        showTips: () => {},
+        coachOpen: () => false,
         flash: (_text) => {},
         pickHint: (_on) => {},
         dispose() {

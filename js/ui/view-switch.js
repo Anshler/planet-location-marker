@@ -3,7 +3,8 @@
  * only), tracking (Sky only: off → the selected body → the stars, K), the angle ruler and 'Point at
  * the sky' (Sky only, ui/sky-tools.js), Expose (Sky only: long exposures, ui/expose.js), Share,
  * Fullscreen and Help. On mobile it becomes a floating column (Globe/Sky, lock, tracking, ruler,
- * point, expose, share).
+ * point, expose, share, ⋯), where a ⋯ menu stands in for Help and Fullscreen: Gestures and help,
+ * Interface tips (ui/coach.js), Hide the interface, Fullscreen.
  *
  * Vantage points (globe view): a menu button offers 'View from L1' and 'Earthrise'
  * (actions.setVantage), the flat 'World map' (view mode 'map', M) and 'Solar system'
@@ -45,6 +46,56 @@ const VANTAGE_CAPTION = Object.freeze({
 const ITEM_ICON = Object.freeze({ none: 'globe', map: 'map', l1: 'sun', moon: 'moon', system: 'planet' });
 
 /**
+ * The phone's ⋯ menu (CSS shows its button only in the mobile layout, where Help and Fullscreen
+ * are hidden): Gestures and help, Interface tips, Hide the interface, Fullscreen.
+ * @param {HTMLElement} host where the menu lives
+ * @param {any} ctx UiCtx
+ * @returns {{btn: HTMLElement, destroy(): void}}
+ */
+function mountMoreMenu(host, ctx) {
+    const { ui, store } = ctx;
+    const btn = h('button', { class: 'icon-btn icon-btn--glass glass vb-more', type: 'button', 'aria-haspopup': 'menu', 'aria-expanded': 'false', 'aria-label': 'More' },
+        icon('more', { size: 19 }));
+    const item = (id, iconName, name, detail) => h('button', { class: 'vmenu__item', type: 'button', role: 'menuitem', 'data-act': id },
+        icon(iconName, { size: 18 }), h('span', { class: 'vmenu__text' }, h('span', { class: 'vmenu__name' }, name), h('span', { class: 'vmenu__detail' }, detail)));
+    const items = [
+        item('help', 'help', 'Gestures and help', 'Drag, pinch and tap: what each one does'),
+        item('tips', 'sparkle', 'Interface tips', 'The three tips from the first visit, again'),
+        item('cinema', 'eye-off', 'Hide the interface', 'Just the view; tap Show interface to come back'),
+        item('fs', 'fullscreen', 'Fullscreen', 'Use the whole screen'),
+    ];
+    const menu = h('div', { class: 'popover vmenu', role: 'menu', 'aria-label': 'More', hidden: true }, ...items);
+    host.appendChild(menu);
+    let pop = null;
+    const close = () => { pop?.close(); pop = null; };
+    const offs = [
+        on(btn, 'click', () => {
+            if (pop) { close(); return; }
+            items[1].hidden = store.get().status?.webgl === false;
+            items[3].hidden = !document.fullscreenEnabled && !document.webkitFullscreenEnabled;
+            pop = openPopover(btn, menu, { placement: 'bottom', onClose: () => { pop = null; } });
+        }),
+        on(menu, 'click', (e) => {
+            const b = /** @type {HTMLElement} */ (e.target).closest('[data-act]');
+            if (!b) return;
+            close();
+            const a = b.dataset.act;
+            if (a === 'help') ui.toggleHelp(true);
+            else if (a === 'tips') ui.showTips();
+            else ui.act(a === 'fs' ? 'toggleFullscreen' : 'toggleCinema');
+        }),
+        on(menu, 'keydown', (e) => {
+            if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+            e.preventDefault();
+            const list = items.filter((b) => !b.hidden);
+            const i = list.indexOf(/** @type {any} */ (document.activeElement));
+            list[(i + (e.key === 'ArrowDown' ? 1 : list.length - 1)) % list.length].focus();
+        }),
+    ];
+    return { btn, destroy() { offs.forEach((off) => off()); close(); menu.remove(); } };
+}
+
+/**
  * Mounts the view switch.
  * @param {HTMLElement} root `.viewbar`
  * @param {any} ctx UiCtx
@@ -74,8 +125,9 @@ export function mountViewSwitch(root, ctx) {
         icon('crosshair', { size: 19 }));
     const vantBtn = h('button', { class: 'icon-btn icon-btn--glass glass vb-vantage', type: 'button', 'aria-haspopup': 'menu', 'aria-expanded': 'false', 'aria-label': 'Vantage points', 'data-tip': 'Vantage points' },
         icon('vantage', { size: 19 }));
+    const more = mountMoreMenu(ui.root || document.body, ctx);
     const tools = mountSkyTools(ui.root || document.body, ctx);
-    root.append(seg, lockBtn, vantBtn, trackBtn, tools.rulerBtn, tools.pointBtn, exposeBtn, shareBtn, fsBtn, helpBtn);
+    root.append(seg, lockBtn, vantBtn, trackBtn, tools.rulerBtn, tools.pointBtn, exposeBtn, shareBtn, fsBtn, helpBtn, more.btn);
     root.setAttribute('role', 'toolbar');
     root.setAttribute('aria-label', 'View');
 
@@ -313,6 +365,7 @@ export function mountViewSwitch(root, ctx) {
             videoDlg.destroy();
             expose.destroy();
             tools.destroy();
+            more.destroy();
             clearTimeout(fadeTimer);
             release?.();
             closeVant();

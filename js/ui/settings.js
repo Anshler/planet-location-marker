@@ -3,7 +3,8 @@
  * time display zone (Observer / Device / UTC), 24-hour clock, sky darkness
  * (Auto from location / Pristine / Bortle 1–9), aurora activity (Quiet / Typical / Storm: the
  * modelled ovals, not live data), Earth-lock,
- * Replay intro, keyboard shortcuts (gestures on touch) and Reset all settings (with confirmation).
+ * Replay intro, Show interface tips (ui/coach.js), keyboard shortcuts (gestures on touch) and
+ * Reset all settings (with confirmation).
  *
  * @module ui/settings
  */
@@ -87,6 +88,8 @@ export function mountSettings(root, ctx) {
 
     // Actions.
     const replay = h('button', { class: 'btn btn--soft', type: 'button' }, icon('play', { size: 14 }), 'Replay intro');
+    // The coach marks again (ui/coach.js; the 3D view only).
+    const tips = h('button', { class: 'btn btn--soft', type: 'button' }, icon('sparkle', { size: 16 }), 'Show interface tips');
     const keys = helpButton(ui);
     const reset = h('button', { class: 'btn btn--danger-ghost', type: 'button' }, icon('undo', { size: 16 }), 'Reset all settings');
     const confirmYes = h('button', { class: 'btn btn--danger', type: 'button' }, 'Reset');
@@ -103,10 +106,11 @@ export function mountSettings(root, ctx) {
         h('div', { class: 'group' }, h('h3', { class: 'group-title' }, h('label', { for: skyId }, 'Sky darkness')), skyDark, skyHint),
         h('div', { class: 'group' }, h('h3', { class: 'group-title' }, h('label', { for: auroraId }, 'Aurora activity')), aurora, auroraHint),
         h('div', { class: 'group' }, h('h3', { class: 'group-title' }, 'View'), lock.el),
-        h('div', { class: 'group group--actions' }, h('div', { class: 'btn-row' }, replay, keys.el), reset, confirm),
+        h('div', { class: 'group group--actions' }, h('div', { class: 'btn-row' }, replay, tips, keys.el), reset, confirm),
         motion);
 
     offs.push(on(replay, 'click', () => ui.act('replayIntro')));
+    offs.push(on(tips, 'click', () => ui.showTips()));
     offs.push(keys.off);
     offs.push(on(reset, 'click', () => { confirm.hidden = false; reset.hidden = true; confirmNo.focus(); }));
     offs.push(on(confirmNo, 'click', () => { confirm.hidden = true; reset.hidden = false; reset.focus(); }));
@@ -147,6 +151,7 @@ export function mountSettings(root, ctx) {
         if (aurora.value !== au) aurora.value = au;
         setText(auroraHint, ovalSummary(au));
         lock.set(!!st.view?.earthLock);
+        tips.hidden = st.status?.webgl === false;
         setText(motion, st.status?.reducedMotion || ui.reducedMotion()
             ? 'Reduced motion is on (system setting): transitions are cuts and the intro is skipped.'
             : 'Animations follow your system’s motion preference.');

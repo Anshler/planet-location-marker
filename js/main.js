@@ -639,10 +639,15 @@ async function boot() {
     loop.setAuroraActivity(store.get().display?.aurora ?? 'typical');
     store.subscribe((s) => s.display?.aurora, (a) => loop.setAuroraActivity(a ?? 'typical'));
 
+    // A first visit on a plain link (no camera, tour or view in it): the interface tips follow the
+    // intro (ui/coach.js), or the ready app when reduced motion skips the intro.
+    const st1 = store.get();
+    const firstRun = env.can3d && !prefs.load('introSeen', false) && !hash.cam && !hash.tour && hash.intro !== false
+        && st1.view.mode === 'orbit' && st1.view.vantage === 'none' && st1.host.id === 'earth';
     try {
         const { mountUI } = await uiModP;
         mountUI(document.getElementById('ui-root'), {
-            store, bus, clock, actions, services, extras, env: { coarse: env.coarse, reducedMotion: env.reducedMotion },
+            store, bus, clock, actions, services, extras, env: { coarse: env.coarse, reducedMotion: env.reducedMotion, firstRun },
         });
         R.uiMounted = true;
     } catch (err) {

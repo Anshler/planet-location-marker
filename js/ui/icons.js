@@ -86,6 +86,7 @@ const ICONS = {
     rise: [['path', { d: 'M3 17.6h18' }], ['path', { d: 'M6.6 17.6a5.4 5.4 0 0 1 10.8 0' }], ['path', { d: 'M12 3.4v6.2M9.4 6.2L12 3.6l2.6 2.6' }]],
     set: [['path', { d: 'M3 17.6h18' }], ['path', { d: 'M6.6 17.6a5.4 5.4 0 0 1 10.8 0' }], ['path', { d: 'M12 3.4v6.2M9.4 6.8L12 9.4l2.6-2.6' }]],
     menu: [['path', { d: 'M4.5 7h15M4.5 12h15M4.5 17h15' }]],
+    more: [['circle', { cx: 5.5, cy: 12, r: 1.7, ...F }], ['circle', { cx: 12, cy: 12, r: 1.7, ...F }], ['circle', { cx: 18.5, cy: 12, r: 1.7, ...F }]],
     // Vantage points: the Earth, half lit, framed in a camera's viewfinder.
     vantage: [['path', { d: 'M3.6 8V5.4a1.8 1.8 0 0 1 1.8-1.8H8M16 3.6h2.6a1.8 1.8 0 0 1 1.8 1.8V8M20.4 16v2.6a1.8 1.8 0 0 1-1.8 1.8H16M8 20.4H5.4a1.8 1.8 0 0 1-1.8-1.8V16' }],
         ['circle', { cx: 12, cy: 12, r: 4.4 }], ['path', { d: 'M12 7.6a4.4 4.4 0 0 1 0 8.8z', ...F }]],

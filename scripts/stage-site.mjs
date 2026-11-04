@@ -9,7 +9,7 @@
 //
 // Everything in the repo ships EXCEPT development material (SPEC §C.4): test/, scripts/,
 // docs/, data/raw/, .github/, node_modules/, graphify-out/ (at any depth), .claude/, plus
-// .git/, .scratch/, dotfiles (but .nojekyll), package*.json and CLAUDE.md.
+// .git/, .scratch/, _site/ (a staged copy), dotfiles (but .nojekyll), package*.json and CLAUDE.md.
 // scripts/check-size.mjs measures the same list, so the 32 MB staging budget is real.
 //
 // The service worker's version (sw-atomic-updates-offline-ci) is the only deploy-time step; the
@@ -37,7 +37,7 @@ import { ASSETS } from '../js/core/texture-plan.js';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 /** Top-level (or nested, for data/raw) paths that never ship. */
-export const EXCLUDED_PATHS = ['test', 'scripts', 'docs', 'data/raw', '.github', 'node_modules', '.claude', '.git', '.scratch'];
+export const EXCLUDED_PATHS = ['test', 'scripts', 'docs', 'data/raw', '.github', 'node_modules', '.claude', '.git', '.scratch', '_site'];
 /** Directory names excluded wherever they appear. */
 export const EXCLUDED_DIR_NAMES = ['graphify-out', 'node_modules', '__pycache__'];
 /** Root files that are development-only. */
@@ -168,14 +168,15 @@ export function stageSite(outDir, root = ROOT) {
     }
     fs.rmSync(dest, { recursive: true, force: true });
     let bytes = 0;
+    // Both before the copy: a destination inside the repo (pages.yml's _site) is never part of the site.
     const files = siteFiles(root);
+    const manifest = buildManifest(root);
     for (const f of files) {
         const to = path.join(dest, f);
         fs.mkdirSync(path.dirname(to), { recursive: true });
         fs.copyFileSync(path.join(root, f), to);
         bytes += fs.statSync(to).size;
     }
-    const manifest = buildManifest(root);
     fs.writeFileSync(path.join(dest, SW_MANIFEST), `${JSON.stringify(manifest)}\n`);
     fs.writeFileSync(path.join(dest, 'sw.js'), stampServiceWorker(fs.readFileSync(path.join(root, 'sw.js'), 'utf8'), manifest.version));
     bytes += fs.statSync(path.join(dest, SW_MANIFEST)).size;

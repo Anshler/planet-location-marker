@@ -113,6 +113,21 @@ test('stageSite: the staged worker carries the manifest version, the files their
     assert.equal(stageSite(tmpDir(), dir).version, m.version);
 });
 
+test('stageSite into the site itself (pages.yml: _site): the copy is never part of the manifest', () => {
+    for (const name of ['_site', 'out']) {
+        const dir = fixture();
+        const first = stageSite(path.join(dir, name), dir);
+        const again = stageSite(path.join(dir, name), dir);   // over the earlier copy
+        const m = JSON.parse(fs.readFileSync(path.join(dir, name, SW_MANIFEST), 'utf8'));
+        assert.equal(m.files.filter(([p]) => p.startsWith(`${name}/`)).length, 0, name);
+        assert.equal(again.version, first.version, name);
+    }
+    // A staged _site left in the repo does not count as site files (check-size's staging budget).
+    const dir = fixture();
+    stageSite(path.join(dir, '_site'), dir);
+    assert.ok(!siteFiles(dir).some((f) => f.startsWith('_site/')));
+});
+
 test('the real site: precache = shell + boot graph + astro worker graph + boot data + previews', () => {
     const m = buildManifest(ROOT);
     const shipped = new Set(siteFiles(ROOT));

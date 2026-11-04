@@ -79,12 +79,18 @@ function logStep(d, range) {
 
 /**
  * The globe → orrery crossfade for a camera `distR` Earth radii from the Earth's centre: 0 up to
- * 80 R, 1 from 150 R, smooth in log distance.
+ * 80 R, 1 from 150 R, smooth in log distance. `fromR` moves the start out (a pose that keeps the
+ * globe, rig frameSpan): the fade then runs over what is left up to 150 R, or not at all inside it.
  * @param {number} distR
+ * @param {number} [fromR]
  * @returns {number} 0…1
  */
-export function systemBlend(distR) {
-    return logStep(distR, SYSTEM_FADE_R);
+export function systemBlend(distR, fromR = SYSTEM_FADE_R[0]) {
+    if (!(fromR > SYSTEM_FADE_R[0])) return logStep(distR, SYSTEM_FADE_R);
+    const b = SYSTEM_FADE_R[1];
+    if (!(fromR < b)) return distR > b ? 1 : 0;
+    if (!(distR > 0)) return 0;
+    return smooth(clamp((Math.log(distR) - Math.log(fromR)) / (Math.log(b) - Math.log(fromR)), 0, 1));
 }
 
 /**

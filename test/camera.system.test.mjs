@@ -201,3 +201,31 @@ test('setSystem(false) also homes the orrery the orbit controls show (110–150 
     h.run(32, s);
     near(h.camera.position.length(), 40, 1e-6, 'left alone');
 });
+
+test('frameSpan (Show both beams) keeps the globe: no orrery at its pose on a desktop or a phone', async () => {
+    for (const [w, h, insets] of [[1440, 900, { left: 0, right: 396, top: 0, bottom: 126 }], [390, 844, { left: 0, right: 0, top: 60, bottom: 300 }]]) {
+        const r = makeRig({ w, h, dom: true });
+        r.rig.setViewInsets?.(insets);
+        const s = snapAt(T_OPP, HCMC);
+        r.rig.update(0, s);
+        r.run(32, s);
+        const moon = s.bodies.find((b) => b.id === 'moon');
+        const p = r.rig.frameSpan(moon.geoDirS, moon.distER, { animate: true });
+        r.run(4000, s);
+        assert.equal(await p, true, `${w}×${h}: landed`);
+        const d = r.camera.position.length();
+        assert.ok(d > ORR.SYSTEM_FADE_R[0], `${w}×${h}: out where the orrery would fade in (${d.toFixed(1)} R)`);
+        assert.equal(r.rig.systemBlend, 0, `${w}×${h}: no crossfade at the span pose`);
+        assert.equal(r.rig.systemShown, false, `${w}×${h}: the converging beams, not the orrery`);
+        // Zooming in keeps the globe; inside the fade's start the usual fade is back.
+        r.rig.zoom(0.85);
+        r.run(1500, s);
+        assert.equal(r.rig.systemBlend, 0, `${w}×${h}: zoomed in a little`);
+        r.rig.zoom(0.5);
+        r.run(1500, s);
+        r.rig.zoom(1.5);
+        r.run(1500, s);
+        const d2 = r.camera.position.length();
+        near(r.rig.systemBlend, ORR.systemBlend(d2), 1e-9, `${w}×${h}: the hold has ended (${d2.toFixed(1)} R)`);
+    }
+});

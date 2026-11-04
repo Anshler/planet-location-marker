@@ -92,7 +92,7 @@ import { MOON_RADIUS_ER } from '../astro/bodies.js';
 import { createMapFrame, orientMapFrame, mapFitDistance, mapXY, MAP_HALF_W, MAP_HALF_H, MAP_SCALE } from '../geo/mapview.js';
 import {
     systemPose, createSystemPose, systemBlend as systemBlendAt, liftLat, eclipticOf, eclipticDir,
-    SYSTEM_MAX_R, SYSTEM_VIEW_R,
+    SYSTEM_MAX_R, SYSTEM_VIEW_R, SYSTEM_FADE_R,
 } from '../astro/orrery.js';
 
 const DEG = Math.PI / 180;
@@ -384,6 +384,10 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
     // sub-pixel drift for the loop, not motion (idle supersampling keeps its history).
     let lockOnly = false;
     const lockPos = new THREE.Vector3();
+    // frameSpan ('Show both beams') frames the Earth–Moon line out where the orrery fades in (about
+    // 126 R on a desktop, 150 R on a phone): the crossfade starts past its distance instead, until
+    // the camera settles back inside the fade's start, the system zoom takes over or a view is set.
+    let spanHoldR = 0;
     const obsLat = { v: 0 }, obsLon = { v: 0 };
     // Observer frame in world and Earth-local coordinates.
     const posW = new THREE.Vector3(1, 0, 0), upW = new THREE.Vector3(1, 0, 0);
@@ -668,6 +672,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
     }
 
     function applyViewNow(v) {
+        spanHoldR = 0;
         if (v.mode === 'map') {
             // Out of the system zoom first (the camera back at most 150 R out, the orbit controls).
             if (sys.on) exitSystem();
@@ -1892,8 +1897,10 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
 
     /** The orrery crossfade and its listeners (after every update). */
     function updateSystemBlend() {
+        const d = camera.position.length();
+        if (spanHoldR > 0 && (sys.on || (!tween && mode === 'orbit' && skyBlend === 0 && d < SYSTEM_FADE_R[0]))) spanHoldR = 0;
         // Nothing of the orrery from a vantage point or on (or morphing to) the flat map.
-        const b = vantageOwns() || mode === 'map' || mapv.k > 0 ? 0 : systemBlendAt(camera.position.length()) * (1 - skyBlend);
+        const b = vantageOwns() || mode === 'map' || mapv.k > 0 ? 0 : systemBlendAt(d, spanHoldR) * (1 - skyBlend);
         sys.blend = b;
         const shown = sys.shown ? b >= 0.45 : b >= 0.5;
         if (shown === sys.shown) return;
@@ -2534,7 +2541,10 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         const ex = Math.abs(_v1.dot(_v3)) * lengthER, ey = Math.abs(_v1.y) * lengthER;
         const dist = clamp(Math.max(ex * px / (SPAN_FILL * hx), ey * px / (SPAN_FILL * hy), HOME_DIST), MIN_DIST, MAX_DIST);
         const targetL = toLocal(_v2.multiplyScalar(dist), new THREE.Vector3());
-        return startFly(targetL, { earthFixed: earthLock, durationMs, animate });
+        const p = startFly(targetL, { earthFixed: earthLock, durationMs, animate });
+        // The beams converging on the Moon are the point: no orrery at (or inside) this pose.
+        spanHoldR = dist > SYSTEM_FADE_R[0] ? dist * 1.001 : 0;
+        return p;
     }
 
     // ---- public API ------------------------------------------------------------------------------------------

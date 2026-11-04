@@ -8,7 +8,7 @@
 // Raw bytes on disk are budgeted (1 MB = 10⁶ B); gzip "wire" sizes are informational
 // (GitHub Pages compresses JS/CSS/JSON/SVG/HTML).
 //
-//   low ≤ 4.8 MB · medium ≤ 5.59 MB · high ≤ 8 MB · staged site ≤ 32 MB
+//   low ≤ 4.905 MB · medium ≤ 5.695 MB · high ≤ 8 MB · staged site ≤ 32 MB
 //   (Phase 6 historic-skies, Halley and the spacecraft add ≈ 140 KB of shared JS: the extras
 //   selection model, Julian calendar, guest stars, comets and craft, raised by that plus 5 %.)
 //   SPEC §E.6 set 3.0 / 3.6 / 4.8 MB from an estimate of ≈ 1.35 MB of JavaScript. The shipped,
@@ -65,7 +65,10 @@ const MB = 1e6, KB = 1e3;
 // Phase 6 (events, meteors, year planner, Sun paths): more event sources, the meteor-shower table and generator, the year
 // planner and the Sun's paths (astro/meteors.js, planner.js, sunpath.js, render/meteors.js, sunpath.js, ui/year-planner.js; ≈ 117 KB
 // of JS and CSS on every tier) raise low and medium by 125 KB (+5 %).
-export const TIER_BUDGETS = { low: 4800 * KB, medium: 5590 * KB, high: 8 * MB };
+// Phase 6 (stand on Mars): the Mars sky snapshot, clock and landing sites, Phobos and Deimos, the Mars dome and home
+// beam (astro/host-mars.js, mars-clock.js, render/mars-sky.js + GLSL, app/mars-host.js; lazy, but crawled) and the
+// host-aware UI (≈ 101 KB of JS, GLSL and CSS on every tier) raise low and medium by 105 KB (+5 %).
+export const TIER_BUDGETS = { low: 4905 * KB, medium: 5695 * KB, high: 8 * MB };
 /** Tiers that are measured and printed but have no budget (max: a deliberate, manual choice). */
 export const INFO_TIERS = ['max'];
 // The max tier's 8192 px maps (≈ 15.2 MB) ship with the site; 32 MB keeps headroom (Pages allows 1 GB).

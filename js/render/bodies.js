@@ -19,7 +19,7 @@
  * illustrative landscape's silhouette (geo/horizon.js).
  */
 import * as THREE from 'three';
-import { BODIES, MOON_RADIUS_ER, SUN_ANG_RADIUS_1AU_RAD, sunAngularRadius } from '../astro/bodies.js';
+import { BODIES, BODY_INDEX, EARTH_TARGET, MOON_RADIUS_ER, SUN_ANG_RADIUS_1AU_RAD, sunAngularRadius } from '../astro/bodies.js';
 import {
     DISC_VERT, DISC_FRAG, GLYPH_VERT, GLYPH_FRAG, RETICLE_VERT, RETICLE_FRAG, MOON_VERT, MOON_FRAG,
 } from './shaders/bodies.glsl.js';
@@ -41,6 +41,10 @@ const SUN = 0;
 const MOON = 1;
 const FIRST_PLANET = 2;
 const N_PLANETS = BODIES.length - FIRST_PLANET;
+/** Glyph instances: the planets, and one more for the Moon seen from Mars (a point there; setHost). */
+const N_GLYPHS = N_PLANETS + 1;
+/** The slot that holds the Earth when the observer stands on Mars (astro/bodies.js EARTH_TARGET). */
+const EARTH_SLOT = BODY_INDEX.mars;
 /** HDR radiance of the Sun's core (before extinction and exposure); render/totality.js scales beads by it. */
 export const SUN_INTENSITY = 30;
 const SUN_CORE = [1.0, 0.95, 0.85];
@@ -89,6 +93,11 @@ const MOON_FRONT_Z = 2e-5;
 const MOON_FRONT_GAIN = 0.42;
 const ACQUIRE_S = 0.45;
 const EXT_K = [0.10, 0.17, 0.30];
+// Mars (setHost): dust extinction, nearly grey (illustrative: much of the dust's extinction is
+// forward scattering into the aureole, so the low Sun stays a disc in rover images), and a
+// bluish glow around the Sun (the dust's narrow forward lobe; shaders/mars.glsl.js).
+const EXT_K_MARS = [0.20, 0.21, 0.23];
+const SUN_GLOW_MARS = [0.55, 0.72, 1.0];
 
 /**
  * Kasten–Young airmass and per-channel atmospheric transmission for sin(altitude); mirrors
@@ -97,12 +106,12 @@ const EXT_K = [0.10, 0.17, 0.30];
  * @param {number[]|Float32Array} out length-3 output
  * @returns {number[]|Float32Array} out
  */
-export function extinctionRGB(sinAlt, out) {
+export function extinctionRGB(sinAlt, out, k = EXT_K) {
     const s = Math.min(1, Math.max(0, sinAlt));
     const X = 1 / (s + 0.50572 * Math.pow(Math.asin(s) / DEG + 6.07995, -1.6364));
-    out[0] = Math.exp(-0.921034 * EXT_K[0] * X);
-    out[1] = Math.exp(-0.921034 * EXT_K[1] * X);
-    out[2] = Math.exp(-0.921034 * EXT_K[2] * X);
+    out[0] = Math.exp(-0.921034 * k[0] * X);
+    out[1] = Math.exp(-0.921034 * k[1] * X);
+    out[2] = Math.exp(-0.921034 * k[2] * X);
     return out;
 }
 
@@ -176,6 +185,10 @@ export function createBodies(rc, deps = {}) {
     const moonDrawPos = new THREE.Vector3(60, 0, 0);    // where the mesh is drawn this frame
     const moonDirCam = new Float64Array([1, 0, 0]);
     const linColors = BODIES.map(b => new THREE.Color(b.color));
+    const slotColors = { earth: linColors[EARTH_SLOT].clone(), mars: new THREE.Color(EARTH_TARGET.color) };
+    // Standing on Mars (setHost): the Earth in slot 4, the Moon as a glyph, Mars's dust extinction.
+    let marsHost = false;
+    let extK = EXT_K;
     const upS = new Float64Array([0, 1, 0]);
     const northS = new Float64Array([0, 0, -1]);
     const eastS = new Float64Array([1, 0, 0]);
@@ -266,9 +279,9 @@ export function createBodies(rc, deps = {}) {
     const glyphGeo = new THREE.InstancedBufferGeometry();
     glyphGeo.setAttribute('position', quad.getAttribute('position'));
     glyphGeo.setIndex(quad.getIndex());
-    const iDir = new THREE.InstancedBufferAttribute(new Float32Array(N_PLANETS * 3), 3);
-    const iColor = new THREE.InstancedBufferAttribute(new Float32Array(N_PLANETS * 3), 3);
-    const iParams = new THREE.InstancedBufferAttribute(new Float32Array(N_PLANETS * 4), 4);
+    const iDir = new THREE.InstancedBufferAttribute(new Float32Array(N_GLYPHS * 3), 3);
+    const iColor = new THREE.InstancedBufferAttribute(new Float32Array(N_GLYPHS * 3), 3);
+    const iParams = new THREE.InstancedBufferAttribute(new Float32Array(N_GLYPHS * 4), 4);
     iDir.setUsage(THREE.DynamicDrawUsage);
     iColor.setUsage(THREE.DynamicDrawUsage);
     iParams.setUsage(THREE.DynamicDrawUsage);
@@ -430,9 +443,10 @@ export function createBodies(rc, deps = {}) {
     function writeGlyphParams() {
         const spikesOn = !!cfg && (cfg.name === 'high' || cfg.name === 'max');
         const p = iParams.array;
-        for (let k = 0; k < N_PLANETS; k++) {
-            const m = mags[FIRST_PLANET + k];
-            const w = scopeW[FIRST_PLANET + k];
+        for (let k = 0; k < N_GLYPHS; k++) {
+            const i = k < N_PLANETS ? FIRST_PLANET + k : MOON;
+            const m = mags[i];
+            const w = k < N_PLANETS ? scopeW[i] : 0;
             p[k * 4] = glyphSizePx(m);
             p[k * 4 + 1] = glyphIntensity(m) * (1 - w);
             p[k * 4 + 2] = spikesOn && m < -1.5 ? 1 : 0;
@@ -488,7 +502,7 @@ export function createBodies(rc, deps = {}) {
             dirs[i][0] = d[0]; dirs[i][1] = d[1]; dirs[i][2] = d[2];
             sinAlt[i] = up ? d[0] * up[0] + d[1] * up[1] + d[2] * up[2] : 1;
             mags[i] = Number.isFinite(b.mag) ? b.mag : FALLBACK_MAG[i];
-            eqR[i] = i >= FIRST_PLANET ? eqAngRadius(b.id, b.distAU) : 0;
+            eqR[i] = i >= FIRST_PLANET && !(marsHost && i === EARTH_SLOT) ? eqAngRadius(b.id, b.distAU) : 0;
         }
         sunR = sunAngularRadius(snap.bodies[SUN].distAU);
         moonUniforms.uSunR.value = sunR;
@@ -523,8 +537,8 @@ export function createBodies(rc, deps = {}) {
             su.uPromW.value.set(pw[0], pw[1], pw[2], pw[3]);
         }
         const dir = iDir.array;
-        for (let k = 0; k < N_PLANETS; k++) {
-            const d = dirs[FIRST_PLANET + k];
+        for (let k = 0; k < N_GLYPHS; k++) {
+            const d = dirs[k < N_PLANETS ? FIRST_PLANET + k : MOON];
             dir[k * 3] = d[0]; dir[k * 3 + 1] = d[1]; dir[k * 3 + 2] = d[2];
         }
         iDir.needsUpdate = true;
@@ -573,7 +587,7 @@ export function createBodies(rc, deps = {}) {
         sunUniforms.uEdge.value = 1 / pxPerRad;
         sunUniforms.uOcclude.value = skyBlend;
         writeFlattening(cam);
-        extinctionRGB(sinAlt[SUN], tint);
+        extinctionRGB(sinAlt[SUN], tint, extK);
         const tr = (1 + (tint[0] - 1) * skyBlend) * display;
         const tg = (1 + (tint[1] - 1) * skyBlend) * display;
         const tb = (1 + (tint[2] - 1) * skyBlend) * display;
@@ -649,10 +663,11 @@ export function createBodies(rc, deps = {}) {
         const cw = Math.max(1 - limbT[1], gain > 1e-6 ? cg / gain : 0);
         sunUniforms.uGlowGain.value = gain * keep;
         sunUniforms.uGlowScale.value = SUN_GLOW_SCALE + (SUN_CORONA_SCALE - SUN_GLOW_SCALE) * cw;
+        const glow = marsHost ? SUN_GLOW_MARS : SUN_GLOW;
         sunUniforms.uGlowColor.value.setRGB(
-            (SUN_GLOW[0] + (SUN_CORONA[0] - SUN_GLOW[0]) * cw) * tr,
-            (SUN_GLOW[1] + (SUN_CORONA[1] - SUN_GLOW[1]) * cw) * tg,
-            (SUN_GLOW[2] + (SUN_CORONA[2] - SUN_GLOW[2]) * cw) * tb);
+            (glow[0] + (SUN_CORONA[0] - glow[0]) * cw) * tr,
+            (glow[1] + (SUN_CORONA[1] - glow[1]) * cw) * tg,
+            (glow[2] + (SUN_CORONA[2] - glow[2]) * cw) * tb);
         // Out in the solar-system zoom the orrery draws the Sun and planets where they are, not at
         // infinity (render/orrery.js); the Moon stays, a real mesh 60 R out.
         const atInfinity = !(fi.systemBlend >= 0.5);
@@ -660,11 +675,11 @@ export function createBodies(rc, deps = {}) {
 
         // Planets: colour × extinction in sky view.
         const col = iColor.array;
-        for (let k = 0; k < N_PLANETS; k++) {
-            const i = FIRST_PLANET + k;
+        for (let k = 0; k < N_GLYPHS; k++) {
+            const i = k < N_PLANETS ? FIRST_PLANET + k : MOON;
             const c = linColors[i];
             if (skyBlend > 0) {
-                extinctionRGB(sinAlt[i], tint);
+                extinctionRGB(sinAlt[i], tint, extK);
                 const g = Math.max(tint[1], 1e-4);
                 col[k * 3] = c.r * (1 + (tint[0] - 1) * skyBlend);
                 col[k * 3 + 1] = c.g * (1 + (g - 1) * skyBlend);
@@ -699,7 +714,8 @@ export function createBodies(rc, deps = {}) {
                 moonAngR = Math.asin(Math.min(1, MOON_RADIUS_ER / dist));
             }
         }
-        moon.visible = moonDepth.visible = haveSnap;
+        // From Mars the Moon is a point beside the Earth: a glyph (N_GLYPHS), not the mesh.
+        moon.visible = moonDepth.visible = haveSnap && !marsHost;
         const front = !!fi.moonFront;
         if (front !== moonFront) {
             moonFront = front;
@@ -733,7 +749,7 @@ export function createBodies(rc, deps = {}) {
         aureoleUniforms.uDir.value.set(moonDirCam[0], moonDirCam[1], moonDirCam[2]);
         aureoleUniforms.uGlowGain.value = 0.012 * aure;
         aureoleUniforms.uGlowColor.value.set(0.80 * moonUniforms.uTint.value.x, 0.86 * moonUniforms.uTint.value.y, 1.0 * moonUniforms.uTint.value.z);
-        aureole.visible = aure > 0.002;
+        aureole.visible = aure > 0.002 && !marsHost;
 
         // Reticle.
         if (selIndex >= 0 && haveSnap && atInfinity) {
@@ -795,6 +811,21 @@ export function createBodies(rc, deps = {}) {
 
     function setReducedMotion(on) { reducedMotion = !!on; }
 
+    /** The world the observer stands on: on Mars slot 4 is the Earth (blue), the Moon a glyph. */
+    function setHost(id) {
+        const mars = id === 'mars';
+        if (mars === marsHost) return;
+        marsHost = mars;
+        extK = mars ? EXT_K_MARS : EXT_K;
+        linColors[EARTH_SLOT].copy(mars ? slotColors.mars : slotColors.earth);
+        glyphGeo.instanceCount = mars ? N_GLYPHS : N_PLANETS;
+        if (selIndex === EARTH_SLOT) {
+            const c = linColors[EARTH_SLOT];
+            reticleUniforms.uColor.value.setRGB(0.35 + 0.65 * c.r, 0.35 + 0.65 * c.g, 0.35 + 0.65 * c.b);
+        }
+        if (haveSnap) writeGlyphParams();
+    }
+
     /**
      * Bodies as pick targets: Sun and planets at their (infinite) directions, the Moon along the
      * camera→Moon ray, each lifted by refraction as drawn. In sky view, bodies under the ground or
@@ -825,7 +856,7 @@ export function createBodies(rc, deps = {}) {
 
     return {
         object3d: group,
-        apply, update, setSelection, setQuality, setViewMode, setReducedMotion, pickCandidates, dispose,
+        apply, update, setSelection, setQuality, setViewMode, setReducedMotion, setHost, pickCandidates, dispose,
         get selection() { return selection; },
     };
 }

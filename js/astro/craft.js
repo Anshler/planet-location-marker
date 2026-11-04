@@ -221,6 +221,8 @@ export function createCraftProvider(list) {
     return {
         kind: 'craft',
         kindLabel: 'Spacecraft',
+        // Radio beams and parallax from the Earth: not drawn from Mars (astro/extras.js host).
+        host: 'earth',
         ids: () => ids,
         meta(id) {
             const c = byId.get(id);

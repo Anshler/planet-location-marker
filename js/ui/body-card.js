@@ -26,7 +26,7 @@
  * @module ui/body-card
  */
 
-import { BODIES, BODY_INDEX, AU_KM } from '../astro/bodies.js';
+import { BODIES, BODY_INDEX, AU_KM, hostBodies } from '../astro/bodies.js';
 import { h, on, setText, setAttr } from './dom.js';
 import { icon } from './icons.js';
 import { moonPhaseName, isUp, lunarEclipseState, solarEclipseState, shownMag } from './sky-now.js';
@@ -215,12 +215,17 @@ export function mountBodyCard(root, ctx) {
         card.classList.toggle('card--extra', extra);
         if (!has) { shownId = null; return; }
         if (extra) { showExtra(id); return; }
-        if (id !== shownId) {
-            shownId = id;
+        // Standing on Mars slot 4 is the Earth (astro/bodies.js hostBodies): the key carries the host.
+        const mars = !!ui.onMars?.();
+        const key = mars ? `${id}@mars` : id;
+        if (key !== shownId) {
+            shownId = key;
             xBox.hidden = true;
             eyepiece.el.hidden = false;
             for (const k of ['phase', 'elong', 'size', 'date', 'sub']) facts[k].el.hidden = false;
-            const b = BODIES[BODY_INDEX[id]];
+            // No sub-points from Mars (they are places on the Earth).
+            facts.sub.el.hidden = mars;
+            const b = hostBodies(mars ? 'mars' : 'earth')[BODY_INDEX[id]];
             card.style.setProperty('--c', `var(--body-${id})`);
             nameEl.replaceChildren(h('span', { class: 'dot dot--lg', 'aria-hidden': 'true' }), b.name);
             actFrom.lastChild.textContent = `View from ${b.id === 'sun' || b.id === 'moon' ? `the ${b.name}` : b.name}`;
@@ -238,12 +243,15 @@ export function mountBodyCard(root, ctx) {
         // A globe view: in sky view 'Center' already turns to the body, and text mode has no globe.
         const noGl = store.get().status?.webgl === false;
         const extra = isExtraId(sel());
+        // On Mars (phase 1) the globe-side tools have no globe: footprint, compare, Earthrise, paths.
+        const mars = !!ui.onMars?.();
         actFrom.hidden = sky || noGl || extra;
         actScope.hidden = noGl;
-        actFoot.hidden = extra;
-        actCompare.hidden = extra;
+        actFoot.hidden = extra || mars;
+        actCompare.hidden = extra || mars;
+        if (mars) actPath.hidden = true;
         const rise = store.get().view?.vantage === 'moon';
-        actRise.hidden = noGl || sel() !== 'moon';
+        actRise.hidden = noGl || sel() !== 'moon' || mars;
         setAttr(actRise, 'aria-pressed', String(rise));
         actRise.lastChild.textContent = rise ? 'Back to the globe' : 'Earthrise';
         actTrack.hidden = !sky || noGl;
@@ -333,7 +341,7 @@ export function mountBodyCard(root, ctx) {
         facts.mag.el.hidden = false;
         const b = ui.bodyOf(snap, id);
         if (!b) return;
-        const info = BODIES[BODY_INDEX[id]];
+        const info = hostBodies(snap.host)[BODY_INDEX[id]];
         const t = snap.tMs;
         const { alt, az } = ui.altAz(b);
         const up = isUp(b, alt);
@@ -448,8 +456,13 @@ export function mountBodyCard(root, ctx) {
                 ? (sol ? `The Sun’s disc, ${sol.kind === 'total' ? 'hidden by the Moon' : `${sol.pct}% covered by the Moon`}` : 'The Sun’s disc')
                 : `${info.name}: ${Math.round(frac * 100)}% of the disc lit, lit side ${litRight ? 'right' : 'left'}`);
         }
-        eyepiece.update(snap, id);
-        planner.update(snap, id);
+        // From Mars: no eyepiece portrait of the Earth (slot 4 draws Mars's maps), and no year
+        // planner (the astro worker plans for the Earth observer).
+        const marsSky = snap.host === 'mars';
+        eyepiece.el.hidden = marsSky && id === 'mars';
+        if (!eyepiece.el.hidden) eyepiece.update(snap, id);
+        if (marsSky) planner.el.hidden = true;
+        else planner.update(snap, id);
         syncLayerButtons();
     }
 
@@ -478,6 +491,7 @@ export function mountBodyCard(root, ctx) {
     offs.push(store.subscribe((st) => st.view, syncLayerButtons));
     offs.push(store.subscribe((st) => st.status?.webgl, syncLayerButtons));
     offs.push(store.subscribe((st) => st.observer2, syncLayerButtons));
+    offs.push(store.subscribe((st) => st.host?.id, () => { showFor(store.get().selection); syncLayerButtons(); if (ui.snap) update(ui.snap); }));
     offs.push(ui.on('almanac', () => { if (ui.snap && sel()) update(ui.snap); }));
     offs.push(ui.on('display', () => { if (ui.snap && sel()) update(ui.snap); }));
     syncLayerButtons();

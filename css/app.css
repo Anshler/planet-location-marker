@@ -2274,3 +2274,36 @@ body.is-reduced-motion .ui .fade-overlay.is-on { animation-duration: 220ms !impo
 .rts__extra:empty { display: none; }
 .rts__msg { display: block; margin-top: 4px; color: var(--text-2); font-size: 13px; }
 .rts__msg[hidden] { display: none; }
+
+/* ---- Standing on Mars (ROADMAP stand-on-mars) ------------------------------------------------- */
+/* Slot 4 is the Earth while the observer stands on Mars (astro/bodies.js EARTH_TARGET): its colour follows. */
+body.is-mars { --body-mars: #6fb6ff; }
+.tb-sol { padding: 2px 7px; border-radius: 7px; background: rgba(255, 150, 90, .14); color: #ffc79e; font-size: 12.5px; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.tb-sol[hidden] { display: none; }
+.ui[data-layout="mobile"] .tb-sol { font-size: 11.5px; padding: 1px 5px; }
+.topbar__home { height: 42px; padding: 0 14px; gap: 6px; white-space: nowrap; }
+.topbar__home[hidden] { display: none; }
+.ui[data-layout="mobile"] .topbar__home span { display: none; }
+.palette__mars { padding: 0 0 6px; overflow-y: auto; }
+.palette__mars[hidden] { display: none; }
+.palette__mars .palette__mode { color: #ffc79e; }
+.palette__mars .pop__hint { margin: 10px 14px 4px; }
+.palette__mars .btn-row { padding: 6px 14px 0; }
+.mars-sites { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 6px; padding: 10px 14px 0; }
+.mars-site { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255, 140, 80, .06); color: var(--text); text-align: left; cursor: pointer; }
+.mars-site:hover, .mars-site:focus-visible { background: rgba(255, 140, 80, .14); border-color: rgba(255, 160, 100, .45); }
+.mars-site__name { font-weight: 700; font-size: 13.5px; }
+.mars-site__sub { color: var(--muted); font-size: 11.5px; }
+.mars-coords { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; padding: 0 14px; }
+.mars-coords .field { flex: 1 1 110px; }
+.palette.is-mars .palette__search, .palette.is-mars .palette__list { display: none; }
+.note--mars[hidden] { display: none; }
+.note--mars { color: #ffc79e; }
+/* The desktop bar has no room for both clocks: on Mars the Sol stamp replaces the (Earth) zone chip. */
+body.is-mars .tb-zone .tb-tz { display: none; }
+/* The phone bar has room for one clock: on Mars the Sol stamp replaces the Earth date (its zone chip says Earth time). */
+body.is-mars .ui[data-layout="mobile"] .tb-date .stamp { display: none; }
+body.is-mars .ui[data-layout="mobile"] .tb-sol { min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: 12px; padding: 1px 4px; }
+body.is-mars .ui[data-layout="mobile"] .tb-date { min-width: 0; flex: 0 1 auto; }
+body.is-mars .ui[data-layout="mobile"] .tb-date__icon { display: none; }
+body.is-mars .ui[data-layout="mobile"] .tb-date { padding: 0 4px; }

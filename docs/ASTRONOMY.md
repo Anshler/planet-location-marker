@@ -1064,6 +1064,60 @@ fixed standard-time reading anywhere, so no zone or DST logic enters. Checked ag
 altitudes 64.6° and 17.7° at the solstices, sunrise azimuths 51° and 125°; the subsolar 8 spans
 ±23.44° and −4.1° … +3.6° of longitude at 12:00 UT (the equation of time).
 
+## 7c. Standing on Mars (`js/astro/host-mars.js`, `js/astro/mars-clock.js`; phase 1, the sky view)
+
+**Directions.** For each of the nine slots (slot 4 is the Earth) the Mars-centred vector is
+`AE.BackdatePosition(t, 'Mars', target, true)`: light time and aberration corrected, the Moon
+included. The site's own position on a sphere of Mars's mean radius (3389.5 km, IAU 2015) is taken
+off, which moves the Earth by up to 13″ and Phobos by up to ~20°. The stars, the constellations and the
+Milky Way are the same J2000 sky (the parallax between Earth and Mars is far below a milliarcsecond
+except for a handful of stars, ~1″ for α Centauri). There is no refraction on Mars (~0.01° at the
+horizon), but the sky view's drawing still lifts low objects by the Earth's refraction (≤ 0.6°), a
+known simplification of phase 1.
+
+**The local frame.** `AE.RotationAxis('Mars', t)` (IAU WGCCRE 2015: pole RA/Dec and the prime
+meridian W through Airy-0) → `frames.iauBodyMatrix`; up, north and east at a planetocentric latitude
+and east longitude on the sphere; alt/az from `frames.dirToAltAz`. Planetocentric and planetographic
+latitude differ by up to 0.34° (Mars's flattening, 1/170); the site is taken as planetocentric.
+
+**Magnitudes and phases** come from the Mars-centred geometry with astronomy-engine's own phase laws
+(Mercury, Venus, Jupiter, Uranus, Neptune; Saturn with its ring tilt as seen from Mars; the Moon's
+Allen-style law), and the Earth from Mallama & Hilton (2018): V = −3.99 − 1.060·10⁻³α + 2.054·10⁻⁴α².
+The Earth peaks near −2.5 as an evening or morning star, at most ~47° from the Sun; the Moon within
+0.3° of it at +1 … +4. The Sun is 21–25′ across, two thirds of its size from Earth (1/r).
+
+**The Mars clock** follows Allison & McEwen (2000) as implemented by NASA GISS's Mars24: the mean
+anomaly, the fictitious mean Sun and seven planetary perturbers give Ls; the equation of time
+(EOT, C-1), MSD = (JD_TT − 2451549.5)/1.0274912517 + 44796.0 − 0.0009626, MTC = 24·frac(MSD),
+LMST = MTC + λE/15, LTST = LMST + EOT/15, the planetographic solar declination
+asin(0.42565 sin Ls) + 0.25° sin Ls and the heliocentric distance. TT comes from astronomy-engine's ΔT,
+so the clock agrees with Mars24's worked example A (2000-01-06) to 0.35 s (Mars24 uses the leap
+second table). Mission sols are counted from 0 at the landing sol, changing at the landing site's
+local mean midnight (Mars 2020 from 2021-02-18 20:44 UTC SCET, MSL 2012-08-06 05:04, InSight
+2018-11-26 19:45); other sites show the local MSD. The clock and the IAU frame agree: at local true
+solar noon the Sun's azimuth is within 0.7° of the meridian (test), and the clock-only solar altitude
+(used by the time bar's strip) is within 0.3° of the full geometry.
+
+**Phobos and Deimos** come from JPL SSD's mean elements in their Laplace planes (epoch 2000 Jan 1.5
+TDB, MAR099, Brozović, Jacobson & Park 2025: a, e, i, node, ω, M, the Laplace poles), with the
+mean-longitude rates of Jacobson (2010) (1128.8445850 and 285.1618970 °/day: the sidereal periods
+7 h 39.2 min and 30.3 h) and Phobos's apsidal and nodal periods of 1.1316 and 2.2617 yr. JPL's table
+prints those as 1.1 and 2.3 yr; with the rounded values Phobos's track misses the Sun by 1.3° at
+Perseverance's sol-397 transit (2022-04-02, 08:20:37 LMST), with these it crosses the disc (0.12°
+from the centre) 2–3 minutes late. Phobos's tidal acceleration (ṅ = 1.270·10⁻³ °/yr², Jacobson 2010)
+adds ½ṅT². Each moon is placed topocentrically, lit by the Sun with a lunar-like phase law from its
+absolute magnitude (Phobos 11.8, Deimos 12.89), and goes dark in Mars's cylindrical shadow. Mean
+elements ignore the short-period terms: positions are good to about a degree over decades (the
+cards say so). Phobos orbits faster than Mars turns, so it rises in the west (tested: every rise
+over three sols is at azimuth 180–360°) and crosses the sky in ~4.5 h, twice a sol.
+
+**What is illustrative.** The sky's colour (`shaders/mars.glsl.js`): a butterscotch dust sky
+brightening toward the horizon and the Sun, a narrow blue forward-scattering lobe around a low Sun,
+and a long blue-then-brown twilight, tuned by eye to rover images, not a radiative-transfer model.
+The dust extinction of the Sun and planets (0.20–0.23 mag per airmass, nearly grey) is chosen so the
+setting Sun stays a disc as in rover sunsets. The landscape is the procedural ridge without trees or
+roofs, in Mars colours. The light-time beam is a guide, not a ray.
+
 ---
 
 ## 8. Accuracy budget
@@ -1077,6 +1131,10 @@ altitudes 64.6° and 17.7° at the solstices, sunrise azimuths 51° and 125°; t
 | Eclipse contacts at the observer (obscuration, sky-view discs, panel) against `AE.SearchLocalSolarEclipse` | < 0.1 s measured | Same discs and radii as AE. The 0.5 s frame-snapshot cadence bounds the visible lag. |
 | Planet medallions and the eyepiece portrait | geometry exact, size magnified | Phase, pole, ring opening and the Galilean moons' sides and flags follow the models (moon flags within ~1 min); Jupiter's and Saturn's belts, the Red Spot's longitude, Mars's markings and the moons' spacing beyond the limb are illustrative (§4). |
 | Baily's beads, corona, prominences | illustrative | Placed by the true contact geometry, but the limb profile (±2.2″, no libration) and the corona's streamers, plumes and prominences are invented per date. Bead timing is typical to a few seconds. |
+| Standing on Mars: directions and the local frame | ≲ 1′ (AE), site on a sphere | Mars-centred vectors from `BackdatePosition`; the IAU rotation model is good to arcminutes; planetocentric latitude on a sphere (≤ 0.34° from planetographic). Drawn low objects keep the Earth's refraction lift (≤ 0.6°). |
+| Mars clock (MSD, LMST, Ls) | ≈ 1 s against Mars24 | ΔT from astronomy-engine instead of Mars24's leap seconds; mission sols assume the landing's local mean midnight. |
+| Phobos and Deimos | ~1° (Phobos), illustrative badge | Mean elements without short-period terms; Phobos's sol-397 transit reproduced within 3 minutes. |
+| Mars sky colour and dust extinction | illustrative | Tuned to rover images (§7c). |
 | Pin on a sphere against the WGS84 ellipsoid | ≤ 21 km in position | ≤ 11″ on the Moon's direction from the pin (globe view, the umbra on the globe), negligible for everything farther. The sky view and the observer's obscuration use AE's WGS84 topocentric directions. The zenith direction is exact (geodetic). |
 | Beam far endpoint at 2000 Earth radii | `camDist / 2000` rad | 0.1° at the default 3.4 ER view. The beam is a line from the pin, so seen from elsewhere it converges at 2000 ER. |
 | Polar motion (ignored) | ≤ 0.5″ (≈ 15 m) | |
@@ -1131,6 +1189,21 @@ altitudes 64.6° and 17.7° at the solstices, sunrise azimuths 51° and 125°; t
 ---
 
 ## 9. Sources
+
+- **Mars time.** M. Allison & M. McEwen (2000), "A post-Pathfinder evaluation of areocentric solar
+  coordinates with improved timing recipes for Mars seasonal/diurnal climate studies", *Planet. Space
+  Sci.* 48, 215; NASA GISS Mars24 Sunclock, "Algorithm and Worked Examples",
+  <https://www.giss.nasa.gov/tools/mars24/help/algorithm.html>.
+- **Mars's rotation.** B. A. Archinal et al. (2018), "Report of the IAU Working Group on Cartographic
+  Coordinates and Rotational Elements: 2015", *Celest. Mech. Dyn. Astr.* 130, 22 (as coded in
+  Astronomy Engine's `RotationAxis`).
+- **Phobos and Deimos.** JPL SSD Planetary Satellite Mean Elements, <https://ssd.jpl.nasa.gov/sats/elem/>
+  (MAR099; M. Brozović, R. A. Jacobson & R. S. Park 2025, "Revised Ephemerides of the Martian
+  Satellites, Phobos and Deimos", *AJ*); R. A. Jacobson (2010), "The orbits and masses of the Martian
+  satellites and the libration of Phobos", *AJ* 139, 668. Perseverance's sol-397 transit: NASA/JPL-Caltech/ASU
+  Mastcam-Z release, 20 April 2022.
+- **The Earth's brightness.** A. Mallama & J. L. Hilton (2018), "Computing apparent planetary
+  magnitudes for The Astronomical Almanac", *Astronomy and Computing* 25, 10.
 
 - **JPL Horizons.** NASA/JPL-Caltech, <https://ssd.jpl.nasa.gov/horizons/>: spacecraft state
   vectors (`data/craft.json`), Halley's per-apparition elements and the reference ephemerides in

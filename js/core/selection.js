@@ -8,6 +8,7 @@
 //   comet:<id>        a comet (astro/comets.js)                  e.g. comet:halley
 //   craft:<id>        a spacecraft (astro/craft.js)              e.g. craft:voyager1
 //   guest:<id>        a historical guest star (astro/guest-stars.js)  e.g. guest:sn1054
+//   sat:<id>          a moon of Mars, seen from Mars (astro/host-mars.js)  e.g. sat:phobos
 //
 // Keys are lower-case ASCII letters, digits and `._+-`, 1–32 characters, starting with a letter
 // or digit, so an id survives the URL hash (`sel=comet:halley`) unescaped. Whether an id names a
@@ -15,10 +16,10 @@
 // here, so a link keeps its selection while the data that defines it is still loading.
 
 /** The extra-object kinds, in the order the registry lists them. */
-export const EXTRA_KINDS = Object.freeze(['star', 'dso', 'comet', 'craft', 'guest']);
+export const EXTRA_KINDS = Object.freeze(['star', 'dso', 'comet', 'craft', 'guest', 'sat']);
 
 const BODY_SET = new Set(['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune']);
-const EXTRA_RE = /^(star|dso|comet|craft|guest):([a-z0-9][a-z0-9._+-]{0,31})$/;
+const EXTRA_RE = /^(star|dso|comet|craft|guest|sat):([a-z0-9][a-z0-9._+-]{0,31})$/;
 
 /**
  * True for a well-formed extra-object id (`comet:halley`, `star:32349`).
@@ -41,7 +42,7 @@ export function isSelectionId(id) {
 /**
  * Splits a selection id: `{kind:'body', key:'mars'}`, `{kind:'comet', key:'halley'}`, or null.
  * @param {unknown} id
- * @returns {{kind:'body'|'star'|'dso'|'comet'|'craft'|'guest', key:string}|null}
+ * @returns {{kind:'body'|'star'|'dso'|'comet'|'craft'|'guest'|'sat', key:string}|null}
  */
 export function parseSelectionId(id) {
     if (typeof id !== 'string') return null;

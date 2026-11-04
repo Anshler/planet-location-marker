@@ -253,6 +253,7 @@ const MC = { magLatDeg: 0, mltH: 0 };
  * @returns {string}
  */
 export function auroraText(snap) {
+    if (snap?.host === 'mars') return '';   // the Earth's ovals mean nothing from Mars
     const aur = snap?.aurora, obs = snap?.observer;
     if (!aur || !obs || !obs.posS || !Number.isFinite(aur.kp)) return '';
     if (!(obs.sunAltDeg <= -12)) return '';

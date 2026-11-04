@@ -499,8 +499,10 @@ async function boot() {
     const layers = { ...DEFAULT_STATE.layers, ...(loadSavedLayers() ?? {}), ...(hash.layers ?? {}) };
     // A vantage point (vt=) is a globe-view pose, and needs the 3D view.
     const vantage = env.can3d && (hash.vantage === 'l1' || hash.vantage === 'moon') ? hash.vantage : 'none';
+    // Standing on Mars (host=mars): the sky view from an areographic site; it needs the 3D view.
+    const marsLink = env.can3d && hash.host?.id === 'mars' && vantage === 'none';
     const view = {
-        mode: env.can3d && (hash.view === 'sky' || hash.view === 'map') && vantage === 'none' ? hash.view : 'orbit', earthLock: hash.earthLock ?? true,
+        mode: marsLink ? 'sky' : env.can3d && (hash.view === 'sky' || hash.view === 'map') && vantage === 'none' ? hash.view : 'orbit', earthLock: hash.earthLock ?? true,
         // Body tracking needs the body: trk=b without sel= tracks nothing.
         track: hash.track === 'stars' || (hash.track === 'body' && isSelectionId(hash.selection)) ? hash.track : 'none',
         vantage,
@@ -513,6 +515,7 @@ async function boot() {
     const store = createStore({
         observer,
         observer2,
+        host: marsLink ? { ...DEFAULT_STATE.host, ...hash.host } : DEFAULT_STATE.host,
         selection: isSelectionId(hash.selection) ? hash.selection : null,
         view,
         layers,
@@ -622,6 +625,7 @@ async function boot() {
     });
     R.loop = loop;
     bindSkySite(store, loop, cities, cityIndexP);
+    bindHost({ store, bus, loop, extras });
     loop.setAuroraActivity(store.get().display?.aurora ?? 'typical');
     store.subscribe((s) => s.display?.aurora, (a) => loop.setAuroraActivity(a ?? 'typical'));
 
@@ -684,6 +688,38 @@ async function boot() {
     idle(() => pushAlmanac({ store, bus, clock, astro }), 3000);
     idle(registerServiceWorker, 6000);
     console.info(`${APP_NAME} ${VERSION} · ${store.get().status.webgl ? `${store.get().quality.active} tier` : 'text mode'} · ready in ${Math.round(performance.now() - startedAt)} ms`);
+}
+
+/**
+ * Standing on Mars (ROADMAP stand-on-mars, phase 1): store.host → app/mars-host.js (loaded the first
+ * time the host is Mars). Leaving the sky view or choosing an Earth place returns to the Earth.
+ */
+function bindHost({ store, bus, loop, extras }) {
+    const toEarth = () => {
+        const h = store.get().host;
+        if (h.id === 'mars') store.set({ host: { ...h, id: 'earth' } }, 'host');
+    };
+    store.subscribe((s) => s.host.id, (id) => {
+        document.body.classList.toggle('is-mars', id === 'mars');
+        if (id !== 'mars') {
+            R.marsHostP?.then((h) => { if (store.get().host.id !== 'mars') h.leave(); });
+            return;
+        }
+        R.marsHostP ??= import('./app/mars-host.js').then((m) => m.createMarsHost({
+            store, loop, extras, R, getLayers: () => drawnLayers(store.get()),
+        }));
+        R.marsHostP.then((h) => { if (store.get().host.id === 'mars') h.enter(); }).catch((err) => {
+            console.error('[main] standing on Mars failed', err);
+            bus.emit('toast', { message: "The view from Mars couldn't load.", kind: 'warn' });
+            toEarth();
+        });
+    }, { immediate: true });
+    store.subscribe((s) => s.host, (h, prev) => {
+        if (h.id === 'mars' && prev?.id === 'mars') R.marsHostP?.then((x) => x.siteChanged());
+    });
+    // The globe and the map are the Earth's (phase 1); so is any Earth place chosen while on Mars.
+    store.subscribe((s) => s.view.mode, (mode) => { if (mode !== 'sky') toEarth(); });
+    store.subscribe((s) => s.observer, (_o, _prev, _st, source) => { if (source !== 'boot') toEarth(); });
 }
 
 /** Largest city in the device's timezone, else the default (Royal Observatory Greenwich). */
@@ -939,6 +975,18 @@ async function bootRender(ctx) {
     const furnitureSpace = new rc.THREE.Group();
     furnitureSpace.name = 'furniture.space';
     furniture.add(furnitureSpace);
+    // What only the Earth has: hidden while the observer stands on Mars (app/mars-host.js), one
+    // group inside each parent so the map and vantage rules above keep applying.
+    R.earthGroups = [];
+    const earthOnly = (parent) => {
+        const g = new rc.THREE.Group();
+        g.name = 'earthOnly';
+        parent.add(g);
+        R.earthGroups.push(g);
+        return g;
+    };
+    const earthScene = earthOnly(rc.scene), earthSpace = earthOnly(space);
+    const earthFurniture = earthOnly(furniture), earthFurnSpace = earthOnly(furnitureSpace);
     const create = (name, factory, parent = rc.scene) => {
         if (!factory) return null;
         try {
@@ -961,9 +1009,9 @@ async function bootRender(ctx) {
     R.horizon = horizon;
     // Fast-time streaks: shared uniforms for the stars and planet glyphs, set by its update().
     create('streaks', m.streaks && (() => m.streaks.createStreaks(rc, { store, reducedMotion: rm })));
-    const earth = create('earth', m.earth && (() => m.earth.createEarth(rc, { textures, reducedMotion: rm })));
-    create('aurora', m.aurora && (() => m.aurora.createAurora(rc, { reducedMotion: rm })));
-    create('atmosphere', m.atmosphere && (() => m.atmosphere.createAtmosphere(rc)));
+    const earth = create('earth', m.earth && (() => m.earth.createEarth(rc, { textures, reducedMotion: rm })), earthScene);
+    create('aurora', m.aurora && (() => m.aurora.createAurora(rc, { reducedMotion: rm })), earthScene);
+    create('atmosphere', m.atmosphere && (() => m.atmosphere.createAtmosphere(rc)), earthScene);
     const sky = create('sky', m.sky && (() => m.sky.createSky(rc, { catalog: catalog ?? emptyCatalog(), textures, reducedMotion: rm })));
     // Deep-sky objects (astro/dso.js, data/dso.json) as faint true-size sprites; the precession
     // circle, the pole of date and the equinox points (the 'precession' layer).
@@ -972,27 +1020,27 @@ async function bootRender(ctx) {
     create('bodies', m.bodies && (() => m.bodies.createBodies(rc, { textures, horizon })), space);
     create('totality', m.totality && (() => m.totality.createTotality(rc)), space);
     create('ground', m.ground && (() => m.ground.createGround(rc, { textures, horizon, cities })));
-    const trails = create('trails', m.trails && (() => m.trails.createTrails(rc)), furnitureSpace);
+    const trails = create('trails', m.trails && (() => m.trails.createTrails(rc)), earthFurnSpace);
     // Meteor showers (sky view): radiants near their peak and illustrative meteors; the radiant labels go to the feed.
     create('meteors', m.meteors && (() => m.meteors.createMeteors(rc, {
         clock, store, reducedMotion: rm, onAnchors: () => R.labelsFeed?.markDirty(),
-    })));
+    })), earthScene);
     // Sun paths and the analemma (sky view) and the subsolar figure-8 (globe), from the astro worker.
-    create('sunPath', m.sunPath && (() => m.sunPath.createSunPath(rc, { store, request: requestSunFigures })), furnitureSpace);
-    const eclipseRibbon = create('eclipsePath', m.eclipsePath && (() => m.eclipsePath.createEclipsePath(rc)), furnitureSpace);
-    const beams = create('beams', m.beams && (() => m.beams.createBeams(rc, { reducedMotion: rm })), furnitureSpace);
+    create('sunPath', m.sunPath && (() => m.sunPath.createSunPath(rc, { store, request: requestSunFigures })), earthFurnSpace);
+    const eclipseRibbon = create('eclipsePath', m.eclipsePath && (() => m.eclipsePath.createEclipsePath(rc)), earthFurnSpace);
+    const beams = create('beams', m.beams && (() => m.beams.createBeams(rc, { reducedMotion: rm })), earthFurnSpace);
     // The second place's beams (two-observers: dashed, amber), from snap.second.
-    create('beams2', m.beams && (() => m.beams.createBeams(rc, { reducedMotion: rm, second: true })), furnitureSpace);
+    create('beams2', m.beams && (() => m.beams.createBeams(rc, { reducedMotion: rm, second: true })), earthFurnSpace);
     // After the beams: the medallions sit on the label anchors the beams compute each frame.
     create('planets', m.planets && (() => m.planets.createPlanets(rc, { beams, isLabelShown: (id) => R.labels?.isShown?.(id) ?? null })), furnitureSpace);
-    const pin = create('pin', m.pin && (() => m.pin.createPin(rc)), furniture);
-    create('pin2', m.pin && (() => m.pin.createPin(rc, { second: true, reducedMotion: rm })), furniture);
+    const pin = create('pin', m.pin && (() => m.pin.createPin(rc)), earthFurniture);
+    create('pin2', m.pin && (() => m.pin.createPin(rc, { second: true, reducedMotion: rm })), earthFurniture);
     create('flare', m.flare && (() => m.flare.createFlare(rc, { horizon })), furnitureSpace);
     // Extra objects (astro/extras.js): their glyphs and reticle at infinity, Halley's tails, the
     // spacecraft's radio beams from the pin.
     create('extras', m.extras && (() => m.extras.createExtrasLayer(rc, { extras: R.extras, sky })), space);
-    create('comets', m.comets && (() => m.comets.createComets(rc, { extras: R.extras })), space);
-    create('craft', m.craft && (() => m.craft.createCraftBeams(rc, { extras: R.extras, reducedMotion: rm })), furnitureSpace);
+    create('comets', m.comets && (() => m.comets.createComets(rc, { extras: R.extras })), earthSpace);
+    create('craft', m.craft && (() => m.craft.createCraftBeams(rc, { extras: R.extras, reducedMotion: rm })), earthFurnSpace);
     // The angle ruler (sky view): its reading goes to ui.ruler and, as a label, to the feed.
     create('ruler', m.ruler && (() => m.ruler.createRuler(rc, { onChange: (r) => onRulerChange(r) })));
     // The solar-system zoom's orrery: its own scene and camera, drawn over the main scene.
@@ -1034,7 +1082,8 @@ async function bootRender(ctx) {
     const labelsFeed = labels ? createLabelsFeed({
         labels, store, snap,
         getCatalog: () => R.catalog,
-        getTrails: () => R.mods.trails ?? null,
+        // The trails and meteor showers are the Earth's: nothing to label from Mars.
+        getTrails: () => (snap.host === 'mars' ? null : R.mods.trails ?? null),
         getBeams: () => R.mods.beams ?? null,
         getPin: () => R.mods.pin ?? null,
         getPlanets: () => (R.mods.planets && !R.loop?.isDisabled?.(R.mods.planets) ? R.mods.planets : null),
@@ -1043,7 +1092,7 @@ async function bootRender(ctx) {
         // Sky-view guide labels with their own anchors (render/precession.js: years, pole stars, equinoxes).
         getSkyMarks: () => (R.mods.precession && !R.loop?.isDisabled?.(R.mods.precession) ? [R.mods.precession] : []),
         extras: R.extras,
-        getSkyExtras: () => (R.mods.meteors && !R.loop?.isDisabled?.(R.mods.meteors) ? [R.mods.meteors] : []),
+        getSkyExtras: () => (R.mods.meteors && snap.host !== 'mars' && !R.loop?.isDisabled?.(R.mods.meteors) ? [R.mods.meteors] : []),
     }) : null;
     R.labelsFeed = labelsFeed;
     loader.progress(0.45, 'Loading imagery');
@@ -1153,6 +1202,8 @@ async function bootRender(ctx) {
         if (textures) settle(textures.load(m.textures.keysForTier(currentCfg).deferred));
     }, 1500);
     if (hash.debug) settle(setDebug(true));
+    // A host=mars link entered Mars before the renderer existed: tell the render stack now.
+    if (store.get().host.id === 'mars') R.marsHostP?.then((h) => { if (store.get().host.id === 'mars') h.enter(); });
 }
 
 let compiled = false;
@@ -1269,7 +1320,7 @@ function replaceSky(skyMod, rc, catalog, textures, reducedMotion) {
 function wantIntro(env, hash, store) {
     if (env.reducedMotion || hash.intro === false || hash.tour || store.get().view.vantage !== 'none') return false;
     if (hash.intro === true) return true;
-    if (hash.cam || store.get().view.mode !== 'orbit') return false;
+    if (hash.cam || store.get().view.mode !== 'orbit' || store.get().host.id === 'mars') return false;
     return !prefs.load('introSeen', false);
 }
 
@@ -1920,6 +1971,8 @@ function applyHash(p) {
         clock.play();
     }
     if (p.view) actions.setViewMode(p.view);
+    if (p.host?.id === 'mars') actions.standOnMars?.(p.host);
+    else if (store.get().host.id === 'mars') actions.leaveMars?.();
     if (typeof p.earthLock === 'boolean') actions.setEarthLock(p.earthLock);
     if (p.selection !== undefined) actions.select(p.selection);
     actions.setTracking?.(p.track ?? 'none');

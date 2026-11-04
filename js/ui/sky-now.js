@@ -18,7 +18,8 @@
  * @module ui/sky-now
  */
 
-import { BODIES, BODY_INDEX } from '../astro/bodies.js';
+import { BODIES, BODY_INDEX, hostBodies } from '../astro/bodies.js';
+import { marsClockText, marsSeason, marsSiteNear } from '../astro/mars-clock.js';
 import { auroraText } from '../astro/geomag.js';
 import { compareSight } from '../astro/parallax.js';
 import { h, s, on, setText, setAttr } from './dom.js';
@@ -126,7 +127,8 @@ export function mountSkyNow(root, ctx) {
     for (const b of BODIES) {
         const comp = makeCompass();
         const badge = h('span', { class: 'badge body-row__badge' });
-        const name = h('span', { class: 'body-row__name' }, h('span', { class: 'dot', 'aria-hidden': 'true' }), b.name, badge);
+        const nameText = document.createTextNode(b.name);
+        const name = h('span', { class: 'body-row__name' }, h('span', { class: 'dot', 'aria-hidden': 'true' }), nameText, badge);
         const sub = h('span', { class: 'body-row__sub' });
         const alt = h('span', { class: 'body-row__alt' });
         const dir = h('span', { class: 'body-row__dir' });
@@ -136,7 +138,7 @@ export function mountSkyNow(root, ctx) {
         h('span', { class: 'body-row__main' }, name, sub),
         h('span', { class: 'body-row__pos' }, alt, h('span', { class: 'body-row__sep', 'aria-hidden': 'true' }, '·'), dir));
         const li = h('li', { class: 'body-list__item' }, button);
-        rows[b.id] = { li, button, comp, sub, alt, dir, badge, up: null, order: -1 };
+        rows[b.id] = { li, button, comp, sub, alt, dir, badge, nameText, up: null, order: -1 };
     }
     offs.push(on(list, 'click', (e) => {
         const btn = /** @type {HTMLElement} */ (e.target).closest('.body-row');
@@ -153,9 +155,13 @@ export function mountSkyNow(root, ctx) {
         const t = snap.tMs;
         const sel = store.get().selection;
         const items = [];
+        // Standing on Mars, slot 4 is the Earth (astro/bodies.js hostBodies).
+        const table = hostBodies(snap.host);
         for (const b of snap.bodies) {
             const r = rows[b.id];
             if (!r) continue;
+            const nm = table[BODY_INDEX[b.id]].name;
+            if (r.nameText.data !== nm) r.nameText.data = nm;
             const { alt, az } = ui.altAz(b);
             const up = isUp(b, alt);
             const rs = ui.riseSetFor(b.id, t);
@@ -203,7 +209,7 @@ export function mountSkyNow(root, ctx) {
         const sunAlt = snap.observer?.sunAltDeg;
         const sol = solarEclipseState(snap);
         const state = sol ? (sol.kind === 'total' ? 'Total solar eclipse' : 'Solar eclipse') : TWILIGHT_LABEL[tw] || 'Sky';
-        setText(status, `${state}${Number.isFinite(sunAlt) ? ` · Sun ${ui.fmt('fmtAlt', sunAlt)}` : ''}`);
+        setText(status, `${snap.host === 'mars' ? 'Mars · ' : ''}${state}${Number.isFinite(sunAlt) ? ` · Sun ${ui.fmt('fmtAlt', sunAlt)}` : ''}`);
         status.dataset.tw = tw || '';
         setText(summary, summaryText(snap));
         updateCompare(snap);
@@ -245,6 +251,7 @@ export function mountSkyNow(root, ctx) {
     offs.push(store.subscribe((st) => st.observer2, () => { if (ui.snap) update(ui.snap); }));
 
     function summaryText(snap) {
+        if (snap.host === 'mars' && snap.mars) return marsSummary(snap);
         const t = snap.tMs;
         const parts = [];
         const sol = solarEclipseState(snap);
@@ -272,6 +279,18 @@ export function mountSkyNow(root, ctx) {
         if (sky) parts.push(sky);
         const aur = auroraText(snap);
         if (aur) parts.push(aur);
+        return parts.join(' · ');
+    }
+
+    /** Standing on Mars: the site, its clock and season, and the light from home. */
+    function marsSummary(snap) {
+        const m = snap.mars;
+        const site = marsSiteNear(m.site.latDeg, m.site.lonDeg, 0.5);
+        const clockTxt = marsClockText(m.time, site ? { ...site, lonDeg: m.site.lonDeg } : { lonDeg: m.site.lonDeg }).text;
+        const parts = [`${m.site.name || 'Mars'} · ${clockTxt}`, `Ls ${Math.round(m.time.lsDeg)}°, ${marsSeason(m.time.lsDeg, m.site.latDeg)}`];
+        const e = snap.bodies[BODY_INDEX.mars];
+        if (e && Number.isFinite(e.lightTimeS)) parts.push(`The light from home left ${Math.max(1, Math.round(e.lightTimeS / 60))} min ago`);
+        parts.push('Rise and set times are not computed on Mars yet');
         return parts.join(' · ');
     }
 
@@ -421,7 +440,7 @@ export function mountBodyStrip(root, ctx) {
             class: 'bchip', type: 'button', 'data-id': b.id, style: { '--c': `var(--body-${b.id})` }, 'aria-pressed': 'false',
         }, h('span', { class: 'dot', 'aria-hidden': 'true' }), h('span', { class: 'bchip__name' }, b.name), alt);
         scroller.appendChild(chip);
-        chips[b.id] = { chip, alt };
+        chips[b.id] = { chip, alt, name: chip.querySelector('.bchip__name') };
     }
     offs.push(on(scroller, 'click', (e) => {
         const chip = /** @type {HTMLElement} */ (e.target).closest('.bchip');
@@ -461,9 +480,12 @@ export function mountBodyStrip(root, ctx) {
 
     function update(snap) {
         if (!snap?.bodies) return;
+        const table = hostBodies(snap.host);
         for (const b of snap.bodies) {
             const c = chips[b.id];
             if (!c) continue;
+            const nm = table[BODY_INDEX[b.id]].name;
+            if (c.name.textContent !== nm) c.name.textContent = nm;
             const { alt, az } = ui.altAz(b);
             if (!Number.isFinite(alt)) continue;
             const up = isUp(b, alt);

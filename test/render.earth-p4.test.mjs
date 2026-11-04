@@ -28,7 +28,8 @@ function body(src, name) {
 test('aurora: the shell module is registered in main.js and draws between the clouds and the atmosphere', () => {
     const main = stripComments(read('js/main.js'));
     assert.match(main, /aurora: import\('\.\/render\/aurora\.js'\)/, 'importRenderStack');
-    assert.match(main, /create\('aurora', m\.aurora && \(\(\) => m\.aurora\.createAurora\(rc, \{ reducedMotion: rm \}\)\)\)/);
+    // (In the Earth-only group that standing on Mars hides: app/mars-host.js.)
+    assert.match(main, /create\('aurora', m\.aurora && \(\(\) => m\.aurora\.createAurora\(rc, \{ reducedMotion: rm \}\)\)(, earthScene)?\)/);
     assert.match(main, /m\.earth\.createEarth\(rc, \{ textures, reducedMotion: rm \}\)/, 'the face-on term honours reduced motion too');
     const src = stripComments(read('js/render/aurora.js'));
     assert.match(src, /mesh\.renderOrder = 15;/);
@@ -47,7 +48,8 @@ test('aurora: animation follows simulated time only, freezes with reduced motion
     assert.doesNotMatch(src, /performance\.now|Date\.now|fi\.timeS/, 'never wall-clock time');
     const loop = stripComments(read('js/app/loop.js'));
     assert.match(loop, /fi\.simRate = clock\.playing && Number\.isFinite\(clock\.rate\) \? clock\.rate : 0;/);
-    assert.match(loop, /if \(s\.aurora\) computeAurora\(s, auroraActivity, s\.aurora\);/);
+    // (Not while standing on Mars: the loop's host, app/mars-host.js.)
+    assert.match(loop, /if \(s\.aurora && !host\) computeAurora\(s, auroraActivity, s\.aurora\);/);
 });
 
 test('aurora: one column model, face-on in the surface and cloud shaders, handed over to the shell by n·V', async () => {

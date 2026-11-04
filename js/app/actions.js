@@ -614,6 +614,46 @@ export function createActions(deps) {
         else if (mode === 'map') say('World map: the night side, twilight bands and where each body is overhead');
     }
 
+    /**
+     * Stand on Mars (ROADMAP stand-on-mars, phase 1): the sky view from an areographic site
+     * (planetocentric °N/°E; Jezero Crater by default, else the last site). The globe stays the
+     * Earth's: leaving the sky view or choosing an Earth place returns home (main.js bindHost).
+     * @param {{latDeg?:number, lonDeg?:number, name?:string}} [site]
+     * @returns {boolean} standing on Mars now
+     */
+    function standOnMars(site) {
+        if (!has3d()) {
+            toast('Standing on Mars needs the 3D view.', 'info');
+            return false;
+        }
+        if (store.get().status.introPlaying) return false;
+        const cur = store.get().host;
+        let lat = Number(site?.latDeg ?? cur.latDeg), lon = Number(site?.lonDeg ?? cur.lonDeg);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90) {
+            toast('Those Mars coordinates are not valid.', 'warn');
+            return false;
+        }
+        lon = ((((lon + 180) % 360) + 360) % 360) - 180 || 0;
+        const name = typeof site?.name === 'string' ? site.name.slice(0, 80) : site ? '' : cur.name ?? '';
+        chase.stop();
+        const view = store.get().view;
+        const wasMars = cur.id === 'mars';
+        store.set({
+            host: { id: 'mars', latDeg: lat, lonDeg: lon, name },
+            view: { ...view, mode: 'sky', vantage: 'none', track: 'none' },
+        }, 'actions');
+        say(wasMars ? `Moved on Mars to ${name || 'the new site'}` : `Standing on Mars${name ? ` in ${name}` : ''}. Leave the sky view to return to the Earth.`);
+        return true;
+    }
+
+    /** Back to the Earth (the observer's own place, still in sky view). */
+    function leaveMars() {
+        const h = store.get().host;
+        if (h.id !== 'mars') return;
+        store.set({ host: { ...h, id: 'earth' } }, 'actions');
+        say('Back on the Earth');
+    }
+
     /** M: the flat map and back to the globe. @returns {boolean} the map is (being) shown */
     function toggleMap() {
         setViewMode(store.get().view.mode === 'map' ? 'orbit' : 'map');
@@ -1459,6 +1499,8 @@ export function createActions(deps) {
         select, flyToBody, setViewMode, cycleView, setEarthLock, setTracking, cycleTracking, telescope, setVantage,
         // Phase 5: the flat world map, a second place to compare with, the solar-system zoom.
         toggleMap, setObserver2, compareWith, frameObservers, setSystem,
+        // Phase 6: stand on Mars (the sky view from an areographic site) and back.
+        standOnMars, leaveMars,
         toggleLayer, setQuality, setTzMode, setSkyDark, setAuroraActivity, share,
         toggleFullscreen, toggleCinema, resetCamera, replayIntro, jumpToEvent,
         // Extensions beyond SPEC §C.9 (used by shortcuts / the shell when present).

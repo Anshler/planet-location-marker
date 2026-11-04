@@ -1254,12 +1254,12 @@ function wantIntro(env, hash, store) {
  * the ecliptic, the visibility footprint and sub-points) while a vantage point shows the Earth as a
  * camera out there would. The store keeps the user's choices.
  */
-const VANTAGE_LAYERS_OFF = Object.freeze({ constellations: false, eqGrid: false, ecliptic: false, altAzGrid: false, footprint: false, subpoints: false });
+const VANTAGE_LAYERS_OFF = Object.freeze({ constellations: false, eqGrid: false, ecliptic: false, altAzGrid: false, footprint: false, subpoints: false, precession: false });
 /**
  * The flat map (view.mode 'map') is a map, not a sky: no star chart behind it, and the sub-points
  * (where each body stands overhead) always on, since they are what the map is for.
  */
-const MAP_LAYERS = Object.freeze({ constellations: false, eqGrid: false, ecliptic: false, altAzGrid: false, subpoints: true });
+const MAP_LAYERS = Object.freeze({ constellations: false, eqGrid: false, ecliptic: false, altAzGrid: false, subpoints: true, precession: false });
 function drawnLayers(st) {
     // Until the flight back has landed, the furniture (main's vantage subscriber) is still away too.
     let l = st.view.vantage !== 'none' || R.furniture?.visible === false ? { ...st.layers, ...VANTAGE_LAYERS_OFF } : st.layers;

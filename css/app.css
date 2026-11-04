@@ -1600,6 +1600,7 @@ body.no-webgl .vb-ruler, body.no-webgl .vb-point { display: none; }
 .pop__grid { display: grid; grid-template-columns: 1fr; gap: 10px; }
 .pop__grid--2 { grid-template-columns: 120px minmax(0, 1fr); }
 .pop__hint { color: var(--muted); font-size: 12.5px; }
+.pop__jul { margin-left: 4px; padding-block: 2px; }
 .pop__error { color: var(--danger); font-size: 12.5px; }
 .pop__error[hidden] { display: none; }
 .pop__quick { display: flex; flex-wrap: wrap; gap: 6px; }

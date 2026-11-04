@@ -259,8 +259,11 @@ export function mountTimebar(root, ctx) {
         'data-autofocus': '',
     });
     const dateZone = h('span', { class: 'pop__zone' });
+    // The native picker is Gregorian: from a Gregorian date, a Julian-only day (29 Feb 1500) needs
+    // the text entry, which this button switches to.
+    const julBtn = h('button', { class: 'btn btn--ghost btn--sm pop__jul', type: 'button' }, 'Type a Julian date');
     const dateCal = h('p', { class: 'pop__hint pop__cal' },
-        'Dates before 15 Oct 1582 are in the Julian calendar, as records of the time give them.');
+        'Dates before 15 Oct 1582 are in the Julian calendar, as records of the time give them. ', julBtn);
     const quick = h('div', { class: 'pop__quick', role: 'group', 'aria-label': 'Quick jumps' });
     const goBtn = h('button', { class: 'btn btn--primary', type: 'submit' }, 'Go');
     const dateForm = h('form', { class: 'pop__form', novalidate: true },
@@ -396,6 +399,7 @@ export function mountTimebar(root, ctx) {
         if (datePopCtl) { closeDate(); return; }
         closeLapse();
         inputFor(dateInput, clock.tMs);
+        julBtn.hidden = dateInput.type === 'text';
         dateInput.removeAttribute('aria-invalid');
         setText(dateZone, zoneText());
         quickJumps();
@@ -403,6 +407,15 @@ export function mountTimebar(root, ctx) {
     }
     function closeDate() { datePopCtl?.close(); datePopCtl = null; }
     offs.push(on(dateBtn, 'click', openDate));
+    offs.push(on(julBtn, 'click', () => {
+        const v = dateInput.value || toInputValue(clock.tMs);
+        dateInput.type = 'text';
+        dateInput.placeholder = 'YYYY-MM-DD HH:MM (Julian before 15 Oct 1582)';
+        dateInput.value = v;
+        dateInput.removeAttribute('aria-invalid');
+        julBtn.hidden = true;
+        dateInput.focus();
+    }));
     offs.push(on(dateForm, 'submit', (e) => {
         e.preventDefault();
         const ms = fromInputValue(dateInput.value);

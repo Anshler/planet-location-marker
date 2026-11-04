@@ -49,6 +49,9 @@ function bitmapDecodeUsable() {
     return true;
 }
 
+/** How long a restore waits for one closed map's file before it takes the 1 × 1 stand-in (ms). */
+const RESTORE_WAIT_MS = 15000;
+
 /** A closed ImageBitmap (its width and height read 0): its pixels are on the GPU only. */
 const isClosed = (img) => !!img && typeof img.close === 'function' && !(img.width > 0);
 
@@ -147,20 +150,27 @@ export function createTextureStore(renderer, { onProgress, prefetched = null } =
      * Puts a closed map's pixels back: the file again (HTTP or service-worker cache), decoded into
      * the same Texture (same size, so the GPU storage fits) and uploaded. `restore`: after a context
      * loss, when the next frame would upload the closed image itself (and throw); if the file cannot
-     * be had, a 1 × 1 stand-in takes its place so that it uploads cleanly.
+     * be had within RESTORE_WAIT_MS, a 1 × 1 stand-in takes its place so that it uploads cleanly.
      * @returns {Promise<void>} never rejects
      */
     function reload(e, restore = false) {
         if (e.reloading) return e.reloading;
         const p = (async () => {
+            let got = null;
             try {
-                const decoded = await decode(await download(ASSETS[e.key].url, fetch).promise);
+                got = download(ASSETS[e.key].url, fetch).promise.then(decode);
+                let timer = 0;
+                const decoded = !restore ? await got : await Promise.race([got, new Promise((_, reject) => {
+                    timer = setTimeout(() => reject(new Error(`${ASSETS[e.key].url} timed out`)), RESTORE_WAIT_MS);
+                })]).finally(() => clearTimeout(timer));
                 if (disposed || !e.tex) { decoded.image.close?.(); return; }
                 e.tex.image = decoded.image;
                 e.tex.flipY = decoded.flipY;
                 await new Promise((resolve) => upload(e.tex, resolve, true));
             } catch (err) {
                 if (!restore || !e.tex || !isClosed(e.tex.image)) return;
+                // A late arrival is no use any more: the stand-in sets the GPU storage's size.
+                got?.then((d) => d.image.close?.(), () => {});
                 e.tex.image = typeof ImageData === 'function' ? new ImageData(1, 1) : { width: 1, height: 1 };
                 e.tex.needsUpdate = true;
                 e.state = 'failed';

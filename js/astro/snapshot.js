@@ -166,15 +166,16 @@ export function createSnapshot() {
         skyglow: createSkyglow(),
         // Filled by the frame loop (computeAurora) after each computeSnapshot: it needs the activity setting.
         aurora: createAurora(),
+        // The second place's snapshot at the same instant (ROADMAP two-observers), or null. Set by
+        // the frame loop, never by computeSnapshot.
+        second: null,
     };
 }
 
-// The AE.Observer is cached: snapshot and snapFull share it, and it only
-// changes when the user moves the pin.
-let obsLat = NaN;
-let obsLon = NaN;
-let obsElev = NaN;
-let aeObserver = null;
+// The AE.Observers are cached: snapshot and snapFull share one, and a second place (two-observers)
+// keeps its own in the other slot, so alternating between the two never rebuilds either.
+const OBS_CACHE = [{ lat: NaN, lon: NaN, elev: NaN, o: null }, { lat: NaN, lon: NaN, elev: NaN, o: null }];
+let obsNext = 0;
 
 function observerFor(o) {
     let lat = o ? Number(o.latDeg) : NaN;
@@ -185,13 +186,17 @@ function observerFor(o) {
     lat = Number.isFinite(lat) ? Math.min(90, Math.max(-90, lat)) : 0;
     lon = Number.isFinite(lon) ? (lon >= -180 && lon <= 180 ? lon : wrap180(lon)) : 0;
     elev = Number.isFinite(elev) ? Math.min(100000, Math.max(-500, elev)) : 0;
-    if (aeObserver === null || lat !== obsLat || lon !== obsLon || elev !== obsElev) {
-        aeObserver = new AE.Observer(lat, lon, elev);
-        obsLat = lat;
-        obsLon = lon;
-        obsElev = elev;
+    for (let i = 0; i < OBS_CACHE.length; i++) {
+        const c = OBS_CACHE[i];
+        if (c.o !== null && c.lat === lat && c.lon === lon && c.elev === elev) return c.o;
     }
-    return aeObserver;
+    const c = OBS_CACHE[obsNext];
+    obsNext = (obsNext + 1) % OBS_CACHE.length;
+    c.o = new AE.Observer(lat, lon, elev);
+    c.lat = lat;
+    c.lon = lon;
+    c.elev = elev;
+    return c.o;
 }
 
 // EQJ (x, y, z) → normalised scene vector (x, z, −y).
@@ -293,10 +298,10 @@ export function computeSnapshot(tMs, observer, out, opts) {
     // Observer frame. The pin sits on the unit sphere at the geodetic lat/lon,
     // so its normal is the WGS84 geodetic zenith that astronomy-engine uses.
     const o = out.observer;
-    o.latDeg = obsLat;
-    o.lonDeg = obsLon;
-    o.elevM = obsElev;
-    enuLocal(obsLat, obsLon, LOCAL);
+    o.latDeg = obs.latitude;
+    o.lonDeg = obs.longitude;
+    o.elevM = obs.height;
+    enuLocal(obs.latitude, obs.longitude, LOCAL);
     m4MulDir(em, LOCAL.up, o.posS);
     m4MulDir(em, LOCAL.up, o.upS);
     m4MulDir(em, LOCAL.north, o.northS);

@@ -22,6 +22,13 @@
 // `faint`, which follow the drawn star field, so names leave with their stars at dawn and return at
 // dusk or in totality.
 //
+// The flat map ('map' mode, ROADMAP globe-to-map-morph): each body is labelled at its sub-point and the
+// observer at the pin, both riding the morph from the globe to the map (geo/mapview.js); no star,
+// constellation, cardinal or path names. A second place (state.observer2, two-observers) gets its own
+// label on its pin (globe and map), and in orbit view, while both places' beams are up, a note under
+// the Earth–Moon line reads the Moon's parallax and the distance the two sightlines imply
+// (astro/parallax.js).
+//
 // Priorities follow SPEC §C.6: selected 100, Sun/Moon 90, planets 80, observer 70, cardinal 60,
 // stars 50 − mag, constellations 20.
 
@@ -29,15 +36,20 @@ import { BODIES, BODY_INDEX } from '../astro/bodies.js';
 import { starVisibility } from '../astro/photometry.js';
 import { horizonAltDeg } from '../geo/horizon.js';
 import { eqAngRadius, RING_OUTER, SCOPE_FROM_PX } from '../astro/disc.js';
+import { compareSight } from '../astro/parallax.js';
+import { mapPoint, mapPointOfDir } from '../geo/mapview.js';
+import { fmtDistKm } from '../core/format.js';
 
 /** @typedef {import('../core/types.js').LabelAnchor} LabelAnchor */
 /** @typedef {import('../core/types.js').AppState} AppState */
 /** @typedef {import('../core/types.js').Snapshot} Snapshot */
-/** @typedef {{bodyOrbit:Float64Array[], pinHead:Float64Array, cardinal:Float64Array[], rim:Float64Array[]}} LiveVectors */
+/** @typedef {{bodyOrbit:Float64Array[], pinHead:Float64Array, cardinal:Float64Array[], rim:Float64Array[],
+ *   bodyMap?:Float64Array[], pin2Head?:Float64Array, parallaxAt?:Float64Array}} LiveVectors */
 /** sync() inputs: star-field exposure (photometry.starExposure), tier magnitude limit, viewport CSS height,
- * and the shared landscape profile (geo/horizon.js; sky-view `below` flags follow its silhouette).
+ * the shared landscape profile (geo/horizon.js; sky-view `below` flags follow its silhouette) and, for
+ * the flat map, the morph and the plane's frame (FrameInfo.mapK, .map).
  * @typedef {{starExposure?:number, magLimit?:number, viewportH?:number,
- *   horizon?:import('../geo/horizon.js').HorizonProfile|null}} LabelView */
+ *   horizon?:import('../geo/horizon.js').HorizonProfile|null, mapK?:number, map?:object|null}} LabelView */
 
 export const PRIORITY = Object.freeze({ selected: 100, sunMoon: 90, planet: 80, observer: 70, cardinal: 60, starBase: 50, constellation: 20 });
 /** Star names shown in sky view (SPEC: mag ≤ 2.5) and, more sparingly, around the globe. */
@@ -62,6 +74,13 @@ const CARDINALS = Object.freeze([
 const STAR_COLOR = '#cdd6e4';
 const CONSTELLATION_COLOR = '#8fa6cc';
 const OBSERVER_COLOR = '#7cc4ff';
+/** The second place (two-observers): render/pin.js SECOND_ACCENT. */
+const OBSERVER2_COLOR = '#ffb35c';
+/** The parallax note at the Moon: re-read this often (ms) while both places are shown. */
+const PARALLAX_EVERY_MS = 500;
+/** The note sits under the Earth–Moon line, this far along it (where the two beams draw together). */
+const PARALLAX_ALONG = 0.55;
+const PARALLAX_OFFSET = Object.freeze([0, 26]);
 /** Small screen offset so a star's or planet's own glyph is not covered by the label dot. */
 const GLYPH_OFFSET = Object.freeze([7, -7]);
 // Sky-view body label radius (CSS px): the dot (3 px, +4 px ring when selected) clears the glyph,
@@ -113,8 +132,8 @@ export function labelBelow(st, sky, horizon = null) {
     return !(st.altDeg + semi > hAlt);
 }
 
-/** Body anchors (one per BODIES entry that is not hidden). */
-function bodyAnchors(out, state, snap, sky, live, opts) {
+/** Body anchors (one per BODIES entry that is not hidden). On the map (`map`) each sits on its sub-point. */
+function bodyAnchors(out, state, snap, sky, live, opts, map = false) {
     const sel = state.selection ?? null;
     for (let i = 0; i < BODIES.length; i++) {
         const b = BODIES[i];
@@ -133,8 +152,14 @@ function bodyAnchors(out, state, snap, sky, live, opts) {
             interactive: true,
             bodyId: b.id,
             selected,
-            below: labelBelow(st, sky),
+            below: map ? false : labelBelow(st, sky),
         };
+        if (map && live?.bodyMap) {
+            a.posS = live.bodyMap[i];
+            a.ariaLabel = `${b.name} is overhead here — show details`;
+            out.push(a);
+            continue;
+        }
         // Orbit view: the planet's medallion (render/planets.js) sits on the label's dot.
         let med = null;
         try {
@@ -179,6 +204,36 @@ function observerAnchor(out, state, live) {
         ariaLabel: `Your location: ${name}. Change location`,
         interactive: true,
     });
+}
+
+/** The second place's label on its pin (two-observers). */
+function observer2Anchor(out, state, live) {
+    const o2 = state.observer2;
+    if (!o2 || !live.pin2Head) return;
+    const name = o2.name || 'Second place';
+    out.push({
+        id: 'observer2',
+        text: name,
+        kind: 'observer',
+        priority: PRIORITY.observer - 1,
+        color: OBSERVER2_COLOR,
+        posS: live.pin2Head,
+        ariaLabel: `Compared with ${name}. Change or remove the second place`,
+        interactive: true,
+    });
+}
+
+/**
+ * The parallax note at the Moon ("Moon parallax 1.26° → 389,000 km"), or '' when either place's
+ * snapshot is missing. No allocation besides the string.
+ * @param {Snapshot} snap with `.second`
+ * @param {{sepDeg:number, baselineKm:number, perpKm:number, distKm:number}} scratch
+ * @returns {string}
+ */
+export function parallaxText(snap, scratch) {
+    const r = snap?.second ? compareSight(snap, snap.second, MOON, scratch) : null;
+    if (!r || !Number.isFinite(r.distKm)) return '';
+    return `Moon parallax ${r.sepDeg.toFixed(2)}° → ${fmtDistKm(Math.round(r.distKm / 1000) * 1000)}`;
 }
 
 /** Sky view: directions at infinity. Orbit view (`rim`): world points on the horizon disc rim. */
@@ -345,10 +400,19 @@ export function buildAnchors(state, snap, catalog, trails, opts = {}) {
     if (!state || !snap || layers.labels === false) return out;
     const mode = opts.mode ?? state.view?.mode ?? 'orbit';
     const sky = mode === 'sky';
+    const map = mode === 'map';
     const live = opts.live ?? null;
 
-    bodyAnchors(out, state, snap, sky, live, opts);
+    bodyAnchors(out, state, snap, sky, live, opts, map);
     if (live && !sky && !opts.hideObserver) observerAnchor(out, state, live);
+    if (live && !sky && !opts.hideObserver) observer2Anchor(out, state, live);
+    if (map) return out;
+    if (live && !sky && opts.parallax && state.observer2 && layers.beams !== false && layers.sunMoonBeams !== false) {
+        out.push({
+            id: 'parallax', text: opts.parallax, kind: 'trail', priority: PRIORITY.observer - 5, color: '#e8e1cf',
+            posS: live.parallaxAt ?? snap.moonPosS, offsetPx: PARALLAX_OFFSET, ariaLabel: opts.parallax, interactive: false,
+        });
+    }
     if (live && sky) cardinalAnchors(out, live, false);
     if (live && !sky && opts.rimCardinals && layers.horizon !== false && !opts.hideObserver) cardinalAnchors(out, live, true);
     if (catalog && layers.stars !== false && layers.starNames) starAnchors(out, catalog, sky);
@@ -357,6 +421,42 @@ export function buildAnchors(state, snap, catalog, trails, opts = {}) {
     // The angle ruler's reading (render/ruler.js), sky view only.
     if (sky && opts.ruler) trailAnchors(out, opts.ruler);
     return out;
+}
+
+const _mapPt = new Float64Array(3);
+
+/** Lerps a world point from the globe (sx, sy, sz) to its place on the map (_mapPt) by k into out. */
+function lerpToMap(out, sx, sy, sz, k) {
+    out[0] = sx + (_mapPt[0] - sx) * k;
+    out[1] = sy + (_mapPt[1] - sy) * k;
+    out[2] = sz + (_mapPt[2] - sz) * k;
+}
+
+/** The map's label points: sub-points and pins, from the globe to the map by the morph. No allocation. */
+function syncMapPoints(live, snap, view) {
+    const f = view?.map;
+    const k = f && Number.isFinite(view.mapK) ? clamp(view.mapK, 0, 1) : 0;
+    for (let i = 0; i < BODIES.length; i++) {
+        const g = snap.bodies[i].geoDirS;
+        const out = live.bodyMap[i];
+        if (!f) { out[0] = g[0]; out[1] = g[1]; out[2] = g[2]; continue; }
+        mapPointOfDir(f, snap.earthMatrix, g, _mapPt);
+        lerpToMap(out, g[0], g[1], g[2], k);
+    }
+    const p = snap.observer.posS;
+    if (f) mapPoint(f, snap.observer.latDeg, snap.observer.lonDeg, _mapPt);
+    lerpToMap(live.pinHead, p[0] * PIN_HEAD_R, p[1] * PIN_HEAD_R, p[2] * PIN_HEAD_R, f ? k : 0);
+    syncPin2(live, snap, f, k);
+}
+
+/** The second pin's head (NaN, hidden, without a second place). */
+function syncPin2(live, snap, f = null, k = 0) {
+    const s2 = snap.second;
+    const out = live.pin2Head;
+    if (!s2) { out[0] = out[1] = out[2] = NaN; return; }
+    const p = s2.observer.posS;
+    if (f) mapPoint(f, s2.observer.latDeg, s2.observer.lonDeg, _mapPt);
+    lerpToMap(out, p[0] * PIN_HEAD_R, p[1] * PIN_HEAD_R, p[2] * PIN_HEAD_R, f ? k : 0);
 }
 
 /** Fallback orbit-view body points: along each beam, or past the far side when below the horizon. */
@@ -436,7 +536,14 @@ export function createLabelsFeed({ labels, store, snap, getCatalog = () => null,
         pinHead: new Float64Array(3),
         cardinal: CARDINALS.map(() => new Float64Array(3)),
         rim: CARDINALS.map(() => new Float64Array([NaN, NaN, NaN])),
+        bodyMap: BODIES.map(() => new Float64Array(3)),
+        pin2Head: new Float64Array([NaN, NaN, NaN]),
+        parallaxAt: new Float64Array(3),
     };
+    // The parallax note's text (rebuilt only when it changes, at most every PARALLAX_EVERY_MS).
+    let parallax = '';
+    let parallaxAt = -Infinity;
+    const sightScratch = { sepDeg: 0, baselineKm: 0, perpKm: 0, distKm: NaN };
     /** Live sky-view label offsets per BODIES index (bodyLabelOffsets), shared by every rebuild. */
     const bodyOffset = BODIES.map(() => new Float64Array(GLYPH_OFFSET));
     /** @type {LabelAnchor[]} */
@@ -449,7 +556,7 @@ export function createLabelsFeed({ labels, store, snap, getCatalog = () => null,
     /** Ids of names hidden by daylight, so a rebuild keeps their hysteresis state. */
     const hiddenNames = new Set();
     let dirty = true;
-    /** @type {'orbit'|'sky'|null} */
+    /** @type {'orbit'|'sky'|'map'|null} */
     let builtMode = null;
     let usesBeamPoints = false;
 
@@ -463,6 +570,7 @@ export function createLabelsFeed({ labels, store, snap, getCatalog = () => null,
         store.subscribe((s) => s.selection, () => { dirty = true; }),
         store.subscribe((s) => s.layers, () => { dirty = true; }),
         store.subscribe((s) => s.observer.name, () => { dirty = true; }),
+        store.subscribe((s) => s.observer2, () => { dirty = true; }),
     ];
 
     function beamPointFn() {
@@ -485,6 +593,7 @@ export function createLabelsFeed({ labels, store, snap, getCatalog = () => null,
             hideObserver: observerHidden,
             rimCardinals: !!getPin()?.cardinals,
             ruler: getRuler(),
+            parallax,
         });
         bodyAnchor.fill(null);
         selIndex = -1;
@@ -522,15 +631,32 @@ export function createLabelsFeed({ labels, store, snap, getCatalog = () => null,
     /**
      * Per-frame refresh. Call before `labels.update()` on every rendered frame.
      * @param {{position:{x:number,y:number,z:number}, projectionMatrix?:{elements:ArrayLike<number>}}} camera
-     * @param {'orbit'|'sky'} mode effective view mode (sky once the transition is past halfway)
+     * @param {'orbit'|'sky'|'map'} mode effective view mode (sky once the transition is past halfway, map
+     *   as soon as the globe starts to unroll: loop.js labelMode)
      * @param {LabelView} [view]
      */
     function sync(camera, mode, view) {
+        if (mode === 'orbit' && store.get().observer2) {
+            // The parallax note follows the time, but only a changed figure rebuilds the list.
+            const t = Date.now();
+            if (t - parallaxAt >= PARALLAX_EVERY_MS) {
+                parallaxAt = t;
+                const next = parallaxText(snap, sightScratch);
+                if (next !== parallax) { parallax = next; dirty = true; }
+            }
+        }
         if (dirty || mode !== builtMode) rebuild(mode);
-        const sky = mode !== 'orbit';
-        if (!sky) {
+        const sky = mode === 'sky';
+        if (mode === 'map') {
+            syncMapPoints(live, snap, view);
+        } else if (!sky) {
             if (!usesBeamPoints) syncOrbitPoints(live, snap, camera);
             syncPinHead(live, snap);
+            syncPin2(live, snap);
+            const m = snap.moonPosS;
+            live.parallaxAt[0] = m[0] * PARALLAX_ALONG;
+            live.parallaxAt[1] = m[1] * PARALLAX_ALONG;
+            live.parallaxAt[2] = m[2] * PARALLAX_ALONG;
             syncRim(live, getPin(), camera);
         } else {
             syncCardinals(live, snap);
@@ -540,7 +666,7 @@ export function createLabelsFeed({ labels, store, snap, getCatalog = () => null,
         }
         for (let i = 0; i < BODIES.length; i++) {
             const a = bodyAnchor[i];
-            if (a) a.below = labelBelow(snap.bodies[i], sky, view && view.horizon);
+            if (a) a.below = mode === 'map' ? false : labelBelow(snap.bodies[i], sky, view && view.horizon);
         }
         syncNames(view);
     }

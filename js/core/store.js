@@ -47,11 +47,19 @@ export const AURORA_SETTINGS = Object.freeze(['quiet', 'typical', 'storm']);
 export const VANTAGE_SETTINGS = Object.freeze(['none', 'l1', 'moon']);
 
 /**
+ * view.mode choices (`view=` in the URL): the globe ('orbit'), standing at the observer ('sky') and
+ * the flat world map ('map': the globe unrolled, camera/rig.js, geo/mapview.js).
+ */
+export const VIEW_MODES = Object.freeze(['orbit', 'sky', 'map']);
+
+/**
  * The initial application state (SPEC §C.3). Frozen: copy before modifying.
  * @type {Readonly<AppState>}
  */
 export const DEFAULT_STATE = deepFreeze({
     observer: { latDeg: 51.4769, lonDeg: -0.0005, elevM: 0, name: 'Royal Observatory Greenwich', country: 'United Kingdom', tz: 'Europe/London', tzApprox: false, source: 'default' },
+    // A second place to compare with (ROADMAP two-observers; `loc2` in the URL), or null.
+    observer2: null,
     selection: null, view: { mode: 'orbit', earthLock: true, track: 'none', vantage: 'none' },
     layers: {
         beams: true, ghostBeams: true, sunMoonBeams: true, stars: true, constellations: true, constellationNames: true, starNames: true,

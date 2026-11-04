@@ -21,6 +21,11 @@
  *    medallion, render/planets.js): the anchor keeps it inside the free area and the label
  *    de-overlap treats it as part of the label box.
  *
+ * `createBeams(rc, {second: true})` draws the second place's beams (ROADMAP two-observers) from
+ * `snap.second`: the same nine sightlines in long dashes tinted amber (`#define SECOND`), always
+ * launched, hidden while there is no second place. Its two Moon beams and the first set's meet at
+ * the Moon: the parallax made visible.
+ *
  * No per-frame allocation (R5): every buffer and scratch object is created once.
  *
  * @module render/beams
@@ -30,6 +35,7 @@ import { BODIES } from '../astro/bodies.js';
 import { umbraNear } from '../astro/eclipse-path.js';
 import { BEAM_VERT, BEAM_FRAG } from './shaders/beam.glsl.js';
 import { labelExtent, uiOccluders } from './labels.js';
+import { SECOND_ACCENT } from './pin.js';
 
 const N = BODIES.length;
 const MOON = BODIES.findIndex((b) => b.id === 'moon');
@@ -116,12 +122,16 @@ function buildStrip() {
 /**
  * Creates the beams module.
  * @param {object} rc RenderContext (SPEC §C.6).
- * @param {{now?:()=>number, reducedMotion?:boolean}} [deps] `now` overrides the animation clock (tests).
+ * @param {{now?:()=>number, reducedMotion?:boolean, second?:boolean}} [deps] `now` overrides the animation
+ *   clock (tests); `second`: the second place's set, from snap.second
  * @returns {object} RenderModule & {launch, getTip, labelAnchor, isLanded, prime, skipLaunch, setReducedMotion}
  */
 export function createBeams(rc, deps = {}) {
     const now = typeof deps.now === 'function' ? deps.now : nowMs;
     let reducedMotion = deps.reducedMotion ?? prefersReducedMotion();
+    const second = !!deps.second;
+    // The second set exists only while there is a second place.
+    let present = !second;
 
     const geometry = buildStrip();
     const aOrigin = new THREE.InstancedBufferAttribute(new Float32Array(N * 3), 3);
@@ -169,6 +179,7 @@ export function createBeams(rc, deps = {}) {
         uFade: { value: 1 },
         uSelActive: { value: 0 },
         uRootClear: { value: 0 },
+        uTint: { value: new THREE.Color(SECOND_ACCENT) },
     };
     const common = {
         uniforms,
@@ -180,14 +191,15 @@ export function createBeams(rc, deps = {}) {
         blending: THREE.AdditiveBlending,
         side: THREE.DoubleSide,
     };
-    const matA = new THREE.ShaderMaterial({ ...common, name: 'beams.A' });
-    const matB = new THREE.ShaderMaterial({ ...common, name: 'beams.B.xray', defines: { XRAY: '' } });
+    const extra = second ? { SECOND: '' } : {};
+    const matA = new THREE.ShaderMaterial({ ...common, name: second ? 'beams2.A' : 'beams.A', defines: { ...extra } });
+    const matB = new THREE.ShaderMaterial({ ...common, name: second ? 'beams2.B.xray' : 'beams.B.xray', defines: { XRAY: '', ...extra } });
     matB.depthFunc = THREE.GreaterDepth;
 
     const meshA = new THREE.Mesh(geometry, matA);
     const meshB = new THREE.Mesh(geometry, matB);
-    meshA.name = 'beams.A';
-    meshB.name = 'beams.B';
+    meshA.name = matA.name;
+    meshB.name = second ? 'beams2.B' : 'beams.B';
     meshA.renderOrder = 30;
     meshB.renderOrder = 31;
     for (const m of [meshA, meshB]) {
@@ -195,7 +207,7 @@ export function createBeams(rc, deps = {}) {
         m.matrixAutoUpdate = false;
     }
     const group = new THREE.Group();
-    group.name = 'beams';
+    group.name = second ? 'beams2' : 'beams';
     group.add(meshA, meshB);
 
     const layers = { beams: true, ghostBeams: true, sunMoonBeams: true };
@@ -231,7 +243,7 @@ export function createBeams(rc, deps = {}) {
     }
 
     function updateVisibility() {
-        group.visible = layers.beams && skyBlend < 0.5;
+        group.visible = layers.beams && skyBlend < 0.5 && present;
         meshB.visible = layers.ghostBeams;
     }
 
@@ -241,6 +253,15 @@ export function createBeams(rc, deps = {}) {
      * @param {object} snap Snapshot (SPEC §C.1).
      */
     function apply(snap) {
+        if (second) {
+            const was = present;
+            present = !!snap?.second;
+            if (present !== was) {
+                updateVisibility();
+                invalidate();
+            }
+            snap = snap?.second ?? null;
+        }
         if (!snap || !snap.observer || !snap.bodies) return;
         const p = snap.observer.posS;
         origin[0] = p[0] * ORIGIN_LIFT;
@@ -331,7 +352,8 @@ export function createBeams(rc, deps = {}) {
             stepLaunch(t);
             invalidate();
         }
-        if (cam) computeAnchors(cam);
+        // The second set carries no labels (the second pin's label is the labels feed's own).
+        if (cam && !second) computeAnchors(cam);
     }
 
     // ---- label anchors ---------------------------------------------------------------------
@@ -567,7 +589,7 @@ export function createBeams(rc, deps = {}) {
      */
     function launch({ staggerMs = 120 } = {}) {
         if (launchResolve) settleLaunch(false);
-        if (reducedMotion) {
+        if (reducedMotion || second) {
             progress.fill(1);
             writeStates();
             invalidate();
@@ -588,6 +610,7 @@ export function createBeams(rc, deps = {}) {
     /** Hides every beam until the next launch() (e.g. at the start of the intro). */
     function prime() {
         if (launchResolve) settleLaunch(false);
+        if (second) return;
         progress.fill(0);
         writeStates();
         invalidate();

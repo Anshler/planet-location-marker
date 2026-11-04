@@ -33,7 +33,7 @@ const AT_CITY_KM = 15;
 export const USER_SOURCES = Object.freeze(['click', 'city', 'search', 'geo', 'manual']);
 /** 'tour': placed by a guided tour (never persisted; the tour restores the user's observer). */
 const OBSERVER_SOURCES = new Set(['default', 'url', 'saved', 'tzguess', 'click', 'city', 'search', 'geo', 'manual', 'tour']);
-const VIEW_MODES = new Set(['orbit', 'sky']);
+const VIEW_MODES = new Set(['orbit', 'sky', 'map']);
 const TRACK_KINDS = new Set(['none', 'body', 'stars']);
 const VANTAGE_KINDS = new Set(['none', 'l1', 'moon']);
 /** Vantage points (globe view, url `vt`): their names in the menu, the caption and announcements. */
@@ -552,16 +552,86 @@ export function createActions(deps) {
     }
 
     /**
-     * Globe or sky view. Either one also leaves a vantage point: 'Globe' is the way back from it.
-     * @param {'orbit'|'sky'} mode
+     * Globe, sky view or the flat world map ('map': the globe unrolled, ROADMAP globe-to-map-morph).
+     * Each also leaves a vantage point: 'Globe' is the way back from it. The map needs the 3D view.
+     * @param {'orbit'|'sky'|'map'} mode
      */
     function setViewMode(mode) {
         if (!VIEW_MODES.has(mode)) return;
         const view = store.get().view;
         const vt = view.vantage ?? 'none';
         if (view.mode === mode && vt === 'none') return;
+        if (mode === 'map') {
+            if (!has3d()) {
+                toast('The world map needs the 3D view.', 'info');
+                return;
+            }
+            if (store.get().status.introPlaying) return;
+            chase.stop();
+        }
         store.set({ view: { ...view, mode, vantage: 'none' } }, 'actions');
         if (vt !== 'none' && mode === 'orbit') say('Back to the globe');
+        else if (mode === 'map') say('World map: the night side, twilight bands and where each body is overhead');
+    }
+
+    /** M: the flat map and back to the globe. @returns {boolean} the map is (being) shown */
+    function toggleMap() {
+        setViewMode(store.get().view.mode === 'map' ? 'orbit' : 'map');
+        return store.get().view.mode === 'map';
+    }
+
+    /**
+     * A second place to compare with (ROADMAP two-observers; url `loc2`): its own pin and dashed
+     * beams on the globe, and its altitude and azimuth beside the observer's in Sky now. Named and
+     * zoned like the observer (normalizeObserver); never saved. null removes it.
+     * @param {(Partial<Observer> & {latDeg:number, lonDeg:number})|null} obs
+     * @returns {Observer|null} the second place now set
+     */
+    function setObserver2(obs) {
+        if (obs == null) {
+            if (store.get().observer2) {
+                store.set({ observer2: null }, 'actions');
+                say('Comparison removed');
+            }
+            return null;
+        }
+        let next;
+        try {
+            next = normalizeObserver({ source: 'manual', ...obs }, { cities, tz });
+        } catch {
+            toast('Those coordinates are not valid.', 'warn');
+            return null;
+        }
+        const prev = store.get().observer2;
+        if (prev && sameSpot(prev, next)) return prev;
+        store.set({ observer2: next }, 'actions');
+        say(`Comparing with ${next.name || 'the second place'}${next.country ? ', ' + next.country : ''}`);
+        return next;
+    }
+
+    /** 'Compare with…': the place search, choosing the second place. */
+    function compareWith() {
+        const ui = store.get().ui;
+        store.set({ ui: { ...ui, palette: 'compare' } }, 'actions');
+    }
+
+    /**
+     * 'Show both beams': the globe framed square to the Earth–Moon line, far enough out that both
+     * places' Moon beams can be seen converging on the Moon (about 100 Earth radii out).
+     * @returns {boolean} started
+     */
+    function frameObservers() {
+        const snap = getSnap();
+        const r = rig();
+        if (!r || !snap || !store.get().observer2 || !has3d()) return false;
+        const go = () => settle(r.frameSpan?.(snap.bodies[BODY_INDEX.moon].geoDirS, snap.bodies[BODY_INDEX.moon].distER,
+            { animate: !reducedMotion() }));
+        const view = store.get().view;
+        if (view.mode !== 'orbit' || (view.vantage ?? 'none') !== 'none') {
+            store.set({ view: { ...view, mode: 'orbit', vantage: 'none' } }, 'actions');
+        }
+        go();
+        return true;
     }
 
     /**
@@ -1271,6 +1341,8 @@ export function createActions(deps) {
     return {
         setObserver, undoObserver, locateMe,
         select, flyToBody, setViewMode, cycleView, setEarthLock, setTracking, cycleTracking, telescope, setVantage,
+        // Phase 5: the flat world map and a second place to compare with.
+        toggleMap, setObserver2, compareWith, frameObservers,
         toggleLayer, setQuality, setTzMode, setSkyDark, setAuroraActivity, share,
         toggleFullscreen, toggleCinema, resetCamera, replayIntro, jumpToEvent,
         // Extensions beyond SPEC §C.9 (used by shortcuts / the shell when present).

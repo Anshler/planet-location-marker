@@ -28,7 +28,9 @@
  *    vanishing point.
  *
  * Both passes share these sources; pass B (x-ray, GreaterDepth) adds
- * `#define XRAY`.
+ * `#define XRAY`. The second place's beams (ROADMAP two-observers) add `#define SECOND`: long
+ * log-spaced dashes along the whole ribbon and a tint toward the second pin's amber (uTint), so
+ * the two places' sightlines stay apart where they converge on the Moon.
  *
  * @module render/shaders/beam.glsl
  */
@@ -134,6 +136,7 @@ uniform float uPhase;     // pulse phase, advanced at 0.6 cycles/s on the CPU (n
 uniform float uFade;      // 1 in orbit, 0 once sky view has taken over
 uniform float uSelActive; // 1 while any body is selected (others dim)
 uniform float uRootClear; // 0..1: the Moon's umbra is at the observer; the roots step out of its way
+uniform vec3 uTint;       // SECOND: the second place's accent
 
 varying float vDist;
 flat varying vec3 vRoot;  // the observer on screen (px) and the umbra's radius there (px)
@@ -175,6 +178,13 @@ void main() {
     float phW = fwidth(ph);
     float dashX = d * 12.0;
     float dashW = fwidth(dashX);
+    vec3 baseC = vColor;
+#ifdef SECOND
+    // Long dashes, denser near the pin (log spacing), and the second place's tint.
+    float dash2X = lg * 9.0;
+    float dash2W = fwidth(dash2X);
+    baseC = mix(vColor, uTint, 0.45);
+#endif
 
     // Cross-section: a thin HDR core inside a soft glow that reaches zero at the ribbon edge.
     float corePx = mix(1.6, 2.6, sel) * uDpr;
@@ -204,13 +214,18 @@ void main() {
     float head = hd * hd * hd * (1.0 - smoothstep(0.9, 1.0, vState.w));
 
     float dash = disc ? 1.0 : dashFiltered(dashX, dashW);
+#ifdef SECOND
+    float dash2 = disc ? 1.0 : 0.25 + 0.75 * dashFiltered(dash2X, dash2W);
+    core *= dash2;
+    glow *= 0.7;
+#endif
 
 #ifdef XRAY
     // Pass B: only where the beam is hidden (inside or behind the Earth): dashed and faint. The
     // dashes cut the core only: dashing the wide glow too drew each dash as a bar across the
     // ribbon, a barcode wherever a beam is seen at a grazing angle.
     float k = 0.22 * mix(1.0, 1.4, sel) * (1.0 - 0.45 * uSelActive * (1.0 - sel));
-    vec3 c = vColor * (core * 2.2 * dash + glow * 0.3 * glowIn * 0.5) * fadeIn * fadeOut * k;
+    vec3 c = baseC * (core * 2.2 * dash + glow * 0.3 * glowIn * 0.5) * fadeIn * fadeOut * k;
 #else
     // Below the horizon: a thin, dim, dashed core with only a whisper of glow, so the
     // bodies you can actually see keep the visual hierarchy.
@@ -224,7 +239,7 @@ void main() {
     float bead = pulse * exp(-side / (halfW * 0.5));
     float coreK = (2.2 * (1.0 - 0.3 * uPulses) + 2.6 * pulse + 3.0 * head) * mix(1.0, 1.35, sel);
     // Only the core is dashed (see pass B); the faint glow of a beam below the horizon is continuous.
-    vec3 c = vColor * (core * coreK * dashA + glow * glowIn * glowK * mix(0.6, 0.3, below) + bead * glowIn * 1.6 * dashA)
+    vec3 c = baseC * (core * coreK * dashA + glow * glowIn * glowK * mix(0.6, 0.3, below) + bead * glowIn * 1.6 * dashA)
            * fadeIn * fadeOut * k;
 #endif
 

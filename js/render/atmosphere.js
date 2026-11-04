@@ -71,13 +71,14 @@ export function createAtmosphere(rc) {
 
     let layerOn = true;
     let skyBlend = 0;
+    let mapK = 0;     // the flat map's morph: a map has no limb, so the shell fades as the globe unrolls
 
     // Gone once the sky-view ground covers the globe (groundCover): seen from inside the shell near
     // the surface, its limb is a bright band just above the globe's rim.
     function refresh() {
         const cover = groundCover(skyBlend);
-        uniforms.uIntensity.value = 1 - cover;
-        mesh.visible = layerOn && cover < 0.999;
+        uniforms.uIntensity.value = (1 - cover) * (1 - mapK) * (1 - mapK);
+        mesh.visible = layerOn && cover < 0.999 && mapK < 0.999;
     }
     refresh();
 
@@ -95,8 +96,10 @@ export function createAtmosphere(rc) {
 
         update(fi) {
             const sb = Math.min(1, Math.max(0, fi?.skyBlend ?? 0));
-            if (sb !== skyBlend) {
+            const mk = Math.min(1, Math.max(0, Number.isFinite(fi?.mapK) ? fi.mapK : 0));
+            if (sb !== skyBlend || mk !== mapK) {
                 skyBlend = sb;
+                mapK = mk;
                 refresh();
             }
         },

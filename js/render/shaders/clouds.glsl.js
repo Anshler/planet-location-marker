@@ -29,7 +29,7 @@
  */
 import { COMMON, SURFACE_FRAG } from './common.glsl.js';
 import { ATMO_MODEL } from './atmosphere.glsl.js';
-import { SURFACE_VERTEX, CLOUD_LOOKUP } from './earth.glsl.js';
+import { SURFACE_VERTEX, CLOUD_LOOKUP, MAP_FRAG } from './earth.glsl.js';
 import { AURORA_CHUNK } from './aurora.glsl.js';
 
 const vertex = SURFACE_VERTEX;
@@ -60,6 +60,7 @@ ${SURFACE_FRAG}
 ${ATMO_MODEL}
 ${CLOUD_LOOKUP}
 ${AURORA_CHUNK}
+${MAP_FRAG}
 
 const float CLOUD_TOP = 0.006;   // shell altitude in Earth radii
 const float CLOUD_H = 0.004;     // relief of a full-density cloud (ER; illustrative)
@@ -91,7 +92,7 @@ float cloudNoise(vec2 q, float w) {
 void main() {
     vec3 pl = normalize(vPosL);
     vec3 Ng = normalize(vNw);
-    vec3 V = normalize(cameraPosition - vPosW);
+    vec3 V = mapView(normalize(cameraPosition - vPosW), Ng);
     vec3 L = normalize(uSunDirW);
     float mu = dot(Ng, L);
     vec2 uvRaw = localDirToUv(pl);
@@ -210,10 +211,10 @@ void main() {
     // so they are clearer face-on, but near the limb they sink into the same haze.
     float NoV = max(dot(Ng, V), 1e-3);
     float edge = 1.0 - NoV;
-    if (uAtmo > 0.5) {
+    if (uAtmo > 0.5 && uMapK < 1.0) {
         vec3 Tv, Si;
         atmAerial(Ng, V, L, mix(0.07, 0.9, edge * edge * edge), uHazeE, Tv, Si);
-        col = col * Tv + Si * sunVis;
+        col = mix(col * Tv + Si * sunVis, col, uMapK);
     }
 
     // The aurora above the deck (the surface adds the same term, so it is unchanged by cover).
@@ -228,8 +229,9 @@ void main() {
     vec3 rd = -V;
     float miss = length(cross(cameraPosition, rd));   // closest approach of the view ray
     float b = dot(cameraPosition, rd);
-    a *= b < 0.0 ? 1.0 - smoothstep(0.9985, 1.003, miss) : 1.0;
+    a *= b < 0.0 ? mix(1.0 - smoothstep(0.9985, 1.003, miss), 1.0, uMapK) : 1.0;   // no limb on the map
 
+    if (mapClipped()) discard;
     gl_FragColor = vec4(col, a * uFade);
     #include <tonemapping_fragment>
     #include <colorspace_fragment>

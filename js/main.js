@@ -27,6 +27,7 @@ import * as format from './core/format.js';
 import { loadCities, placeToObserver } from './geo/cities.js';
 import { createGeocoder, createLruCache } from './geo/geocode.js';
 import { createHorizon } from './geo/horizon.js';
+import { mapPointOfDir } from './geo/mapview.js';
 import { BODIES, isBodyId, bodyById } from './astro/bodies.js';
 import { createSnapshot, computeSnapshot } from './astro/snapshot.js';
 import { createAstroClient } from './astro/client.js';
@@ -150,7 +151,7 @@ function countBeamsVisible() {
     const st = R.store?.get();
     if (!beams || !st || !R.loop || R.loop.isDisabled(beams) || !R.loop.rendering) return 0;
     if (typeof beams.visibleCount === 'number') return beams.visibleCount;
-    if (!st.layers.beams || (R.rig?.skyBlend ?? 0) > 0.5) return 0;
+    if (!st.layers.beams || (R.rig?.skyBlend ?? 0) > 0.5 || (R.rig?.mapK ?? 0) > 0.02) return 0;
     return BODIES.filter((b) => b.kind === 'planet' || st.layers.sunMoonBeams).length;
 }
 
@@ -468,13 +469,19 @@ async function boot() {
     // A vantage point (vt=) is a globe-view pose, and needs the 3D view.
     const vantage = env.can3d && (hash.vantage === 'l1' || hash.vantage === 'moon') ? hash.vantage : 'none';
     const view = {
-        mode: env.can3d && hash.view === 'sky' && vantage === 'none' ? 'sky' : 'orbit', earthLock: hash.earthLock ?? true,
+        mode: env.can3d && (hash.view === 'sky' || hash.view === 'map') && vantage === 'none' ? hash.view : 'orbit', earthLock: hash.earthLock ?? true,
         // Body tracking needs the body: trk=b without sel= tracks nothing.
         track: hash.track === 'stars' || (hash.track === 'body' && isBodyId(hash.selection)) ? hash.track : 'none',
         vantage,
     };
+    // A second place to compare with (loc2=): links only, never saved.
+    let observer2 = null;
+    if (hash.observer2) {
+        try { observer2 = normalizeObserver(hash.observer2, { cities, tz }); } catch { observer2 = null; }
+    }
     const store = createStore({
         observer,
+        observer2,
         selection: isBodyId(hash.selection) ? hash.selection : null,
         view,
         layers,
@@ -685,7 +692,10 @@ function bindBodyClasses(store) {
     sub((s) => s.ui.cinema, (v) => b.classList.toggle('is-cinema', !!v));
     sub((s) => s.ui.expose, (v) => b.classList.toggle('is-exposing', !!v));
     sub((s) => !!s.ui.tour, (v) => b.classList.toggle('is-touring', v));
-    sub((s) => s.view.mode, (m) => b.classList.toggle('is-sky', m === 'sky'));
+    sub((s) => s.view.mode, (m) => {
+        b.classList.toggle('is-sky', m === 'sky');
+        b.classList.toggle('is-map', m === 'map');
+    });
     sub((s) => s.status.coarse, (v) => b.classList.toggle('is-coarse', !!v));
     sub((s) => s.status.reducedMotion, (v) => b.classList.toggle('is-reduced-motion', !!v));
     sub((s) => s.status.webgl, (v) => b.classList.toggle('no-webgl', !v));
@@ -881,6 +891,15 @@ async function bootRender(ctx) {
     furniture.name = 'furniture';
     rc.scene.add(furniture);
     R.furniture = furniture;
+    // What the flat map has no place for (the loop hides both groups while the globe is unrolled): the
+    // bodies in space, and the furniture that points into it (beams, medallions, paths, the eclipse
+    // ribbon, the flare). The pins stay: they ride the morph onto the map.
+    const space = new rc.THREE.Group();
+    space.name = 'space';
+    rc.scene.add(space);
+    const furnitureSpace = new rc.THREE.Group();
+    furnitureSpace.name = 'furniture.space';
+    furniture.add(furnitureSpace);
     const create = (name, factory, parent = rc.scene) => {
         if (!factory) return null;
         try {
@@ -907,16 +926,19 @@ async function bootRender(ctx) {
     create('aurora', m.aurora && (() => m.aurora.createAurora(rc, { reducedMotion: rm })));
     create('atmosphere', m.atmosphere && (() => m.atmosphere.createAtmosphere(rc)));
     const sky = create('sky', m.sky && (() => m.sky.createSky(rc, { catalog: catalog ?? emptyCatalog(), textures, reducedMotion: rm })));
-    create('bodies', m.bodies && (() => m.bodies.createBodies(rc, { textures, horizon })));
-    create('totality', m.totality && (() => m.totality.createTotality(rc)));
+    create('bodies', m.bodies && (() => m.bodies.createBodies(rc, { textures, horizon })), space);
+    create('totality', m.totality && (() => m.totality.createTotality(rc)), space);
     create('ground', m.ground && (() => m.ground.createGround(rc, { textures, horizon, cities })));
-    const trails = create('trails', m.trails && (() => m.trails.createTrails(rc)), furniture);
-    const eclipseRibbon = create('eclipsePath', m.eclipsePath && (() => m.eclipsePath.createEclipsePath(rc)), furniture);
-    const beams = create('beams', m.beams && (() => m.beams.createBeams(rc, { reducedMotion: rm })), furniture);
+    const trails = create('trails', m.trails && (() => m.trails.createTrails(rc)), furnitureSpace);
+    const eclipseRibbon = create('eclipsePath', m.eclipsePath && (() => m.eclipsePath.createEclipsePath(rc)), furnitureSpace);
+    const beams = create('beams', m.beams && (() => m.beams.createBeams(rc, { reducedMotion: rm })), furnitureSpace);
+    // The second place's beams (two-observers: dashed, amber), from snap.second.
+    create('beams2', m.beams && (() => m.beams.createBeams(rc, { reducedMotion: rm, second: true })), furnitureSpace);
     // After the beams: the medallions sit on the label anchors the beams compute each frame.
-    create('planets', m.planets && (() => m.planets.createPlanets(rc, { beams, isLabelShown: (id) => R.labels?.isShown?.(id) ?? null })), furniture);
+    create('planets', m.planets && (() => m.planets.createPlanets(rc, { beams, isLabelShown: (id) => R.labels?.isShown?.(id) ?? null })), furnitureSpace);
     const pin = create('pin', m.pin && (() => m.pin.createPin(rc)), furniture);
-    create('flare', m.flare && (() => m.flare.createFlare(rc, { horizon })), furniture);
+    create('pin2', m.pin && (() => m.pin.createPin(rc, { second: true, reducedMotion: rm })), furniture);
+    create('flare', m.flare && (() => m.flare.createFlare(rc, { horizon })), furnitureSpace);
     // The angle ruler (sky view): its reading goes to ui.ruler and, as a label, to the feed.
     create('ruler', m.ruler && (() => m.ruler.createRuler(rc, { onChange: (r) => onRulerChange(r) })));
 
@@ -1003,6 +1025,8 @@ async function bootRender(ctx) {
         if (hash.cam) rig.setView?.(hash.cam);
         rig.update?.(0, snap);
         if (!hash.cam && st0.view.mode === 'sky') settle(rig.setMode?.('sky', { animate: false, look: selectionLook(store.get().selection, snap) }));
+        // The flat map from the link (view=map): unrolled at once (its `cam` is m:lat,lon,dist).
+        if (st0.view.mode === 'map' && hash.cam?.mode !== 'map') settle(rig.setMode?.('map', { animate: false }));
         // A vantage point from the link (vt=): cut there; `cam` is the orbit pose it returns to.
         if (st0.view.vantage !== 'none') settle(rig.setVantage?.(st0.view.vantage, { animate: false }));
     } catch (err) {
@@ -1013,7 +1037,7 @@ async function bootRender(ctx) {
     // 7. Render.
     loop.attach({
         rc, rig, modules, moduleNames: names, labels, labelsFeed, governor: env.webdriver ? null : governor,
-        getTierCfg: () => currentCfg, horizon,
+        getTierCfg: () => currentCfg, horizon, mapHidden: [space, furnitureSpace],
     });
     bindRenderState({ store, bus, clock, rc, rig, loop, snap, astro, m, labels, labelsFeed, textures });
 
@@ -1088,9 +1112,15 @@ function wantIntro(env, hash, store) {
  * camera out there would. The store keeps the user's choices.
  */
 const VANTAGE_LAYERS_OFF = Object.freeze({ constellations: false, eqGrid: false, ecliptic: false, altAzGrid: false, footprint: false, subpoints: false });
+/**
+ * The flat map (view.mode 'map') is a map, not a sky: no star chart behind it, and the sub-points
+ * (where each body stands overhead) always on, since they are what the map is for.
+ */
+const MAP_LAYERS = Object.freeze({ constellations: false, eqGrid: false, ecliptic: false, altAzGrid: false, subpoints: true });
 function drawnLayers(st) {
     // Until the flight back has landed, the furniture (main's vantage subscriber) is still away too.
-    const l = st.view.vantage !== 'none' || R.furniture?.visible === false ? { ...st.layers, ...VANTAGE_LAYERS_OFF } : st.layers;
+    let l = st.view.vantage !== 'none' || R.furniture?.visible === false ? { ...st.layers, ...VANTAGE_LAYERS_OFF } : st.layers;
+    if (st.view.mode === 'map') l = { ...l, ...MAP_LAYERS };
     // A long exposure (ui.expose) draws the photo layers: no line art.
     return st.ui.expose ? photoLayers(l) : l;
 }
@@ -1121,6 +1151,13 @@ function bindRenderState({ store, bus, clock, rc, rig, loop, snap, astro, m, lab
         const pin = R.mods.pin;
         if (pin) loop.callModule(pin, 'setObserver', o.latDeg, o.lonDeg);
     });
+    // A new second place drops its pin (cosmetic; the loop's snapshot places it).
+    store.subscribe((s) => s.observer2, (o2) => {
+        const pin2 = R.mods.pin2;
+        if (!pin2 || !o2 || store.get().status.reducedMotion) return;
+        loop.callModule(pin2, 'setObserver', o2.latDeg, o2.lonDeg);
+        try { settle(pin2.drop?.()); } catch { /* cosmetic */ }
+    });
     store.subscribe((s) => s.view.earthLock, (on) => {
         try { rig.setEarthLock?.(on); } catch (err) { console.error('[main] earth-lock failed', err); }
     });
@@ -1140,11 +1177,13 @@ function bindRenderState({ store, bus, clock, rc, rig, loop, snap, astro, m, lab
         const what = kind === 'body' && isBodyId(id) ? bodyById(id).name : 'The tracked field';
         if (reason === 'set') bus.emit('toast', { message: `Tracking stopped: ${what} set below the horizon.`, kind: 'info' });
     });
-    store.subscribe((s) => s.view.mode, (mode, _prev, _state, source) => {
+    store.subscribe((s) => s.view.mode, (mode, prev, _state, source) => {
         // A long exposure, the ruler and pointing are sky-view things: the globe ends them.
         if (mode !== 'sky' && store.get().ui.expose) R.actions?.expose?.(null);
         if (mode !== 'sky' && store.get().ui.ruler) R.actions?.setRuler?.(false);
         if (mode !== 'sky') R.aim?.stop('view');
+        // The map draws its own layers (drawnLayers: sub-points on, no star chart).
+        if (mode === 'map' || prev === 'map') loop.broadcast('setLayers', drawnLayers(store.get()));
         try {
             // No look of its own after an event jump, which has already aimed the rig (viewModeLook).
             const look = viewModeLook(mode, source, store.get().selection, snap);
@@ -1227,6 +1266,10 @@ function bindRenderState({ store, bus, clock, rc, rig, loop, snap, astro, m, lab
         const s = store.get();
         if (id === 'observer') {
             store.set({ ui: { ...s.ui, palette: true } }, 'labels');
+            return;
+        }
+        if (id === 'observer2') {
+            store.set({ ui: { ...s.ui, palette: 'compare' } }, 'labels');
             return;
         }
         if (isBodyId(id)) {
@@ -1343,6 +1386,10 @@ function handleSceneClick({ store, rc, rig, snap, pick, ndc, dbl }) {
         rulerTap({ rc, camera, snap, pick, ndc });
         return;
     }
+    if (store.get().view.mode === 'map' || (rig.mapK ?? 0) > 0) {
+        handleMapClick({ store, rc, rig, snap, pick, ndc, dbl, camera });
+        return;
+    }
     let id = null;
     try {
         const cands = R.mods.bodies?.pickCandidates?.() ?? snap.bodies.map((b) => ({ id: b.id, dirS: b.dirS }));
@@ -1432,6 +1479,34 @@ function onRulerChange(r) {
     if (!st?.ui.ruler || !r) return;
     R.store.set({ ui: { ...st.ui, ruler: { ends: r.ends, from: r.from, to: r.to, deg: r.deg, text: r.text, fists: r.fists } } }, 'ruler');
     R.labelsFeed?.markDirty();
+}
+
+/**
+ * A click on the flat map (once it has fully unrolled): a sub-point dot selects its body, anywhere
+ * else moves the observer there (Undo, like the globe); a double click zooms in about the point.
+ */
+function handleMapClick({ store, rc, rig, snap, pick, ndc, dbl, camera }) {
+    if ((rig.mapK ?? 0) < 0.999 || rig.tweening || !rig.mapFrame) return;
+    let id = null;
+    try {
+        const f = rig.mapFrame;
+        const cands = snap.bodies.map((b) => ({ id: b.id, posS: mapPointOfDir(f, snap.earthMatrix, b.geoDirS, new Float64Array(3)) }));
+        id = pick?.pickPoint?.(ndc, camera, cands, rc.size, 14) ?? null;
+    } catch (err) {
+        console.error('[main] map picking failed', err);
+    }
+    if (id && isBodyId(id) && !dbl) {
+        R.actions.select(id);
+        store.set({ ui: { ...store.get().ui, panel: 'details' } }, 'click');
+        return;
+    }
+    if (dbl) {
+        rig.zoomAt?.(0.5, ndc.x, ndc.y);
+        return;
+    }
+    const ll = pick?.pickMap?.(ndc, camera, rig.mapFrame) ?? null;
+    if (!ll || !Number.isFinite(ll.latDeg) || !Number.isFinite(ll.lonDeg)) return;
+    R.actions.setObserver({ latDeg: ll.latDeg, lonDeg: ll.lonDeg, source: 'click' }, { fly: false, undoable: true });
 }
 
 /** Shows the selected body's apparent path (±6 months; the Moon: ±2 weeks) when the layer is on. */
@@ -1613,6 +1688,7 @@ function applyHash(p) {
     R.tours?.stop('link');
     const rm = store.get().status.reducedMotion;
     if (p.observer) actions.setObserver({ ...p.observer, source: 'url' }, { fly: true });
+    if (p.observer2) actions.setObserver2?.({ ...p.observer2, source: 'url' });
     if (Number.isFinite(p.rate)) clock.setRate(p.rate);
     if (Number.isFinite(p.tMs)) {
         clock.setTime(p.tMs, { animateMs: rm ? 0 : 1200 });
@@ -1637,7 +1713,7 @@ function applyHash(p) {
         try { R.rig.setView?.(p.cam); } catch (err) { console.error('[main] camera from link failed', err); }
     }
     // After the view and camera: a vantage keeps `cam` as its way back (absent: back to the globe).
-    actions.setVantage?.(p.view === 'sky' ? 'none' : p.vantage ?? 'none');
+    actions.setVantage?.(p.view === 'sky' || p.view === 'map' ? 'none' : p.vantage ?? 'none');
     if (typeof p.debug === 'boolean') settle(setDebug(p.debug));
     if (R.bus) reportHashProblems(p, R.bus);
     if (p.tour) settle(startTour(p.tour));

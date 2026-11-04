@@ -8,7 +8,7 @@
 // Raw bytes on disk are budgeted (1 MB = 10⁶ B); gzip "wire" sizes are informational
 // (GitHub Pages compresses JS/CSS/JSON/SVG/HTML).
 //
-//   low ≤ 4.09 MB · medium ≤ 4.85 MB · high ≤ 8 MB · staged site ≤ 32 MB
+//   low ≤ 4.8 MB · medium ≤ 5.56 MB · high ≤ 8 MB · staged site ≤ 32 MB
 //   SPEC §E.6 set 3.0 / 3.6 / 4.8 MB from an estimate of ≈ 1.35 MB of JavaScript. The shipped,
 //   unminified-by-design module graph (no build step) measures ≈ 2.0 MB raw incl. CSS
 //   (≈ 0.6 MB gzipped; three.js + astronomy-engine alone are 1.17 MB raw), so the budgets were
@@ -52,7 +52,10 @@ const MB = 1e6, KB = 1e3;
 // (sky-guide, edge chips, ruler, aim, sky tools and CSS; ≈ 85 KB of JS and CSS) raise low and medium by 90 KB (+5 %).
 // Phase 5 (quality): idle supersampling, fast-time star streaks and the time-lapse video export (recorder and MP4
 // muxer loaded on demand, but crawled; ≈ 93 KB of JS, GLSL and CSS) raise low and medium by 0.10 MB (+5 %).
-export const TIER_BUDGETS = { low: 4600 * KB, medium: 5360 * KB, high: 8 * MB };
+// Phase 5 (views): the globe → world-map morph (geo/mapview.js, the rig's map mode, the map shaders' twilight
+// lines, picking, map labels) and two observers (astro/parallax.js, the second pin and beams, Sky now's comparison,
+// the palette's compare mode; ≈ 80 KB of JS, GLSL and CSS on every tier) raise low and medium by 80 KB + 5 %.
+export const TIER_BUDGETS = { low: 4800 * KB, medium: 5560 * KB, high: 8 * MB };
 /** Tiers that are measured and printed but have no budget (max: a deliberate, manual choice). */
 export const INFO_TIERS = ['max'];
 // The max tier's 8192 px maps (≈ 15.2 MB) ship with the site; 32 MB keeps headroom (Pages allows 1 GB).

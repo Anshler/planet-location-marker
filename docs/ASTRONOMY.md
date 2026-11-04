@@ -294,6 +294,8 @@ libration = AE.Libration(t)                               // 'full' only: it fee
   | to −18° | astronomical |
   | below | night |
 
+  The world map (§6c) draws the same boundaries across the whole Earth as contour lines.
+
 - **Sky-view exposure.** It blends from 1 in orbit view (skyBlend 0) to these curves in sky view:
   - stars: `min(max(1 − smoothstep(−18°, −4°, h☉), eclipse term), sky term)`;
   - planets: `max(0.15, 1 − 0.85·smoothstep(−8°, 4°, h☉))`;
@@ -518,6 +520,34 @@ landscape. The ground's cloud shadows use the unmodified density, so they stay r
   limb; it takes over from the face-on term as n·V falls from 0.45 to 0.15. Only on the night side
   (Sun more than about 2° below the point's horizon). Brightness is perceptual and stays under the
   bloom threshold except in the storm setting and at the limb.
+
+## 6c. The world map and two places (`js/geo/mapview.js`, `js/astro/parallax.js`)
+
+### The world map (equirectangular, lit like the globe)
+
+The map is the globe's own equirectangular texture laid flat: x = λ, y = φ (radians, one plane unit
+each), longitude 0 in the middle. φ is the latitude of the point on the unit sphere, the one the
+texture, the pin and the sub-points use (the pin sits at the geodetic latitude, §3). Every point is
+lit from the sphere it came from: the Sun's altitude at a place is asin(n·s) with n the sphere's
+normal and s the geocentric Sun, so the terminator and the twilight bands are geocentric and
+unrefracted. The contour lines are where that altitude is −0.833° (sunrise and sunset: the upper
+limb on the refracted horizon, gold), −6° (civil), −12° (nautical) and −18° (astronomical twilight,
+fading blue); a place's own Sky now panel, which uses the topocentric, refracted Sun, agrees within
+a fraction of a degree of altitude (a few kilometres to ~100 km across the map, most near the poles).
+Sub-points are geocentric (§8). The Moon's shadow in an eclipse is the same umbra and penumbra as on
+the globe. The rows within one sphere segment of each pole (1.4°–5.6° by tier) are not drawn.
+
+### Two places and the Moon's parallax
+
+Seen at the same instant from two places, a body's topocentric directions differ by its parallax.
+`compareSight` measures the angle θ between the two `dirS` and the baseline B between the two pins
+(a chord through the Earth, Earth radii × 6378.137 km), splits off B⊥, the part square to the mean
+line of sight, and reports d = B⊥ / (2 sin(θ/2)): the distance at which the two sightlines meet,
+the triangulation Lalande (Berlin) and Lacaille (the Cape of Good Hope) used in 1751–52. From Berlin
+and Cape Town (B ≈ 8,700 km) the Moon is ~1.35° apart and d lands within 1 % of its topocentric
+distance; the Sun moves by ~12″ and planets by under 2″, so their beams stay parallel on the globe.
+The small error comes from the pins sitting on a sphere instead of WGS84 (§8) and from the baseline
+not being exactly square to both lines.
 
 ---
 
@@ -782,6 +812,8 @@ and AE's contacts to 0.1 s; the shapes are illustrative.
 | Illustrative landscape | up to 0.5° (ridge), 1.2° (trees, roofs) | Invented per place. Bodies set behind it minutes before the almanac's (mathematical-horizon) times; the layer can be turned off. |
 | Float32 on the GPU | ≈ 0.01″ | Unit vectors in single precision. |
 | Sub-points, footprint | geocentric | The footprint is the hemisphere where the body's geocentric direction is above the horizon. Parallax and refraction are not applied. It is a guide, not a contact time. |
+| World map twilight lines | ≲ 1° of solar altitude | Geocentric and unrefracted, from the sphere's normal (§6c); the panels use the topocentric, refracted Sun. |
+| Parallax distance (two places) | ≲ 1 % | Small-angle triangulation over the pins' chord (§6c). |
 
 **Validation.** The tests in `test/astro.*.test.mjs` check these values from SPEC §D.5:
 

@@ -95,6 +95,10 @@ const ICONS = {
     // Vantage points: the Earth, half lit, framed in a camera's viewfinder.
     vantage: [['path', { d: 'M3.6 8V5.4a1.8 1.8 0 0 1 1.8-1.8H8M16 3.6h2.6a1.8 1.8 0 0 1 1.8 1.8V8M20.4 16v2.6a1.8 1.8 0 0 1-1.8 1.8H16M8 20.4H5.4a1.8 1.8 0 0 1-1.8-1.8V16' }],
         ['circle', { cx: 12, cy: 12, r: 4.4 }], ['path', { d: 'M12 7.6a4.4 4.4 0 0 1 0 8.8z', ...F }]],
+    // The world map: a folded sheet; comparing two places: two pins.
+    map: [['path', { d: 'M3.6 6.4L9 4.2l6 2.2 5.4-2.2v13.4L15 19.8l-6-2.2-5.4 2.2z' }], ['path', { d: 'M9 4.2v13.4M15 6.4v13.4' }]],
+    compare: [['path', { d: 'M8 19.4s-4.4-3.8-4.4-7.4a4.4 4.4 0 0 1 8.8 0c0 3.6-4.4 7.4-4.4 7.4z' }], ['circle', { cx: 8, cy: 12, r: 1.4, ...F }],
+        ['path', { d: 'M16.6 15.8s-3.4-2.9-3.4-5.7a3.4 3.4 0 0 1 6.8 0c0 2.8-3.4 5.7-3.4 5.7z', 'stroke-dasharray': '2 1.6' }]],
     dot: [['circle', { cx: 12, cy: 12, r: 4, ...F }]],
     // Long exposure: an aperture (six blades); the postcard: a framed landscape; saving: a tray.
     aperture: [['circle', { cx: 12, cy: 12, r: 8.6 }], ['path', { d: 'M14.6 3.8L9.4 12.6M20.4 11.2h-9.6M16.6 19.2L11.4 10.6M9.4 20.2l5.2-8.8M3.6 12.8h9.6M7.4 4.8l5.2 8.6' }]],

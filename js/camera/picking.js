@@ -2,7 +2,9 @@
  * Analytic picking (SPEC §C.6).
  *
  *   pickEarth(ndc, camera, earthMatrix16) → {latDeg, lonDeg} | null
+ *   pickMap(ndc, camera, mapFrame) → {latDeg, lonDeg} | null       (the flat map: the plane's analytic inverse)
  *   pickDir(ndc, camera, candidates, viewport, maxPx = 18) → id | null
+ *   pickPoint(ndc, camera, candidates, viewport, maxPx = 14) → id | null   (world points: the map's sub-points)
  *
  * No raycaster and no meshes: a ray from the camera through the NDC point is
  * intersected with the unit sphere, rotated into Earth geometry-local
@@ -17,6 +19,7 @@
  * @module camera/picking
  */
 import { localToLatLon, raySphere } from '../astro/frames.js';
+import { mapRayHit } from '../geo/mapview.js';
 
 const _o = new Float64Array(3);
 const _d = new Float64Array(3);
@@ -98,6 +101,62 @@ export function pickEarth(ndc, camera, earthMatrix16) {
     localToLatLon(_l, _ll);
     if (!Number.isFinite(_ll.latDeg) || !Number.isFinite(_ll.lonDeg)) return null;
     return { latDeg: _ll.latDeg, lonDeg: _ll.lonDeg };
+}
+
+const _hit = { latDeg: 0, lonDeg: 0, x: 0, y: 0 };
+
+/**
+ * Lat/lon of the place on the flat map under an NDC position (geo/mapview.js mapRayHit: the ray
+ * meets the plane inside the map), or null.
+ * @param {{x:number,y:number}|{ndcX:number,ndcY:number}|number[]} ndc
+ * @param {object} camera three.js camera (matrices current)
+ * @param {object} mapFrame the rig's mapFrame
+ * @returns {{latDeg:number, lonDeg:number}|null}
+ */
+export function pickMap(ndc, camera, mapFrame) {
+    const p = ndcXY(ndc);
+    if (!p || !camera || !mapFrame) return null;
+    if (!rayFromNdc(p[0], p[1], camera, _o, _d)) return null;
+    const hit = mapRayHit(mapFrame, _o, _d, _hit);
+    return hit ? { latDeg: hit.latDeg, lonDeg: hit.lonDeg } : null;
+}
+
+/**
+ * The candidate world point nearest to the click within maxPx (screen distance), in front of the
+ * camera (no globe occlusion: the map's points lie on a plane clear of it).
+ * @param {{x:number,y:number}|{ndcX:number,ndcY:number}|number[]} ndc
+ * @param {object} camera
+ * @param {{id:string, posS:ArrayLike<number>}[]} candidates
+ * @param {{w:number, h:number}} viewport CSS px
+ * @param {number} [maxPx=14]
+ * @returns {string|null}
+ */
+export function pickPoint(ndc, camera, candidates, viewport, maxPx = 14) {
+    const p = ndcXY(ndc);
+    if (!p || !camera || !Array.isArray(candidates) || !viewport) return null;
+    const vw = Number(viewport.w ?? viewport.width), vh = Number(viewport.h ?? viewport.height);
+    if (!(vw > 0 && vh > 0)) return null;
+    const m = camera.matrixWorldInverse.elements;
+    const pm = camera.projectionMatrix.elements;
+    const cx = (p[0] * 0.5 + 0.5) * vw, cy = (0.5 - p[1] * 0.5) * vh;
+    let best = null;
+    let bestD = Number.isFinite(maxPx) ? maxPx : 14;
+    for (const cand of candidates) {
+        const q = cand?.posS;
+        if (!q || cand.id == null) continue;
+        const vx = m[0] * q[0] + m[4] * q[1] + m[8] * q[2] + m[12];
+        const vy = m[1] * q[0] + m[5] * q[1] + m[9] * q[2] + m[13];
+        const vz = m[2] * q[0] + m[6] * q[1] + m[10] * q[2] + m[14];
+        const X = pm[0] * vx + pm[4] * vy + pm[8] * vz + pm[12];
+        const Y = pm[1] * vx + pm[5] * vy + pm[9] * vz + pm[13];
+        const W = pm[3] * vx + pm[7] * vy + pm[11] * vz + pm[15];
+        if (!(W > 1e-9)) continue;
+        const dist = Math.hypot((X / W * 0.5 + 0.5) * vw - cx, (0.5 - Y / W * 0.5) * vh - cy);
+        if (dist > bestD) continue;
+        best = cand.id;
+        bestD = dist;
+    }
+    return best;
 }
 
 /**

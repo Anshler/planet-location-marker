@@ -128,10 +128,11 @@ export function createAurora(rc, { reducedMotion = false } = {}) {
 
     let layerOn = true;
     let skyBlend = 0;
+    let mapK = 0;     // the flat map's morph: the limb curtains fade as the globe unrolls
     function refresh() {
         const cover = groundCover(skyBlend);
-        uniforms.uIntensity.value = 1 - cover;
-        mesh.visible = layerOn && steps > 0 && cover < 0.999;
+        uniforms.uIntensity.value = (1 - cover) * (1 - mapK);
+        mesh.visible = layerOn && steps > 0 && cover < 0.999 && mapK < 0.999;
         driver.setOn(layerOn);
     }
     refresh();
@@ -149,8 +150,10 @@ export function createAurora(rc, { reducedMotion = false } = {}) {
         update(fi) {
             driver.update(fi);
             const sb = Math.min(1, Math.max(0, fi?.skyBlend ?? 0));
-            if (sb !== skyBlend) {
+            const mk = Math.min(1, Math.max(0, Number.isFinite(fi?.mapK) ? fi.mapK : 0));
+            if (sb !== skyBlend || mk !== mapK) {
                 skyBlend = sb;
+                mapK = mk;
                 refresh();
             }
             const cam = fi?.camera;

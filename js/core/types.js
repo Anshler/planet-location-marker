@@ -32,8 +32,10 @@
 /** 'Point at the sky' (camera/aim.js), null when off: the sensor in use ('starting' until the first
  * reading, 'compass' | 'ios' | 'relative'), the Align offset (degrees) and what it was aligned on.
  * @typedef {{source:string, offsetDeg:number, aligned:string|null}} AimState */
-/** @typedef {{ observer:Observer, selection:BodyId|null,
- *   view:{mode:'orbit'|'sky', earthLock:boolean, track:'none'|'body'|'stars', vantage:'none'|'l1'|'moon'},
+/** `observer2`: a second place to compare with (ROADMAP two-observers), or null. view.mode 'map' is
+ * the flat world map (the globe unrolled; camera/rig.js, geo/mapview.js).
+ * @typedef {{ observer:Observer, observer2:Observer|null, selection:BodyId|null,
+ *   view:{mode:'orbit'|'sky'|'map', earthLock:boolean, track:'none'|'body'|'stars', vantage:'none'|'l1'|'moon'},
  *   layers:Layers,
  *   display:{tzMode:'observer'|'device'|'utc', hour12:boolean, skyDark:'auto'|'pristine'|'1'|'2'|'3'|'4'|'5'|'6'|'7'|'8'|'9',
  *     aurora:'quiet'|'typical'|'storm'},
@@ -76,7 +78,8 @@
  *   galilean:import('../astro/moons.js').Galilean,  // Jupiter's four moons (every detail level)
  *   libration:{elonDeg:number, elatDeg:number},     // the Moon's libration; refreshed at 'full' only
  *   skyglow:import('../astro/skyglow.js').Skyglow,  // the night sky's brightness; filled by the frame loop
- *   aurora:import('../astro/geomag.js').Aurora      // geomagnetic pole, magnetic noon, oval table; filled by the frame loop
+ *   aurora:import('../astro/geomag.js').Aurora,     // geomagnetic pole, magnetic noon, oval table; filled by the frame loop
+ *   second:object|null         // the second place's Snapshot at the same instant (two-observers); set by the frame loop
  *   }} Snapshot */
 /** TierCfg. `dprCap` is Infinity on max (no cap). `msaa` is a request: postfx clamps it to MAX_SAMPLES.
  *  The last three keys are max-only; absent means the 1024 Moon, 8x anisotropy and a one-tap cloud shadow.
@@ -89,8 +92,9 @@
  * supersample: idle supersampling's sample cap (0 = off); streakPx: the fast-time streak cap (device px, 0 = off). */
 /** @typedef {{ dtMs:number, timeS:number, camera:any, viewMode:'orbit'|'sky', skyBlend:number, snap:Snapshot,
  *   pulsesActive:boolean, simRate:number, exposure:{stars:number, planets:number, milkyWay:number, vision:number},
- *   moonFront:boolean }} FrameInfo `moonFront`: the camera is in lunar orbit (or flying there), so the Moon
- *   draws in front of everything and the near plane ignores it (camera/rig.js, astro/vantage.js). */
+ *   moonFront:boolean, mapK:number, map:object|null }} FrameInfo `moonFront`: the camera is in lunar orbit (or flying there), so the Moon
+ *   draws in front of everything and the near plane ignores it (camera/rig.js, astro/vantage.js). `mapK`: the globe → flat
+ *   map morph, 0 … 1 (rig.mapK); `map`: the map plane's frame (geo/mapview.js createMapFrame) while mapK > 0, else null. */
 /** @typedef {{name:string, admin:string, country:string, cc:string, lat:number, lon:number, tz:string|null, pop:number,
  *   source:'offline'|'open-meteo'|'photon'|'nominatim', score?:number}} Place */
 /** @typedef {{id:string, kind:'moon-phase'|'opposition'|'conjunction'|'max-elongation'|'lunar-eclipse'|'solar-eclipse'|
@@ -134,11 +138,13 @@
  *   setRange:(range:(Partial<ClockRange>&{fromMs:number,toMs:number})|null)=>boolean, progress:()=>number|null,
  *   seek:(p:number)=>boolean, isAnimating:()=>boolean, onChange:(cb:(ev:ClockEvent)=>void)=>(()=>void) }} Clock */
 
-/** Camera view as carried by the URL `cam=` key (js/core/url-state.js).
- * @typedef {{mode:'orbit', latDeg:number, lonDeg:number, distance:number}|{mode:'sky', azDeg:number, altDeg:number, fovDeg:number}} CamView */
+/** Camera view as carried by the URL `cam=` key (js/core/url-state.js). 'map': the map's centre and the camera's
+ * distance from the plane (plane units: the map is 2π × π).
+ * @typedef {{mode:'orbit', latDeg:number, lonDeg:number, distance:number}|{mode:'sky', azDeg:number, altDeg:number, fovDeg:number}
+ *   |{mode:'map', latDeg:number, lonDeg:number, distance:number}} CamView */
 /** Result of `parseHash`. Every key is optional; `invalid` lists keys that were present but rejected or clamped.
- * @typedef {{ observer?:Observer&{cc:string}, tMs?:number, live?:boolean, rate?:number, playing?:boolean,
- *   view?:'orbit'|'sky', earthLock?:boolean, selection?:BodyId|null, layers?:Layers,
+ * @typedef {{ observer?:Observer&{cc:string}, observer2?:Observer&{cc:string}, tMs?:number, live?:boolean, rate?:number, playing?:boolean,
+ *   view?:'orbit'|'sky'|'map', earthLock?:boolean, selection?:BodyId|null, layers?:Layers,
  *   quality?:'auto'|'low'|'medium'|'high'|'max', skyDark?:string, aurora?:'quiet'|'typical'|'storm', cam?:CamView, track?:'body'|'stars', vantage?:'l1'|'moon', intro?:boolean, debug?:boolean, tour?:string, invalid?:string[] }} HashState */
 
 /** Device probe for `detectTier` (js/core/quality.js).

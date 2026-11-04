@@ -78,6 +78,7 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | Geo | `js/geo/cities.js` | About 1,600 GeoNames cities. Fuzzy search, `nearest`, `byTz`. |
 | | `js/geo/geocode.js` | Online providers with timeouts, a circuit breaker and an LRU cache. |
 | | `js/geo/coords.js` | Parses decimal and DMS coordinates. |
+| | `js/geo/mapview.js` | The flat world map: the plane's frame (`orientMapFrame`: north up, square to the camera that entered it, `MAP_LIFT` clear of the globe), `mapPoint`/`mapPointOfDir` (the projection the Earth's vertex shader shares) and the analytic inverse `mapRayHit` (picking), `mapFitDistance`. |
 | | `js/geo/horizon.js` | The sky view's illustrative landscape: a per-place horizon profile (far ridge, trees or roofs, sea sectors), its queries (`horizonAltDeg`, `clearanceDeg`) and the urban index. Invented, seeded by place (ASTRONOMY.md §6). |
 | Astro | `js/astro/ae.js` | Re-exports astronomy-engine. |
 | | `js/astro/bodies.js` | `BODIES`. Its order is a contract. |
@@ -86,6 +87,7 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/astro/almanac.js`, `events.js`, `paths.js` | Rise/set, twilight, Tonight; events (with eclipse contacts, `localSolarEclipseAt`); retrograde paths. |
 | | `js/astro/eclipse-path.js` | `eclipsePath`: the centre line and limits of a central solar eclipse; `citiesInPath`, `nearestCentrePoint`, `pathAt`, `shadowPoint`. Render support: `ribbonMesh` (the globe's ribbon, once per eclipse), `pathFrameLocal` (the shadow and its heading, allocation-free), `shadowAxisPoint`, `umbraNear`. |
 | | `js/astro/worker.js`, `client.js` | Module worker plus a Promise client with a main-thread fallback. |
+| | `js/astro/parallax.js` | `compareSight(snapA, snapB, i)`: a body seen from two places at one instant: the angle between the two sightlines, the baseline and the distance they imply (the Moon's parallax). |
 | | `js/astro/shadow.js`, `photometry.js` | Eclipse disc overlap; B−V colour, refraction (and `liftByRefraction`, the sky view's drawn positions), airmass, limiting magnitude, adapting luminance (night vision), exposure. |
 | | `js/astro/skyglow.js` | The night sky's own brightness: KS91 moonlight, van Rhijn airglow, Walker's-law light pollution from `data/cities.json` (16-bin azimuth dome), SQM, Bortle, limiting magnitude; `computeSkyglow` fills `snap.skyglow`. |
 | | `js/astro/disc.js`, `moons.js` | A body's disc as seen from the observer: the sky-plane frame and pole/prime meridian/Sun in it (`discFrame`, `discView`), shapes, Saturn's ring radii, the moons' log spacing; Jupiter's Galilean moons at Jupiter's light time with transit/occultation/eclipse/shadow flags (`computeGalilean`), the libration's limb feature, Saturn's next edge-on run. Shared by the medallions and the eyepiece card (ASTRONOMY.md §4). |
@@ -105,13 +107,13 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/render/sky.js`, `bodies.js`, `ground.js` | Stars, constellations, Milky Way and grids; Sun (with totality's thin crescent, corona, chromosphere and prominences under `SUN_ECLIPSE`), planets and the true-scale Moon; sky-view dome and ground (totality's 360° horizon ring, the illustrative landscape and sea, twilight- and moonlit land). |
 | | `js/render/planets.js` | Planet medallions: each orbit-view beam ends in a magnified (~26 px) mini-globe at its label anchor, drawn by the shared impostor `PLANET_CHUNK` (`shaders/planets.glsl.js`: oblate spheroid on the IAU pole, true phase, Saturn's rings and their shadows, Jupiter's moons and shadows; reusable at true scale via `writeDiscInstance`/`writeJupiterMoons`). |
 | | `js/render/totality.js` | Baily's beads and the diamond ring: up to eight HDR point sprites at `snap.eclipse.beads` (the flare's starburst follows the brightest). |
-| | `js/render/beams.js`, `pin.js`, `labels.js` | Signature beams, observer pin and horizon disc, DOM label pool. |
+| | `js/render/beams.js`, `pin.js`, `labels.js` | Signature beams, observer pin and horizon disc, DOM label pool. A second instance of each (`{second: true}`: `beams2`, `pin2`) draws the second place from `snap.second`: amber pin, dashed amber-tinted beams. The pin rides the map morph onto the map. |
 | | `js/render/ruler.js`, `edge-chips.js` | The angle ruler (a great-circle arc between two tapped ends, fixed buffers, its reading as a `'ruler'` label); the off-screen pointers (a DOM chip at the free area's edge per findable body outside the field, a tap turns there). |
 | | `js/render/trails.js`, `flare.js`, `debug.js` | Retrograde paths, procedural lens flare (six-spike starburst, hexagonal aperture ghosts; no textures), `?debug=1` overlay. |
 | | `js/render/eclipse-path.js` | The path of a central solar eclipse on the globe: ribbon, centre line, 30-min ticks, the live umbra marker; reveal modes for the chase. |
-| Camera | `js/camera/rig.js`, `picking.js` | Orbit and sky-view camera, Earth-lock, fly-to tweens, `follow()` (the shadow chase), sidereal tracking, `setVantage()` (View from L1, Earthrise), `setAiming()`/`setSkyAim()` (the phone steers the look); analytic globe and glyph picking. |
+| Camera | `js/camera/rig.js`, `picking.js` | Orbit and sky-view camera, Earth-lock, fly-to tweens, `follow()` (the shadow chase), sidereal tracking, `setVantage()` (View from L1, Earthrise), the flat map (`setMode('map')`, `mapK`, `mapFrame`), `frameSpan()` (the Earth–Moon framing), `setAiming()`/`setSkyAim()` (the phone steers the look); analytic globe, map (`pickMap`), glyph and map-point (`pickPoint`) picking. |
 | | `js/camera/aim.js` | 'Point at the sky' (loaded on first use, no three.js): device orientation → the rear camera's direction and the screen's up in ENU (`deviceVectors`), a level look (`lookOf`), an adaptive vector low-pass (`aimFilterStep`), and `createAim` (sensor events, iOS compass learning, deadband, Align offset, idle and hidden stops, wake lock). |
-| UI | `js/ui/index.js` and its modules | Shell, top bar, time bar, Sky Now, body card (with `eyepiece.js`: the 2D-canvas eyepiece portrait, also in text mode), events (with the guided tours), Eclipse Companion, the tour's lower third (`tour-bar.js`), layers, settings, about, help, toasts, shortcuts, announcer; the share menu, `postcard.js` (postcard and Save-image dialog, the typographic band), `video.js` (the time-lapse video dialog: presets, frame size, progress and preview, the burned-in date stamp) and `expose.js` (Expose presets and the exposure's status pill); the vantage menu and its caption pill (`view-switch.js`).; the ruler and 'Point at the sky' buttons with their status pills (`sky-tools.js`); the body card's 'Find it' line. |
+| UI | `js/ui/index.js` and its modules | Shell, top bar, time bar, Sky Now, body card (with `eyepiece.js`: the 2D-canvas eyepiece portrait, also in text mode), events (with the guided tours), Eclipse Companion, the tour's lower third (`tour-bar.js`), layers, settings, about, help, toasts, shortcuts, announcer; the share menu, `postcard.js` (postcard and Save-image dialog, the typographic band), `video.js` (the time-lapse video dialog: presets, frame size, progress and preview, the burned-in date stamp) and `expose.js` (Expose presets and the exposure's status pill); the vantage menu and its caption pill (`view-switch.js`).; the ruler and 'Point at the sky' buttons with their status pills (`sky-tools.js`); the body card's 'Find it' line.; the world map entry and the second place (`Compare with…` in the place search) |
 
 ---
 
@@ -373,6 +375,35 @@ critical CSS read them.
     where the phone points and saves the azimuth offset (`prefs.aimOffset`). It stops on Stop or
     Esc, after 2 min without movement, when the page is hidden, when sky view is left, or when no
     reading arrives in 3 s; a screen wake lock is held meanwhile.
+- **The flat map** (`view.mode = 'map'`, url `view=map` with `cam=m:lat,lon,dist`; M, the vantage
+  menu's 'World map'; Esc or 'Globe' returns). The rig orients a plane (`geo/mapview.js`: north up,
+  square to the camera's direction, fixed in the world) and glides the camera to face it in 1.1 s
+  while `rig.mapK` runs 0 → 1; from sky view it passes through the globe both ways. The loop hands
+  `fi.mapK` and `fi.map` (the frame) to the modules: the Earth's vertex shader (`SURFACE_VERTEX`)
+  mixes each vertex toward `uMapO + uMapR·λ + uMapU·φ` from the sphere's own uv, without the
+  Earth's model matrix (so the map holds still while GAST runs), and keeps `vPosW`/`vNw` of the
+  sphere, so day and night, clouds, the eclipse shadow, sub-points and the footprint are lit as on
+  the globe; the aerial perspective, the atmosphere shell and the aurora curtains fade out, the view
+  vector turns face-on, the pole rows are clipped, and the twilight contours are drawn from
+  dot(n, sun). The loop hides two groups past `MAP_HIDE_K` (`attach({mapHidden})`): `space` (bodies,
+  totality) and `furniture.space` (beams, medallions, paths, the eclipse ribbon, the flare); the pins
+  ride the morph onto the map. `drawnLayers` forces the sub-points on and the star chart off. The
+  label feed's `'map'` mode puts each body on its sub-point and the observers on their pins (lerped
+  with the morph). On the map a drag pans, the wheel and pinch zoom about the cursor, a click on a
+  sub-point dot selects that body, elsewhere it moves the observer (`pickMap`), a double click zooms.
+  Until panned or zoomed the map keeps fitting the free area; leaving it returns to the globe pose
+  it was entered from, or over the map's centre once it was moved. Camera commands on the map pan
+  it (`flyToLatLon`, `frameDir`); a vantage, the chase or the intro first roll it back up.
+- **Two places** (`observer2`, url `loc2`/`n2`/`tz2`; 'Compare with…' in the place search and on the
+  body card, `actions.setObserver2`, `compareWith`, `frameObservers`). Never saved. The loop computes
+  a second frame and full snapshot for it beside the first ones and hangs them on them as
+  `snap.second` (null without a second place), so the renderers' `apply(snap)` and the 4 Hz
+  `readout` carry both. `beams2`/`pin2` draw it; the label feed adds its pin label and, in orbit view
+  with the beams on, a note under the Earth–Moon line with the Moon's parallax and the distance the
+  sightlines imply (`astro/parallax.js`, re-read every 0.5 s). Sky now shows the selected body (else
+  the Moon) from both places side by side, also in text mode. 'Show both beams' frames the globe
+  square to the Earth–Moon line (`rig.frameSpan`, ~100 ER out), where the two Moon beams can be seen
+  converging while the others stay parallel.
 - **`bus`** carries transient events. `readout` is the full-detail snapshot at 4 Hz, published
   only when time or the observer changed. The UI requests its own almanac data through
   `services.astro`. `main.js` pushes one almanac and events set at boot as a head start.
@@ -700,7 +731,10 @@ change.
 - `r` is the signed rate in sim-seconds per second, snapped to the ladder.
 - `ly` is the exact set of enabled layers. `d` is the illustrative landscape: links made before it
   existed carry no `d`, so they open with the flat horizon.
-- `cam` is `o:lat,lon,dist` (the sub-camera point) or `s:az,alt,fov`.
+- `cam` is `o:lat,lon,dist` (the sub-camera point), `s:az,alt,fov` or, with `view=map`,
+  `m:lat,lon,dist` (the map's centre and the camera's distance from the plane).
+- `loc2`, `n2`, `tz2` are a second place to compare with (its pin, dashed beams and Sky now's
+  side-by-side card). They are links only, never saved.
 - `sel` selects a body and opens its card (the Details tab), as a click on it would.
 - `sky` is the Sky darkness setting (`display.skyDark`): `auto` (omitted), `pristine` or a Bortle class `1`–`9`.
 - `au` is the Aurora activity setting (`display.aurora`): `quiet`, `typical` (omitted) or `storm`.

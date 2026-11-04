@@ -8,6 +8,11 @@
  * (uniforms, no recompile). Before any mask has arrived the ocean is derived
  * from the day map. The 2k and 4k maps of a slot are the same imagery, so a
  * tier switch changes sharpness, never colour or weather.
+ *
+ * The flat map (ROADMAP globe-to-map-morph): update() reads fi.mapK and fi.map (the rig's map frame,
+ * geo/mapview.js) into the uMap* uniforms of the surface and the cloud deck, which unroll in their
+ * vertex shader (shaders/earth.glsl.js SURFACE_VERTEX) and draw the twilight contours. While the
+ * map is shown the meshes are never frustum-culled: the plane reaches far beyond the unit sphere.
  */
 import * as THREE from 'three';
 import { EARTH_SHADER } from './shaders/earth.glsl.js';
@@ -19,6 +24,8 @@ import { createAuroraUniforms, createAuroraDriver, auroraShellFor } from './auro
 import { BODIES, MOON_RADIUS_ER, SUN_ANG_RADIUS_1AU_RAD, sunAngularRadius } from '../astro/bodies.js';
 
 const CLOUD_RADIUS = 1.006;
+/** The cloud deck's height over the flat map (plane units), toward the camera. */
+const CLOUD_MAP_LIFT = 0.003;
 
 /** Look tuning (linear HDR). Diffuse peaks stay under the 0.9 bloom threshold. */
 const LOOK = {
@@ -123,6 +130,14 @@ export function createEarth(rc, { textures, reducedMotion = false } = {}) {
         uSubCol: { value: subCol },
         uSubOn: { value: 0 },
         uFade: { value: 1 },
+        // The flat map (shaders/earth.glsl.js SURFACE_VERTEX, MAP_FRAG): morph, plane frame, pole clip.
+        uMapK: { value: 0 },
+        uMapO: { value: new THREE.Vector3(0, 0, 1.02) },
+        uMapR: { value: new THREE.Vector3(1, 0, 0) },
+        uMapU: { value: new THREE.Vector3(0, 1, 0) },
+        uMapN: { value: new THREE.Vector3(0, 0, 1) },
+        uMapLift: { value: 0 },
+        uMapClip: { value: 1 / 48 },
     };
     // The face-on aurora (shaders/aurora.glsl.js), shared with the cloud shell.
     const aur = createAuroraUniforms();
@@ -147,6 +162,8 @@ export function createEarth(rc, { textures, reducedMotion = false } = {}) {
             uLightsGain: u.uLightsGain, uHazeE: u.uHazeE, uCloudMode: u.uCloudMode, uCloudShift: u.uCloudShift,
             uAtmo: u.uAtmo, uFade: cloudFade, uEclipse: u.uEclipse, uMoonPosW: u.uMoonPosW,
             uSunDirL: u.uSunDirL, uPoleW: u.uPoleW, uMoonK: u.uMoonK, ...aur,
+            uMapK: u.uMapK, uMapO: u.uMapO, uMapR: u.uMapR, uMapU: u.uMapU, uMapN: u.uMapN, uMapClip: u.uMapClip,
+            uMapLift: { value: CLOUD_MAP_LIFT },
         },
         vertexShader: CLOUDS_SHADER.vertex,
         fragmentShader: CLOUDS_SHADER.fragment,
@@ -156,6 +173,7 @@ export function createEarth(rc, { textures, reducedMotion = false } = {}) {
     });
 
     let [segW, segH] = segmentsOf(cfg);
+    u.uMapClip.value = 1 / segH;
     const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, segW, segH), material);
     mesh.name = 'earth-surface';
     mesh.renderOrder = 0;
@@ -339,13 +357,26 @@ export function createEarth(rc, { textures, reducedMotion = false } = {}) {
             refreshFootprint();
         },
 
-        /** Per rendered frame: follows the sky-view crossfade. */
+        /** Per rendered frame: follows the sky-view crossfade and the flat map's morph. */
         update(fi) {
             aurora.update(fi);
             const sb = Math.min(1, Math.max(0, fi?.skyBlend ?? 0));
             if (sb !== skyBlend) {
                 skyBlend = sb;
                 refreshVisibility();
+            }
+            const mk = Math.min(1, Math.max(0, Number.isFinite(fi?.mapK) ? fi.mapK : 0));
+            const f = fi?.map;
+            if (mk > 0 && f) {
+                u.uMapO.value.fromArray(f.center);
+                u.uMapR.value.fromArray(f.right).multiplyScalar(f.scale);
+                u.uMapU.value.fromArray(f.up).multiplyScalar(f.scale);
+                u.uMapN.value.fromArray(f.normal);
+            }
+            const k = f ? mk : 0;
+            if (k !== u.uMapK.value) {
+                u.uMapK.value = k;
+                mesh.frustumCulled = clouds.frustumCulled = k === 0;
             }
         },
 
@@ -383,6 +414,7 @@ export function createEarth(rc, { textures, reducedMotion = false } = {}) {
             if (w !== segW || h !== segH) {
                 segW = w;
                 segH = h;
+                u.uMapClip.value = 1 / segH;
                 const g0 = mesh.geometry, g1 = clouds.geometry;
                 mesh.geometry = new THREE.SphereGeometry(1, segW, segH);
                 clouds.geometry = new THREE.SphereGeometry(CLOUD_RADIUS, segW, segH);

@@ -24,7 +24,7 @@ export const LAYER_GROUPS = [
             ['constellations', 'Constellation lines', ['C'], null],
             ['constellationNames', 'Constellation names', ['Shift', 'C'], null],
             ['starNames', 'Star names', null, null],
-            ['milkyWay', 'Milky Way', ['M'], null],
+            ['milkyWay', 'Milky Way', ['Shift', 'M'], null],
             ['ecliptic', 'Ecliptic', ['E'], 'The Sun’s yearly path; planets stay close to it'],
             ['eqGrid', 'Equatorial grid (of date)', ['G'], 'Right ascension and declination of date: the true pole and equinox'],
             ['altAzGrid', 'Horizon grid (Sky view)', null, 'Altitude and azimuth when standing on the ground'],
@@ -38,7 +38,7 @@ export const LAYER_GROUPS = [
             ['atmosphere', 'Atmosphere', null, null],
             ['horizon', 'Horizon disc', null, 'Your local horizon with compass ticks'],
             ['footprint', 'Visibility footprint', ['O'], 'Where on Earth the selected body is up'],
-            ['subpoints', 'Sub-points', null, 'The spot on Earth directly below each body'],
+            ['subpoints', 'Sub-points', null, 'The spot on Earth directly below each body (always shown on the world map)'],
         ],
     },
     {

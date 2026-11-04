@@ -1896,6 +1896,31 @@ body.is-touring .toasts { bottom: calc(var(--gutter) + var(--tb-h) + 180px + var
 .ui[data-layout="text"] .vcap { display: none; }
 body.is-vantage #labels-root { visibility: hidden; }
 body.no-webgl .vb-vantage, body.no-webgl .vcap { display: none; }
+/* The world map (view mode 'map') shares the caption: its detail keys the twilight lines. */
+body.is-map .vcap__detail { white-space: normal; }
+body.is-map .vb-track, body.is-map .vb-expose { display: none; }
+
+/* Two places (js/ui/sky-now.js, location.js): the side-by-side card and the second place's colour. */
+.compare {
+    margin: 0 0 14px; padding: 10px 12px 11px;
+    border: 1px solid var(--line); border-radius: 12px; background: rgba(255, 255, 255, .035);
+}
+.compare[hidden] { display: none; }
+.compare__head { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.compare__title { flex: 1; min-width: 0; margin: 0; font-size: 13px; font-weight: 750; }
+.compare__tools { display: flex; align-items: center; gap: 4px; flex: none; }
+.compare__grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.compare__col { display: flex; flex-direction: column; gap: 1px; min-width: 0; padding-left: 9px; border-left: 3px solid #7cc4ff; }
+.compare__col--b { border-left-color: #ffb35c; border-left-style: dashed; }
+.compare__place { overflow: hidden; color: var(--muted); font-size: 11.5px; text-overflow: ellipsis; white-space: nowrap; }
+.compare__pos { color: var(--text); font-size: 16px; font-weight: 750; font-variant-numeric: tabular-nums; }
+.compare__sub { color: var(--muted); font-size: 11.5px; }
+.compare__col.is-down .compare__pos { color: var(--muted); }
+.compare__note { margin: 8px 0 0; color: var(--text-2, var(--muted)); font-size: 12px; line-height: 1.45; font-variant-numeric: tabular-nums; }
+.compare__note:empty { display: none; }
+.palette__mode { margin: 0; padding: 10px 14px 0; color: #ffcf96; font-size: 12.5px; line-height: 1.4; }
+.palette__mode[hidden] { display: none; }
+.lbl--observer[data-id="observer2"] .lbl__dot { background: #fff; box-shadow: 0 0 0 3px rgba(255, 179, 92, .35), 0 0 10px rgba(255, 179, 92, .9); }
 
 .fade-overlay { position: fixed; inset: 0; z-index: 60; background: #000; opacity: 0; pointer-events: none; }
 .fade-overlay.is-on { animation: veil 220ms ease-out both; }

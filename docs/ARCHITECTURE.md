@@ -176,7 +176,8 @@ the UI and the render stack with literal `import('./…')` calls, so:
    The render context is created, then each module in its own `try/catch`. Textures start as 1×1
    placeholders, and a day or night slot shows its 512 px preview as soon as that is decoded.
 5. **Data.** `data/sky.json`, `data/cities.json`, the previews (critical) and the day and night maps
-   (primary) load in parallel. If the catalog arrives late, the sky module gets it through
+   (primary) load in parallel; the texture store claims them as soon as it exists, so they decode
+   while the modules are built, and what is in before the compile starts is uploaded at once. If the catalog arrives late, the sky module gets it through
    `setCatalog`.
 6. **Compile.** `rc.compile()` (three's `compileAsync`) runs behind the loader, capped at 10 s.
    `textures.holdUploads` keeps eager uploads back until it settles and one frame is out: an
@@ -188,7 +189,9 @@ the UI and the render stack with literal `import('./…')` calls, so:
    it is what reports a shader that fails on an exotic driver. The inline probe's context is not
    handed to three either: three asks for `alpha: false` and antialiasing by tier, which is only
    known in `main.js` (hash, prefs, learned tier).
-7. **Render.** `loop.attach(...)` adds the renderer. Store subscriptions start driving modules.
+7. **Render.** `loop.attach(...)` adds the renderer, after waiting up to 300 ms for the previews to
+   decode (a downloaded preview is a few ms from ready, and a decode that resolved after the first
+   frame would leave that frame without it). Store subscriptions start driving modules.
 8. **Ready.** The loader fades once the previews are in (or, if they fail, the day and night maps),
    after 5 s, or when the user chooses "Slow connection — continue with low detail", and then only
    after the loop has drawn a frame (at most 4 s more): without `KHR_parallel_shader_compile`,

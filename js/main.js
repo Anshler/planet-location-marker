@@ -57,6 +57,8 @@ import { showFallback, showContextLost, hideContextLost, showFatal } from './app
 const CITY_GUESS_WAIT_MS = 1500;
 /** The loader hides this long after the loop starts even if the critical textures are still coming. */
 const READY_MAX_WAIT_MS = 5000;
+/** How long the first frame waits for the previews to decode (they are normally in by then). */
+const PREVIEW_WAIT_MS = 300;
 /** Never wait longer than this for shader compilation behind the loader. */
 const COMPILE_MAX_WAIT_MS = 10000;
 const DATA_TIMEOUT_MS = 20000;
@@ -995,6 +997,11 @@ async function bootRender(ctx) {
     R.textures = textures;
     R.texMod = m.textures;
     textures?.setAnisotropy?.(currentCfg.anisotropy);
+    // 5. The previews and the tier's maps (already downloading since boot()) decode while the
+    // modules are built; whatever is in before the compile starts is uploaded at once.
+    const keys = textures && m.textures.keysForTier ? m.textures.keysForTier(currentCfg) : { critical: [], primary: [], deferred: [] };
+    const criticalP = textures ? textures.load(keys.critical) : Promise.resolve();
+    const primaryP = textures ? textures.load(keys.primary) : Promise.resolve();
 
     // Star catalog (already decoded if sky.json beat the 3D engine here).
     let catalog = null;
@@ -1200,11 +1207,8 @@ async function bootRender(ctx) {
         afterCatalog();
     } else catalogP.then(installCatalog);
 
-    // 5. Previews and the tier's maps (most already downloading), 6. compile. No eager upload
-    // while the shaders compile: it would wait on the main thread for the GPU process (textures.js).
-    const keys = textures && m.textures.keysForTier ? m.textures.keysForTier(currentCfg) : { critical: [], primary: [], deferred: [] };
-    const criticalP = textures ? textures.load(keys.critical) : Promise.resolve();
-    const primaryP = textures ? textures.load(keys.primary) : Promise.resolve();
+    // 6. Compile. No eager upload meanwhile: it would wait on the main thread for the GPU process
+    // to finish linking (textures.js holdUploads).
     updateLoaderProgress();
     const compileP = withTimeout(rc.compile(), COMPILE_MAX_WAIT_MS);
     textures?.holdUploads?.(compileP);
@@ -1228,7 +1232,9 @@ async function bootRender(ctx) {
     }
     bindViewInsets(rig, store);
 
-    // 7. Render.
+    // 7. Render. A preview already downloaded is a few ms from decoded: give it that, so the first
+    // frame is a lit Earth (a pending decode would otherwise resolve after that frame).
+    await withTimeout(criticalP, PREVIEW_WAIT_MS);
     loop.attach({
         rc, rig, modules, moduleNames: names, labels, labelsFeed, governor: env.webdriver ? null : governor,
         getTierCfg: () => currentCfg, horizon, mapHidden: [space, furnitureSpace],

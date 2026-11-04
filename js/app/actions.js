@@ -926,15 +926,33 @@ export function createActions(deps) {
         return { ...v, aspect };
     }
 
-    /** The shareable URL for the current state (camera included). */
-    function shareUrl() {
-        let cam = null;
-        try {
-            cam = render.rig?.getView?.() ?? null;
-        } catch {
-            cam = null;
+    /**
+     * The shareable URL for the current state (camera included). With `{event}`, a link to that
+     * event's sky instead (a calendar entry's deep link): paused at the instant a jump lands on
+     * (eventFraming), the event's selection (none when it has none) and view, on the Earth, no
+     * camera (the app turns to the selection) and no intro.
+     * @param {{event?: AstroEvent}} [opts]
+     */
+    function shareUrl(opts) {
+        const ev = opts?.event;
+        let hash;
+        if (ev) {
+            const plan = eventFraming(ev);
+            const st = store.get();
+            const select = ev.select && isSelectionId(ev.select) ? ev.select : null;
+            const mode = ev.view && VIEW_MODES.has(ev.view) ? ev.view : st.view.mode;
+            const state = { ...st, host: null, selection: select, view: { ...st.view, mode, vantage: 'none', track: 'none' } };
+            const at = { live: false, tMs: plan ? plan.tMs : Number(ev.tMs), rate: 1, playing: false };
+            hash = serializeHash({ state, clock: at, cam: null, extra: { intro: false } });
+        } else {
+            let cam = null;
+            try {
+                cam = render.rig?.getView?.() ?? null;
+            } catch {
+                cam = null;
+            }
+            hash = serializeHash({ state: store.get(), clock, cam });
         }
-        const hash = serializeHash({ state: store.get(), clock, cam });
         const loc = win?.location;
         if (!loc) return hash;
         return `${loc.origin && loc.origin !== 'null' ? loc.origin : ''}${loc.pathname}${loc.search}${hash}`;

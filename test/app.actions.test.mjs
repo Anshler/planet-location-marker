@@ -295,3 +295,27 @@ test('expose: stopping a preset gives back the clock it found; a clock taken ove
     assert.equal(d.clock.tMs, T, 'the start time');
     assert.equal(d.clock.playing, false);
 });
+
+test('shareUrl({event}): a link to the event\'s sky, paused where a jump lands, its selection and view, no camera or intro', async () => {
+    const { parseHash } = await import('../js/core/url-state.js');
+    const { store, actions } = makeActions({ win: { location: { origin: 'https://example.test', pathname: '/planet-location-marker/', search: '' } } });
+    store.set({ selection: 'mars', host: { id: 'mars', latDeg: 0, lonDeg: 0 } });
+    const ev = localSolarEclipseAt(LUXOR, Date.parse('2027-08-02T10:05:00Z'));
+    const url = actions.shareUrl({ event: ev });
+    assert.ok(url.startsWith('https://example.test/planet-location-marker/#'), url);
+    const h = parseHash(url.slice(url.indexOf('#')));
+    assert.equal(h.tMs, Math.round((ev.c2Ms - 20e3) / 1000) * 1000, 'the jump\'s landing: 20 s before second contact');
+    assert.equal(h.playing, false);
+    assert.equal(h.selection, 'sun');
+    assert.equal(h.view, 'sky');
+    assert.equal(h.intro, false);
+    assert.ok(!url.includes('cam='), 'no camera: the app turns to the selection');
+    assert.ok(!url.includes('host='), 'the events are the Earth\'s');
+    assert.ok(url.includes('loc=25.7,32.6'));
+    // An event without a body clears the selection; the store itself is untouched.
+    const season = { id: 'equinox:sun:1', kind: 'equinox', bodyId: 'sun', tMs: Date.parse('2027-03-20T14:25:00Z'), title: 'March equinox', detail: '', select: null, view: 'orbit' };
+    const h2 = parseHash(actions.shareUrl({ event: season }).split('#')[1]);
+    assert.equal(h2.selection ?? null, null);
+    assert.equal(h2.tMs, season.tMs);
+    assert.equal(store.get().selection, 'mars');
+});

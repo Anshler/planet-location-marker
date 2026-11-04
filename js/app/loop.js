@@ -139,7 +139,7 @@ const FEATURE_NAMES = Object.freeze({
  *            attach(renderDeps:object):void, broadcast(method:string, a?:any, b?:any):void,
  *            callModule(m:RenderModule, method:string, a?:any, b?:any, c?:any):boolean, isDisabled(m:RenderModule):boolean,
  *            replaceModule(prev:RenderModule|null, next:RenderModule, name?:string):void,
- *            setDebug(overlay:any):void, setRenderPaused(paused:boolean):void, setSkySite(site:object|null):void, setHost(h:object|null):void, setAuroraActivity(activity:string):void, refreshReadout():void,
+ *            setDebug(overlay:any):void, setRenderPaused(paused:boolean, reason?:string):void, setSkySite(site:object|null):void, setHost(h:object|null):void, setAuroraActivity(activity:string):void, refreshReadout():void,
  *            stats():object, dispose():void, readonly running:boolean, readonly rendering:boolean}}
  */
 export function createLoop(deps) {
@@ -203,6 +203,8 @@ export function createLoop(deps) {
     let fullT = NaN;
     let renderedLastFrame = false;
     let renderPaused = false;
+    /** Why drawing is paused (setRenderPaused reasons: 'context' loss, a 'tier' switch); none = drawing. */
+    const pauses = new Set();
     let renderFailed = false;
     let renderStrikes = 0;
     let introPlaying = !!store.get().status?.introPlaying;
@@ -1021,12 +1023,20 @@ export function createLoop(deps) {
             if (debug) names.set(debug, 'debug');
             dirty = true;
         },
-        /** Context loss: keep ticking the clock and readouts, but stop drawing. */
-        setRenderPaused(paused) {
-            renderPaused = !!paused;
+        /**
+         * Keep ticking the clock and readouts, but stop drawing: context loss or text mode (the
+         * default reason), a staged tier switch ('tier', main.js). Drawing resumes once every
+         * reason has been lifted, so a switch that ends during a context loss stays paused.
+         * @param {boolean} paused
+         * @param {string} [reason]
+         */
+        setRenderPaused(paused, reason = 'context') {
+            if (paused) pauses.add(reason);
+            else pauses.delete(reason);
+            renderPaused = pauses.size > 0;
             renderedLastFrame = false;
             dirty = true;
-            if (!paused) {
+            if (!renderPaused) {
                 snapValid = false;
                 observerDirty = true;
             }

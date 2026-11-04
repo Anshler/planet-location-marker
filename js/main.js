@@ -855,9 +855,41 @@ function enterTextMode(reason, err) {
         const st = store.get().status;
         store.set({ status: { ...st, webgl: false } }, 'boot');
         if (st.phase !== 'ready') setPhase('ready', 1);
+        textModeStars(store);
     } else {
         loader.done();
     }
+}
+
+/**
+ * Text mode: catalogue stars are registered by the render stack's catalogue install, which never
+ * runs here, so a shared `sel=star:<hip>` link would wait for its data forever. The first star
+ * selection fetches and decodes data/sky.json (pure data/catalog.js) and registers them.
+ */
+function textModeStars(store) {
+    if (!R.extras || R.starExtras) return;
+    let asked = false;
+    const need = (sel) => {
+        if (asked || R.starExtras || typeof sel !== 'string' || !sel.startsWith('star:')) return;
+        asked = true;
+        fetchJson('data/sky.json').then((json) => {
+            if (!json || R.starExtras) { asked = false; return; }
+            try {
+                const cat = decodeSky(json);
+                if (!R.catalog) { R.catalog = cat; R.baseCatalog = cat; }
+                R.starExtras = registerStars(R.extras, {
+                    getCatalog: () => R.catalog, fetchJson, onInfo: () => R.loop?.refreshReadout?.(),
+                });
+                R.starExtras.sync(store.get().selection);
+                store.subscribe((s) => s.selection, (next) => R.starExtras?.sync(next));
+                R.loop?.refreshReadout?.();
+            } catch (err) {
+                console.error('[main] catalogue stars are unavailable in text mode', err);
+            }
+        });
+    };
+    need(store.get().selection);
+    store.subscribe((s) => s.selection, need);
 }
 
 // ---------------------------------------------------------------------------------------------

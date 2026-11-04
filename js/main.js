@@ -31,6 +31,8 @@ import { BODIES, isBodyId, bodyById } from './astro/bodies.js';
 import { createSnapshot, computeSnapshot } from './astro/snapshot.js';
 import { createAstroClient } from './astro/client.js';
 import { createSite, siteFor, manualSite } from './astro/skyglow.js';
+import { liftByRefraction } from './astro/photometry.js';
+import { guideRefs, separationDeg } from './astro/sky-guide.js';
 import { decodeSky, emptyCatalog } from './data/catalog.js';
 import { createActions, normalizeObserver, selectionLook, viewModeLook, eclipseFocusExpired } from './app/actions.js';
 import { ribbonPlan } from './app/eclipse-chase.js';
@@ -100,6 +102,8 @@ const R = {
     /** @type {any} */ astro: null,
     /** The guided-tour runner (js/app/tours.js), created on the first tour. */
     /** @type {any} */ tours: null,
+    /** 'Point at the sky' (js/camera/aim.js), created on first use. */
+    /** @type {any} */ aim: null,
     uiMounted: false,
 };
 
@@ -367,6 +371,8 @@ async function importRenderStack() {
         pin: import('./render/pin.js'),
         flare: import('./render/flare.js'),
         longExposure: import('./render/long-exposure.js'),
+        ruler: import('./render/ruler.js'),
+        edgeChips: import('./render/edge-chips.js'),
         labels: import('./render/labels.js'),
         rig: import('./camera/rig.js'),
         picking: import('./camera/picking.js'),
@@ -544,6 +550,11 @@ async function boot() {
             stop: () => R.tours?.stop(),
             next: () => R.tours?.next(),
             resume: () => R.tours?.resume(),
+        },
+        aim: {
+            start: () => startAim(),
+            stop: (reason) => R.aim?.stop(reason ?? 'user'),
+            align: () => alignAim(),
         },
     });
     R.actions = actions;
@@ -901,6 +912,8 @@ async function bootRender(ctx) {
     create('planets', m.planets && (() => m.planets.createPlanets(rc, { beams, isLabelShown: (id) => R.labels?.isShown?.(id) ?? null })), furniture);
     const pin = create('pin', m.pin && (() => m.pin.createPin(rc)), furniture);
     create('flare', m.flare && (() => m.flare.createFlare(rc, { horizon })), furniture);
+    // The angle ruler (sky view): its reading goes to ui.ruler and, as a label, to the feed.
+    create('ruler', m.ruler && (() => m.ruler.createRuler(rc, { onChange: (r) => onRulerChange(r) })));
 
     // Labels and camera rig.
     let labels = null;
@@ -916,6 +929,11 @@ async function bootRender(ctx) {
     R.labels = labels;
     // Long exposure (Expose in sky view): stacks rendered frames while ui.expose is set.
     render.longExposure = create('longExposure', m.longExposure && (() => m.longExposure.createLongExposure(rc, { rig, store, clock })));
+    // Off-screen pointers (sky view): chips at the edge for bodies outside the field; a tap turns there.
+    create('edgeChips', m.edgeChips && (() => m.edgeChips.createEdgeChips(rc, {
+        root: document.getElementById('labels-root'),
+        onActivate: (id) => { if (isBodyId(id)) R.actions.select(id, { fly: true }); },
+    })));
     render.capture = createCapture({ getRc: () => R.rc, getLoop: () => R.loop, getFeed: () => R.labelsFeed });
     render.rig = rig;
     render.beams = beams;
@@ -930,6 +948,7 @@ async function bootRender(ctx) {
         getBeams: () => R.mods.beams ?? null,
         getPin: () => R.mods.pin ?? null,
         getPlanets: () => (R.mods.planets && !R.loop?.isDisabled?.(R.mods.planets) ? R.mods.planets : null),
+        getRuler: () => (R.mods.ruler && !R.loop?.isDisabled?.(R.mods.ruler) ? R.mods.ruler : null),
     }) : null;
     R.labelsFeed = labelsFeed;
     loader.progress(0.45, 'Loading imagery');
@@ -1114,8 +1133,10 @@ function bindRenderState({ store, bus, clock, rc, rig, loop, snap, astro, m, lab
         if (reason === 'set') bus.emit('toast', { message: `Tracking stopped: ${what} set below the horizon.`, kind: 'info' });
     });
     store.subscribe((s) => s.view.mode, (mode, _prev, _state, source) => {
-        // A long exposure is a sky-view thing: the globe ends it.
+        // A long exposure, the ruler and pointing are sky-view things: the globe ends them.
         if (mode !== 'sky' && store.get().ui.expose) R.actions?.expose?.(null);
+        if (mode !== 'sky' && store.get().ui.ruler) R.actions?.setRuler?.(false);
+        if (mode !== 'sky') R.aim?.stop('view');
         try {
             // No look of its own after an event jump, which has already aimed the rig (viewModeLook).
             const look = viewModeLook(mode, source, store.get().selection, snap);
@@ -1149,6 +1170,12 @@ function bindRenderState({ store, bus, clock, rc, rig, loop, snap, astro, m, lab
         const st = store.get();
         if (st.view.vantage !== 'none') store.set({ view: { ...st.view, vantage: 'none' } }, 'rig');
         if (reason === 'failed') bus.emit('toast', { message: "That vantage point couldn't load.", kind: 'warn' });
+    });
+    // The ruler turned off: its arc and label go.
+    store.subscribe((s) => !!s.ui.ruler, (on) => {
+        if (on || !R.mods.ruler) return;
+        loop.callModule(R.mods.ruler, 'clear');
+        labelsFeed?.markDirty();
     });
     store.subscribe((s) => s.status.reducedMotion, (v) => {
         for (const mod of [R.mods.sky, R.mods.beams, R.mods.pin]) if (mod) loop.callModule(mod, 'setReducedMotion', v || (mod === R.mods.sky && exposing()));
@@ -1304,6 +1331,10 @@ function handleSceneClick({ store, rc, rig, snap, pick, ndc, dbl }) {
     // A vantage point is a camera, not a map: nothing to pick from 1.5 million km.
     if (store.get().view.vantage !== 'none' || (rig.vantage ?? 'none') !== 'none') return;
     const camera = rig.camera ?? rc.camera;
+    if (store.get().ui.ruler && store.get().view.mode === 'sky' && R.mods.ruler) {
+        rulerTap({ rc, camera, snap, pick, ndc });
+        return;
+    }
     let id = null;
     try {
         const cands = R.mods.bodies?.pickCandidates?.() ?? snap.bodies.map((b) => ({ id: b.id, dirS: b.dirS }));
@@ -1335,6 +1366,64 @@ function handleSceneClick({ store, rc, rig, snap, pick, ndc, dbl }) {
         return;
     }
     R.actions.setObserver({ latDeg: ll.latDeg, lonDeg: ll.lonDeg, source: 'click' }, { fly: false, undoable: true });
+}
+
+/**
+ * A tap while the ruler is on (sky view): the body under it (18 px, at its drawn place), else a
+ * bright named star, else that point of the sky (unprojected, then refraction taken off, so the
+ * ruler draws it back where it was tapped).
+ */
+function rulerTap({ rc, camera, snap, pick, ndc }) {
+    const ruler = R.mods.ruler;
+    const up = snap.observer.upS;
+    let end = null;
+    try {
+        const cands = R.mods.bodies?.pickCandidates?.() ?? snap.bodies.map((b) => ({ id: b.id, dirS: b.dirS }));
+        const id = pick?.pickDir?.(ndc, camera, cands, rc.size, 18) ?? null;
+        if (id && isBodyId(id)) {
+            const b = snap.bodies.find((x) => x.id === id);
+            if (b) end = { kind: 'body', id, name: id === 'moon' || id === 'sun' ? `the ${bodyById(id).name}` : bodyById(id).name, dir: b.dirS };
+        }
+        if (!end && R.catalog?.starNames?.length && store0().layers.stars !== false) {
+            const stars = R.catalog.starNames.filter((s) => s.mag <= RULER_STAR_MAG);
+            const sc = stars.map((s, i) => ({ id: String(i), dirS: liftByRefraction(s.dirS, up, 1, new Float64Array(3)) }));
+            const k = pick?.pickDir?.(ndc, camera, sc, rc.size, 14) ?? null;
+            if (k !== null) {
+                const s = stars[Number(k)];
+                end = { kind: 'star', id: `star:${s.hip}`, name: s.name, dir: s.dirS };
+            }
+        }
+        if (!end) {
+            const v = new rc.THREE.Vector3(ndc.x, ndc.y, 0.5).unproject(camera).sub(camera.position).normalize();
+            const app = [v.x, v.y, v.z];
+            // Undo the drawn lift: the true direction whose lifted place is the tapped one.
+            const t = Float64Array.from(app), l = new Float64Array(3);
+            for (let k = 0; k < 4; k++) {
+                liftByRefraction(t, up, 1, l);
+                for (let c = 0; c < 3; c++) t[c] += app[c] - l[c];
+                const n = Math.hypot(t[0], t[1], t[2]) || 1;
+                t[0] /= n; t[1] /= n; t[2] /= n;
+            }
+            end = { kind: 'point', id: null, name: null, dir: t };
+        }
+    } catch (err) {
+        console.error('[main] ruler tap failed', err);
+        return;
+    }
+    R.loop.callModule(ruler, 'tap', end);
+    const r = ruler.reading?.();
+    if (r && r.ends === 2 && r.text) R.bus?.emit('announce', `${r.from} to ${r.to}: ${r.text.replace(' · ', ', ')}`);
+    else if (r && r.ends === 1) R.bus?.emit('announce', `From ${r.from}: now tap a second point`);
+}
+const RULER_STAR_MAG = 3.5;
+const store0 = () => R.store.get();
+
+/** The ruler's reading changed: into ui.ruler (the UI's pill) and a label rebuild. */
+function onRulerChange(r) {
+    const st = R.store?.get();
+    if (!st?.ui.ruler || !r) return;
+    R.store.set({ ui: { ...st.ui, ruler: { ends: r.ends, from: r.from, to: r.to, deg: r.deg, text: r.text, fists: r.fists } } }, 'ruler');
+    R.labelsFeed?.markDirty();
 }
 
 /** Shows the selected body's apparent path (±6 months; the Moon: ±2 weeks) when the layer is on. */
@@ -1575,6 +1664,98 @@ async function startTour(id) {
         getRig: () => (textMode ? null : R.rig), getSnap: () => R.loop?.snap ?? null,
     });
     return R.tours.start(id);
+}
+
+// ---------------------------------------------------------------------------------------------
+// 'Point at the sky' (js/camera/aim.js, loaded on first use; actions.pointAtSky asked iOS first)
+// ---------------------------------------------------------------------------------------------
+
+let aimModP = null;
+/** Align picks the body or star nearest the centre within this angle (the compass may be 15° out). */
+const ALIGN_MAX_DEG = 35;
+const AIM_STOP_TOASTS = Object.freeze({
+    idle: 'Stopped following the phone after 2 minutes without movement.',
+    nodata: "This device doesn't report which way it is pointing.",
+    unsupported: "This browser can't read the phone's orientation.",
+});
+
+/**
+ * Starts following the phone in sky view: tracking and a long exposure end, ui.aim is set, and the
+ * rig's look then comes from the sensors. Resolves true on the first reading.
+ * @returns {Promise<boolean>}
+ */
+async function startAim() {
+    const store = R.store, rig = R.rig;
+    if (!store || !rig || textMode) return false;
+    aimModP ??= import('./camera/aim.js');
+    let mod;
+    try {
+        mod = await aimModP;
+    } catch (err) {
+        aimModP = null;
+        console.error('[main] pointing unavailable', err);
+        R.bus?.emit('toast', { message: "Pointing at the sky couldn't load.", kind: 'warn' });
+        return false;
+    }
+    R.aim ??= mod.createAim({ rig, offsetDeg: Number(prefs.load('aimOffset', 0)) || 0, onStop: (reason) => onAimStop(reason) });
+    if (R.aim.active) return true;
+    const st = store.get();
+    if (st.view.mode !== 'sky') return false;
+    if ((st.view.track ?? 'none') !== 'none') store.set({ view: { ...st.view, track: 'none' } }, 'aim');
+    if (st.ui.expose) R.actions?.expose?.(null);
+    store.set({ ui: { ...store.get().ui, aim: { source: 'starting', offsetDeg: R.aim.offsetDeg, aligned: null } } }, 'aim');
+    const res = await R.aim.start();
+    if (res !== 'ok') {
+        if (res === 'unsupported') onAimStop('unsupported');
+        return false;
+    }
+    store.set({ ui: { ...store.get().ui, aim: { source: R.aim.source, offsetDeg: R.aim.offsetDeg, aligned: null } } }, 'aim');
+    R.bus?.emit('announce', 'Pointing at the sky: move the phone to look around. Directions are approximate.');
+    return true;
+}
+
+/** The aim stopped (by the user, idle, a hidden page, leaving sky view, no sensor). */
+function onAimStop(reason) {
+    const st = R.store?.get();
+    if (st?.ui.aim) R.store.set({ ui: { ...st.ui, aim: null } }, 'aim');
+    const msg = AIM_STOP_TOASTS[reason];
+    if (msg) R.bus?.emit('toast', { message: msg, kind: 'info' });
+    else if (reason === 'user') R.bus?.emit('announce', 'Stopped following the phone');
+}
+
+/**
+ * 'Align': the selected body, or the brightest-looking thing nearest the centre (the Moon, a bright
+ * planet, a bright star by night; never the Sun), is taken to be where the phone points. The
+ * azimuth offset is saved for next time.
+ * @returns {string|null} the name aligned on
+ */
+function alignAim() {
+    const aim = R.aim, snap = R.loop?.snap, store = R.store;
+    if (!aim?.active || !snap || !store) return null;
+    const look = aim.look;
+    const sel = store.get().selection;
+    const refs = guideRefs(snap, null);
+    const sb = sel && sel !== 'sun' ? snap.bodies.find((b) => b.id === sel) : null;
+    if (sb && sb.above && !refs.some((r) => r.id === sel)) refs.push({ id: sel, name: bodyById(sel).name, azDeg: sb.azDeg, altDeg: sb.altDeg, mag: sb.mag });
+    let best = null, bestSep = ALIGN_MAX_DEG;
+    for (const r of refs) {
+        // The selection wins ties: it is what the user is looking for.
+        const sep = separationDeg(look.azDeg, look.altDeg, r.azDeg, r.altDeg) * (r.id === sel ? 0.6 : 1);
+        if (sep < bestSep) { bestSep = sep; best = r; }
+    }
+    if (!best) {
+        R.bus?.emit('toast', { message: 'Point the phone at the Moon, a bright planet or a bright star, centre it, then tap Align.', kind: 'info' });
+        return null;
+    }
+    const off = aim.align(best.azDeg);
+    try { prefs.save('aimOffset', Math.round(off * 10) / 10); } catch { /* storage is optional */ }
+    const ui = store.get().ui;
+    if (ui.aim) store.set({ ui: { ...ui, aim: { ...ui.aim, offsetDeg: off, aligned: best.name } } }, 'aim');
+    const name = best.name.charAt(0).toUpperCase() + best.name.slice(1);
+    const offTxt = `${off < 0 ? '−' : '+'}${Math.abs(Math.round(off))}°`;
+    R.bus?.emit('toast', { message: `Aligned on ${best.name}: the compass is corrected by ${offTxt}.`, kind: 'info', timeoutMs: 3500 });
+    R.bus?.emit('announce', `${name} centred: directions aligned`);
+    return best.name;
 }
 
 // ---------------------------------------------------------------------------------------------

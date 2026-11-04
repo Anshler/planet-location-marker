@@ -11,6 +11,7 @@
  *     nudge(dxDeg, dyDeg), zoom(factor), zoomAt(factor, ndcX, ndcY), setViewInsets({left, right, top, bottom}),
  *     follow(targetFn, {altitude, backDeg, tiltDeg, approachMs}) → Promise, stopFollow(), following,
  *     setTracking('none'|'body'|'stars', id), tracking, telescope(fovDeg), onTrackEnd(cb) → off,
+ *     setAiming(on), aiming, setSkyAim(azDeg, altDeg) → boolean,
  *     setVantage('none'|'l1'|'moon', {animate}) → Promise, vantage, moonFront, onVantageEnd(cb) → off,
  *     setReducedMotion(on), dispose() }
  *
@@ -355,6 +356,9 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
     let skyDrag = null;       // {id, x, y, t}
     let pinch = null;         // {d, fov}; the anchor holds the direction under the fingers
     let lastT = now();
+    // 'Point at the sky' (camera/aim.js): the phone owns the look. Drags, their inertia and arrow
+    // keys leave it alone; pinch and wheel zoom only the field, about the centre.
+    let aiming = false;
 
     // Sidereal tracking (sky view): 'body' keeps a body centred (at its refracted, drawn place)
     // with zenith up; 'stars' holds a scene direction (the static sky) with celestial north up, so
@@ -547,8 +551,8 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
      * anchor held exactly under the point on every frame.
      */
     function zoomSkyAt(fovNext, ndcX, ndcY) {
-        if (track.kind !== 'none') {
-            // Tracking holds the aim: the zoom stays about the centre (stepTrack eases it).
+        if (track.kind !== 'none' || aiming) {
+            // Tracking (or the phone) holds the aim: the zoom stays about the centre.
             sky.fovT = clamp(fovNext, SKY_FOV_MIN, SKY_FOV_MAX);
             return;
         }
@@ -1604,6 +1608,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
             skyDrag.y = e.clientY;
             skyDrag.t = tm;
             rc.invalidate?.();
+            if (aiming) return;       // the phone owns the look
             if (track.kind !== 'none') {
                 // Tracking: the drag moves the tracked aim (the sky follows the finger).
                 trackTurn(dx * k, dy * k);
@@ -1619,7 +1624,7 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
             const d = Math.hypot(a.x - b.x, a.y - b.y) || 1;
             sky.fov = sky.fovT = clamp(pinch.fov * (pinch.d / d), SKY_FOV_MIN, SKY_FOV_MAX);
             rc.invalidate?.();
-            if (track.kind !== 'none') return;     // tracking: the zoom stays about the centre
+            if (track.kind !== 'none' || aiming) return;     // tracking, aiming: the zoom stays about the centre
             const m = ndcOf((a.x + b.x) / 2, (a.y + b.y) / 2);
             anchor.x = m.x;
             anchor.y = m.y;
@@ -1834,8 +1839,8 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
     /** Sky view: glides the look to the sky under a point of the canvas, narrowing the field. */
     function centerAtNow(ndcX, ndcY, { animate = true, fovFactor = SKY_DBL_ZOOM } = {}) {
         if (mode !== 'sky' || !hasSnap || !Number.isFinite(ndcX) || !Number.isFinite(ndcY)) return Promise.resolve(false);
-        if (track.kind !== 'none') {
-            // Tracking keeps its aim: a double-click only narrows the field.
+        if (track.kind !== 'none' || aiming) {
+            // Tracking (or the phone) keeps its aim: a double-click only narrows the field.
             sky.fovT = clamp(sky.fovT * (fovFactor > 0 ? fovFactor : 1), SKY_FOV_MIN, SKY_FOV_MAX);
             rc.invalidate?.();
             return Promise.resolve(true);
@@ -1883,7 +1888,9 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
         anchor.on = false;
         // Sky view: steps shrink with a narrow field (a 5° step at the 0.2° floor loses the target).
         const kf = Math.min(1, sky.fov / SKY_FOV);
-        if (mode === 'sky' && track.kind !== 'none') {
+        if (mode === 'sky' && aiming) {
+            return;     // the phone owns the look
+        } else if (mode === 'sky' && track.kind !== 'none') {
             trackTurn(-dxDeg * kf, dyDeg * kf);
         } else if (mode === 'sky') {
             sky.azT = wrap360(sky.azT + dxDeg * kf);
@@ -2085,6 +2092,52 @@ export function createRig(rc, { dom = null, reducedMotion, now = nowMs } = {}) {
             track.engaged = false;
             track.ox = track.oy = 0;
             rc.invalidate?.();
+        },
+
+        /**
+         * 'Point at the sky' (camera/aim.js): while on, drags, their inertia and arrow keys leave the
+         * look alone, and pinch, wheel and double-click change only the field, about the centre.
+         * setSkyAim() then steers the look.
+         * @param {boolean} on
+         */
+        setAiming(on) {
+            aiming = !!on;
+            if (aiming) {
+                sky.vAz = sky.vAlt = 0;
+                if (anchor.on) {
+                    anchor.on = false;
+                    sky.azT = sky.az;
+                    sky.altT = sky.alt;
+                }
+            }
+            rc.invalidate?.();
+        },
+
+        /** True while setAiming(true) holds. */
+        get aiming() { return aiming; },
+
+        /**
+         * Sky view: the look's new target (the sensors' level look), eased like a keyboard turn.
+         * A running look tween (a 'Center') gives way, keeping the field it was zooming to. Ignored
+         * outside sky view, mid-transition and while tracking.
+         * @param {number} azDeg
+         * @param {number} altDeg
+         * @returns {boolean} applied
+         */
+        setSkyAim(azDeg, altDeg) {
+            if (mode !== 'sky' || inTransition() || track.kind !== 'none' || !Number.isFinite(azDeg) || !Number.isFinite(altDeg)) return false;
+            if (tween) {
+                if (tween.kind !== 'look') return false;
+                sky.fovT = tween.fov1;
+                finishTween(false);
+            }
+            anchor.on = false;
+            sky.vAz = sky.vAlt = 0;
+            sky.azT = wrap360(azDeg);
+            sky.altT = clamp(altDeg, SKY_ALT_MIN, SKY_ALT_MAX);
+            skyDefaulted = true;
+            rc.invalidate?.();
+            return true;
         },
 
         /** @param {(info:{reason:string, kind:string, id:string|null})=>void} cb @returns {()=>boolean} off */

@@ -89,6 +89,7 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/astro/geomag.js` | The IGRF centred dipole (1900–2030, held outside) and the Starkov auroral ovals for an activity setting (quiet / typical / storm = Kp 1 / 3 / 7, never live data); `computeAurora` fills `snap.aurora` (pole, magnetic noon, the 48-float boundary table, the animation phase); `auroraText` for the Sky panel. |
 | | `js/astro/totality.js` | Totality from the ground: Baily's beads (lunar limb profile), corona epoch parameters, contact-time display adaptation, the horizon ring's azimuthal shape. Illustrative in detail (ASTRONOMY.md). |
 | | `js/astro/vantage.js` | Vantage points (loaded by the rig on first use): the L1 pose (235 R sunward, 4° toward ecliptic north, north up, 0.7°), the Earthrise orbit (`planLunarOrbit`: 150 km up, in the plane through the Earth direction nearest the ecliptic, rising over the sunlit limb; `lunarOrbitPose`: the orbiter's place at any time, looking along its track), `vantageFov`, `vantageNear`, `moonInFront`. |
+| | `js/astro/sky-guide.js` | Finding it in the real sky: hands at arm's length (`handSpan`: a fist ≈ 10°, a finger ≈ 1°), `findIt` ('Face south-east, 4 fists up from the horizon, 1 fist left of the Moon.'), `guideRefs` (the Moon, bright planets and, by night, 24 bright J2000 stars as signposts), the ruler's numbers (`separationDeg`, `fmtAngle`, `rulerText`) and `edgeHit` (where an off-screen pointer meets the free area's edge). |
 | Data | `js/data/catalog.js` | Decodes `data/sky.json` into GPU-ready typed arrays in the scene frame. |
 | Render | `js/render/context.js` | Renderer, scene, camera, tier switching, `invalidate`/`onInvalidate`, context loss, stats; `setAccumulation` (long exposures) and `capture` (a one-task render at another size). |
 | | `js/render/postfx.js` | Composer with bloom and the final pass (FXAA when the scene target has no MSAA; the night-vision grade, `rc.setVision`). While Expose is on, `AccumPass` (`accum.js`: two half-float targets, max-stacking, bright-only for the analemma) sits between the scene and the bloom. |
@@ -101,10 +102,12 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/render/planets.js` | Planet medallions: each orbit-view beam ends in a magnified (~26 px) mini-globe at its label anchor, drawn by the shared impostor `PLANET_CHUNK` (`shaders/planets.glsl.js`: oblate spheroid on the IAU pole, true phase, Saturn's rings and their shadows, Jupiter's moons and shadows; reusable at true scale via `writeDiscInstance`/`writeJupiterMoons`). |
 | | `js/render/totality.js` | Baily's beads and the diamond ring: up to eight HDR point sprites at `snap.eclipse.beads` (the flare's starburst follows the brightest). |
 | | `js/render/beams.js`, `pin.js`, `labels.js` | Signature beams, observer pin and horizon disc, DOM label pool. |
+| | `js/render/ruler.js`, `edge-chips.js` | The angle ruler (a great-circle arc between two tapped ends, fixed buffers, its reading as a `'ruler'` label); the off-screen pointers (a DOM chip at the free area's edge per findable body outside the field, a tap turns there). |
 | | `js/render/trails.js`, `flare.js`, `debug.js` | Retrograde paths, procedural lens flare (six-spike starburst, hexagonal aperture ghosts; no textures), `?debug=1` overlay. |
 | | `js/render/eclipse-path.js` | The path of a central solar eclipse on the globe: ribbon, centre line, 30-min ticks, the live umbra marker; reveal modes for the chase. |
-| Camera | `js/camera/rig.js`, `picking.js` | Orbit and sky-view camera, Earth-lock, fly-to tweens, `follow()` (the shadow chase), sidereal tracking, `setVantage()` (View from L1, Earthrise); analytic globe and glyph picking. |
-| UI | `js/ui/index.js` and its modules | Shell, top bar, time bar, Sky Now, body card (with `eyepiece.js`: the 2D-canvas eyepiece portrait, also in text mode), events (with the guided tours), Eclipse Companion, the tour's lower third (`tour-bar.js`), layers, settings, about, help, toasts, shortcuts, announcer; the share menu, `postcard.js` (postcard and Save-image dialog, the typographic band) and `expose.js` (Expose presets and the exposure's status pill).; the vantage menu and its caption pill (`view-switch.js`). |
+| Camera | `js/camera/rig.js`, `picking.js` | Orbit and sky-view camera, Earth-lock, fly-to tweens, `follow()` (the shadow chase), sidereal tracking, `setVantage()` (View from L1, Earthrise), `setAiming()`/`setSkyAim()` (the phone steers the look); analytic globe and glyph picking. |
+| | `js/camera/aim.js` | 'Point at the sky' (loaded on first use, no three.js): device orientation → the rear camera's direction and the screen's up in ENU (`deviceVectors`), a level look (`lookOf`), an adaptive vector low-pass (`aimFilterStep`), and `createAim` (sensor events, iOS compass learning, deadband, Align offset, idle and hidden stops, wake lock). |
+| UI | `js/ui/index.js` and its modules | Shell, top bar, time bar, Sky Now, body card (with `eyepiece.js`: the 2D-canvas eyepiece portrait, also in text mode), events (with the guided tours), Eclipse Companion, the tour's lower third (`tour-bar.js`), layers, settings, about, help, toasts, shortcuts, announcer; the share menu, `postcard.js` (postcard and Save-image dialog, the typographic band) and `expose.js` (Expose presets and the exposure's status pill).; the vantage menu and its caption pill (`view-switch.js`); the ruler and 'Point at the sky' buttons with their status pills (`sky-tools.js`); the body card's 'Find it' line. |
 
 ---
 
@@ -285,6 +288,34 @@ critical CSS read them.
   landed; the store keeps the user's layers. Any other camera move (a fly-to, sky view, the intro,
   the chase, a sky-view event) ends the vantage, and `rig.onVantageEnd` clears the store. A
   globe-view event jump keeps it: from L1 the eclipse shadow crosses the disc.
+- **Finding it in the real sky** (sky view; none of it is in the URL).
+  - *Off-screen pointers* (`render/edge-chips.js`, a module for its per-frame hook): each body above
+    the horizon that the eye can find now (`chipMagLimit` against the Sun's altitude; the selection
+    always) and that lies outside the free area gets a chip at its edge: an arrow and the angle from
+    the view centre. Near the field the arrow follows the projection; far away (40°→70° blend) it
+    follows the turn that reaches the body (azimuth, then altitude, rotated by the zenith's
+    direction on screen), so a body behind you points left or right, not over the zenith. Chips
+    are spread along their edge, step inside UI chrome that covers it (`uiOccluders`), live in
+    `#labels-root` (hidden with the labels) and select-and-turn on a tap.
+  - *The angle ruler* (`ui.ruler`, `actions.setRuler`, A). While it is on, `main.js` routes canvas
+    taps to `rulerTap`: the body under the tap (18 px), else a named star to mag 3.5, else that
+    point (unprojected, refraction taken off). `render/ruler.js` keeps the two ends (bodies follow
+    their snapshot direction), draws the arc and 9-px end rings at true directions (the line
+    shader lifts them), measures between the lifted places and reports through `onChange`, which
+    `main.js` writes to `ui.ruler` (the pill in `ui/sky-tools.js`) and turns into a label rebuild
+    (the feed appends `ruler.anchors()`). Leaving sky view or Esc ends it.
+  - *'Find it'* in the body card: `findIt(guideRefs(snap))` from the readout, also in text mode.
+    Never for the Sun.
+  - *Point at the sky* (`ui.aim`, phones with orientation events on a secure page). The button calls
+    `actions.pointAtSky`, which asks iOS for motion access synchronously inside the tap, then
+    `main.js startAim` imports `camera/aim.js`, ends tracking and a long exposure, and starts it.
+    Each sensor event becomes a low-passed forward/up pair in ENU, then a level look sent to
+    `rig.setSkyAim` only when it moved by more than ~1/1600 of the field. While `rig.aiming`, drags,
+    inertia and arrow keys leave the look alone and pinch/wheel/double-click change only the field.
+    'Align' (`alignAim`) takes the selection or the nearest bright body or star (within 35°) as
+    where the phone points and saves the azimuth offset (`prefs.aimOffset`). It stops on Stop or
+    Esc, after 2 min without movement, when the page is hidden, when sky view is left, or when no
+    reading arrives in 3 s; a screen wake lock is held meanwhile.
 - **`bus`** carries transient events. `readout` is the full-detail snapshot at 4 Hz, published
   only when time or the observer changed. The UI requests its own almanac data through
   `services.astro`. `main.js` pushes one almanac and events set at boot as a head start.
@@ -402,6 +433,7 @@ The render order is fixed in SPEC §E.1. From back to front:
 - −80: grids and constellation lines
 - −70: stars
 - −60: Sun, planets, trails
+- −58: the angle ruler
 - −50: ground and haze
 - 0: Earth and Moon
 - 10: clouds

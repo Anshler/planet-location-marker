@@ -58,6 +58,8 @@ export function bindShortcuts(ctx) {
         if (isTyping(e.target)) { /** @type {HTMLElement} */ (e.target).blur(); return; }
         if (st.ui?.cinema) { act('toggleCinema'); e.preventDefault(); return; }
         if ((st.view?.vantage ?? 'none') !== 'none') { act('setVantage', 'none'); flash('Back to the globe'); e.preventDefault(); return; }
+        if (st.ui?.ruler) { act('setRuler', false); flash('Ruler off'); e.preventDefault(); return; }
+        if (st.ui?.aim) { act('pointAtSky', false); e.preventDefault(); return; }
         if (st.selection) { act('select', null); e.preventDefault(); }
     }
 
@@ -116,6 +118,10 @@ export function bindShortcuts(ctx) {
         } else if (code === 'KeyK') {
             const k = act('cycleTracking');
             flash(k === 'body' ? 'Tracking the body' : k === 'stars' ? 'Locked to the stars' : 'Tracking off');
+        } else if (code === 'KeyA' && !e.shiftKey && !e.altKey) {
+            const on = act('setRuler');
+            if (on) flash('Ruler: tap two things in the sky');
+            else if (st.ui?.ruler) flash('Ruler off');
         } else if (code === 'KeyB') toggleLayer('beams');
         else if (code === 'KeyC') toggleLayer(e.shiftKey ? 'constellationNames' : 'constellations');
         else if (code === 'KeyM') toggleLayer('milkyWay');

@@ -101,6 +101,11 @@ const ICONS = {
     postcard: [['rect', { x: 3.4, y: 4.6, width: 17.2, height: 14.8, rx: 2.4 }], ['path', { d: 'M3.6 16.4l5-4.6 3.6 3.2 3-2.4 5.2 4.4' }], ['circle', { cx: 15.6, cy: 8.8, r: 1.5 }]],
     download: [['path', { d: 'M12 3.6v11' }], ['path', { d: 'M7.8 10.6l4.2 4.2 4.2-4.2' }], ['path', { d: 'M4.6 15.8v2.4a2.2 2.2 0 0 0 2.2 2.2h10.4a2.2 2.2 0 0 0 2.2-2.2v-2.4' }]],
     link: [['path', { d: 'M10.2 13.8a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1.1 1.1' }], ['path', { d: 'M13.8 10.2a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.1-1.1' }]],
+    // The angle ruler: two rays and the arc between them; pointing the phone: a phone with motion arcs.
+    ruler: [['path', { d: 'M4 19.5h16M4 19.5L15.8 6.2' }], ['path', { d: 'M11 19.5A7 7 0 0 0 8.65 14.27' }],
+        ['circle', { cx: 15.8, cy: 6.2, r: 1.4, ...F }], ['circle', { cx: 20, cy: 19.5, r: 1.4, ...F }]],
+    phone: [['rect', { x: 7.4, y: 3, width: 9.2, height: 18, rx: 2.2 }], ['path', { d: 'M11 17.8h2' }],
+        ['path', { d: 'M19.6 8.6a5 5 0 0 1 0 6.8M4.4 8.6a5 5 0 0 0 0 6.8' }]],
 };
 
 /** All available icon names (spec set plus UI extras). */

@@ -325,7 +325,8 @@ function trailAnchors(out, trails) {
  * @param {{anchors?:()=>LabelAnchor[]}|null} trails  trails module (its anchors are appended)
  * @param {{mode?:'orbit'|'sky', live?:LiveVectors, bodyPoint?:(id:string)=>Float64Array|null,
  *          bodyOffset?:Float64Array[], hideBody?:(id:string)=>boolean, hideObserver?:boolean,
- *          rimCardinals?:boolean, medallion?:((id:string, selected:boolean)=>number[]|null)|null}} [opts]
+ *          rimCardinals?:boolean, medallion?:((id:string, selected:boolean)=>number[]|null)|null,
+ *          ruler?:{anchors?:()=>LabelAnchor[]}|null}} [opts]
  *   `medallion` (render/planets.js footprint): orbit-view body labels get `med` (their dot becomes
  *   the medallion's eyepiece ring) and a 'magnified' title.
  *   `mode` defaults to state.view.mode. `bodyPoint` (the beams module's `labelAnchor`) supplies a
@@ -334,6 +335,7 @@ function trailAnchors(out, trails) {
  *   orbit-view world points and the observer/cardinal vectors (see createLabelsFeed); without it
  *   those anchors are omitted and bodies sit at their at-infinity direction. `rimCardinals` adds
  *   the orbit-view N/E/S/W letters on the horizon disc (only when the horizon layer is on).
+ *   `ruler` (render/ruler.js) adds the angle ruler's reading in sky view.
  * @returns {LabelAnchor[]}
  */
 export function buildAnchors(state, snap, catalog, trails, opts = {}) {
@@ -352,6 +354,8 @@ export function buildAnchors(state, snap, catalog, trails, opts = {}) {
     if (catalog && layers.stars !== false && layers.starNames) starAnchors(out, catalog, sky);
     if (catalog && layers.constellationNames) constellationAnchors(out, catalog);
     if (layers.trails) trailAnchors(out, trails);
+    // The angle ruler's reading (render/ruler.js), sky view only.
+    if (sky && opts.ruler) trailAnchors(out, opts.ruler);
     return out;
 }
 
@@ -422,10 +426,10 @@ function syncCardinals(live, snap) {
  *
  * @param {{labels:{setAnchors:(list:LabelAnchor[])=>void}, store:any, snap:Snapshot,
  *          getCatalog?:()=>object|null, getTrails?:()=>object|null, getBeams?:()=>object|null,
- *          getPin?:()=>object|null}} deps
+ *          getPin?:()=>object|null, getPlanets?:()=>object|null, getRuler?:()=>object|null}} deps
  */
 export function createLabelsFeed({ labels, store, snap, getCatalog = () => null, getTrails = () => null, getBeams = () => null,
-    getPin = () => null, getPlanets = () => null }) {
+    getPin = () => null, getPlanets = () => null, getRuler = () => null }) {
     /** @type {LiveVectors} */
     const live = {
         bodyOrbit: BODIES.map(() => new Float64Array(3)),
@@ -480,6 +484,7 @@ export function createLabelsFeed({ labels, store, snap, getCatalog = () => null,
             hideBody: (id) => introHiding && !usesBeamPoints && !revealed.has(id),
             hideObserver: observerHidden,
             rimCardinals: !!getPin()?.cardinals,
+            ruler: getRuler(),
         });
         bodyAnchor.fill(null);
         selIndex = -1;

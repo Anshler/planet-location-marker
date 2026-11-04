@@ -26,6 +26,12 @@
  * While it is set, layers are not saved to prefs, the URL hash is not written and the UI narrator is
  * quiet (unless `paused`); the tour restores the state it found when it ends.
  * @typedef {{id:string, title:string, step:number, steps:number, caption:string, paused:boolean, ambient:boolean}} TourState */
+/** The angle ruler (sky view; render/ruler.js), null when off: the ends set so far (0–2), their names,
+ * the angle between the drawn places and its reading ('11.9° · about 1 fist'). Not in the URL.
+ * @typedef {{ends:number, from:string|null, to:string|null, deg:number|null, text:string, fists:string}} RulerState */
+/** 'Point at the sky' (camera/aim.js), null when off: the sensor in use ('starting' until the first
+ * reading, 'compass' | 'ios' | 'relative'), the Align offset (degrees) and what it was aligned on.
+ * @typedef {{source:string, offsetDeg:number, aligned:string|null}} AimState */
 /** @typedef {{ observer:Observer, selection:BodyId|null,
  *   view:{mode:'orbit'|'sky', earthLock:boolean, track:'none'|'body'|'stars', vantage:'none'|'l1'|'moon'},
  *   layers:Layers,
@@ -33,6 +39,7 @@
  *     aurora:'quiet'|'typical'|'storm'},
  *   quality:{setting:'auto'|'low'|'medium'|'high'|'max', active:'low'|'medium'|'high'|'max', ceiling:'low'|'medium'|'high'},
  *   ui:{panel:'sky'|'details'|'events'|'layers'|'settings'|'about', sheet:'peek'|'half'|'full', cinema:boolean, help:boolean, palette:boolean,
+ *       ruler?:RulerState|null, aim?:AimState|null,
  *       eclipse:EclipseFocus|null, tour:TourState|null},
  *   status:{phase:'boot'|'loading'|'ready'|'error', progress:number, webgl:boolean, onlineSearch:'unknown'|'ok'|'down',
  *           reducedMotion:boolean, coarse:boolean, introPlaying:boolean} }} AppState */
@@ -96,7 +103,7 @@
  *   setViewMode?:(mode:'orbit'|'sky', skyBlend:number)=>void, setSelection?:(id:BodyId|null)=>void,
  *   setQuality?:(cfg:TierCfg)=>void, dispose:()=>void }} RenderModule */
 /** Label anchor fed to the label pool (SPEC §C.6).
- * @typedef {{ id:string, text:string, kind:'body'|'observer'|'star'|'constellation'|'cardinal'|'trail', priority:number,
+ * @typedef {{ id:string, text:string, kind:'body'|'observer'|'star'|'constellation'|'cardinal'|'trail'|'ruler', priority:number,
  *   color?:string, dirS?:Float64Array|Float32Array, posS?:Float64Array, offsetPx?:ArrayLike<number>, ariaLabel?:string,
  *   interactive:boolean, selected?:boolean, below?:boolean, hidden?:boolean, faint?:boolean }} LabelAnchor */
 

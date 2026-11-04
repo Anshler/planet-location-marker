@@ -103,7 +103,7 @@ const HORIZON_SIN = -0.005;
 /** `--sky-lum` steps, and the level from which the root carries `is-daysky`. */
 const SKY_LUM_STEPS = 20;
 const DAYSKY_LUM = 0.6;
-const KIND_RANK = { body: 0, observer: 1, cardinal: 2, trail: 3, star: 4, constellation: 5 };
+const KIND_RANK = { body: 0, ruler: 1, observer: 1, cardinal: 2, trail: 3, star: 4, constellation: 5 };
 const DEG = Math.PI / 180;
 /** A world point this far from the camera (Earth radii) stands for a direction at infinity. */
 const FAR_POINT = 200;
@@ -113,7 +113,7 @@ function nowMs() {
 }
 
 /**
- * @typedef {{ id:string, text:string, kind:'body'|'observer'|'star'|'constellation'|'cardinal'|'trail',
+ * @typedef {{ id:string, text:string, kind:'body'|'observer'|'star'|'constellation'|'cardinal'|'trail'|'ruler',
  *   priority:number, color?:string, dirS?:ArrayLike<number>, posS?:ArrayLike<number>, offsetPx?:ArrayLike<number>,
  *   ariaLabel?:string, interactive:boolean, selected?:boolean, below?:boolean, hidden?:boolean, faint?:boolean,
  *   gate?:()=>boolean }} LabelAnchor

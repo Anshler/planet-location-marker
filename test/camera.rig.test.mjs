@@ -847,3 +847,53 @@ test('telescope zoom: the field reaches 0.2°, deep links keep it, and telescope
     const dAz = angDiff(h.rig.getView().azDeg, v0.azDeg);
     assert.ok(dAz > 0.01 && dAz < 0.1, `a narrow field nudges by a fraction of a degree (${dAz})`);
 });
+
+// ---- ar-sky-pointing ---------------------------------------------------------------------------------
+
+test('aiming: setSkyAim steers the look; drags, inertia and arrow keys leave it; pinch zooms about the centre', () => {
+    const h = skyRig({ look: 's:150,30,60' });
+    assert.equal(h.rig.setSkyAim(200, 40), true, 'works without aiming too');
+    h.rig.setAiming(true);
+    assert.equal(h.rig.aiming, true);
+    h.rig.setSkyAim(210, 45);
+    h.run(800, h.snap);
+    near(h.rig.getView().azDeg, 210, 1e-6, 'az');
+    near(h.rig.getView().altDeg, 45, 1e-6, 'alt');
+    const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(h.camera.quaternion);
+    near(Math.asin(fwd.dot(vec(h.snap.observer.upS))) / D, 45, 1e-3, 'camera follows');
+    // A drag does nothing to the look.
+    h.el.send('pointerdown', { pointerId: 1, clientX: 800, clientY: 450 });
+    h.el.send('pointermove', { pointerId: 1, clientX: 600, clientY: 300 });
+    h.el.send('pointerup', { pointerId: 1, clientX: 600, clientY: 300 });
+    h.run(500, h.snap);
+    near(h.rig.getView().azDeg, 210, 1e-6, 'drag ignored');
+    h.rig.nudge(10, 0);
+    h.run(300, h.snap);
+    near(h.rig.getView().azDeg, 210, 1e-6, 'arrow keys ignored');
+    // A pinch narrows the field about the centre: the look stays.
+    h.el.send('pointerdown', { pointerId: 1, clientX: 300, clientY: 300 });
+    h.el.send('pointerdown', { pointerId: 2, clientX: 500, clientY: 300 });
+    h.el.send('pointermove', { pointerId: 2, clientX: 700, clientY: 300 });
+    h.run(16, h.snap);
+    near(h.rig.getView().fovDeg, 30, 1e-6, 'fov halves');
+    near(h.rig.getView().azDeg, 210, 1e-6, 'no pan');
+    h.el.send('pointerup', { pointerId: 1, clientX: 300, clientY: 300 });
+    h.el.send('pointerup', { pointerId: 2, clientX: 700, clientY: 300 });
+    // A 'Center' look tween gives way to the next aim, keeping its field.
+    h.rig.setMode('sky', { look: { azDeg: 90, altDeg: 10, fovDeg: 20 } });
+    h.run(48, h.snap);
+    h.rig.setSkyAim(215, 45);
+    assert.equal(h.rig.tweening, false);
+    h.run(800, h.snap);
+    near(h.rig.getView().azDeg, 215, 1e-6, 'aim wins');
+    near(h.rig.getView().fovDeg, 20, 1e-6, 'the tween’s field kept');
+    // Off: drags turn the view again. Tracking refuses aims.
+    h.rig.setAiming(false);
+    h.el.send('pointerdown', { pointerId: 1, clientX: 800, clientY: 450 });
+    h.el.send('pointermove', { pointerId: 1, clientX: 700, clientY: 450 });
+    h.el.send('pointerup', { pointerId: 1, clientX: 700, clientY: 450 });
+    h.run(16, h.snap);
+    assert.ok(angDiff(h.rig.getView().azDeg, 215) > 1, 'drag turns');
+    h.rig.setTracking('stars');
+    assert.equal(h.rig.setSkyAim(100, 10), false);
+});

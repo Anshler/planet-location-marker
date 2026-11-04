@@ -1,5 +1,4 @@
 {
-  "2": "Formatting & Time Zones",
   "4": "Beams & Labels",
   "5": "Events & Trails",
   "6": "UI Hub & Shortcuts",
@@ -8,14 +7,10 @@
   "9": "App Actions API",
   "10": "Body Card & Sky Now",
   "11": "Shell, Icons & About",
-  "13": "Labels Feed & Event Bus",
   "14": "URL Hash State",
-  "15": "Render Context & PostFX",
-  "16": "Boot Sequence",
   "17": "Milky Way Build",
   "18": "Frames & Moon Orientation",
   "19": "Snapshot & Eclipse Geometry",
-  "21": "DOM Helpers & Help",
   "22": "City Data Build",
   "24": "Vendor Pinning",
   "25": "Sky Lines & Exposure",
@@ -23,10 +18,7 @@
   "27": "Simulation Clock",
   "28": "Quality Tiers & Governor",
   "29": "Icon Generator",
-  "31": "Location Palette",
   "32": "Cinematic Intro",
-  "34": "Observer Pin",
-  "35": "Loader & Failure Handling",
   "36": "Offline Cities",
   "38": "Preferences Storage",
   "39": "Online Geocoder",
@@ -49,6 +41,5 @@
   "63": "Snapshot Tests",
   "65": "City Search Matching",
   "71": "Service Worker",
-  "72": "Airmass & Visibility",
   "73": "Debug Overlay"
 }

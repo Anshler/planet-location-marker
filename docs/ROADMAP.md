@@ -220,3 +220,9 @@ Use the 1000–3000 range and the unused Astronomy Engine APIs.
   its merge was aborted and handed to a single integration agent (wip/p5-orrery-merged from a6d1e37).
 - 2026-11-05: Orrery integrated and merged at f2087a9; npm test (720), size, smoke, smoke:mobile, text mode pass. Budgets low
   4.41 / medium 5.19 / high 8 MB (measured 4.30 / 5.05 / 6.27). Phase 5 review next.
+- 2026-11-05: Phase 5 review (3 lens reviewers + 1 fixer): 16 findings (9 blocking), all fixed in 50633c0..e6ed0cf —
+  idle supersampling now idles under Earth-lock, exposure resets on view-offset changes, orrery Esc/Globe at 110–150 R,
+  orrery labels/picking on phones, Moon orbit re-sampling, tours restore map/system/vantage and own their Esc, Show both
+  beams stays on the globe, mobile HUD stacking, live system links hold direction, Sun crossfade. npm test (732), size,
+  smoke, smoke:mobile, text mode pass. Code graph rebuilt (3,149 nodes). Remaining: Phases 6–7, the deferred items
+  (physical-sky-lut, ozone-twilight-limb, sky-soundscape, max-deep-stars, Auto Bortle data, max texture release).

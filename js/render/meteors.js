@@ -52,7 +52,8 @@ const COMPOSITE_MS = 60 * 60e3;
 export const LIVE_CAP_PER_S = 2.5;
 /** No meteors above this clock rate (the sky would be a blur of them). */
 export const LIVE_MAX_RATE = 3600;
-/** A frame that crosses more buckets than this was a jump: no launches for it. */
+/** A frame that crosses more buckets than this was a jump: no launches for it (a backstop; a frame
+ * whose sim advance is far beyond rate × wall time is one too). */
 const MAX_BUCKETS = 400;
 /** Paths must stay this high (degrees). */
 const MIN_ALT_DEG = 8;
@@ -126,6 +127,7 @@ export function createMeteors(rc, deps = {}) {
     const pR = new Float64Array(PMAX * 3), pT = new Float64Array(PMAX * 3);
     let poolCap = POOL[tier] ?? 0;
     let lastSim = NaN;
+    let lastWallS = NaN;
     let liveCount = 0;
     let compositeCount = 0;
     let compositeKey = '';
@@ -419,8 +421,14 @@ export function createMeteors(rc, deps = {}) {
 
         if (live) {
             if (compositeCount) { streaks.setCount(0); compositeCount = 0; compositeKey = ''; }
-            if (Number.isFinite(lastSim) && simMs !== lastSim) spawn(lastSim, simMs, rate, nowS);
+            if (Number.isFinite(lastSim) && simMs !== lastSim) {
+                // A step or a scrub while playing moves sim time far beyond what the rate explains in
+                // the wall time since the last update: that interval is skipped, not launched at once.
+                const wallMs = Number.isFinite(lastWallS) ? Math.max(0, nowS - lastWallS) * 1000 : 0;
+                if (Math.abs(simMs - lastSim) <= 2 * Math.abs(rate) * wallMs + BUCKET_MS) spawn(lastSim, simMs, rate, nowS);
+            }
             lastSim = simMs;
+            lastWallS = nowS;
             const n = drawLive(nowS);
             streaks.setCount(n);
             if (n) streaks.commit();
@@ -429,6 +437,7 @@ export function createMeteors(rc, deps = {}) {
             return;
         }
         lastSim = simMs;
+        lastWallS = nowS;
         if (liveCount) { pStart.fill(-1); liveCount = 0; streaks.setCount(0); }
         if (composite) {
             const key = `${Math.floor(simMs / BUCKET_MS)}|${srcKey}|${up[0].toFixed(3)},${up[1].toFixed(3)},${up[2].toFixed(3)}|${tier}`;

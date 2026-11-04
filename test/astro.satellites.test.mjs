@@ -18,6 +18,8 @@ import { createSnapshot, computeSnapshot } from '../js/astro/snapshot.js';
 import { earthFixedToEqj } from '../js/astro/frames.js';
 import { pickTle } from '../scripts/fetch-tle.mjs';
 import { runOp } from '../js/astro/worker.js';
+import { computeMarsSnapshot } from '../js/astro/host-mars.js';
+import { MARS_SITES } from '../js/astro/mars-clock.js';
 
 const JSON_DATA = JSON.parse(fs.readFileSync(new URL('../data/tle.json', import.meta.url), 'utf8'));
 const SATS = decodeTle(JSON_DATA);
@@ -199,4 +201,20 @@ test('fetch-tle: picks and validates one set from a CelesTrak response', () => {
     assert.throws(() => pickTle(text, 20580, now), /no element set/);
     assert.throws(() => pickTle(text, 25544, ISS.epochMs + 40 * 86400e3), /days old/);
     assert.throws(() => pickTle(text.replace(iss.l1, iss.l1.slice(0, 68) + ((Number(iss.l1[68]) + 1) % 10)), 25544, now), /checksum/);
+});
+
+test('standing on Mars, Earth satellites stay out of the sky between snapshots too (advance)', () => {
+    const reg = createExtras();
+    const prov = createSatProvider(SATS, { json: JSON_DATA });
+    reg.register(prov);
+    const snap = createSnapshot();
+    const t = Date.UTC(2026, 10, 4, 0, 11);
+    computeMarsSnapshot(t, MARS_SITES.find((s) => s.id === 'jezero'), snap);
+    reg.fill(snap);
+    for (let dt = 250; dt <= 5000; dt += 250) reg.advance(snap, t + dt);
+    for (const id of reg.ids('sat')) assert.equal(reg.state(snap, id).present, false, id);
+    // The provider alone (called directly, as an older registry would) refuses a Mars snapshot.
+    const out = { dirS: new Float64Array(3), present: true };
+    prov.advance(snap, 'sat:iss', out, t + 1000);
+    assert.equal(out.present, false);
 });

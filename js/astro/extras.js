@@ -282,10 +282,16 @@ export function createExtras() {
         advance(snap, tMs) {
             if (!snap || !movers.length || snap.extrasVersion !== version || !snap.extras) return 0;
             const list = snap.extras;
+            const host = snap.host === 'mars' ? 'mars' : 'earth';
             for (let k = 0; k < movers.length; k++) {
                 const i = movers[k];
                 const s = slots[i];
                 const st = list[i];
+                // As fill(): another world's objects are not in this sky (Earth satellites on Mars).
+                if (s.provider.host && s.provider.host !== host) {
+                    st.present = false;
+                    continue;
+                }
                 try {
                     s.provider.advance(snap, s.id, st, tMs);
                 } catch (err) {

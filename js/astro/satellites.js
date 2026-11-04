@@ -318,6 +318,8 @@ export function createSatProvider(sats, { json = null } = {}) {
         if (!out.data) out.data = createSatData();
         const D = out.data;
         D.ok = false;
+        // Earth satellites, seen from the Earth only (standing on Mars, the observer is a Mars site).
+        if (snap?.host && snap.host !== 'earth') return;
         const sat = byId.get(id);
         const o = snap?.observer;
         if (!sat || !o || !snap.earthMatrix || !Number.isFinite(tMs) || !inTleWindow(sat, tMs)) return;

@@ -133,17 +133,17 @@ Use the 1000–3000 range and the unused Astronomy Engine APIs.
 
 | Status | ID | Item | Impact | Effort | Notes |
 |---|---|---|---|---|---|
-| todo | `events-breadth-unused-ae` | More real events from unused Astronomy Engine searches: Antares/Pleiades occultations, Venus at greatest brilliancy, transits, perigee, ring-plane crossing | 3 | M |  |
-| todo | `historic-skies` | History's skies: guest stars of 1006, 1054, 1572 and 1604, Julian dates before 1582, a Moments library and 'the sky you were born under' ★ | 4 | M |  |
-| todo | `analemma-sun-path` | Analemma and Sun-path diagram in sky view, plus the subsolar figure-8 on the globe | 3 | M |  |
-| todo | `visibility-year-planner` | 'Best time to observe X': a 12-month planet visibility chart | 3 | M |  |
-| todo | `meteor-showers` | Meteor showers: radiants, peak events with Moon interference, and live meteors in sky view ★ | 3 | L |  |
-| todo | `star-info-light-time` | Tap any star: name, Bayer designation, distance and 'the light you see left in 1476' | 3 | L |  |
-| todo | `time-machine-sky` | Time-machine sky: star proper motion, pole of date, precession circle and the drifting equinox | 2 | M |  |
-| todo | `deep-sky-objects` | Deep-sky objects: the Messier catalogue and southern showpieces as procedural, true-size sprites ★ | 3 | L |  |
-| todo | `max-deep-stars` | Max tier: deeper star catalogue to about magnitude 8 (d3-celestial stars.8.json, 5.4 MB), lazy-loaded and merged into the GPU arrays | 3 | M | Skipped by the max-tier agent as a detour: needs a build script, lazy decode/merge and a photometry check. |
-| todo | `comets-halley-1066` | Historic and great comets with physical tails: Halley 1066/1456/1910/1986/2061, Hale–Bopp, NEOWISE ★ | 3 | XL |  |
-| todo | `human-emissaries` | Beams to humanity's emissaries: Voyager 1 and 2, New Horizons and JWST, with 'a message sent now arrives tomorrow' | 4 | L |  |
+| done | `events-breadth-unused-ae` | More real events from unused Astronomy Engine searches: Antares/Pleiades occultations, Venus at greatest brilliancy, transits, perigee, ring-plane crossing | 3 | M | 612b08e (occultations, Venus brilliancy, transits, perigee/supermoons, ring-plane crossings). |
+| done | `historic-skies` | History's skies: guest stars of 1006, 1054, 1572 and 1604, Julian dates before 1582, a Moments library and 'the sky you were born under' ★ | 4 | M | 0d6f438 (Julian calendar before 1582, guest stars 1006–1604, Moments library, 'sky you were born under'). |
+| done | `analemma-sun-path` | Analemma and Sun-path diagram in sky view, plus the subsolar figure-8 on the globe | 3 | M | 612b08e (layer 'y': today/solstice/equinox paths, noon analemma, subsolar figure-8). |
+| done | `visibility-year-planner` | 'Best time to observe X': a 12-month planet visibility chart | 3 | M | 612b08e (body-card 12-month chart, text mode). |
+| done | `meteor-showers` | Meteor showers: radiants, peak events with Moon interference, and live meteors in sky view ★ | 3 | L | 612b08e (13 IMO showers with validity years, radiants, live meteors medium+, layer 'w'). |
+| done | `star-info-light-time` | Tap any star: name, Bayer designation, distance and 'the light you see left in 1476' | 3 | L | 0d6f438 (tap any star: designation, distance, 'the light left in …'). |
+| done | `time-machine-sky` | Time-machine sky: star proper motion, pole of date, precession circle and the drifting equinox | 2 | M | 0d6f438 (proper motion, pole of date, precession circle; layer 'r'). |
+| done | `deep-sky-objects` | Deep-sky objects: the Messier catalogue and southern showpieces as procedural, true-size sprites ★ | 3 | L | 0d6f438 (110 Messier + 30 showpieces, procedural true-size sprites; layer 'x'). |
+| done | `max-deep-stars` | Max tier: deeper star catalogue to about magnitude 8 (d3-celestial stars.8.json, 5.4 MB), lazy-loaded and merged into the GPU arrays | 3 | M | Skipped by the max-tier agent as a detour: needs a build script, lazy decode/merge and a photometry check. 0d6f438 (max only: 36,367 extra Hipparcos stars to V 8.0, data/stars8.json lazy). |
+| done | `comets-halley-1066` | Historic and great comets with physical tails: Halley 1066/1456/1910/1986/2061, Hale–Bopp, NEOWISE ★ | 3 | XL | 0d6f438 (Halley 1066/1456/1910/1986/2061 from JPL elements, ion + dust tails). |
+| done | `human-emissaries` | Beams to humanity's emissaries: Voyager 1 and 2, New Horizons and JWST, with 'a message sent now arrives tomorrow' | 4 | L | 0d6f438 (Voyager 1/2, New Horizons, JWST radio beams, light time, DSN station; layer 'v'). |
 | todo | `live-satellites` | The ISS and bright satellites: a beam that visibly moves at 1x, with real pass predictions ★ | 4 | L |  |
 | todo | `stand-on-mars` | Stand on Mars: a Mars observer with a butterscotch day, a blue sunset and Earth as the evening star ★ | 4 | XL |  |
 
@@ -226,3 +226,7 @@ Use the 1000–3000 range and the unused Astronomy Engine APIs.
   beams stays on the globe, mobile HUD stacking, live system links hold direction, Sun crossfade. npm test (732), size,
   smoke, smoke:mobile, text mode pass. Code graph rebuilt (3,149 nodes). Remaining: Phases 6–7, the deferred items
   (physical-sky-lut, ozone-twilight-limb, sky-soundscape, max-deep-stars, Auto Bortle data, max texture release).
+- 2026-11-05: Phase 6 batch 1 merged (0d6f438 history+deep, 612b08e events): general extra-object selection model (star:/dso:/
+  comet:/craft:/guest:), 11 items. npm test (814), size, smoke, smoke:mobile, text mode pass. Layer-code clash resolved:
+  precession 'r', meteors 'w' (default ly=bgoscCnmkazhldxw). Budgets low 4.8 / medium 5.59 MB (medium measured 5.44 —
+  ~0.5 MB left under its 6 MB line). Batch 2 (live-satellites, stand-on-mars) next, then the Phase 6 review and a PR.

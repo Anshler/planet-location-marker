@@ -28,6 +28,8 @@ const SIZES = Object.freeze([
     Object.freeze({ id: 'landscape', label: '1920 × 1080' }),
     Object.freeze({ id: 'vertical', label: '1080 × 1920' }),
 ]);
+/** Which browsers record, for the dialog. */
+const BROWSERS = 'Frame-exact MP4 needs WebCodecs: Chrome, Edge and Opera 94+, Safari 16.4+, Firefox 130+ (desktop). Other browsers with MediaRecorder record in real time.';
 const FONT = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 const ACCENT = '#7cc4ff';
 
@@ -165,6 +167,7 @@ export function mountVideo(host, ctx) {
         setText(recordBtn.lastChild, phase === 'done' ? 'Record another' : 'Record');
         cancelBtn.hidden = !rec;
         bar.hidden = !rec;
+        frameBox.hidden = phase === 'setup';
         preview.hidden = phase === 'done';
         player.hidden = phase !== 'done';
         dlBtn.hidden = shareBtn.hidden = phase !== 'done';
@@ -271,7 +274,7 @@ export function mountVideo(host, ctx) {
         setPhase('setup');
         syncDetail();
         const sup = videoSupport();
-        setText(support, sup.text);
+        setText(support, `${sup.text} ${BROWSERS}`);
         recordBtn.disabled = !sup.kind;
         setText(status, '');
         layer.hidden = false;
@@ -291,6 +294,7 @@ export function mountVideo(host, ctx) {
         }
     }));
     offs.push(on(recordBtn, 'click', () => {
+        if (abort) return;
         if (!setup.hidden) record();
         else { setPhase('setup'); setText(status, ''); }
     }));

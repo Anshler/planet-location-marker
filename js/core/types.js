@@ -78,7 +78,8 @@
  *   earthSegments:[number,number], dayTex:'day2k'|'day4k'|'day8k', oceanMask:'derived'|'roughness2k'|'roughness',
  *   clouds:'none'|'clouds2k'|'brc4k'|'clouds8k', cloudShadows:boolean, bump:boolean, atmosphere:'analytic'|'raymarch', atmoSteps:number,
  *   starMagLimit:number, flare:boolean, labelCap:number, twinkle:boolean, beamGlowPx:number, finalPass:boolean,
- *   moonTex?:'moon'|'moon4k', anisotropy?:number, cloudShadowTaps?:number }} TierCfg */
+ *   moonTex?:'moon'|'moon4k', anisotropy?:number, cloudShadowTaps?:number, supersample?:number, streakPx?:number }} TierCfg
+ * supersample: idle supersampling's sample cap (0 = off); streakPx: the fast-time streak cap (device px, 0 = off). */
 /** @typedef {{ dtMs:number, timeS:number, camera:any, viewMode:'orbit'|'sky', skyBlend:number, snap:Snapshot,
  *   pulsesActive:boolean, simRate:number, exposure:{stars:number, planets:number, milkyWay:number, vision:number},
  *   moonFront:boolean }} FrameInfo `moonFront`: the camera is in lunar orbit (or flying there), so the Moon

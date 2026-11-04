@@ -1539,7 +1539,7 @@ body.tier-medium:not(.is-coarse) .glass {
 .pc__actions .btn[hidden] { display: none; }
 
 /* Time-lapse video (ui/video.js): presets, frame size, progress with a live preview, the clip. */
-.vid__setup[hidden], .vid__bar[hidden], .vid__preview[hidden], .vid__player[hidden], .share-opt[hidden] { display: none; }
+.vid__setup[hidden], .vid__frame[hidden], .vid__bar[hidden], .vid__preview[hidden], .vid__player[hidden], .share-opt[hidden] { display: none; }
 .vid__presets, .vid__sizes { margin-bottom: 8px; }
 .vid__detail { margin: 0 0 12px; color: var(--text-2); font-size: 13px; line-height: 1.4; }
 .vid__support { margin: 4px 0 12px; color: var(--muted); font-size: 12px; line-height: 1.4; }

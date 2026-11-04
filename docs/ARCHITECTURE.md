@@ -56,8 +56,10 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/main.js` | Boot sequence, service wiring, store-to-module subscriptions, click picking, tier switching, the intro runner, the guided-tour loader (`startTour`), `window.__app`. |
 | App glue | `js/app/actions.js` | `createActions(deps)`: the only API the UI calls besides `store` and `clock`. Also `normalizeObserver`, `eventFraming` (how a jump frames its event), `eclipseFocusExpired`, `eclipsePlayRange` and `lookSpanning`. |
 | | `js/app/eclipse-chase.js` | `ribbonPlan` (which eclipse the globe's path ribbon shows), `chaseLegs`/`chaseTarget` and `createEclipseChase` (the shadow chase behind `actions.chaseEclipse`). No three.js. |
-| | `js/app/loop.js` | `createLoop(deps)`: the frame loop with render-on-demand, guarded module calls and strikes, governor sampling and the 4 Hz readout. `redraw()` draws one frame on demand (captures). |
-| | `js/app/capture.js` | `createCapture(deps).frame(opts)`: the scene rendered once at a requested size into a 2D canvas, with the label feed's labels reprojected for that camera (`projectAnchor`, `projectLabels`, `paintLabels`). Postcards and the long exposure's Save image. No three.js. |
+| | `js/app/loop.js` | `createLoop(deps)`: the frame loop with render-on-demand, guarded module calls and strikes, governor sampling, the 4 Hz readout and idle supersampling (extra jittered frames once nothing moves, `core/sampling.js`). `redraw()` draws one frame on demand (captures); `step(now, dt, io)` runs one whole frame on a caller's time base (video sessions). |
+| | `js/app/capture.js` | `createCapture(deps).frame(opts)`: the scene rendered once at a requested size into a 2D canvas, with the label feed's labels reprojected for that camera (`projectAnchor`, `projectLabels`, `paintLabels`). Postcards and the long exposure's Save image. `session(opts)`: the same, frame after frame at one size (the time-lapse video). No three.js. |
+| | `js/app/recorder.js` | Time-lapse video export, loaded on demand by `actions.recordVideo`: the pure frame plans (`videoPlan`: holds and clock ranges for a day, a night of star trails, the 2027 eclipse chase; `nightSpan`), `pickEncoder`, and `recordVideo` (deterministic frames on a virtual time base, WebCodecs into `mp4.js`, else MediaRecorder in real time; state restored afterwards). No three.js. |
+| | `js/app/mp4.js` | A tiny faststart MP4 muxer for one H.264 (`avcC`) or VP9 (`vpcC`) track, pure; `mp4Boxes` walks boxes (tests). |
 | | `js/app/expose.js` | Long-exposure presets, pure: `photoLayers` (no line art in a stack), `trailsLook`, `nextDarkMs`, `meanNoonMs`, `analemmaPlan`. |
 | | `js/app/labels-feed.js` | `buildAnchors(state, snap, catalog, trails)` and `createLabelsFeed(deps)`: label anchors with live vectors. |
 | | `js/app/intro.js` | `playIntro(opts)`: the first-visit camera flight, pin drop and beam launch (after a pre-roll that holds the opening pose while the loader fades). |
@@ -69,6 +71,7 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/core/url-state.js` | `parseHash`, `serializeHash` and `bindUrl`, which keeps the URL hash in sync (throttled `replaceState`; held while `suspended()`, i.e. during a tour). |
 | | `js/core/tour-catalog.js` | `TOURS` (id, title, blurb, running time), `TOUR_IDS`, `isTourId`: what the Events tab lists and `#tour=` accepts. |
 | | `js/core/quality.js` | `TIERS`, `detectTier`, `tierConfig`, `autoStartTier`, and `createGovernor` (downgrade only, display-cadence budget). |
+| | `js/core/sampling.js` | Renderer policies, pure: `halton`, `createSupersampler` (idle supersampling: which frames accumulate, their weight and jitter, when to park), `viewMotionPx`, `streakShutter` and `strobeDim` (fast-time streaks). |
 | | `js/core/prefs.js` | `localStorage` under `pc2.`, falling back to memory. |
 | | `js/core/tz.js`, `js/core/format.js` | Time zones (canonicalised, DST-safe) and every displayed number and string. |
 | | `js/core/types.js` | JSDoc typedefs: the shared contract. |
@@ -90,8 +93,9 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/astro/totality.js` | Totality from the ground: Baily's beads (lunar limb profile), corona epoch parameters, contact-time display adaptation, the horizon ring's azimuthal shape. Illustrative in detail (ASTRONOMY.md). |
 | | `js/astro/vantage.js` | Vantage points (loaded by the rig on first use): the L1 pose (235 R sunward, 4° toward ecliptic north, north up, 0.7°), the Earthrise orbit (`planLunarOrbit`: 150 km up, in the plane through the Earth direction nearest the ecliptic, rising over the sunlit limb; `lunarOrbitPose`: the orbiter's place at any time, looking along its track), `vantageFov`, `vantageNear`, `moonInFront`. |
 | Data | `js/data/catalog.js` | Decodes `data/sky.json` into GPU-ready typed arrays in the scene frame. |
-| Render | `js/render/context.js` | Renderer, scene, camera, tier switching, `invalidate`/`onInvalidate`, context loss, stats; `setAccumulation` (long exposures) and `capture` (a one-task render at another size). |
-| | `js/render/postfx.js` | Composer with bloom and the final pass (FXAA when the scene target has no MSAA; the night-vision grade, `rc.setVision`). While Expose is on, `AccumPass` (`accum.js`: two half-float targets, max-stacking, bright-only for the analemma) sits between the scene and the bloom. |
+| Render | `js/render/context.js` | Renderer, scene, camera, tier switching, `invalidate`/`onInvalidate`, context loss, stats; `setAccumulation` (long exposures), `capture` (a one-task render at another size), video sessions (`beginCapture`, `captureCamera`/`releaseCamera`, `endCapture`) and `render(ss)` (a jittered supersampling sample). |
+| | `js/render/postfx.js` | Composer with bloom and the final pass (FXAA when the scene target has no MSAA; the night-vision grade, `rc.setVision`). While Expose is on, `AccumPass` (`accum.js`: two half-float targets, max-stacking, bright-only for the analemma) sits between the scene and the bloom; otherwise, on tiers that supersample, `SupersamplePass` (`supersample.js`: one half-float history, a hardware-blended running mean) sits there. |
+| | `js/render/streaks.js` | Fast-time star streaks, a render module for its per-frame hook: measures the camera's turn since the last frame and publishes `STREAK_UNIFORMS` (the shutter's opening as a world → view mat3, the cap), shared by the stars and the planet glyphs (`STREAK_VERT_CHUNK`), and `streakState.dim` for line art and the Milky Way. |
 | | `js/render/long-exposure.js` | The long exposure's controller, a render module for its per-frame hook: turns stacking on in sky view while `ui.expose` is set, resets the stack when the framing changes, gates star trails by daylight, reports `stats()`. |
 | | `js/render/textures.js` | Placeholder-first texture store with byte-weighted progress. |
 | | `js/render/earth.js`, `atmosphere.js` | Earth shader (day, night lights with close-zoom filtering, sun glint and moonglint, moonlight, twilight, sculpted clouds, the face-on aurora, eclipse shadow, footprint) and atmosphere. |
@@ -104,7 +108,7 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/render/trails.js`, `flare.js`, `debug.js` | Retrograde paths, procedural lens flare (six-spike starburst, hexagonal aperture ghosts; no textures), `?debug=1` overlay. |
 | | `js/render/eclipse-path.js` | The path of a central solar eclipse on the globe: ribbon, centre line, 30-min ticks, the live umbra marker; reveal modes for the chase. |
 | Camera | `js/camera/rig.js`, `picking.js` | Orbit and sky-view camera, Earth-lock, fly-to tweens, `follow()` (the shadow chase), sidereal tracking, `setVantage()` (View from L1, Earthrise); analytic globe and glyph picking. |
-| UI | `js/ui/index.js` and its modules | Shell, top bar, time bar, Sky Now, body card (with `eyepiece.js`: the 2D-canvas eyepiece portrait, also in text mode), events (with the guided tours), Eclipse Companion, the tour's lower third (`tour-bar.js`), layers, settings, about, help, toasts, shortcuts, announcer; the share menu, `postcard.js` (postcard and Save-image dialog, the typographic band) and `expose.js` (Expose presets and the exposure's status pill).; the vantage menu and its caption pill (`view-switch.js`). |
+| UI | `js/ui/index.js` and its modules | Shell, top bar, time bar, Sky Now, body card (with `eyepiece.js`: the 2D-canvas eyepiece portrait, also in text mode), events (with the guided tours), Eclipse Companion, the tour's lower third (`tour-bar.js`), layers, settings, about, help, toasts, shortcuts, announcer; the share menu, `postcard.js` (postcard and Save-image dialog, the typographic band), `video.js` (the time-lapse video dialog: presets, frame size, progress and preview, the burned-in date stamp) and `expose.js` (Expose presets and the exposure's status pill); the vantage menu and its caption pill (`view-switch.js`). |
 
 ---
 
@@ -257,6 +261,59 @@ critical CSS read them.
   sentence, the brand mark), encodes a JPEG as soon as its dialog opens, and shares it with
   `navigator.share({files})` straight from the next tap (iOS needs that fresh activation) or
   downloads it. Text mode draws the band on a drawn night sky.
+- **Time-lapse video** (Share → Video, `ui/video.js`; 3D view only). `actions.recordVideo({preset,
+  size, signal, onProgress, paint})` imports `app/recorder.js` on first use. `videoPlan` turns the
+  preset into holds and clock ranges: 'day' (24 h from now, linear, 12 s), 'night' (dusk to dawn at
+  the Sun's −12°, 15 s, sky view facing the visible pole with Expose 'trails' stacking, so the
+  trails grow through the clip) and 'eclipse' (2 Aug 2027: the shadow chase's glide, its eased
+  legs and the hold at greatest eclipse, about 24 s). The recorder stops the rAF loop and drives
+  every frame itself on a virtual time base (1000/fps ms a frame): `clock.setRange` plus
+  `clock.tick` advance simulated time by exactly one frame's share, and `render.video.setNow` makes
+  the rig's tweens and `follow()` read the same clock (main.js passes the rig `now: () =>
+  R.virtualNow ?? performance.now()`). So the frames are deterministic, whatever the GPU's speed. A
+  capture session (`capture.session` → `rc.beginCapture`) keeps the drawing buffer, the composer
+  and `rc.size` at 1920×1080 or 1080×1920 (720p on low) for the whole clip, screen resizes wait,
+  and a long exposure keeps stacking at that size (`opts.stack`). Each frame is one `loop.step()`
+  with `rc.captureCamera()`/`releaseCamera()` around its draw (the screen's shorter-side angle on
+  the frame's shorter side); its labels are reprojected and painted, then the UI's `paint` burns in
+  the date stamp, the place and the brand. Encoding: WebCodecs `VideoEncoder` (H.264 High, Main or
+  Baseline, else VP9; 4 bits per pixel per second; a key frame every 2 s; the queue held under 6)
+  into the faststart MP4 of `app/mp4.js`, faster or slower than real time; without WebCodecs,
+  `MediaRecorder` on the 2D canvas's `captureStream(0)` with `requestFrame()` per frame, paced in
+  real time (MP4 where the browser records it, else WebM). One frame per task (yielding through a
+  `MessageChannel`), so the page stays responsive and Cancel (`AbortSignal`) acts between frames;
+  a clock change by anyone else stops it ('changed'). Afterwards the session ends, the clock (Live,
+  a range, a rate), the view and camera, Expose and the eclipse focus are restored and the loop
+  starts again. While recording, `html.is-recording` hides the scene canvas (it shows the video's
+  frames at another size); the dialog shows a live preview.
+- **Idle supersampling** (tiers with `supersample`: medium 8, high and max 16; not low). When the
+  loop finds nothing dirty and nothing moving, it keeps drawing extra frames, each offset by a
+  Halton(2,3) sub-pixel jitter, until the tier's cap, then idles again. `rc.render(ss)` adds the
+  jitter to `projectionMatrix.elements[8]/[9]` (on top of the rig's view-inset offset) for the draw
+  only, and `postfx`'s `SupersamplePass` blends the frame into its history with weight `w`
+  (hardware blend, one half-float target allocated on first use after a resize); bloom and the final
+  pass see the mean, and FXAA steps aside once 4 samples are in. Extra frames skip the module
+  updates, the labels and the governor. Policy (`core/sampling.js createSupersampler`): motion (the
+  rig, tweens, fast time, the intro, a held pointer) bypasses the pass and the first still frame
+  starts a history (`w = 1`, no jitter); any other change starts afresh; a frame that only moved
+  sim time (Live 1×'s 0.5 s snapshot steps) is measured (`viewMotionPx`): under ¼ px it joins the
+  history as an EMA sample (`w = 1/cap`, no extra frames, so the image never flips between aliased
+  and clean), up to 1.5 px it keeps a short history and refines again, beyond that it starts afresh;
+  twinkle frames blend with `w ≥ ½`. A long exposure and supersampling never run together (the
+  pass leaves the chain while `AccumPass` is in it); captures and video frames are not
+  supersampled.
+- **Fast-time streaks** (`render/streaks.js`, tiers with `streakPx`: medium 14, high 24, max 32
+  device px; not low). At 10 min/s and faster (and only then, so a drag at Live stays crisp) the
+  module measures the camera's turn since the previous rendered frame (its world quaternion) and
+  publishes the shutter's opening, slerp(now, previous, ½) (a whole frame while a long exposure
+  stacks, so trails join up), as `uStreakView`. The star vertex shader projects each star at both
+  ends (`STREAK_VERT_CHUNK`), grows the point sprite by the streak and centres it on the midpoint;
+  the fragment measures the PSF from the segment, and the light spreads along it (softened, `^0.6`).
+  Past the cap (or the GPU's point-size limit) a streak stops growing and dims instead, so 1 day/s
+  and faster fade the strobing sky; planet glyph quads stretch the same way. Constellation figures
+  and the Milky Way dim with `strobeDim` of the per-frame jump. Off under reduced motion, after a
+  frame gap over 100 ms (render on demand: the previous pose is stale), across cuts (> 34° a frame)
+  and in captures (dt 0).
 - **Guided tours** (`actions.startTour(id)`, the Events tab, or `#tour=<id>` once the app is
   ready). `main.js` imports `app/tours.js` on the first tour and keeps one runner. A tour is a list
   of plain-data steps built from the observer, the time and, for 'Tonight from here', the worker's
@@ -309,10 +366,14 @@ frame(now):  dt = min(now − last, 100)
   motion = moving || rig.tweening || clock.isAnimating() || introPlaying || pointer held
   twinkleDue = twinkle tier && sky view && stars visible && ≥ 29 ms since the last frame   // ~30 Hz
   held = governor.probe()                        // before a step with no fresh cadence: frames off to measure it
-  if !held && (dirty || motion || twinkleDue):
+  ssIdle = supersampling tier && !motion && !dirty && !twinkleDue && history below the cap
+  if !held && ssIdle:
+      rc.render({jitter, weight})                // an extra sample only: no updates, labels or governor
+  else if !held && (dirty || motion || twinkleDue):
       dirty = false                              // cleared first: invalidate() during update requests the next frame
       module.update(fi) for every module         // fi: dt, time, camera, viewMode, skyBlend, snap, pulses, simRate, exposure
-      rc.render();  labelsFeed.sync(camera, mode, view);  labels.update(camera, viewport, {cap, skyLum})
+      rc.render(ss);  labelsFeed.sync(camera, mode, view);  labels.update(camera, viewport, {cap, skyLum})
+                                                 // ss: null (motion), a fresh history, or a drift/twinkle sample
       governor.sample(dt) if the previous frame also rendered
   else:
       governor.idle(dt) if the previous tick drew nothing either    // the display cadence
@@ -326,6 +387,11 @@ frame(now):  dt = min(now − last, 100)
   animation. It keeps frames coming only while the star field is actually shown (star exposure
   above `TWINKLE_MIN_STARS`, totality included, star layer on), and then at about 30 Hz whatever
   the display rate. A daytime sky view idles like the orbit view.
+- **Idle supersampling.** Once nothing moves, the loop draws up to the tier's `supersample` extra
+  frames, each jittered (Halton 2,3) and blended into a running mean, then idles: a paused app still
+  goes quiet, a fraction of a second later. The first still frame after motion starts the history;
+  Live 1×'s half-second snapshot steps join it as EMA samples while the view moved under ¼ px (see
+  §4, Idle supersampling).
 - **Strikes.** Every module call is guarded. A module that throws three times has its `object3d`
   hidden and stops being called, and one toast names the feature. A renderer that keeps throwing
   hands over to text mode through `onRenderFailure`.
@@ -335,6 +401,10 @@ frame(now):  dt = min(now − last, 100)
   updates with the current camera and the last `FrameInfo` (dt 0), the label feed's sync, then
   `rc.render()`; no DOM labels, stats or governor. `loop.labelOptions` exposes the label pool's
   per-frame options so a capture culls labels as the pool does.
+- **Step.** `loop.step(now, dt, {before, after})` is one whole frame for a video session, whatever
+  is dirty: the clock ticks at the caller's (virtual) `now`, the snapshot and readout follow, the
+  rig advances by `dt`, then `before()`, the module updates, the label feed, `rc.render()` and
+  `after(camera)`. The caller keeps the rAF loop stopped meanwhile.
 - **Label cap.** Sky view uses the tier's `labelCap`. Orbit view caps at 18 to keep the globe clear.
 - **Sky site.** `main.js` keeps the observer's light pollution (`astro/skyglow.js` `siteFor`: Auto from
   `cities.list`, or the Sky darkness setting) and hands it over with `loop.setSkySite(site)` on every
@@ -510,6 +580,7 @@ change.
 | Atmosphere | analytic | analytic | ray-marched (8 steps) | ray-marched (32 steps) |
 | Stars to mag | 5.0 | 6.0 | 6.5 | 6.5 (the whole catalog) |
 | Flare / twinkle | — / — | ✓ / — | ✓ / ✓ | ✓ / ✓ |
+| Idle supersampling / streak cap | — / — | 8 samples / 14 px | 16 / 24 px | 16 / 32 px |
 | Labels | 12 | 24 | 40 | 80 |
 
 - **Choosing the tier.** `detectTier` uses the renderer string, touch input, device memory, max

@@ -30,7 +30,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import zlib from 'node:zlib';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { parseHtml, pageEntries, crawlModules } from './lib/modgraph.mjs';
+import { parseHtml, pageEntries, pageModules } from './lib/modgraph.mjs';
 import { siteFiles } from './stage-site.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -189,11 +189,10 @@ export function shellAndModules() {
             shell.push(l.href.replace(/^\.\//, ''));
         }
     }
-    const { entries, external: pageExternal } = pageEntries(doc);
+    const { entries } = pageEntries(doc);
     if (entries.length && entries.every((e) => size(e.path) !== null)) {
-        const g = crawlModules(ROOT, entries, doc.importMap);
-        const external = [...pageExternal, ...g.external.map((x) => x.url)];
-        return { shell, modules: g.modules, mode: 'module graph from index.html', missing: g.missing, external };
+        const g = pageModules(ROOT);
+        return { shell, modules: g.modules, mode: 'module graph from index.html', missing: g.missing, external: g.external };
     }
     const all = siteFiles(ROOT).filter((f) => /\.m?js$/.test(f) && (f.startsWith('js/') || f.startsWith('vendor/')));
     return { shell, modules: all, mode: 'approximate: all js/ + vendor JS (index.html has no local module entry yet)', missing: [], external: [] };

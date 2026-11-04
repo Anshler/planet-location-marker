@@ -164,6 +164,21 @@ export function pageEntries(doc) {
     return { entries, external, unresolved };
 }
 
+/**
+ * Every module the page can run: index.html's module scripts and modulepreloads, then their static
+ * and dynamic imports and module workers, through the import map. The transfer budgets count this
+ * graph (scripts/check-size.mjs) and the service worker precaches it (scripts/stage-site.mjs →
+ * sw-manifest.json), so both see the same files.
+ * @param {string} root site root
+ * @returns {{doc:ReturnType<typeof parseHtml>, entries:{path:string, context:'window'}[], modules:string[], missing:{path:string, from:string}[], external:string[]}}
+ */
+export function pageModules(root) {
+    const doc = parseHtml(fs.readFileSync(path.join(root, PRELOAD_HTML), 'utf8'));
+    const { entries, external } = pageEntries(doc);
+    const g = crawlModules(root, entries, doc.importMap);
+    return { doc, entries, modules: g.modules, missing: g.missing, external: [...external, ...g.external.map((x) => x.url)] };
+}
+
 // ---------------------------------------------------------------------------------------------
 // The boot graph's modulepreload lists in index.html (instant-earth-progressive-textures)
 //

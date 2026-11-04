@@ -8,6 +8,7 @@ import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { RECIPES, DERIVED_LOCK, checkDerived, imageSize, readLockFile } from '../scripts/build-textures.mjs';
 import { readAssets, tierTextureKeys } from '../scripts/check-size.mjs';
+import { precacheList } from '../scripts/stage-site.mjs';
 import { TIERS, tierConfig } from '../js/core/quality.js';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -154,12 +155,16 @@ test('max: 8192 maps of the same imagery, each after its 4096 stand-in; only max
             for (const key of MAX_ONLY) assert.ok(!tierTextureKeys(cfg).includes(key), `${t} never loads ${key}`);
         }
     }
-    // Cache on first use only (sw.js cache-first): the install step precaches the shell, never these.
+    // Cache on first use only (sw.js cache-first): an install precaches the shell, the module graph,
+    // the boot data and the two 512 px previews, never a tier's maps (staged: sw-manifest.json's
+    // precache; dev: sw.js DEV_PRECACHE).
+    const staged = precacheList(ROOT).filter((p) => p.startsWith('assets/textures/') || /\.(jpe?g|webp|png)$/.test(p) && p.startsWith('data/'));
+    assert.deepEqual(staged.sort(), [ASSET_URLS.dayPreview, ASSET_URLS.nightPreview].sort(), 'only the previews');
     const sw = fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8');
-    const precache = sw.match(/const PRECACHE = (\[[^\]]*\])/)?.[1] ?? '';
-    assert.ok(precache.length > 2, 'PRECACHE found');
-    for (const key of MAX_ONLY) assert.ok(!precache.includes(path.basename(ASSET_URLS[key])), `${key} not precached`);
-    assert.ok(!/textures/.test(precache), 'no textures precached at all');
+    const dev = sw.match(/const DEV_PRECACHE = (\[[^\]]*\])/)?.[1] ?? '';
+    assert.ok(dev.length > 2, 'DEV_PRECACHE found');
+    for (const key of MAX_ONLY) assert.ok(!dev.includes(path.basename(ASSET_URLS[key])), `${key} not precached`);
+    assert.ok(!/textures/.test(dev), 'no textures precached at all in dev');
 });
 
 test('the cloud and water maps are clamped to the windows the earth shader reads them through', async () => {

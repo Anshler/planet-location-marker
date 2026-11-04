@@ -30,6 +30,7 @@ export const SHORTCUTS = [
         ['Esc', 'Leave a vantage point (View from L1, Earthrise)'],
         ['L', 'Lock view to Earth'],
         ['K', 'Sky view: track the body, then the stars'],
+        ['A', 'Sky view: measure the angle between two things (ruler)'],
         ['←|→|↑|↓', 'Rotate the globe / look around'],
         ['+|−', 'Zoom'],
         ['Home', 'Reset camera'],

@@ -729,6 +729,35 @@ and AE's contacts to 0.1 s; the shapes are illustrative.
   a high Sun it is brightest toward the nearest edge; with a low one the stretched shadow darkens
   the Sun's azimuth. The ground catches a little of the light.
 
+## 7a. Finding it in the real sky (`js/astro/sky-guide.js`, `render/ruler.js`, `camera/aim.js`)
+
+- **Angles you can measure by hand.** Held at arm's length a fist covers about 10° and a finger
+  about 1°; three fingers are about 5° (`handSpan`: fingers below 3.5°, 'half a fist' to 7.5°,
+  then fists rounded to halves). Hands and arms vary by ±20 %, so the wording is always 'about'.
+- **'Find it'.** Which way to face is the apparent azimuth in 16 compass points; how far up is the
+  apparent (refracted) altitude in hands. The neighbour is the nearest signpost within 40° and at
+  least 3° up: the Moon and the planets brighter than the Sun's-altitude limit (mag 2 below −8°,
+  0 in twilight, −3.5 by day), and below −8° of Sun 24 bright stars (J2000 RA/Dec to ~0.01°,
+  proper motion ignored, placed with the snapshot's observer ENU, which already carries
+  precession, so no precession error), never the Sun. A neighbour more than 1.5 mag fainter than
+  the target is used only when nothing comparable is near (Jupiter is no easier to find from
+  Regulus). The offset is the target's direction projected on the neighbour's upright frame:
+  right is the horizontal direction 90° clockwise of its azimuth, up is toward the zenith, and the
+  direction words come from the 45° sector of `atan2(up, right)`, the count from the true
+  separation.
+- **The ruler** measures between the drawn, refraction-lifted places, the angle a hand held up to
+  the real sky would span; it differs from the astrometric separation by at most ~0.5° near the
+  horizon. Ends on bodies follow their topocentric direction; ends on stars or empty sky are
+  fixed in the J2000 scene frame, so they turn with the sky.
+- **Pointing the phone.** W3C DeviceOrientation: R = Rz(α)·Rx(β)·Ry(γ) takes device axes to
+  east-north-up; the rear camera looks along the device's −z, the screen's up is the device axis at
+  `screen.orientation.angle`. Android's `deviceorientationabsolute` gives α from magnetic north;
+  iOS gives a relative α and `webkitCompassHeading`, which is taken as the camera's heading while
+  the phone is within 40° of upright and turned into a smoothed correction. Magnetic declination
+  (up to ~20°), nearby metal and sensor error put the compass 5–15° out: 'Align' adds the
+  azimuth that puts a centred body (or bright star) at its true azimuth. Altitude comes from
+  gravity and is good to a degree or two.
+
 ---
 
 ## 8. Accuracy budget
@@ -748,6 +777,8 @@ and AE's contacts to 0.1 s; the shapes are illustrative.
 | Star proper motion (catalogue fixed at J2000) | 0.2″–10″/yr | Negligible within a few centuries. The fastest naked-eye stars shift by up to about a degree 1000 years from 2000. |
 | Refraction model | several ′ near the horizon | Real refraction depends on temperature and pressure. Rise and set times are good to about a minute. The sky view draws the same model (§6). |
 | Aurora oval | a few degrees of latitude | Starkov's statistical oval for a chosen Kp, not live activity; centred dipole instead of corrected geomagnetic coordinates; the dipole held at 1900 or 2030 outside those years. Arcs, rays and their motion are illustrative (§6b). |
+| 'Point at the sky' heading | 5–15° until aligned | Phone compasses are magnetic and easily disturbed; 'Align' on a body removes the offset for that place and phone. The UI says 'approximate'. |
+| Hand units ('fists') | ±20 % | Hands and arms differ; the wording says 'about'. |
 | Illustrative landscape | up to 0.5° (ridge), 1.2° (trees, roofs) | Invented per place. Bodies set behind it minutes before the almanac's (mathematical-horizon) times; the layer can be turned off. |
 | Float32 on the GPU | ≈ 0.01″ | Unit vectors in single precision. |
 | Sub-points, footprint | geocentric | The footprint is the hemisphere where the body's geocentric direction is above the horizon. Parallax and refraction are not applied. It is a guide, not a contact time. |

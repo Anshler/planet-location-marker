@@ -1,8 +1,9 @@
 /**
  * View switch cluster: the `Globe | Sky` segmented control, Earth-lock (Globe
- * only), tracking (Sky only: off → the selected body → the stars, K), Expose (Sky only: long
- * exposures, ui/expose.js), Share, Fullscreen and Help. On mobile it becomes a floating column
- * (Globe/Sky, lock, tracking, expose, share).
+ * only), tracking (Sky only: off → the selected body → the stars, K), the angle ruler and 'Point at
+ * the sky' (Sky only, ui/sky-tools.js), Expose (Sky only: long exposures, ui/expose.js), Share,
+ * Fullscreen and Help. On mobile it becomes a floating column (Globe/Sky, lock, tracking, ruler,
+ * point, expose, share).
  *
  * Vantage points (globe view): a menu button offers 'View from L1' and 'Earthrise'
  * (actions.setVantage); while one is shown a caption pill names it under the top bar with a way
@@ -21,6 +22,7 @@ import { h, on, setAttr, trapFocus, openPopover } from './dom.js';
 import { icon, swapIcon } from './icons.js';
 import { mountPostcard } from './postcard.js';
 import { mountExpose } from './expose.js';
+import { mountSkyTools } from './sky-tools.js';
 
 /** The vantage menu: [kind, name, detail]. */
 const VANTAGE_ITEMS = Object.freeze([
@@ -63,7 +65,8 @@ export function mountViewSwitch(root, ctx) {
         icon('crosshair', { size: 19 }));
     const vantBtn = h('button', { class: 'icon-btn icon-btn--glass glass vb-vantage', type: 'button', 'aria-haspopup': 'menu', 'aria-expanded': 'false', 'aria-label': 'Vantage points', 'data-tip': 'Vantage points' },
         icon('vantage', { size: 19 }));
-    root.append(seg, lockBtn, vantBtn, trackBtn, exposeBtn, shareBtn, fsBtn, helpBtn);
+    const tools = mountSkyTools(ui.root || document.body, ctx);
+    root.append(seg, lockBtn, vantBtn, trackBtn, tools.rulerBtn, tools.pointBtn, exposeBtn, shareBtn, fsBtn, helpBtn);
     root.setAttribute('role', 'toolbar');
     root.setAttribute('aria-label', 'View');
 
@@ -278,6 +281,7 @@ export function mountViewSwitch(root, ctx) {
             sharePop.remove();
             postcard.destroy();
             expose.destroy();
+            tools.destroy();
             clearTimeout(fadeTimer);
             release?.();
             closeVant();

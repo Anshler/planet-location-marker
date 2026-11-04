@@ -214,3 +214,41 @@ test('telescopeFov: Jupiter with all four moons, the Moon whole, small planets a
     assert.equal(telescopeFov('mars', s), TELESCOPE_FOV_MIN);
     assert.equal(telescopeFov('pluto', s), null);
 });
+
+test('setRuler: sky view only (switches there), toggles, needs the 3D view', () => {
+    const text = makeActions();
+    assert.equal(text.actions.setRuler(true), false);
+    assert.equal(text.store.get().ui.ruler, undefined);
+    assert.equal(text.toasts.length, 1);
+    const { store, actions } = makeActions({ render: { rig: { setMode: () => Promise.resolve(true) } } });
+    assert.equal(actions.setRuler(), true);
+    assert.equal(store.get().view.mode, 'sky');
+    assert.deepEqual(store.get().ui.ruler, { ends: 0, from: null, to: null, deg: null, text: '', fists: '' });
+    assert.equal(actions.setRuler(true), true, 'already on');
+    assert.equal(actions.setRuler(), false);
+    assert.equal(store.get().ui.ruler, null);
+});
+
+test('pointAtSky: iOS permission asked inside the call, then the aim runner; denied → a toast', async () => {
+    const order = [];
+    let answer = 'granted';
+    const DeviceOrientationEvent = { requestPermission: () => { order.push('permission'); return Promise.resolve(answer); } };
+    const aim = { start: () => { order.push('start'); return Promise.resolve(true); }, stop: (r) => order.push(`stop:${r}`), align: () => 'the Moon' };
+    const { store, actions, toasts } = makeActions({ render: { rig: {} }, aim, win: { DeviceOrientationEvent } });
+    // Globe view: refused.
+    assert.equal(await actions.pointAtSky(true), false);
+    assert.equal(toasts.length, 1);
+    store.set({ view: { ...store.get().view, mode: 'sky' } });
+    const p = actions.pointAtSky();
+    assert.deepEqual(order, ['permission'], 'synchronously, still inside the tap');
+    assert.equal(await p, true);
+    assert.deepEqual(order, ['permission', 'start']);
+    answer = 'denied';
+    assert.equal(await actions.pointAtSky(true), false);
+    assert.match(toasts.at(-1).message, /Motion access was declined/);
+    // On (ui.aim set by main.js): the toggle stops it.
+    store.set({ ui: { ...store.get().ui, aim: { source: 'compass', offsetDeg: 0, aligned: null } } });
+    assert.equal(await actions.pointAtSky(), false);
+    assert.equal(order.at(-1), 'stop:user');
+    assert.equal(actions.alignAim(), 'the Moon');
+});

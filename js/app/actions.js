@@ -361,7 +361,9 @@ export function telescopeFov(id, snap, aspect = 16 / 9) {
  *          runIntro?:(opts?:{force?:boolean})=>Promise<unknown>,
  *          toggleDebug?:()=>boolean,
  *          tours?:{start:(id:string)=>Promise<boolean>, stop:()=>void, next:()=>void, resume:()=>void},
+ *          aim?:{start:()=>Promise<boolean>, stop:(reason?:string)=>void, align:()=>string|null},
  *          win?:Window, doc?:Document, nav?:Navigator}} deps
+ *   `aim`: main.js's 'Point at the sky' runner (camera/aim.js, loaded on first use)
  * @returns {object} Actions
  */
 export function createActions(deps) {
@@ -1141,6 +1143,88 @@ export function createActions(deps) {
     }
 
     /**
+     * The angle ruler (sky view, render/ruler.js): on, taps on the sky measure instead of selecting
+     * (two ends: a body, a bright star or any point; a third tap starts again); off clears it.
+     * `ui.ruler` carries the reading (main.js fills it in). Needs the 3D view.
+     * @param {boolean} [on] omitted → toggle
+     * @returns {boolean} the ruler is on
+     */
+    function setRuler(on) {
+        const ui = store.get().ui;
+        const next = on === undefined ? !ui.ruler : !!on;
+        if (!next) {
+            if (ui.ruler) {
+                store.set({ ui: { ...ui, ruler: null } }, 'actions');
+                say('Ruler off');
+            }
+            return false;
+        }
+        if (ui.ruler) return true;
+        if (!has3d()) {
+            toast('The ruler needs the 3D view.', 'info');
+            return false;
+        }
+        if (store.get().view.mode !== 'sky') store.set({ view: { ...store.get().view, mode: 'sky', vantage: 'none' } }, 'actions');
+        store.set({ ui: { ...store.get().ui, ruler: { ends: 0, from: null, to: null, deg: null, text: '', fists: '' } } }, 'actions');
+        say('Ruler on: tap two things in the sky to measure the angle between them');
+        return true;
+    }
+
+    /**
+     * 'Point at the sky' (phones, sky view): the view follows the phone (camera/aim.js, run by
+     * main.js through deps.aim). iOS asks for motion access here, inside the tap, before anything
+     * is awaited. Off stops it. Resolves true once the first reading arrived.
+     * @param {boolean} [on] omitted → toggle
+     * @returns {Promise<boolean>}
+     */
+    function pointAtSky(on) {
+        const ui = store.get().ui;
+        const next = on === undefined ? !ui.aim : !!on;
+        if (!next) {
+            try { deps.aim?.stop?.('user'); } catch { /* already stopped */ }
+            return Promise.resolve(false);
+        }
+        if (ui.aim) return Promise.resolve(true);
+        if (!has3d() || typeof deps.aim?.start !== 'function') {
+            toast('Pointing at the sky needs the 3D view.', 'info');
+            return Promise.resolve(false);
+        }
+        if (store.get().view.mode !== 'sky') {
+            toast('Switch to the sky view first.', 'info');
+            return Promise.resolve(false);
+        }
+        const DOE = win?.DeviceOrientationEvent;
+        let perm = 'granted';
+        if (typeof DOE?.requestPermission === 'function') {
+            try {
+                perm = DOE.requestPermission();
+            } catch {
+                perm = 'denied';
+            }
+        }
+        return Promise.resolve(perm).catch(() => 'denied').then((p) => {
+            if (p !== 'granted') {
+                toast('Motion access was declined, so the view cannot follow the phone. Allow it in the browser settings to try again.', 'warn');
+                return false;
+            }
+            return Promise.resolve(deps.aim.start()).catch(() => false);
+        });
+    }
+
+    /**
+     * 'Align' while pointing: the bright body or star nearest the centre of the view is taken to be
+     * where the phone really points, which corrects the compass (main.js; saved for next time).
+     * @returns {string|null} what it aligned on
+     */
+    function alignAim() {
+        try {
+            return deps.aim?.align?.() ?? null;
+        } catch {
+            return null;
+        }
+    }
+
+    /**
      * Guided tours (js/app/tours.js, which main.js loads on demand; ids in core/tour-catalog.js).
      * `deps.tours` is {start(id), stop(), next(), resume()}; without it (tests, a failed load) the
      * calls do nothing. startTour resolves true once the tour runs.
@@ -1167,6 +1251,8 @@ export function createActions(deps) {
         eclipsePath: eclipsePathFor, standInPath, playEclipse,
         // Phase 5: long exposures and the capture path (postcards, Save image).
         expose, exposeStatus, capture,
+        // Phase 5: finding it in the real sky (the angle ruler, pointing the phone).
+        setRuler, pointAtSky, alignAim,
         /**
          * Rides the Moon's shadow: the camera follows the umbra from low orbit while the clock runs
          * the path of the central eclipse near `target` (a time or an event) in about 40 s.

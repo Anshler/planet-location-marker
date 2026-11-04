@@ -3,6 +3,8 @@
  *
  * - title with colour dot, a canvas phase disc and the tonight verdict badge;
  * - the position sentence ("Mars is 34° above the south-east horizon, in Taurus.");
+ * - 'find it' in the real sky, in hands at arm's length (astro/sky-guide.js): "Face south-east,
+ *   3½ fists up from the horizon, 1 fist above and to the right of the Moon.";
  * - the light-time sentence ("The light you see from Mars left 12 min 31 s ago.");
  * - Moon extras: phase name and age;
  * - the eyepiece portrait (ui/eyepiece.js): the body as a small telescope shows it now;
@@ -23,6 +25,7 @@ import { h, on, setText, setAttr } from './dom.js';
 import { icon } from './icons.js';
 import { moonPhaseName, isUp, lunarEclipseState, solarEclipseState, shownMag } from './sky-now.js';
 import { createEyepiece } from './eyepiece.js';
+import { findIt, guideRefs } from '../astro/sky-guide.js';
 
 const SYNODIC_DAYS = 29.530589;
 
@@ -74,6 +77,12 @@ export function mountBodyCard(root, ctx) {
     const light = h('p', { class: 'card__light' }, h('span', { class: 'card__light-icon', 'aria-hidden': 'true' }, icon('sparkle', { size: 16 })),
         h('span', null, lightText, ' ', lightAgo));
     const moonLine = h('p', { class: 'card__moon', hidden: true });
+    const findText = h('span');
+    const findLine = h('p', {
+        class: 'card__find', hidden: true,
+        title: 'Held at arm’s length, a fist covers about 10° of sky and a finger about 1°. Hands differ, so this is approximate.',
+    }, h('span', { class: 'card__find-icon', 'aria-hidden': 'true' }, icon('ruler', { size: 16 })),
+    h('span', null, h('span', { class: 'card__find-label' }, 'Find it: '), findText));
     // The eyepiece portrait (ui/eyepiece.js): Jupiter's moons, Saturn's rings, the libration-true Moon.
     const eyepiece = createEyepiece();
 
@@ -127,7 +136,7 @@ export function mountBodyCard(root, ctx) {
             h('div', { class: 'card__disc' }, disc),
             h('div', { class: 'card__titles' }, nameEl, kindEl),
             verdict),
-        sentence, light, moonLine, eyepiece.el, actions, tonight, grid,
+        sentence, findLine, light, moonLine, eyepiece.el, actions, tonight, grid,
         h('p', { class: 'note' }, 'Tables show apparent, refracted values; the 3D view draws astrometric J2000 directions.'));
 
     root.append(empty, card);
@@ -216,6 +225,13 @@ export function mountBodyCard(root, ctx) {
             sent += con ? `, in ${con}.` : '.';
         }
         setText(sentence, sent);
+
+        // Find it: which way to face, how many fists up, and from the nearest bright neighbour.
+        // Never for the Sun (nobody should look for it by eye).
+        const guide = up && id !== 'sun' && Number.isFinite(alt)
+            ? findIt({ azDeg: az, altDeg: alt, mag: id === 'moon' ? -10 : b.mag }, guideRefs(snap, id)) : null;
+        if (guide) setText(findText, lowerFirst(guide.text));
+        findLine.hidden = !guide;
 
         // Light-time sentence.
         if (Number.isFinite(b.lightTimeS)) {
@@ -342,6 +358,10 @@ export function mountBodyCard(root, ctx) {
 }
 
 /** "31′ 36″" for discs ≥ 1′, else "17.3″". */
+function lowerFirst(t) {
+    return t ? t.charAt(0).toLowerCase() + t.slice(1) : t;
+}
+
 function angSize(as) {
     if (!Number.isFinite(as) || as <= 0) return '—';
     if (as >= 60) {

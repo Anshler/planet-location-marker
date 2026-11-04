@@ -46,14 +46,18 @@ browser, and nothing needs the network.
 - **A time machine.**
   - Live mode, or any speed from −1 year/s to +1 year/s.
   - Steps of a minute, an hour, a day, a sidereal day, a lunar month or a year.
-  - A scrubber shaded by day and night, a time-lapse loop between two dates, and any year from
-    1000 to 3000.
+  - A scrubber in the sky's own colours (golden hour, violet twilight, indigo and night), with a
+    thin band for when the Moon is up, one for the selected planet and gold bars over eclipses;
+    a time-lapse loop between two dates, and any year from 1000 to 3000.
 - **Sky Now and body details.**
   - For every body: altitude and azimuth with a compass arrow, rise, transit and set, magnitude,
     phase, distance, elongation and constellation.
   - RA and Dec, both J2000 and of date.
   - "Tonight" verdicts, and a light-time sentence such as "The light you see from Saturn left
     1 h 21 min ago".
+  - A Tonight chart from dusk to dawn: when each world is up and how high, its best moment, and
+    a drag to move through the night. Rows count down to the next rise and carry a 24-hour
+    altitude sparkline.
 - **Events for the next 12 months:**
   - Moon phases;
   - oppositions and conjunctions;

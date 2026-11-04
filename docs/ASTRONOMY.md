@@ -816,6 +816,13 @@ not being exactly square to both lines.
   - A body is *not visible* when within 12° of the Sun (7° for the Moon and Venus, which are
     bright enough to be seen closer to it).
   - The equipment hint follows the magnitude.
+  - The samples themselves come back as `series` (refracted altitudes per body, the Sun's
+    unrefracted centre), which the Tonight chart and Sky now's sparklines draw.
+- **Altitude series.** `altitudeSeries(body, …)` samples `Equator(of date, aberration)` →
+  `Horizon` at evenly spaced instants: the Sun unrefracted for the time bar's sky colours, the Moon
+  and the selected planet refracted for its bands (the Moon counts as up while its centre is above
+  −0.27°, its upper limb on the refracted horizon). The bands' Moon brightness uses Meeus (48.4)'s
+  low-precision phase angle (within 1.5 % of `Illumination`, test).
 - **Events** for the next 12 months:
   - Moon quarters;
   - oppositions and conjunctions (`SearchRelativeLongitude` 180°/0°);

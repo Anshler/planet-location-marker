@@ -205,3 +205,132 @@ test('store: setAnisotropy re-uploads only the listed keys, through the hold', (
         globalThis.fetch = had;
     }
 }));
+
+/** Bitmaps that behave like ImageBitmap.close(): the size reads 0 afterwards. Counts decodes. */
+function withClosingDecoder(fn) {
+    const had = globalThis.createImageBitmap;
+    const stats = { decodes: 0, closed: 0 };
+    globalThis.createImageBitmap = async () => {
+        stats.decodes++;
+        return { width: 2, height: 1, close() { if (this.width) stats.closed++; this.width = 0; this.height = 0; } };
+    };
+    return Promise.resolve().then(() => fn(stats)).finally(() => {
+        if (had) globalThis.createImageBitmap = had;
+        else delete globalThis.createImageBitmap;
+    });
+}
+
+/** A renderer whose context can be lost; initTexture throws on a closed image, like texImage2D. */
+function losableRenderer(uploads, gl = { lost: false }) {
+    return {
+        capabilities: { maxTextureSize: 16384, getMaxAnisotropy: () => 16 },
+        getContext: () => ({ isContextLost: () => gl.lost }),
+        initTexture: (t) => {
+            if (!(t.image?.width > 0)) throw new Error('detached image');
+            uploads.push(t.name);
+        },
+    };
+}
+
+test('store: a decoded bitmap is closed once uploaded and its listeners ran; a CPU-read mask keeps it', () => withClosingDecoder(async (stats) => {
+    const had = globalThis.fetch;
+    globalThis.fetch = fakeFetch([]);
+    try {
+        const uploads = [];
+        const store = createTextureStore(losableRenderer(uploads), {});
+        const seen = [];
+        store.onReady('day2k', (tex) => seen.push(tex.image.width));
+        await store.load(['day2k', 'roughness2k']);
+        assert.deepEqual(seen, [2], 'listeners see the image');
+        await tick(5);
+        assert.equal(store.get('day2k').image.width, 0, 'closed: the GPU holds the only copy');
+        assert.equal(store.get('roughness2k').image.width, 2, 'the ocean mask is read on the CPU (ground.js)');
+        assert.equal(stats.closed, 1);
+    } finally {
+        globalThis.fetch = had;
+    }
+}));
+
+test('store: restore() fetches closed maps again, one at a time, into the same Texture', () => withClosingDecoder(async (stats) => {
+    const had = globalThis.fetch;
+    const calls = [];
+    globalThis.fetch = fakeFetch(calls);
+    try {
+        const uploads = [];
+        const gl = { lost: false };
+        const store = createTextureStore(losableRenderer(uploads, gl), {});
+        await store.load(['day2k', 'night2k', 'roughness2k']);
+        await tick(5);
+        const day = store.get('day2k');
+        gl.lost = true;
+        // A map decoded while the context is lost reached no GPU: its image is kept.
+        await store.load(['moon']);
+        await tick(5);
+        assert.equal(store.get('moon').image.width, 2);
+        gl.lost = false;
+        calls.length = 0;
+        uploads.length = 0;
+        const v0 = day.version;
+        await store.restore();
+        assert.deepEqual(calls, [ASSETS.day2k.url, ASSETS.night2k.url], 'only the closed maps are fetched');
+        assert.deepEqual(uploads, ['day2k', 'night2k'], 'and uploaded right away');
+        assert.equal(store.get('day2k'), day, 'the same Texture: every material keeps it');
+        assert.ok(day.version > v0);
+        assert.equal(stats.decodes, 6);
+        await tick(5);
+        assert.equal(day.image.width, 0, 'closed again after the upload');
+        assert.ok(store.get('roughness2k').version > 0 && store.get('moon').image.width === 2);
+    } finally {
+        globalThis.fetch = had;
+    }
+}));
+
+test('store: a closed map that cannot be fetched on restore gets a 1×1 stand-in, so no frame throws', () => withClosingDecoder(async () => {
+    const had = globalThis.fetch;
+    let fail = false;
+    const ok = fakeFetch([]), gone = fakeFetch([], { status: 503 });
+    globalThis.fetch = (url) => (fail ? gone(url) : ok(url));
+    try {
+        const errors = [];
+        const uploads = [];
+        const store = createTextureStore(losableRenderer(uploads), { onProgress: (e) => e.error && errors.push(e.key) });
+        await store.load(['day2k']);
+        await tick(5);
+        const day = store.get('day2k');
+        fail = true;
+        await store.restore();
+        assert.equal(day.image.width, 1, 'uploadable');
+        assert.deepEqual(errors, ['day2k'], 'reported like any failed map');
+        assert.equal(store.isReady('day2k'), false);
+    } finally {
+        globalThis.fetch = had;
+    }
+}));
+
+test('store: a new anisotropy on a closed map fetches it again before the re-upload', () => withClosingDecoder(async () => {
+    const had = globalThis.fetch;
+    const calls = [];
+    globalThis.fetch = fakeFetch(calls);
+    try {
+        const uploads = [];
+        const store = createTextureStore(losableRenderer(uploads), {});
+        await store.load(['day4k']);
+        await tick(5);
+        const v0 = store.get('day4k').version;
+        calls.length = 0;
+        let release;
+        const flushed = store.holdUploads(new Promise((r) => { release = r; }), { bind: false });
+        store.setAnisotropy(16, ['day4k']);
+        assert.equal(store.get('day4k').version, v0, 'no version bump while closed: a frame must not upload it');
+        for (let i = 0; i < 5; i++) await tick(2);
+        assert.deepEqual(calls, [ASSETS.day4k.url]);
+        assert.deepEqual(uploads, ['day4k'], 'still held');
+        release();
+        await flushed;
+        for (let i = 0; i < 5 && uploads.length < 2; i++) await tick(5);
+        assert.deepEqual(uploads, ['day4k', 'day4k']);
+        assert.equal(store.get('day4k').anisotropy, 16);
+    } finally {
+        globalThis.fetch = had;
+    }
+}));

@@ -1618,20 +1618,32 @@ function bindRenderState({ store, bus, clock, rc, rig, loop, snap, astro, m, lab
         }
     });
 
-    // GPU context loss.
+    // GPU context loss. Drawing resumes once the maps are back on the GPU.
     rc.onContextLost?.(() => {
         loop.setRenderPaused(true);
         showContextLost();
     });
     rc.onContextRestored?.(() => {
+        if (textMode) return undefined;
+        const resume = () => {
+            if (textMode) return;
+            hideContextLost();
+            loop.setRenderPaused(false);
+            loop.invalidate();
+        };
+        let restored = null;
         try {
-            textures?.restore?.();
+            restored = textures?.restore?.() ?? null;
         } catch (err) {
             console.error('[main] texture restore failed', err);
         }
-        hideContextLost();
-        loop.setRenderPaused(false);
-        loop.invalidate();
+        if (!restored) {
+            resume();
+            return undefined;
+        }
+        restored.then(resume, resume);
+        // rc draws nothing until it settles: a frame would upload a map whose decoded copy was closed.
+        return restored;
     });
 }
 

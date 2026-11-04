@@ -11,7 +11,9 @@
 
 /**
  * Every image the app loads. `bytes` are the on-disk sizes used to weight loader progress;
- * `cs` is the colour space ('srgb' for colour, 'linear' for data).
+ * `cs` is the colour space ('srgb' for colour, 'linear' for data); `cpu`: the CPU reads its pixels
+ * too (the ocean masks: render/ground.js's water sampler), so the texture store keeps its decoded
+ * image after the upload instead of closing it.
  *
  * The .webp maps are made from the vendored 4096 maps by scripts/build-textures.mjs
  * (vendor/DERIVED.json): day2k and night2k are those maps at half size, filtered like
@@ -36,9 +38,9 @@ export const ASSETS = {
     day2k: { url: 'assets/textures/earth_day_2048.webp', bytes: 144e3, cs: 'srgb' },
     night4k: { url: 'assets/textures/earth_night_4096.jpg', bytes: 267e3, cs: 'srgb' },
     night2k: { url: 'assets/textures/earth_night_2048.webp', bytes: 75e3, cs: 'srgb' },
-    roughness2k: { url: 'assets/textures/earth_roughness_2048.webp', bytes: 56e3, cs: 'linear' },
+    roughness2k: { url: 'assets/textures/earth_roughness_2048.webp', bytes: 56e3, cs: 'linear', cpu: true },
     clouds2k: { url: 'assets/textures/earth_clouds_2048.webp', bytes: 235e3, cs: 'linear' },
-    brc4k: { url: 'assets/textures/earth_bump_roughness_clouds_4096.jpg', bytes: 1508e3, cs: 'linear' },
+    brc4k: { url: 'assets/textures/earth_bump_roughness_clouds_4096.jpg', bytes: 1508e3, cs: 'linear', cpu: true },
     moon: { url: 'assets/textures/moon_1024.jpg', bytes: 238e3, cs: 'srgb' },
     milkyway: { url: 'data/milkyway.png', bytes: 200e3, cs: 'linear', mipmaps: false },
 };

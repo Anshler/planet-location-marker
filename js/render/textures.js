@@ -11,6 +11,12 @@
  * progress, then decoded with createImageBitmap (flipped at decode time, since
  * WebGL ignores UNPACK_FLIP_Y for bitmaps) or, where bitmap options are not
  * honoured (Safari, Firefox < 98), with an <img> element.
+ *
+ * Memory: a decoded ImageBitmap is closed once its map is on the GPU (4096 × 2048 is 33.5 MB of
+ * RAM, 8192 × 4096 134 MB), except a map whose pixels the CPU reads too (ASSETS `cpu`: the ocean
+ * masks, render/ground.js). The GPU copy is the only one then: a context restore or a new
+ * anisotropy fetches the file again (from the HTTP or service-worker cache) and decodes it into the
+ * same Texture before it is uploaded. An <img> (Safari) cannot be closed and stays.
  */
 import * as THREE from 'three';
 import {
@@ -42,6 +48,9 @@ function bitmapDecodeUsable() {
     if (ff && Number(ff[1]) < 98) return false;
     return true;
 }
+
+/** A closed ImageBitmap (its width and height read 0): its pixels are on the GPU only. */
+const isClosed = (img) => !!img && typeof img.close === 'function' && !(img.width > 0);
 
 /** The next task after the next animation frame (the frame is submitted by then); a task in Node. */
 function afterFrame() {
@@ -82,7 +91,7 @@ function afterFrame() {
  *   state:(key:string)=>'idle'|'loading'|'preview'|'ready'|'failed',
  *   holdUploads:(until:Promise<unknown>, opts?:{bind?:boolean})=>Promise<void>,
  *   setAnisotropy:(n?:number, keys?:string[])=>void,
- *   restore:()=>void,
+ *   restore:()=>Promise<void>,
  *   dispose:()=>void }}
  */
 export function createTextureStore(renderer, { onProgress, prefetched = null } = {}) {
@@ -93,8 +102,9 @@ export function createTextureStore(renderer, { onProgress, prefetched = null } =
     let anisotropy = Math.min(8, maxAnisotropy);
     const useBitmap = bitmapDecodeUsable();
 
-    /** @type {Map<string, {state:'idle'|'loading'|'ready'|'failed', tex:THREE.Texture|null,
-     *   promise:Promise<void>|null, listeners:Set<Function>, received:number, bytes:number}>} */
+    /** @type {Map<string, {key:string, state:'idle'|'loading'|'ready'|'failed', tex:THREE.Texture|null,
+     *   promise:Promise<void>|null, listeners:Set<Function>, received:number, bytes:number,
+     *   reloading:Promise<void>|null}>} */
     const entries = new Map();
     const placeholders = new Map();
     let disposed = false;
@@ -102,20 +112,63 @@ export function createTextureStore(renderer, { onProgress, prefetched = null } =
     let gate = null;
     /** The gate's `bind` option: false keeps a map decoded meanwhile unready until its upload. */
     let gateBinds = true;
-    /** @type {{tex:THREE.Texture, done:(()=>void)|null, bound?:boolean}[]} */
+    /** @type {{tex:THREE.Texture, done:(()=>void)|null, bound?:boolean, bump?:boolean}[]} */
     const held = [];
     /** @type {Promise<void>|null} */
     let flushing = null;
 
-    function initTexture(tex) {
-        try { renderer?.initTexture?.(tex); } catch { /* upload lazily on first use instead */ }
+    const glLost = () => {
+        try { return !!renderer?.getContext?.()?.isContextLost?.(); } catch { return false; }
+    };
+
+    /**
+     * Uploads one map now (renderer.initTexture; `bump`: as a new version, for an image just put
+     * back), then closes its decoded bitmap in a later task, once its onReady listeners have read
+     * it: not a map the CPU reads, nor one uploaded into a lost context (nothing reached a GPU).
+     */
+    function initTexture(tex, bump = false) {
+        if (bump) tex.needsUpdate = true;
+        try { renderer?.initTexture?.(tex); } catch { return; /* upload lazily on first use instead */ }
+        if (!renderer || ASSETS[tex.name]?.cpu || glLost()) return;
+        setTimeout(() => {
+            const img = tex.image;
+            if (!disposed && !isClosed(img) && typeof img?.close === 'function' && !glLost()) img.close();
+        }, 0);
     }
 
     /** Uploads now, or after the gate; `done` runs once the texture is on the GPU. */
-    function upload(tex, done = null) {
-        if (gate) { held.push({ tex, done }); return; }
-        initTexture(tex);
+    function upload(tex, done = null, bump = false) {
+        if (gate) { held.push({ tex, done, bump }); return; }
+        initTexture(tex, bump);
         done?.();
+    }
+
+    /**
+     * Puts a closed map's pixels back: the file again (HTTP or service-worker cache), decoded into
+     * the same Texture (same size, so the GPU storage fits) and uploaded. `restore`: after a context
+     * loss, when the next frame would upload the closed image itself (and throw); if the file cannot
+     * be had, a 1 × 1 stand-in takes its place so that it uploads cleanly.
+     * @returns {Promise<void>} never rejects
+     */
+    function reload(e, restore = false) {
+        if (e.reloading) return e.reloading;
+        const p = (async () => {
+            try {
+                const decoded = await decode(await download(ASSETS[e.key].url, fetch).promise);
+                if (disposed || !e.tex) { decoded.image.close?.(); return; }
+                e.tex.image = decoded.image;
+                e.tex.flipY = decoded.flipY;
+                await new Promise((resolve) => upload(e.tex, resolve, true));
+            } catch (err) {
+                if (!restore || !e.tex || !isClosed(e.tex.image)) return;
+                e.tex.image = typeof ImageData === 'function' ? new ImageData(1, 1) : { width: 1, height: 1 };
+                e.tex.needsUpdate = true;
+                e.state = 'failed';
+                emit({ key: e.key, error: err instanceof Error ? err : new Error(String(err)) });
+            }
+        })();
+        e.reloading = p;
+        return p.finally(() => { if (e.reloading === p) e.reloading = null; });
     }
 
     /** One held upload per task, each after a frame, so two large maps never share a long task. */
@@ -123,7 +176,7 @@ export function createTextureStore(renderer, { onProgress, prefetched = null } =
         flushing ??= (async () => {
             while (held.length && !gate && !disposed) {
                 const h = held.shift();
-                initTexture(h.tex);
+                initTexture(h.tex, h.bump);
                 h.done?.();
                 if (held.length) await afterFrame();
             }
@@ -134,7 +187,7 @@ export function createTextureStore(renderer, { onProgress, prefetched = null } =
     function entryOf(key) {
         let e = entries.get(key);
         if (!e) {
-            e = { state: 'idle', tex: null, promise: null, listeners: new Set(), received: 0, bytes: ASSETS[key]?.bytes ?? 0 };
+            e = { key, state: 'idle', tex: null, promise: null, listeners: new Set(), received: 0, bytes: ASSETS[key]?.bytes ?? 0, reloading: null };
             entries.set(key, e);
         }
         return e;
@@ -338,6 +391,8 @@ export function createTextureStore(renderer, { onProgress, prefetched = null } =
             for (const e of list) {
                 if (!e?.tex || !e.tex.generateMipmaps || e.tex.anisotropy === next) continue;
                 e.tex.anisotropy = next;
+                // A closed map is fetched and decoded again first; it keeps its filtering meanwhile.
+                if (isClosed(e.tex.image)) { reload(e); continue; }
                 e.tex.needsUpdate = true;
                 upload(e.tex);
             }
@@ -346,10 +401,22 @@ export function createTextureStore(renderer, { onProgress, prefetched = null } =
                 if (h.done && h.tex.generateMipmaps && (!Array.isArray(keys) || keys.includes(h.tex.name))) h.tex.anisotropy = next;
             }
         },
-        /** After a WebGL context restore: re-upload every loaded texture from its retained image. */
+        /**
+         * After a WebGL context restore: every loaded map goes back on the GPU, a kept image at its
+         * first draw, a closed one fetched and decoded again first, one at a time (the loss was
+         * likely memory pressure). Resolves once those are uploaded; nothing may draw before (a
+         * frame would upload a closed image), so main.js holds the restore on it.
+         * @returns {Promise<void>} never rejects
+         */
         restore() {
-            for (const e of entries.values()) if (e.tex) e.tex.needsUpdate = true;
             for (const t of placeholders.values()) t.needsUpdate = true;
+            let chain = Promise.resolve();
+            for (const e of entries.values()) {
+                if (!e.tex) continue;
+                if (isClosed(e.tex.image)) chain = chain.then(() => reload(e, true));
+                else e.tex.needsUpdate = true;
+            }
+            return chain;
         },
         /** Frees GPU and decoded-image memory. The store is unusable afterwards. */
         dispose() {

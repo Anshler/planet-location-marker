@@ -37,9 +37,98 @@
   }
 }
 </script>
-<link rel="modulepreload" href="vendor/three/three.module.min.js">
-<link rel="modulepreload" href="vendor/astronomy-engine/astronomy.js">
+<!-- Every module a boot runs downloads at once instead of one import level at a time. These run in
+     text mode too; three.js and the render stack are preloaded by the feature detection below, only
+     when the 3D view can run. -->
+<!-- boot modules (node scripts/lib/modgraph.mjs --write) -->
 <link rel="modulepreload" href="js/main.js">
+<link rel="modulepreload" href="js/ui/index.js">
+<link rel="modulepreload" href="js/version.js">
+<link rel="modulepreload" href="js/core/store.js">
+<link rel="modulepreload" href="js/core/bus.js">
+<link rel="modulepreload" href="js/core/clock.js">
+<link rel="modulepreload" href="js/core/url-state.js">
+<link rel="modulepreload" href="js/core/tour-catalog.js">
+<link rel="modulepreload" href="js/core/quality.js">
+<link rel="modulepreload" href="js/core/texture-plan.js">
+<link rel="modulepreload" href="js/core/prefs.js">
+<link rel="modulepreload" href="js/core/tz.js">
+<link rel="modulepreload" href="js/core/format.js">
+<link rel="modulepreload" href="js/geo/cities.js">
+<link rel="modulepreload" href="js/geo/geocode.js">
+<link rel="modulepreload" href="js/geo/horizon.js">
+<link rel="modulepreload" href="js/geo/mapview.js">
+<link rel="modulepreload" href="js/astro/bodies.js">
+<link rel="modulepreload" href="js/astro/snapshot.js">
+<link rel="modulepreload" href="js/astro/extras.js">
+<link rel="modulepreload" href="js/core/selection.js">
+<link rel="modulepreload" href="js/app/extras-setup.js">
+<link rel="modulepreload" href="js/astro/client.js">
+<link rel="modulepreload" href="js/astro/skyglow.js">
+<link rel="modulepreload" href="js/astro/photometry.js">
+<link rel="modulepreload" href="js/astro/sky-guide.js">
+<link rel="modulepreload" href="js/data/catalog.js">
+<link rel="modulepreload" href="js/app/actions.js">
+<link rel="modulepreload" href="js/app/eclipse-chase.js">
+<link rel="modulepreload" href="js/app/loop.js">
+<link rel="modulepreload" href="js/app/labels-feed.js">
+<link rel="modulepreload" href="js/app/capture.js">
+<link rel="modulepreload" href="js/app/expose.js">
+<link rel="modulepreload" href="js/app/intro.js">
+<link rel="modulepreload" href="js/app/fallback.js">
+<link rel="modulepreload" href="js/ui/dom.js">
+<link rel="modulepreload" href="js/ui/shell.js">
+<link rel="modulepreload" href="js/ui/toast.js">
+<link rel="modulepreload" href="js/ui/announcer.js">
+<link rel="modulepreload" href="js/ui/shortcuts.js">
+<link rel="modulepreload" href="js/geo/coords.js">
+<link rel="modulepreload" href="js/astro/ae.js">
+<link rel="modulepreload" href="js/astro/frames.js">
+<link rel="modulepreload" href="js/astro/shadow.js">
+<link rel="modulepreload" href="js/astro/totality.js">
+<link rel="modulepreload" href="js/astro/moons.js">
+<link rel="modulepreload" href="js/astro/geomag.js">
+<link rel="modulepreload" href="js/astro/guest-stars.js">
+<link rel="modulepreload" href="js/astro/comets.js">
+<link rel="modulepreload" href="js/astro/craft.js">
+<link rel="modulepreload" href="js/astro/dso.js">
+<link rel="modulepreload" href="js/astro/stars.js">
+<link rel="modulepreload" href="js/data/starinfo.js">
+<link rel="modulepreload" href="js/astro/eclipse-path.js">
+<link rel="modulepreload" href="js/astro/events.js">
+<link rel="modulepreload" href="js/core/sampling.js">
+<link rel="modulepreload" href="js/astro/disc.js">
+<link rel="modulepreload" href="js/astro/parallax.js">
+<link rel="modulepreload" href="js/ui/icons.js">
+<link rel="modulepreload" href="js/ui/topbar.js">
+<link rel="modulepreload" href="js/ui/timebar.js">
+<link rel="modulepreload" href="js/ui/view-switch.js">
+<link rel="modulepreload" href="js/ui/sky-now.js">
+<link rel="modulepreload" href="js/ui/body-card.js">
+<link rel="modulepreload" href="js/ui/events-panel.js">
+<link rel="modulepreload" href="js/ui/layers.js">
+<link rel="modulepreload" href="js/ui/settings.js">
+<link rel="modulepreload" href="js/ui/about.js">
+<link rel="modulepreload" href="js/ui/location.js">
+<link rel="modulepreload" href="js/ui/help.js">
+<link rel="modulepreload" href="js/ui/eclipse-hud.js">
+<link rel="modulepreload" href="js/ui/tour-bar.js">
+<link rel="modulepreload" href="vendor/astronomy-engine/astronomy.js">
+<link rel="modulepreload" href="js/astro/lighttime.js">
+<link rel="modulepreload" href="js/astro/almanac.js">
+<link rel="modulepreload" href="js/astro/meteors.js">
+<link rel="modulepreload" href="js/astro/mars-clock.js">
+<link rel="modulepreload" href="js/ui/postcard.js">
+<link rel="modulepreload" href="js/ui/video.js">
+<link rel="modulepreload" href="js/ui/expose.js">
+<link rel="modulepreload" href="js/ui/sky-tools.js">
+<link rel="modulepreload" href="js/ui/eyepiece.js">
+<link rel="modulepreload" href="js/ui/year-planner.js">
+<link rel="modulepreload" href="js/ui/sat-passes.js">
+<link rel="modulepreload" href="js/core/moments.js">
+<link rel="modulepreload" href="js/astro/sky-caption.js">
+<link rel="modulepreload" href="js/astro/planner.js">
+<!-- /boot modules -->
 <link rel="preload" href="data/cities.json" as="fetch" type="application/json" crossorigin>
 
 <link rel="stylesheet" href="css/app.css">
@@ -291,6 +380,44 @@ body.is-intro-out #ui-root{animation:pc-ui-in .9s cubic-bezier(.2,.7,.2,1) both}
     }
   } catch (e) { /* no WebGL2: text mode */ }
   w.__pcEnv = env;
+
+  // The 3D view: its 512 px Earth previews (main.js fetches them with the same mode and credentials,
+  // which reuses these requests) and its modules, three.js and the render stack, start now, in
+  // parallel with main.js. Text mode downloads none of them.
+  if (env.webgl2 && env.importmap) {
+    var preload = function (rel, href, as) {
+      var l = d.createElement('link');
+      l.rel = rel;
+      if (as) { l.as = as; l.crossOrigin = 'anonymous'; l.setAttribute('fetchpriority', 'high'); }
+      l.href = href;
+      d.head.appendChild(l);
+    };
+    preload('preload', 'assets/textures/earth_day_preview.webp', 'fetch');
+    preload('preload', 'assets/textures/earth_night_preview.webp', 'fetch');
+    var mods = [/* 3d modules (node scripts/lib/modgraph.mjs --write) */
+      'vendor/three/three.module.min.js', 'js/render/context.js', 'js/render/textures.js', 'js/render/streaks.js',
+      'js/render/earth.js', 'js/render/atmosphere.js', 'js/render/aurora.js', 'js/render/sky.js', 'js/render/bodies.js',
+      'js/render/totality.js', 'js/render/ground.js', 'js/render/trails.js', 'js/render/meteors.js',
+      'js/render/sunpath.js', 'js/render/eclipse-path.js', 'js/render/beams.js', 'js/render/planets.js',
+      'js/render/pin.js', 'js/render/flare.js', 'js/render/extras.js', 'js/render/dso.js', 'js/render/precession.js',
+      'js/render/comets.js', 'js/render/craft.js', 'js/render/satellites.js', 'js/render/orrery.js',
+      'js/render/long-exposure.js', 'js/render/ruler.js', 'js/render/edge-chips.js', 'js/render/labels.js',
+      'js/camera/rig.js', 'js/camera/picking.js', 'js/render/postfx.js', 'js/render/shaders/earth.glsl.js',
+      'js/render/shaders/clouds.glsl.js', 'js/render/shaders/atmosphere.glsl.js', 'js/render/shaders/aurora.glsl.js',
+      'js/render/shaders/sky.glsl.js', 'js/render/skyglow.js', 'js/render/shaders/bodies.glsl.js', 'js/astro/orrery.js',
+      'js/render/shaders/totality.glsl.js', 'vendor/three/addons/objects/Sky.js', 'js/render/shaders/ground.glsl.js',
+      'js/render/shaders/beam.glsl.js', 'js/render/shaders/planets.glsl.js', 'js/render/shaders/skyglow.glsl.js',
+      'js/astro/precession.js', 'js/astro/satellites.js', 'js/render/shaders/orrery.glsl.js',
+      'vendor/three/addons/controls/OrbitControls.js', 'vendor/three/addons/postprocessing/EffectComposer.js',
+      'vendor/three/addons/postprocessing/RenderPass.js', 'vendor/three/addons/postprocessing/UnrealBloomPass.js',
+      'vendor/three/addons/postprocessing/OutputPass.js', 'vendor/three/addons/postprocessing/ShaderPass.js',
+      'vendor/three/addons/postprocessing/Pass.js', 'js/render/shaders/common.glsl.js', 'js/render/accum.js',
+      'js/render/supersample.js', 'js/astro/sgp4.js', 'vendor/three/addons/shaders/CopyShader.js',
+      'vendor/three/addons/postprocessing/MaskPass.js', 'vendor/three/addons/shaders/LuminosityHighPassShader.js',
+      'vendor/three/addons/shaders/OutputShader.js'
+    /* /3d modules */];
+    for (var i = 0; i < mods.length; i++) preload('modulepreload', mods[i]);
+  }
 
   var reduced = mq('(prefers-reduced-motion: reduce)');
   if (!env.webgl2 || !env.importmap) b.classList.add('no-webgl');

@@ -17,6 +17,7 @@
     "textures": "node scripts/build-textures.mjs",
     "textures:check": "node scripts/build-textures.mjs --check",
     "size": "node scripts/check-size.mjs",
+    "preload": "node scripts/lib/modgraph.mjs --write",
     "stage": "node scripts/stage-site.mjs _site"
   }
 }

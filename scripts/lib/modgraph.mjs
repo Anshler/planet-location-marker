@@ -1,9 +1,11 @@
 // Static analysis of the shipped page: index.html references and the ES-module graph.
-// Used by scripts/check-size.mjs and the repo tests (importmap closure, external URLs).
+// Used by scripts/check-size.mjs and the repo tests (importmap closure, external URLs), and as a
+// command it keeps index.html's boot modulepreload lists current (end of this file).
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { findImports } from './jsscan.mjs';
+import { fileURLToPath } from 'node:url';
+import { findImports, scanJs } from './jsscan.mjs';
 
 const SITE = 'http://site/';   // fake origin: resolution happens in URL space, like a browser
 
@@ -160,4 +162,125 @@ export function pageEntries(doc) {
         if ((l.rel ?? '').toLowerCase().split(/\s+/).includes('modulepreload') && l.href) push(resolveDocumentUrl(l.href), l.href);
     }
     return { entries, external, unresolved };
+}
+
+// ---------------------------------------------------------------------------------------------
+// The boot graph's modulepreload lists in index.html (instant-earth-progressive-textures)
+//
+//   node scripts/lib/modgraph.mjs --write    regenerate both lists in index.html
+//   node scripts/lib/modgraph.mjs --check    exit 1 when index.html's lists are stale (CI; the
+//                                            repo tests check the same)
+//
+// A cold boot otherwise discovers its ~150 modules one import level at a time (main.js →
+// render/context.js → postfx.js → EffectComposer.js → CopyShader.js: five round trips). The lists
+// hold every module a boot runs, so they all download in parallel from the first bytes:
+//   core  static <link rel=modulepreload> tags in <head>: main.js's static imports and the UI's
+//         (text mode runs them too);
+//   3d    three.js and the render stack main.js imports in importRenderStack(), injected by the
+//         feature-detection script only when the 3D view can run, so text mode never downloads them.
+// Modules imported later on demand (tours, the recorder, Mars, …) and the astro worker's graph (a
+// worker has its own module map) are not listed.
+
+export const PRELOAD_HTML = 'index.html';
+const CORE_MARK = ['<!-- boot modules (node scripts/lib/modgraph.mjs --write) -->', '<!-- /boot modules -->'];
+const THREE_MODULE = 'vendor/three/three.module.min.js';
+const VIEW3D_MARK = ['/* 3d modules (node scripts/lib/modgraph.mjs --write) */', '/* /3d modules */'];
+
+/** Breadth-first closure of static imports (window context; missing files are skipped). */
+function staticClosure(root, entries, importMap) {
+    const seen = [];
+    const queue = [...entries];
+    while (queue.length) {
+        const p = queue.shift();
+        if (seen.includes(p)) continue;
+        const abs = path.join(root, p);
+        if (!fs.existsSync(abs)) continue;
+        seen.push(p);
+        for (const spec of findImports(fs.readFileSync(abs, 'utf8')).static) {
+            const r = resolveSpecifier(spec, p, importMap);
+            if (r.kind === 'local') queue.push(r.path);
+        }
+    }
+    return seen;
+}
+
+/** The source text of `function <name>(…) { … }` in a module (brace-matched on the code view). */
+function functionSource(src, name) {
+    const { code } = scanJs(src);
+    const at = code.search(new RegExp(`function\\s+${name}\\s*\\(`));
+    if (at < 0) return '';
+    let i = code.indexOf('{', code.indexOf(')', at));
+    for (let depth = 0; i < code.length; i++) {
+        if (code[i] === '{') depth++;
+        else if (code[i] === '}' && --depth === 0) return src.slice(at, i + 1);
+    }
+    return '';
+}
+
+/**
+ * The modules a boot runs, in load order: `core` (main.js's and the UI's static graphs) and `view3d`
+ * (what importRenderStack() adds: three.js and the render stack).
+ * @param {string} root repo root
+ * @returns {{core:string[], view3d:string[]}}
+ */
+export function bootModules(root) {
+    const doc = parseHtml(fs.readFileSync(path.join(root, PRELOAD_HTML), 'utf8'));
+    const core = staticClosure(root, ['js/main.js', 'js/ui/index.js'], doc.importMap);
+    const stack = findImports(functionSource(fs.readFileSync(path.join(root, 'js/main.js'), 'utf8'), 'importRenderStack')).dynamic
+        .map((s) => resolveSpecifier(s, 'js/main.js', doc.importMap))
+        .filter((r) => r.kind === 'local').map((r) => r.path);
+    const view3d = staticClosure(root, stack, doc.importMap).filter((p) => !core.includes(p));
+    // three.js first: the largest file, and every render module waits for it.
+    view3d.sort((a, b) => (b === THREE_MODULE) - (a === THREE_MODULE));
+    return { core, view3d };
+}
+
+/** Replaces the text between two markers; throws when they are missing. */
+function between(text, [open, close], body) {
+    const a = text.indexOf(open), b = text.indexOf(close, a + open.length);
+    if (a < 0 || b < 0) throw new Error(`${PRELOAD_HTML}: markers ${open} … ${close} not found`);
+    return text.slice(0, a + open.length) + body + text.slice(b);
+}
+
+/**
+ * index.html with both lists regenerated (unchanged text when they are current).
+ * @param {string} html
+ * @param {{core:string[], view3d:string[]}} lists
+ * @returns {string}
+ */
+export function withBootPreloads(html, { core, view3d }) {
+    const indentOf = (mark) => {
+        const line = html.slice(html.lastIndexOf('\n', html.indexOf(mark)) + 1, html.indexOf(mark));
+        return line.match(/^\s*/)[0];
+    };
+    const coreBody = `\n${core.map((p) => `<link rel="modulepreload" href="${p}">`).join('\n')}\n`;
+    const pad = `${indentOf(VIEW3D_MARK[0])}  `;
+    const rows = [];
+    for (const p of view3d.map((x) => `'${x}'`)) {
+        const last = rows.length ? rows[rows.length - 1] : null;
+        if (last !== null && pad.length + last.length + p.length + 2 <= 120) rows[rows.length - 1] = `${last}, ${p}`;
+        else rows.push(p);
+    }
+    const viewBody = `\n${rows.map((r) => `${pad}${r}`).join(',\n')}\n${pad.slice(2)}`;
+    return between(between(html, CORE_MARK, coreBody), VIEW3D_MARK, viewBody);
+}
+
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+    const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+    const file = path.join(root, PRELOAD_HTML);
+    const html = fs.readFileSync(file, 'utf8');
+    const lists = bootModules(root);
+    const next = withBootPreloads(html, lists);
+    if (process.argv.includes('--check')) {
+        if (next !== html) {
+            console.error(`${PRELOAD_HTML}: the boot modulepreload lists are stale (run: node scripts/lib/modgraph.mjs --write)`);
+            process.exit(1);
+        }
+        console.log(`boot modulepreload lists OK: ${lists.core.length} core + ${lists.view3d.length} 3D modules`);
+    } else if (process.argv.includes('--write')) {
+        if (next !== html) fs.writeFileSync(file, next);
+        console.log(`${PRELOAD_HTML}: ${lists.core.length} core + ${lists.view3d.length} 3D modules${next === html ? ' (unchanged)' : ''}`);
+    } else {
+        console.log('usage: node scripts/lib/modgraph.mjs --write | --check');
+    }
 }

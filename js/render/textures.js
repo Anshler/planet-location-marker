@@ -65,7 +65,8 @@ function afterFrame() {
  * held map is still ready and bound: a frame drawn meanwhile uploads it itself. A tier switch
  * holds with `{bind: false}` instead: a map decoded meanwhile becomes ready (onReady) only once it
  * is on the GPU, so the first frame of the new tier never uploads one. The held uploads then go
- * out one per task, each after a frame; holdUploads' promise resolves when they are all out.
+ * out one per task, each after a frame, the re-uploads of maps already bound (setAnisotropy)
+ * first: holdUploads' promise resolves once those are out, and the new maps follow.
  *
  * Previews: get(key) of a day or night map returns its 512 px preview (PREVIEW) while the map
  * loads, once the preview is in (state 'preview'); onReady(key) still fires for the map itself.
@@ -101,7 +102,7 @@ export function createTextureStore(renderer, { onProgress, prefetched = null } =
     let gate = null;
     /** The gate's `bind` option: false keeps a map decoded meanwhile unready until its upload. */
     let gateBinds = true;
-    /** @type {{tex:THREE.Texture, done:(()=>void)|null}[]} */
+    /** @type {{tex:THREE.Texture, done:(()=>void)|null, bound?:boolean}[]} */
     const held = [];
     /** @type {Promise<void>|null} */
     let flushing = null;
@@ -297,8 +298,9 @@ export function createTextureStore(renderer, { onProgress, prefetched = null } =
         /**
          * Holds eager uploads until `until` settles and one more frame is out (rc.compile() at boot,
          * a tier switch's compile). `bind: false` (tier switches): a map decoded meanwhile stays
-         * unready until its upload. Resolves once the held uploads are out, or at once when a newer
-         * hold takes over (that one uploads them).
+         * unready until its upload. Resolves once the held uploads of maps already bound are out
+         * (they go first: a frame would upload one itself), or at once when a newer hold takes
+         * over (that one uploads them). The new maps follow, one per task.
          * @param {Promise<unknown>} until
          * @param {{bind?:boolean}} [opts]
          * @returns {Promise<void>}
@@ -307,7 +309,15 @@ export function createTextureStore(renderer, { onProgress, prefetched = null } =
             const g = Promise.resolve(until).then(() => {}, () => {}).then(afterFrame).then(() => {
                 if (gate !== g) return undefined;
                 gate = null;
-                return flushHeld();
+                const bound = [];
+                for (const h of held) {
+                    if (h.done) continue;
+                    h.bound = true;
+                    bound.push(new Promise((resolve) => { h.done = resolve; }));
+                }
+                held.sort((a, b) => (b.bound ? 1 : 0) - (a.bound ? 1 : 0));
+                flushHeld();
+                return Promise.all(bound).then(() => {});
             });
             gate = g;
             gateBinds = bind !== false;
@@ -330,6 +340,10 @@ export function createTextureStore(renderer, { onProgress, prefetched = null } =
                 e.tex.anisotropy = next;
                 e.tex.needsUpdate = true;
                 upload(e.tex);
+            }
+            // Maps held unready (decoded during a hold) are uploaded anyway: just the new value.
+            for (const h of held) {
+                if (h.done && h.tex.generateMipmaps && (!Array.isArray(keys) || keys.includes(h.tex.name))) h.tex.anisotropy = next;
             }
         },
         /** After a WebGL context restore: re-upload every loaded texture from its retained image. */

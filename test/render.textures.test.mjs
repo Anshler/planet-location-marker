@@ -128,12 +128,10 @@ test('store: a tier switch hold ({bind: false}) binds a map only once it is on t
         assert.equal(store.isReady('day2k'), false, 'decoded but held: not bound, so no frame uploads it');
         assert.equal(store.state('day2k'), 'loading');
         assert.deepEqual(uploads, []);
-        let out = false;
-        flushed.then(() => { out = true; });
         release();
-        await loaded;
         await flushed;
-        assert.equal(out, true);
+        assert.equal(store.isReady('night2k'), false, 'nothing was bound: the hold is over before the new maps are out');
+        await loaded;
         assert.deepEqual(uploads, ['day2k', 'night2k'], 'one per task');
         assert.deepEqual(order, ['ready:day2k:true'], 'ready after its upload');
         assert.equal(store.isReady('night2k'), true);
@@ -188,10 +186,21 @@ test('store: setAnisotropy re-uploads only the listed keys, through the hold', (
         assert.deepEqual(uploads, ['day2k', 'night2k', 'day2k'], 're-uploaded before the commit');
         store.setAnisotropy(16, ['day2k']);
         assert.equal(uploads.length, 3, 'unchanged: no upload');
+        // Re-uploads of bound maps go before the new maps, and the hold resolves after them.
+        let release2;
+        const flushed2 = store.holdUploads(new Promise((r) => { release2 = r; }), { bind: false });
+        const moonP = store.load(['moon']);
+        for (let i = 0; i < 5; i++) await tick(2);
+        store.setAnisotropy(4, ['day2k', 'moon']);
+        release2();
+        await flushed2;
+        assert.deepEqual(uploads.slice(3), ['day2k'], 'the bound map first; the hold is over');
+        assert.equal(store.isReady('moon'), false);
+        await moonP;
+        assert.deepEqual(uploads.slice(3), ['day2k', 'moon']);
+        assert.equal(store.get('moon').anisotropy, 4, 'held unready during the change: the new value');
         store.setAnisotropy(8);
-        assert.deepEqual(uploads.slice(3), ['day2k'], 'every map without keys; at once without a hold');
-        await store.load(['moon']);
-        assert.equal(store.get('moon').anisotropy, 8, 'new maps take the current value');
+        assert.deepEqual(uploads.slice(5), ['day2k', 'moon'], 'every changed map without keys (night2k is at 8); at once without a hold');
     } finally {
         globalThis.fetch = had;
     }

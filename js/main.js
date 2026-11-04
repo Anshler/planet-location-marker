@@ -1965,11 +1965,16 @@ function makeTierSwitch(rc, loop, textures, texMod, cfg) {
         compile: (next) => {
             const compiled = rc.compile({ paced: true });
             if (!textures) return compiled;
-            // Held from here: the maps decoded during the compile, and the re-uploads of a new
-            // anisotropy (max), go out one per task once it is done, before the commit.
+            // Held from here, then one per task: the re-uploads of a new anisotropy (max) before
+            // the commit, the maps decoded during the compile after it (bound once uploaded).
             const uploaded = textures.holdUploads(compiled, { bind: false });
             const keys = texMod?.keysForTier?.(next);
-            textures.setAnisotropy?.(next.anisotropy, keys ? [...keys.critical, ...keys.primary, ...keys.deferred] : undefined);
+            const list = keys ? [...keys.critical, ...keys.primary, ...keys.deferred] : null;
+            // Not a mere stand-in (max: a 4096 map shown until its 8192 one is in); brc4k is also
+            // max's own water mask.
+            const stand = new Set(list?.map((k) => texMod.interimKeyFor?.(k)).filter(Boolean));
+            const mask = texMod?.maskKeyFor?.(next);
+            textures.setAnisotropy?.(next.anisotropy, list ? list.filter((k) => !stand.has(k) || k === mask) : undefined);
             return uploaded;
         },
         commit: () => rc.commitTier(),

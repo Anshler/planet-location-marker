@@ -43,6 +43,7 @@ import { decodeSky, emptyCatalog, mergeDeepStars } from './data/catalog.js';
 import { createActions, normalizeObserver, selectionLook, viewModeLook, eclipseFocusExpired } from './app/actions.js';
 import { ribbonPlan } from './app/eclipse-chase.js';
 import { createLoop } from './app/loop.js';
+import { createTierSwitch } from './app/tier-switch.js';
 import { createLabelsFeed } from './app/labels-feed.js';
 import { createCapture } from './app/capture.js';
 import { photoLayers } from './app/expose.js';
@@ -99,6 +100,8 @@ const R = {
     /** @type {any} */ labelsFeed: null,
     /** @type {any} */ textures: null,
     /** @type {any} */ governor: null,
+    /** Staged tier switches (app/tier-switch.js), created with the render context. */
+    /** @type {any} */ tierSwitch: null,
     /** The sky view's illustrative landscape profile (geo/horizon.js), built by the ground module. */
     /** @type {any} */ horizon: null,
     /** WebGL renderer string: the key of the governor's learned tier. */
@@ -145,6 +148,9 @@ const app = {
             drawCalls: rs.drawCalls ?? 0,
             geometries: rs.geometries ?? 0,
             textures: rs.textures ?? 0,
+            programs: rs.programs ?? 0,
+            /** True while a tier switch compiles behind paused drawing. */
+            switching: !!R.tierSwitch?.pending,
             beamsVisible: countBeamsVisible(),
             labelsVisible: countLabelsVisible(),
             phase: R.store?.get().status.phase ?? 'boot',
@@ -997,6 +1003,7 @@ async function bootRender(ctx) {
     R.textures = textures;
     R.texMod = m.textures;
     textures?.setAnisotropy?.(currentCfg.anisotropy);
+    R.tierSwitch = makeTierSwitch(rc, loop, textures, m.textures, currentCfg);
     // 5. The previews and the tier's maps (already downloading since boot()) decode while the
     // modules are built; whatever is in before the compile starts is uploaded at once.
     const keys = textures && m.textures.keysForTier ? m.textures.keysForTier(currentCfg) : { critical: [], primary: [], deferred: [] };
@@ -1912,30 +1919,62 @@ function updateTrails({ store, clock, astro, loop, labelsFeed, force = false }) 
 // Quality tiers
 // ---------------------------------------------------------------------------------------------
 
-/** Applies a resolved TierCfg everywhere: renderer, modules, textures, label cap. Idempotent. */
+/**
+ * Applies a resolved TierCfg everywhere: renderer, modules, textures, label cap. Idempotent. A
+ * tier with other shader variants is staged (makeTierSwitch); a DPR step applies at once.
+ */
 function applyTierCfg(cfg) {
     if (!cfg || cfg === currentCfg) return;
-    currentCfg = cfg;
-    const rc = R.rc;
-    if (!rc) return;
-    try {
-        rc.setTier(cfg);
-    } catch (err) {
-        console.error('[main] tier switch failed', err);
+    if (!R.rc || !R.tierSwitch) {
+        currentCfg = cfg;
+        return;
     }
-    R.loop.broadcast('setQuality', cfg);
-    syncDeepStars(cfg);
-    const t = R.textures;
-    if (t && R.texMod?.keysForTier) {
-        try {
-            t.setAnisotropy?.(cfg.anisotropy);
-            const keys = R.texMod.keysForTier(cfg);
-            settle(t.load([...keys.critical, ...keys.primary, ...(readyFlag ? keys.deferred : [])]));
-        } catch (err) {
-            console.error('[main] texture set for the new tier failed', err);
-        }
-    }
-    R.loop.invalidate();
+    settle(R.tierSwitch.request(cfg));
+}
+
+/**
+ * Staged tier switches (app/tier-switch.js, hitch-free-tier-switch): drawing pauses, the modules
+ * take the tier's defines and meshes and rc its post chain, every variant compiles against the
+ * target it will draw into (rc.compile paced), maps decoded meanwhile upload one per task before
+ * they bind, and only then the DPR changes and drawing resumes. A context lost meanwhile ends the
+ * compile; drawing then waits for the restore ('context' pause).
+ */
+function makeTierSwitch(rc, loop, textures, texMod, cfg) {
+    return createTierSwitch({
+        current: cfg,
+        timeoutMs: COMPILE_MAX_WAIT_MS,
+        pause: () => loop.setRenderPaused(true, 'tier'),
+        resume: () => {
+            loop.setRenderPaused(false, 'tier');
+            loop.invalidate();
+        },
+        stage: (next) => {
+            currentCfg = next;
+            try {
+                rc.prepareTier(next);
+            } catch (err) {
+                console.error('[main] tier switch failed', err);
+            }
+            loop.broadcast('setQuality', next);
+            syncDeepStars(next);
+            if (textures && texMod?.keysForTier) {
+                const keys = texMod.keysForTier(next);
+                settle(textures.load([...keys.critical, ...keys.primary, ...(readyFlag ? keys.deferred : [])]));
+            }
+        },
+        compile: (next) => {
+            const compiled = rc.compile({ paced: true });
+            if (!textures) return compiled;
+            // Held from here: the maps decoded during the compile, and the re-uploads of a new
+            // anisotropy (max), go out one per task once it is done, before the commit.
+            const uploaded = textures.holdUploads(compiled, { bind: false });
+            const keys = texMod?.keysForTier?.(next);
+            textures.setAnisotropy?.(next.anisotropy, keys ? [...keys.critical, ...keys.primary, ...keys.deferred] : undefined);
+            return uploaded;
+        },
+        commit: () => rc.commitTier(),
+        onError: (phase, err) => console.error(`[main] tier switch failed (${phase})`, err),
+    });
 }
 
 /** The governor stepped down (DPR or tier): mirror it in the store and apply its config. */

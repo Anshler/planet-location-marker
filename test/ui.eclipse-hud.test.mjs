@@ -45,7 +45,7 @@ test('pickHudEvent: from 3 h before C1 to 30 min after C4, local eclipses and lu
     assert.equal(pickHudEvent(null, 5e6), null);
 });
 
-test('hudCountdown: totality, its end, the end of the eclipse; maximum for a partial', () => {
+test('hudCountdown: totality, its end, the end of the eclipse; the peak for a partial', () => {
     const c = eclipseContacts(luxor);
     const at940 = Date.parse('2027-08-02T09:40:00Z');
     assert.deepEqual(hudCountdown(luxor, c, at940), { label: 'Totality in', leftMs: luxor.c2Ms - at940, passed: 1 });
@@ -57,7 +57,7 @@ test('hudCountdown: totality, its end, the end of the eclipse; maximum for a par
     assert.equal(hudCountdown({ ...luxor, eclipseKind: 'annular' }, c, at940).label, 'Ring of fire in');
     const p = eclipseContacts(paris);
     const early = paris.c1Ms + 60e3;
-    assert.deepEqual(hudCountdown(paris, p, early), { label: 'Maximum in', leftMs: paris.tMs - early, passed: 1 });
+    assert.deepEqual(hudCountdown(paris, p, early), { label: 'Peak in', leftMs: paris.tMs - early, passed: 1 });
     assert.equal(hudCountdown(paris, p, paris.tMs + 1).label, 'Eclipse ends in');
     assert.equal(hudCountdown(lunar, eclipseContacts(lunar), 4.5e6).label, 'Totality ends in');
 });

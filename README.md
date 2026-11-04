@@ -144,7 +144,7 @@ browser, and nothing needs the network.
 | <kbd>L</kbd> | Turn with the Earth, or hold the view still |
 | <kbd>K</kbd> · <kbd>A</kbd> | Sky view: follow the selection, then the stars, then look freely · the angle ruler |
 | <kbd>B</kbd> <kbd>C</kbd> <kbd>Shift</kbd>+<kbd>C</kbd> <kbd>Shift</kbd>+<kbd>M</kbd> <kbd>E</kbd> <kbd>G</kbd> <kbd>O</kbd> <kbd>T</kbd> | Beams, constellation lines, constellation names, Milky Way, ecliptic, equatorial grid, visibility footprint, path of the selected body |
-| <kbd>/</kbd> or <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>K</kbd> | Search places |
+| <kbd>/</kbd> or <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>K</kbd> | Search places and the sky |
 | <kbd>S</kbd> | Share a link to this view |
 | <kbd>F</kbd> | Fullscreen |
 | <kbd>H</kbd> | Hide the interface |

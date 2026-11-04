@@ -1,8 +1,9 @@
 /**
  * Eclipse Companion: a HUD for an eclipse seen from here, from 3 h before first contact to 30 min
- * after the last, or after a jump to a solar eclipse (store ui.eclipse). Countdown to the next
- * milestone, contact track with playhead, the disc as covered now, and Play / Jump / 'Stand in the
- * path'. Written from the 4 Hz readout only when something changed; announced once per eclipse.
+ * after the last, or after a jump to one (store ui.eclipse): the countdown, the contact track
+ * (plain names, the codes beneath), the disc as covered now, and Play / Jump / Stand in the path.
+ * On a phone it folds to its countdown above peek or in Sky view, unless the user chose for this
+ * eclipse. Written from the 4 Hz readout when something changed; announced once per eclipse.
  * @module ui/eclipse-hud
  */
 
@@ -17,6 +18,15 @@ export const HUD_TRAIL_MS = 30 * 60e3;
 const SOLAR = 'c1Ms C1 c2Ms C2 maxMs Max c3Ms C3 c4Ms C4';
 const UMBRAL = 'u1Ms U1 u2Ms U2 maxMs Max u3Ms U3 u4Ms U4';
 const PENUMBRAL = 'p1Ms P1 maxMs Max p4Ms P4';
+/** A contact's plain name on the track, and its whole phrase for screen readers (R6). */
+const CONTACT = {
+    C1: ['Begins', 'The eclipse begins (C1)'], C2: ['Totality', 'Totality begins (C2)'], Max: ['Peak', 'The peak of the eclipse'],
+    C3: ['Totality ends', 'Totality ends (C3)'], C4: ['Ends', 'The eclipse ends (C4)'],
+    U1: ['Partial begins', 'The partial eclipse begins (U1)'], U2: ['Total begins', 'The total eclipse begins (U2)'],
+    U3: ['Total ends', 'The total eclipse ends (U3)'], U4: ['Partial ends', 'The partial eclipse ends (U4)'],
+    P1: ['Begins', 'The penumbral eclipse begins (P1)'], P4: ['Ends', 'The penumbral eclipse ends (P4)'],
+};
+const ANNULAR = { C2: ['Annularity', 'Annularity begins (C2)'], C3: ['Annularity ends', 'Annularity ends (C3)'] };
 const pad2 = (n) => String(n).padStart(2, '0');
 const pct = (x) => Math.max(1, Math.min(99, Math.round((x || 0) * 100)));
 
@@ -61,7 +71,7 @@ export function hudCountdown(ev, contacts, tMs) {
     const last = contacts[contacts.length - 1];
     const steps = isCentral(ev) && contacts.length === 5
         ? [[contacts[1], `${word} in`], [contacts[3], `${word} ends in`], [last, 'Eclipse ends in']]
-        : [[contacts.find((c) => c.id === 'Max'), 'Maximum in'], [last, 'Eclipse ends in']];
+        : [[contacts.find((c) => c.id === 'Max'), 'Peak in'], [last, 'Eclipse ends in']];
     const passed = contacts.filter((c) => c.ms <= tMs).length;
     for (const [c, label] of steps) if (c && tMs < c.ms) return { label, leftMs: c.ms - tMs, passed };
     return { label: 'Eclipse over', leftMs: null, passed };
@@ -122,9 +132,18 @@ export function mountEclipseHud(root, ctx) {
         h('div', { class: 'ecl__body', id: 'ecl-body' }, track, el('div', 'btn-row', playBtn, jumpBtn, standBtn), note));
 
     let cur = null, focusKey = '', focusEv = null, nodes = [], key = '', pos = '', passed = -1, discKey = '', sayTimer = 0;
+    /** The user's own open or closed, until this eclipse ends. */
+    let chosen = '';
+    function fold() {
+        const st = store.get();
+        const auto = ui.layout === 'mobile' && (st.ui?.sheet !== 'peek' || st.view?.mode === 'sky');
+        const shut = chosen ? chosen === 'closed' : auto;
+        root.classList.toggle('is-collapsed', shut);
+        toggle.setAttribute('aria-expanded', String(!shut));
+    }
 
     const offs = [
-        on(toggle, 'click', () => toggle.setAttribute('aria-expanded', String(!root.classList.toggle('is-collapsed')))),
+        on(toggle, 'click', () => { chosen = root.classList.contains('is-collapsed') ? 'open' : 'closed'; fold(); }),
         on(playBtn, 'click', () => cur?.ev && ui.act('playEclipse', cur.ev)),
         on(jumpBtn, 'click', () => cur?.ev && ui.act('jumpToEvent', cur.ev)),
         on(standBtn, 'click', () => {
@@ -165,13 +184,22 @@ export function mountEclipseHud(root, ctx) {
         track.hidden = playBtn.hidden = jumpBtn.hidden = disc.hidden = !ev;
         standBtn.hidden = !c.standMs;
         setText(standBtn.lastChild, `Stand in the path of ${c.kind === 'annular' ? 'annularity' : 'totality'}`);
-        setText(jumpBtn, isCentral(ev) && c.solar ? `Jump to C${ev.centralUp === 'sunrise' ? 3 : 2} − 20 s` : 'Jump to maximum');
+        // The jump goes to C2 − 20 s, or C3 − 20 s when totality begins before sunrise (actions.jumpToEvent).
+        const ends = ev?.centralUp === 'sunrise';
+        setText(jumpBtn, !isCentral(ev) || !c.solar ? 'Jump to the peak' : c.kind === 'annular'
+            ? (ends ? 'Jump to just before annularity ends' : 'Jump to just before annularity')
+            : ends ? 'Jump to just before totality ends' : 'Jump to just before totality');
         setText(note, `${c.solar ? 'Never look at the Sun without certified eclipse glasses.' : 'Safe to watch with the naked eye.'} Times are approximate.`);
         root.classList.toggle('is-lunar', !c.solar);
         const n = c.contacts.length;
         rail.classList.toggle('is-central', n === 5 && isCentral(ev));
-        nodes = c.contacts.map((k, i) => h('li', { style: { left: `${(100 * i) / (n - 1)}%` } },
-            el('b', null, k.id), ' ', el('span', null, ui.fmtClock(k.ms, { seconds: /[23]$/.test(k.id) }))));
+        nodes = c.contacts.map((k, i) => {
+            const [name, long] = (c.kind === 'annular' && ANNULAR[k.id]) || CONTACT[k.id] || [k.id, k.id];
+            const time = ui.fmtClock(k.ms, { seconds: /[23]$/.test(k.id) });
+            return h('li', { style: { left: `${(100 * i) / (n - 1)}%` } }, h('span', { class: 'sr-only' }, `${long} at ${time}`),
+                h('b', { 'aria-hidden': 'true' }, name), h('span', { 'aria-hidden': 'true' }, time),
+                k.id === 'Max' ? null : h('small', { 'aria-hidden': 'true' }, k.id));
+        });
         list.replaceChildren(...nodes);
         passed = -1;
         discKey = '';
@@ -180,8 +208,8 @@ export function mountEclipseHud(root, ctx) {
     function statusText(c, cd, snap, t) {
         const ev = c.ev, k = c.contacts;
         if (!ev) return `Not visible from ${ui.placeShort(store.get().observer)}`;
-        // A partial: the obscuration it reaches, until maximum.
-        const atMax = c.kind === 'partial' && t < ev.tMs ? ` · ${pct(ev.obscuration)}% at maximum` : '';
+        // A partial: the obscuration it reaches, until the peak.
+        const atMax = c.kind === 'partial' && t < ev.tMs ? ` · ${pct(ev.obscuration)}% at the peak` : '';
         if (t < k[0].ms) return `Begins ${ui.fmtWhen(k[0].ms, t)}${atMax}`;
         if (cd.leftMs === null) return `Ended ${ui.fmtWhen(k[k.length - 1].ms, t)}`;
         if (!c.solar) {
@@ -209,10 +237,11 @@ export function mountEclipseHud(root, ctx) {
         if (!snap) return;
         const t = snap.tMs, c = resolve(t);
         if (!c) {
-            if (cur) { cur = null; root.hidden = true; }
+            if (cur) { cur = null; chosen = ''; root.hidden = true; }
             return;
         }
         const opened = c.id !== cur?.id;
+        if (opened) { chosen = ''; fold(); }
         const k = `${c.id}|${ui.displayTz()}|${!!store.get().display?.hour12}|${c.standMs}`;
         cur = c;
         if (k !== key) { key = k; build(c); }
@@ -241,7 +270,8 @@ export function mountEclipseHud(root, ctx) {
 
     const refresh = () => update();
     offs.push(store.subscribe((s) => s.ui?.eclipse, refresh), store.subscribe((s) => s.observer, refresh),
-        ui.on('events', refresh), ui.on('display', refresh));
+        ui.on('events', refresh), ui.on('display', refresh),
+        store.subscribe((s) => s.ui?.sheet, fold), store.subscribe((s) => s.view?.mode, fold), ui.on('layout', fold));
 
     // The status stack under the top bar (ui/modes.js: the mode chips) stacks below the
     // panel (css: --ecl-h, its height and a gap, 0 while it is hidden), never under it.

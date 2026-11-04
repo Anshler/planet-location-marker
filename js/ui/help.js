@@ -44,7 +44,7 @@ export const SHORTCUTS = [
     // The layers with a key, named as in Display (LAYER_GROUPS).
     { title: 'Layers', rows: LAYER_GROUPS.flatMap((g) => g.items.filter((it) => it[2]).map(([, label, keys]) => [keys.join('+'), label])) },
     { title: 'App', rows: [
-        [`/|${MOD}+K`, 'Search places'],
+        [`/|${MOD}+K`, 'Search places and the sky'],
         ['S', 'Share link'],
         ['?', 'This help'],
         ['`', 'Debug overlay'],

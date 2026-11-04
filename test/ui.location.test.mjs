@@ -108,3 +108,24 @@ test('skyWords: sunrise or sunset within 90 minutes, else the phase, then "Moon 
     assert.equal(skyWords({ phase: 'nautical', riseMs: null, setMs: null, moonUp: false }, t, rel), 'nautical twilight');
     assert.deepEqual(Object.keys(PHASE_LABEL), ['day', 'civil', 'nautical', 'astro', 'night']);
 });
+
+// Search › In the sky (§4.1): prefix, then a word's prefix, then a substring, folded; the nine first.
+test('rankSky: prefix before word prefix before substring, the nine bodies first at each level, at most 6', async () => {
+    const { rankSky } = await import('../js/ui/location.js');
+    const index = [
+        { name: 'Sun', body: true }, { name: 'Saturn', body: true }, { name: 'Uranus', body: true },
+        { name: 'Sadr' }, { name: 'Andromeda Galaxy', also: 'M31' }, { name: 'Halley’s Comet', also: 'Halley' },
+        { name: 'Ghost of Jupiter' }, { name: 'Jupiter', body: true }, { name: 'ISS' }, { name: 'Sirius' }, { name: 'Ağena' },
+    ];
+    const names = (q, max) => rankSky(index, q, max).map((e) => e.name);
+    assert.deepEqual(names('sa'), ['Saturn', 'Sadr'], 'a body first among prefixes');
+    assert.deepEqual(names('jupiter'), ['Jupiter', 'Ghost of Jupiter'], 'a prefix before a word prefix, though both are listed');
+    assert.deepEqual(names('m31'), ['Andromeda Galaxy'], 'the designation finds it');
+    assert.deepEqual(names('halley'), ['Halley’s Comet']);
+    assert.deepEqual(names('an'), ['Andromeda Galaxy', 'Uranus'], 'a prefix before a body that only contains it');
+    assert.deepEqual(names('agen'), ['Ağena'], 'diacritics folded');
+    assert.deepEqual(names('s'), [], 'one letter is not a search');
+    assert.equal(rankSky(index, 'a').length, 0);
+    assert.equal(rankSky(index, 'u', 6).length, 0);
+    assert.ok(rankSky(index, 'ur', 1).length === 1, 'max');
+});

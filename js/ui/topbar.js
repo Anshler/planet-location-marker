@@ -1,7 +1,7 @@
 /**
- * Top bar: the small wordmark, the location chip ("Hanoi, Vietnam · 21.03° N 105.85° E",
- * pin icon) and the search button. Both the chip and the button open the
- * location palette.
+ * Top bar: the small wordmark and the location chip ("Hanoi, Vietnam · 21.03° N 105.85° E", pin
+ * icon), which is the search: it opens the palette for places and the sky (⌕, and `/` on fine
+ * pointers). On Mars, Back to Earth beside it.
  *
  * @module ui/topbar
  */
@@ -47,21 +47,17 @@ export function mountTopbar(root, ctx) {
     const chip = h('button', {
         class: 'loc-chip glass', type: 'button', 'aria-haspopup': 'dialog',
     }, h('span', { class: 'loc-chip__icon' }, icon('pin', { size: 18 })), chipName,
-    h('span', { class: 'loc-chip__sep', 'aria-hidden': 'true' }, '·'), chipCoords);
-    const search = h('button', {
-        class: 'icon-btn icon-btn--glass glass', type: 'button', 'aria-label': 'Search places', 'aria-haspopup': 'dialog',
-        'data-tip': 'Search places', 'data-kbd': '/', 'data-tip-side': 'bottom',
-    }, icon('search', { size: 19 }));
+    h('span', { class: 'loc-chip__sep', 'aria-hidden': 'true' }, '·'), chipCoords,
+    h('span', { class: 'loc-chip__find', 'aria-hidden': 'true' }, icon('search', { size: 17 }), h('kbd', { class: 'kbd kbd--ghost for-fine' }, '/')));
 
     // Standing on Mars: the chip names the Martian site, and a button goes home.
     const home = h('button', {
         class: 'btn btn--soft glass topbar__home', type: 'button', hidden: true, 'data-tip': 'Back to the Earth', 'data-tip-side': 'bottom',
     }, icon('globe', { size: 16 }), h('span', null, 'Back to Earth'));
-    root.append(brand, h('div', { class: 'topbar__loc' }, chip, search, home));
+    root.append(brand, h('div', { class: 'topbar__loc' }, chip, home));
     offs.push(on(home, 'click', () => ui.act('leaveMars')));
 
     offs.push(on(chip, 'click', () => ui.openPalette()));
-    offs.push(on(search, 'click', () => ui.openPalette()));
 
     const render = () => {
         const host = store.get().host;
@@ -73,7 +69,7 @@ export function mountTopbar(root, ctx) {
             const coords = ui.latLonText(host.latDeg, host.lonDeg, 2);
             setText(chipName, label);
             setText(chipCoords, coords);
-            chip.setAttribute('aria-label', `Standing on Mars: ${label}, ${coords}. Choose a place`);
+            chip.setAttribute('aria-label', `Standing on Mars: ${label}, ${coords}. Choose a place on Mars`);
             chip.title = `${label} · ${coords} (planetocentric, east longitude)`;
             return;
         }
@@ -84,7 +80,7 @@ export function mountTopbar(root, ctx) {
         const coords = ui.latLonText(o.latDeg, o.lonDeg, 2);
         setText(chipName, label);
         setText(chipCoords, coords);
-        chip.setAttribute('aria-label', `Location: ${label}, ${coords}. Change location`);
+        chip.setAttribute('aria-label', `Location: ${label}, ${coords}. Search places and the sky`);
         chip.title = `${label} · ${coords}`;
     };
     offs.push(store.subscribe((st) => st.observer, render, { immediate: true }));

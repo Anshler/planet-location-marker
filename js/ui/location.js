@@ -1,27 +1,17 @@
 /**
- * Location palette (`role="dialog"`, bound to `state.ui.palette`).
+ * Location palette (`role="dialog"`, bound to `state.ui.palette`): Coordinates (`parseLatLon`) →
+ * In the sky (from 2 letters: the host's nine bodies, the extras registry and the named stars;
+ * `rankSky`; choosing one selects it and opens Details) → Cities (offline) → Online results (400 ms
+ * debounce; Nominatim only on Enter) → Recent places (`recentPlaces`, written by
+ * actions.setObserver). The footer's status is the one place an outage is reported. The input is
+ * an ARIA combobox over a listbox with `aria-activedescendant`; Esc closes in one press.
  *
- * Sections, in order: Coordinates (when `parseLatLon` succeeds) → Cities
- * (offline, instant) → Online results (provider badges, 400 ms debounce;
- * Nominatim only on Enter / "Search more places") → Recent places.
- * Footer: Use my location · Pick on the globe · "Online search: available /
- * unavailable". The input is an ARIA combobox driving a listbox with
- * `aria-activedescendant`; ↑/↓ move, Enter chooses, Esc closes.
+ * `ui.palette === 'mars'` (Explore's Stand on Mars, or opening it on Mars) swaps the search for
+ * the landing sites and an areographic lat/lon form; `'compare'` picks the second place.
  *
- * Explore's 'Stand on Mars' (`ui.palette === 'mars'`, and whenever the palette opens while the observer
- * stands on Mars) swaps the search for the Martian landing sites and an areographic lat/lon form
- * (actions.standOnMars), with 'Search places on Earth' and 'Back to Earth' beside them.
- *
- * Recent places are read from `core/prefs` (`recentPlaces`); the app's
- * `actions.setObserver` records every deliberate placement there, so the
- * palette only reads them (Place-like `{name, country, lat, lon, tz}` records).
- *
- * Each place previews its sky at the simulated time (ROADMAP picker-place-preview): a line with
- * its local clock (a place without a zone takes the nearest city's within 300 km, else '≈' and a
- * note: the zone is only estimated from the longitude) and the Sun there ('sunrise in 12 min',
- * 'civil twilight', 'night'), with 'Moon up', on a pill in the sky's colour (ui/sky-palette.js).
- * `placeSky` works from the readout's Sun and Moon sub-points (no astronomy call), and the lines
- * refresh at most once a second while the palette is open.
+ * Each place previews its sky at the simulated time: its local clock and the Sun there ('sunrise
+ * in 12 min', 'night'), with 'Moon up', on a pill in the sky's colour (ui/sky-palette.js), from the
+ * readout's sub-points (`placeSky`, no astronomy call), refreshed at most once a second.
  *
  * @module ui/location
  */
@@ -31,14 +21,47 @@ import { load as loadPref } from '../core/prefs.js';
 import { h, on, setText, trapFocus, uid } from './dom.js';
 import { icon } from './icons.js';
 import { MARS_SITES } from '../astro/mars-clock.js';
+import { BODY_INDEX, hostBodies } from '../astro/bodies.js';
 import { SKY_LUT, skyLutIndex } from './sky-palette.js';
 
 const MAX_RECENT = 6;
 const DEBOUNCE_MS = 400;
 const PROVIDER_LABEL = { 'open-meteo': 'Open-Meteo', photon: 'Photon', nominatim: 'OSM Nominatim', offline: 'Offline' };
-const EXAMPLES = ['Tokyo', 'Reykjavík', 'São Paulo', '48.86, 2.35', '33°52′S 151°12′E'];
+const PROVIDER_TONE = { 'open-meteo': 'accent', nominatim: 'ok' };
+const EXAMPLES = ['Tokyo', 'Jupiter', 'Sirius', 'ISS', 'Halley', '48.86, 2.35'];
+const SKY_MAX = 6;
+const SEARCH_PLACEHOLDER = 'Search a place, or a planet, star or comet';
+const KIND_WORD = { star: 'Star', moon: 'Moon', planet: 'Planet' };
+const SKY_ICON = { sun: 'sun', moon: 'moon', star: 'star', comet: 'sparkle', guest: 'sparkle', craft: 'satellite', sat: 'satellite', dso: 'aperture' };
 
 const fold = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
+/**
+ * "In the sky" matches for `q` (2 letters or more, folded): a name or `also` (a designation such
+ * as "M31") that starts with it, then a word that does, then any containing it; at each level the
+ * nine bodies first, then index order. Pure.
+ * @template {{name:string, also?:string, body?:boolean}} T
+ * @param {T[]} index
+ * @param {string} q
+ * @param {number} [max]
+ * @returns {T[]}
+ */
+export function rankSky(index, q, max = SKY_MAX) {
+    const fq = fold(q).trim();
+    if (fq.length < 2) return [];
+    const hits = [];
+    index.forEach((e, i) => {
+        let lvl = 3;
+        for (const t of [e.name, e.also]) {
+            const f = fold(t);
+            if (!f) continue;
+            lvl = Math.min(lvl, f.startsWith(fq) ? 0 : ` ${f.replace(/[^a-z0-9]+/g, ' ')}`.includes(` ${fq}`) ? 1 : f.includes(fq) ? 2 : 3);
+        }
+        if (lvl < 3) hits.push({ e, k: 2 * lvl + (e.body ? 0 : 1), i });
+    });
+    hits.sort((a, b) => a.k - b.k || a.i - b.i);
+    return hits.slice(0, max).map((x) => x.e);
+}
 
 /** Splits `text` around the first diacritic-insensitive match of `q`, wrapping it in <mark>. */
 function highlight(text, q) {
@@ -133,15 +156,15 @@ export function mountLocation(root, ctx) {
     // ---------------------------------------------------------------- DOM
     const input = h('input', {
         class: 'palette__input', type: 'text', role: 'combobox', 'aria-expanded': 'true', 'aria-controls': listId,
-        'aria-autocomplete': 'list', 'aria-label': 'Search places or enter coordinates', autocomplete: 'off',
+        'aria-autocomplete': 'list', 'aria-label': 'Search places and the sky, or enter coordinates', autocomplete: 'off',
         autocapitalize: 'off', spellcheck: 'false', enterkeyhint: 'search',
-        placeholder: 'Search a city, or type coordinates (e.g. 48.86, 2.35)',
+        placeholder: SEARCH_PLACEHOLDER,
     });
     const clearBtn = h('button', { class: 'icon-btn icon-btn--sm palette__clear', type: 'button', 'aria-label': 'Clear search', hidden: true }, icon('close', { size: 16 }));
     // Phones only (desktop shows the Esc hint): a text "Cancel" so it can't be confused with the clear ×.
     const closeBtn = h('button', { class: 'btn palette__close', type: 'button', 'aria-label': 'Close search' }, 'Cancel');
     const escHint = h('kbd', { class: 'kbd palette__esc', 'aria-hidden': 'true' }, 'Esc');
-    const list = h('div', { class: 'palette__list', id: listId, role: 'listbox', 'aria-label': 'Places' });
+    const list = h('div', { class: 'palette__list', id: listId, role: 'listbox', 'aria-label': 'Places and sky objects' });
     const locateLabel = h('span', null, 'Use my location');
     const locateBtn = h('button', { class: 'btn btn--soft', type: 'button' }, icon('locate', { size: 16 }), locateLabel);
     const pickBtn = h('button', { class: 'btn btn--soft', type: 'button' }, icon('globe', { size: 16 }), 'Pick on the globe');
@@ -166,12 +189,11 @@ export function mountLocation(root, ctx) {
     const marsBox = h('div', { class: 'palette__mars', hidden: true },
         h('p', { class: 'palette__mode' }, 'Stand on Mars: the sky from a landing site, with the Earth and the Moon as a bright evening or morning pair. The globe stays the Earth’s.'),
         marsSites,
-        h('p', { class: 'pop__hint' }, 'Or any place, in planetocentric degrees (east longitude):'),
+        h('p', { class: 'note' }, 'Or any place, in planetocentric degrees (east longitude):'),
         marsForm, marsErr,
         h('div', { class: 'btn-row' }, earthSearchBtn, homeBtn));
-    const statusDot = h('span', { class: 'status-dot', 'aria-hidden': 'true' });
-    const statusText = h('span');
-    const status = h('span', { class: 'palette__status' }, statusDot, statusText);
+    const statusText = h('span', { class: 'badge badge--dot badge--muted' });
+    const status = h('span', { class: 'palette__status' }, statusText);
     const dialog = h('div', { class: 'palette glass', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Change location' },
         compareHead,
         h('div', { class: 'palette__search' },
@@ -207,6 +229,54 @@ export function mountLocation(root, ctx) {
     let comparing = false;
     /** @type {{name:string, country:string, latDeg:number, lonDeg:number, tz:string|null, cc:string}[]} */
     let recents = [];
+    /** @type {any[]} the In the sky matches */
+    let sky = [];
+    /** @type {{id:string, name:string, also?:string, body?:boolean, kind:string, label:string, dir?:ArrayLike<number>}[]|null} */
+    let skyIndex = null;
+    let starNames = null, askedStars = false;
+
+    /** The sky index, rebuilt when the registry changes or the star names arrive. */
+    function buildSky() {
+        const mars = store.get().host?.id === 'mars';
+        const out = hostBodies(mars ? 'mars' : 'earth').map((b) => ({ id: b.id, name: b.name, body: true, kind: b.id, label: KIND_WORD[b.kind] || '' }));
+        const ex = ctx.extras;
+        for (const id of ex?.ids?.() ?? []) {
+            const m = ex.meta(id);
+            if (!m || m.kind === 'star' || (m.kind === 'moon' && !mars) || (m.kind === 'sat' && mars)) continue;
+            out.push({ id, name: m.name, also: m.short !== m.name ? m.short : '', kind: m.kind, label: m.kindLabel || '' });
+        }
+        for (const st of starNames ?? []) out.push({ id: `star:${st.hip}`, name: st.name, kind: 'star', label: 'Star', dir: st.dirS });
+        skyIndex = out;
+        if (!askedStars && typeof ctx.services?.catalog === 'function') {
+            askedStars = true;
+            Promise.resolve(ctx.services.catalog()).then((k) => {
+                const names = (k?.starNames ?? []).filter((x) => x?.name && Number.isInteger(x.hip));
+                if (!names.length) { askedStars = false; return; }
+                starNames = names.sort((a, b) => a.mag - b.mag);
+                skyIndex = null;
+                if (!layer.hidden && query) { runSearch(); }
+            }, () => { askedStars = false; });
+        }
+    }
+    if (ctx.extras?.onChange) offs.push(ctx.extras.onChange(() => { skyIndex = null; }));
+    offs.push(store.subscribe((st) => st.host?.id, () => { skyIndex = null; }));
+
+    /** "Planet · 25° up in the east", "Star · below the horizon", or the kind alone while unknown. */
+    function skySub(e) {
+        const snap = ui.snap;
+        let alt = NaN, az = NaN;
+        if (e.dir && snap?.observer?.upS) {
+            const o = snap.observer, d = e.dir;
+            const dot = (v) => d[0] * v[0] + d[1] * v[1] + d[2] * v[2];
+            alt = Math.asin(Math.max(-1, Math.min(1, dot(o.upS)))) * 180 / Math.PI;
+            az = ((Math.atan2(dot(o.eastS), dot(o.northS)) * 180 / Math.PI) + 360) % 360;
+        } else {
+            const b = ui.bodyOf(snap, e.id);
+            if (b) ({ alt, az } = ui.altAz(b));
+        }
+        if (!Number.isFinite(alt)) return e.label;
+        return alt > 0 ? `${e.label} · ${Math.round(alt)}° up in the ${ui.compassWords(az)}` : `${e.label} · below the horizon`;
+    }
 
     /** Reads recent places (written by actions.setObserver), tolerant of either record shape. */
     function loadRecents() {
@@ -233,6 +303,11 @@ export function mountLocation(root, ctx) {
         coords = null;
         cities = [];
         try { coords = query ? parseLatLon(query) : null; } catch { coords = null; }
+        sky = [];
+        if (!coords && !comparing && query.length >= 2) {
+            if (!skyIndex) buildSky();
+            sky = rankSky(skyIndex, query);
+        }
         const svc = ctx.services?.cities;
         if (query && svc?.search) {
             try { cities = (svc.search(query, 8) || []).slice(0, 8); } catch { cities = []; }
@@ -346,7 +421,7 @@ export function mountLocation(root, ctx) {
     function cityModel(p, type) {
         const sub = [p.admin && p.admin !== p.name ? p.admin : '', p.country || ''].filter(Boolean).join(', ');
         const meta = [];
-        if (type === 'online' && p.source) meta.push(h('span', { class: `badge badge--provider badge--${p.source}` }, PROVIDER_LABEL[p.source] || p.source));
+        if (type === 'online' && p.source) meta.push(h('span', { class: `badge badge--${PROVIDER_TONE[p.source] || 'muted'}` }, PROVIDER_LABEL[p.source] || p.source));
         meta.push(h('span', { class: 'pal-opt__coords' }, ui.latLonText(p.lat, p.lon, 1)));
         return {
             type, icon: type === 'online' ? 'globe' : 'city', place: p, title: p.name,
@@ -368,27 +443,28 @@ export function mountLocation(root, ctx) {
                 sub: ui.nearestCityText(coords.lat, coords.lon) ? `near ${ui.nearestCityText(coords.lat, coords.lon)}` : '',
                 sky: { lat: coords.lat, lon: coords.lon, tz: null } });
         }
+        if (sky.length) {
+            nodes.push(section('In the sky'));
+            sky.forEach((e) => add({ type: 'sky', icon: SKY_ICON[e.kind] || (e.body ? 'planet' : 'star'), title: e.name, titleNodes: highlight(e.name, query),
+                sub: skySub(e), skyId: e.id }));
+        }
         if (query) {
             const cityTitle = section('Cities (offline)');
             if (!ctx.services?.cities || ctx.services.cities.ready === false) {
-                nodes.push(cityTitle, h('p', { class: 'pal-note' }, h('span', { class: 'spinner', 'aria-hidden': 'true' }), 'Loading the city list…'));
+                nodes.push(cityTitle, h('p', { class: 'note' }, h('span', { class: 'spinner', 'aria-hidden': 'true' }), 'Loading the city list…'));
             } else if (cities.length) {
                 nodes.push(cityTitle);
                 cities.forEach((p) => add(cityModel(p, 'city')));
             }
-            // Online section.
-            if (query.length >= 3 && !coords) {
+            // Unavailable or failed: the footer says so, once.
+            if (query.length >= 3 && !coords && onlineAvailable() && onlineState !== 'error') {
                 const spinner = onlineState === 'loading' || onlineState === 'waiting'
                     ? h('span', { class: 'spinner spinner--sm', 'aria-hidden': 'true' }) : null;
                 nodes.push(section('Online results', spinner));
-                if (!onlineAvailable()) {
-                    nodes.push(h('p', { class: 'pal-note' }, 'Online search unavailable — pick a listed city, click the globe, or enter coordinates.'));
-                } else if (onlineState === 'error') {
-                    nodes.push(h('p', { class: 'pal-note' }, 'Online search unavailable — pick a listed city, click the globe, or enter coordinates.'));
-                } else if (onlineState === 'done' && !online.length && enterRan) {
-                    nodes.push(h('p', { class: 'pal-note' }, `No online results for “${query}”.`));
+                if (onlineState === 'done' && !online.length && enterRan) {
+                    nodes.push(h('p', { class: 'note' }, `No online results for “${query}”.`));
                 } else if (onlineState === 'waiting' || onlineState === 'loading') {
-                    if (!online.length) nodes.push(h('p', { class: 'pal-note pal-note--quiet' }, 'Searching…'));
+                    if (!online.length) nodes.push(h('p', { class: 'note' }, 'Searching…'));
                 }
                 online.forEach((p) => add(cityModel(p, 'online')));
                 if (!enterRan && onlineState !== 'loading' && onlineAvailable() && ctx.services?.geocoder) {
@@ -410,12 +486,12 @@ export function mountLocation(root, ctx) {
         }
         if (!query && !rec.length) {
             nodes.push(h('div', { class: 'pal-hello' },
-                h('p', null, 'Type a city, or coordinates in decimal or degrees-minutes-seconds.'),
+                h('p', null, 'Try Tokyo, Jupiter, Sirius, ISS or Halley.'),
                 h('div', { class: 'pal-examples' }, EXAMPLES.map((ex) => h('button', {
-                    class: 'chip chip--quick', type: 'button', onClick: () => { input.value = ex; runSearch(); input.focus(); },
+                    class: 'chip', type: 'button', onClick: () => { input.value = ex; runSearch(); input.focus(); },
                 }, ex)))));
         } else if (query && !options.length && onlineState !== 'waiting' && onlineState !== 'loading') {
-            nodes.push(h('p', { class: 'pal-empty' }, `No places match “${query}”. Try another spelling, or enter coordinates like 48.86, 2.35.`));
+            nodes.push(h('p', { class: 'pal-empty' }, `Nothing matches “${query}”. Try another spelling, or enter coordinates like 48.86, 2.35.`));
         }
         list.replaceChildren(...nodes);
         refreshSky();
@@ -444,6 +520,12 @@ export function mountLocation(root, ctx) {
     function choose(model) {
         if (!model) return;
         if (model.type === 'more') { searchOnline(true); return; }
+        if (model.type === 'sky') {
+            ui.act('select', model.skyId, { fly: true });
+            ui.closePalette();
+            ui.openPanel('details', { sheet: 'half' });
+            return;
+        }
         let obs;
         if (model.type === 'coords') {
             obs = { latDeg: model.place.lat, lonDeg: wrapLon(model.place.lon), elevM: 0, name: '', country: '', tz: null, tzApprox: false, source: 'manual' };
@@ -552,8 +634,7 @@ export function mountLocation(root, ctx) {
         // Until a request has actually succeeded we only know it *may* work: a neutral dot, no green.
         const confirmed = ok && st === 'ok';
         setText(statusText, `Online search: ${ok ? 'available' : 'unavailable'}`);
-        statusDot.classList.toggle('is-ok', confirmed);
-        statusDot.classList.toggle('is-down', !ok);
+        statusText.className = `badge badge--dot badge--${confirmed ? 'ok' : ok ? 'muted' : 'warn'}`;
         statusText.parentElement?.setAttribute?.('title', ok
             ? (confirmed ? 'Online place search is working.' : 'Online place search is used when you type 3 or more letters.')
             : 'Online place search is unreachable. Offline cities and coordinates still work.');
@@ -576,7 +657,7 @@ export function mountLocation(root, ctx) {
                 : 'Compare with a second place: its own pin and dashed amber beams, side by side in Up now.')
             : '';
         dialog.setAttribute('aria-label', on ? 'Compare with a second place' : 'Change location');
-        input.placeholder = on ? 'Search the second place, or type coordinates' : 'Search a city, or type coordinates (e.g. 48.86, 2.35)';
+        input.placeholder = on ? 'Search the second place, or type coordinates' : SEARCH_PLACEHOLDER;
         locateBtn.hidden = on;
         pickBtn.hidden = on;
         uncompareBtn.hidden = !on || !o2;

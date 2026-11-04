@@ -1263,7 +1263,60 @@ are applied live through `onExternalChange`. It writes nothing while a tour play
   the Pages sub-path (`node scripts/stage-site.mjs _site`, then `--root=_site`;
   `node scripts/serve.mjs --root=_site` serves the same copy). **`--context-loss`** loses and
   restores the WebGL context (`WEBGL_lose_context`) once the app is ready: the overlay must show
-  and leave, five frames be drawn and no WebGL warning appear (CI: at Medium).
+  and leave, five frames be drawn and no WebGL warning appear (CI: at Medium, and after the
+  perf gates at Low and High).
+- **Performance gates** (`--perf[=tier]`, `scripts/lib/perf-gates.mjs`) gate on counts, never on
+  milliseconds: CI runners are noisy and SwiftShader is slow, but a count moves only when the
+  code does. An init shim wraps `requestAnimationFrame` to count `getBoundingClientRect` and
+  `getClientRects` calls made inside frame callbacks, and records long animation frames. Once the
+  app is ready, a probe pauses the clock and waits for the globe to settle (supersampling history
+  full, no frame for 1.5 s), then checks:
+  - shader programs (`renderer.info.programs`) and the draw calls of a settled frame, globe and
+    sky view, within `PERF_BUDGETS` for the tier. These were measured on `perfScene` (Ho Chi Minh
+    City at 22:00 local on 4 Nov 2026, paused), plus about 10 %. The 2026-11-04 baseline was
+    low 48 programs, 21 and 12 draws; medium 59, 39 and 28; high 59, 40 and 28;
+  - no frame in 3 s on the paused globe;
+  - no frame in 3 s in the paused sky view, except on a tier that twinkles the stars: there at
+    most 32 a second, and never two frames closer than `TWINKLE_FRAME_MS − 2`;
+  - no layout read inside a frame callback during a 3 s time-lapse at 1 h/s (§7 'Labels': the
+    labels, the time bar and the view insets all read after the frame).
+
+  The boot's longest long animation frame is printed, not judged: on SwiftShader it is the shader
+  compile, 2.5–9 s here depending on tier and machine load. A new feature that adds programs or
+  draw calls raises its tier's budget deliberately, with a dated note, like the size budgets. CI
+  runs `--perf=low --context-loss` at 1440×900 and `--perf=high --context-loss` at 320×240.
+  At 1440×900 SwiftShader draws a High sky view only every 70 ms or more, which never tests the
+  30 Hz twinkle cap; at 320×240 it draws every 33 ms. The counts are the same at both sizes.
+- **Golden renders** (`node scripts/golden.mjs`, `scripts/lib/golden.mjs`) are the visual
+  regression check. Eight scenes (`--list`) are each opened in a fresh browser profile:
+  - Ho Chi Minh City at night (High and Low), the totality of 2 Aug 2027 at Luxor (globe and sky
+    view, High), Paris at sunset (sky view, High), and the phone's Medium (390×844 @3, globe and
+    the Luxor sky);
+  - all paused, with no intro, reduced motion (no twinkle) and the labels and satellites layers
+    off. Labels are DOM text, and fonts decide which planet medallions show. `data/tle.json` is
+    refreshed;
+  - text mode (WebGL disabled).
+
+  A scene settles first: textures in, no request (and in text mode no DOM change) for 2 s,
+  supersampling done, no frame drawn. Then everything but `#scene` is hidden, and the canvas is
+  captured at its own pixels: the phone at 585×1266, the desktop scenes at half size, 720×450.
+  A scene fails when more than 0.5 % of its pixels move by more than 6/255 in luma, and its
+  `<scene>.diff.png` heat map shows the golden dimmed with the changed pixels from red to yellow.
+  Text mode's golden is its visible structure: one line per element with an id, a role or an
+  aria-label, digits masked, hidden subtrees left out. It is compared line by line.
+
+  Two renders on one machine are pixel-identical. A beam glow of 10 px instead of 8 on Low moves
+  2.26 % of that scene. Renders depend on the browser build, so `test/golden/meta.json` records
+  the Chrome version, platform and WebGL renderer. A run with no goldens, or another Chrome,
+  platform or renderer, skips with a notice and exits 0. CI pins Chrome for Testing
+  (`CHROME_VERSION` in `.github/workflows/ci.yml`, installed by `browser-actions/setup-chrome`)
+  for every browser step, and the goldens are made there, never on a developer machine:
+  **to make or update the goldens**, run the CI workflow by hand (Actions → CI → Run workflow)
+  with **Render goldens** ticked. Download the `goldens` artifact, replace `test/golden/` with
+  its contents and commit. Do the same after a deliberate visual change (the failing run's
+  `golden-renders` artifact shows what moved) and after raising `CHROME_VERSION`. Locally,
+  `--update` (and `--only=a,b`, `--dir=`) writes goldens for your own Chrome, which is useful to
+  compare two versions of a change; CI skips such goldens unless they come from the pinned build.
 - **`npm run size`** enforces the per-tier transfer budgets (low 3.76 MB, medium 4.52 MB, high
   8 MB raw, re-baselined from the spec's estimate to the measured unminified module graph; low and
   medium stay under 6 MB, high under 8 MB) and the 32 MB deploy limit. Max (≈ 20.8 MB) is reported but has no budget;

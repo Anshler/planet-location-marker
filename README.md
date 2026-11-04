@@ -130,6 +130,13 @@ Maintenance scripts:
   `node scripts/serve.mjs --root=_site --subpath=/planet-location-marker/` serves that copy, and
   `node scripts/smoke.mjs --root=_site --subpath=/planet-location-marker/ --offline-reload` checks
   that it reloads offline.
+- `node scripts/smoke.mjs --offline --perf=high` runs the performance gates: shader programs and
+  draw calls within the tier's budget, no frame drawn while paused, no layout read inside a frame
+  during a time-lapse (counts, not timings).
+- `node scripts/golden.mjs` compares the 3D view of eight fixed scenes with the goldens in
+  `test/golden/`. The goldens are made in CI with its pinned Chrome: run the CI workflow by hand
+  with **Render goldens** ticked and commit its `goldens` artifact to `test/golden/`. With another
+  Chrome, as on most development machines, the check skips with a notice.
 
 Useful URL options (in the hash):
 
@@ -175,7 +182,7 @@ The site is plain static files.
 
 - **GitHub Pages, recommended.** In the repository, open **Settings → Pages → Build and deployment
   → Source: GitHub Actions**. Every push to `main` then runs CI, which covers the tests, the size
-  budgets and the headless smoke tests. If CI passes, `.github/workflows/pages.yml` stages the site
+  budgets, the headless smoke tests, the performance gates and the golden renders. If CI passes, `.github/workflows/pages.yml` stages the site
   files, stamps the service worker's version and deploys them.
 - **Branch deploy.** "Deploy from a branch: `main` / root" also works. `.nojekyll` is included.
   The service worker then has no manifest: it still works offline, but fetches everything from

@@ -312,9 +312,15 @@ test('runner: input pauses, Resume replays, Next skips, Esc ends; Ambient ends o
     await tick();
     await tick();
     assert.deepEqual([store.get().ui.tour.step, store.get().ui.tour.paused], [3, false], 'next from a pause skips ahead');
-    listeners.keydown({ key: 'Escape' });
+    const esc = { key: 'Escape', defaultPrevented: false, stopped: false };
+    esc.preventDefault = () => { esc.defaultPrevented = true; };
+    esc.stopImmediatePropagation = () => { esc.stopped = true; };
+    listeners.keydown(esc);
     assert.equal(runner.active, false);
     assert.equal(store.get().ui.tour, null);
+    // The global Esc (ui/shortcuts.js) must not then leave the restored map, cinema or selection.
+    assert.ok(esc.defaultPrevented && esc.stopped, 'Esc is consumed by the tour');
+    assert.equal(store.get().selection, 'venus', 'the selection the tour found stays');
     assert.equal(listeners.keydown, undefined, 'input listeners removed');
 
     await runner.start('ambient');

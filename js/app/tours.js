@@ -660,6 +660,10 @@ export function createTourRunner(deps) {
         };
         const onKey = (e) => {
             if (e.key === 'Escape') {
+                // Esc is the tour's: the global handler (ui/shortcuts.js) must not act on the
+                // state the tour has just restored (leave a restored map, cinema or selection).
+                e.preventDefault?.();
+                e.stopImmediatePropagation?.();
                 stop('esc');
                 return;
             }

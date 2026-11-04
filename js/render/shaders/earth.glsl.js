@@ -15,6 +15,10 @@
  * source) are uniforms, so a texture and its interpretation swap together the
  * moment the texture arrives, with no recompile. Features that add texture
  * fetches (BUMP, CLOUD_SHADOWS) are #defines set once per tier.
+ *
+ * The sharpen-in (every variant): while a day or night map replaces its 512 px preview,
+ * uSharpen runs from 0 to 1 and the shader mixes the two (render/earth.js); at 1 the preview is
+ * not sampled.
  */
 import { COMMON, SURFACE_FRAG } from './common.glsl.js';
 import { ATMO_MODEL } from './atmosphere.glsl.js';
@@ -141,6 +145,9 @@ const vertex = SURFACE_VERTEX;
 const fragment = /* glsl */ `
 uniform sampler2D uDay;
 uniform sampler2D uNight;
+uniform sampler2D uDayPrev;     // the 512 px previews the maps sharpen in from
+uniform sampler2D uNightPrev;
+uniform vec2 uSharpen;          // (day, night): 0 the preview, 1 the slot's own map
 uniform sampler2D uMask;
 uniform sampler2D uClouds;
 
@@ -215,11 +222,12 @@ vec3 nightLights(vec2 uv) {
     float pxc = 2.0 * sqrt(max(max(dot(ndx, ndx), dot(ndy, ndy)), 1e-12));   // a pixel, in grain cells
     vec3 raw = texture(uNight, uv).rgb;
     if (nLod < 0.5) raw = mix(pcTextureBSpline(uNight, uv).rgb, raw, smoothstep(-0.5, 0.5, nLod));
+    if (uSharpen.y < 1.0) raw = mix(texture(uNightPrev, uv).rgb, raw, uSharpen.y);
     float maxc = max(raw.r, max(raw.g, raw.b));
     vec3 lights = pow(max(raw, vec3(0.0)), vec3(1.0, 1.1, 1.35)) * vec3(1.0, 0.85, 0.62) * uLightsGain;
     lights *= 1.0 + 1.5 * smoothstep(0.85, 1.0, maxc);
     float sig = max(pxc, 0.12);   // point radius in cells: never under a pixel
-    float vis = (1.0 - smoothstep(-3.0, -1.5, nLod)) * (1.0 - smoothstep(0.3, 0.5, sig));
+    float vis = (1.0 - smoothstep(-3.0, -1.5, nLod)) * (1.0 - smoothstep(0.3, 0.5, sig)) * step(2048.0, nsz.x);   // never on the preview
     if (vis > 0.0) {
         vec2 st = vec2(fract(uv.x), uv.y) * nsz * 2.0;
         float wrapW = nsz.x * 2.0;
@@ -251,6 +259,7 @@ void main() {
     // Both day maps are the same image (day2k is day4k at half size), so they share
     // one colour and one derived-mask window.
     vec3 albedo = texture(uDay, uv).rgb;
+    if (uSharpen.x < 1.0) albedo = mix(texture(uDayPrev, uv).rgb, albedo, uSharpen.x);
     vec4 maskTex = texture(uMask, uv);
 
     // --- ocean mask: roughness ~ 0 is water. Until the mask loads, blue-over-red water

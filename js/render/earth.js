@@ -9,6 +9,11 @@
  * from the day map. The 2k and 4k maps of a slot are the same imagery, so a
  * tier switch changes sharpness, never colour or weather.
  *
+ * Previews (textures.js PREVIEW): until a day or night map is in, its slot shows the 512 px
+ * preview, so the first frame is already a lit Earth. When the map arrives over a preview, the
+ * preview stays bound (uDayPrev, uNightPrev) and uSharpen tweens from 0 to 1 over SHARPEN_MS, a
+ * focus pull rather than a pop (a uniform only; instant with reduced motion).
+ *
  * The flat map (ROADMAP globe-to-map-morph): update() reads fi.mapK and fi.map (the rig's map frame,
  * geo/mapview.js) into the uMap* uniforms of the surface and the cloud deck, which unroll in their
  * vertex shader (shaders/earth.glsl.js SURFACE_VERTEX) and draw the twilight contours. While the
@@ -18,7 +23,7 @@ import * as THREE from 'three';
 import { EARTH_SHADER } from './shaders/earth.glsl.js';
 import { CLOUDS_SHADER } from './shaders/clouds.glsl.js';
 import { ATMO_SUN_I, ATMO_EXPOSURE } from './shaders/atmosphere.glsl.js';
-import { dayKeyFor, nightKeyFor, maskKeyFor, cloudsKeyFor, interimKeyFor } from './textures.js';
+import { dayKeyFor, nightKeyFor, maskKeyFor, cloudsKeyFor, interimKeyFor, previewKeyFor } from './textures.js';
 import { groundCover } from './sky.js';
 import { createAuroraUniforms, createAuroraDriver, auroraShellFor } from './aurora.js';
 import { BODIES, MOON_RADIUS_ER, SUN_ANG_RADIUS_1AU_RAD, sunAngularRadius } from '../astro/bodies.js';
@@ -38,6 +43,8 @@ const LOOK = {
 /** Clouds drift eastward with simulated time: one lap per 40 days (illustrative, deterministic). */
 const CLOUD_DRIFT_PERIOD_MS = 40 * 86400e3;
 const CLOUD_DRIFT_EPOCH_MS = Date.UTC(2000, 0, 1, 12);
+/** The preview → full-map sharpen-in. */
+const SHARPEN_MS = 600;
 
 /** Tier knobs this module reads, used when rc.tier is a name or a partial config. */
 const TIER_DEFAULTS = {
@@ -103,6 +110,10 @@ export function createEarth(rc, { textures, reducedMotion = false } = {}) {
     const u = {
         uDay: { value: store.get(dayKeyFor(cfg)) },
         uNight: { value: store.get(nightKeyFor(cfg)) },
+        uDayPrev: { value: store.get('dayPreview') },
+        uNightPrev: { value: store.get('nightPreview') },
+        // (day, night): 0 shows the preview, 1 the slot's own map.
+        uSharpen: { value: new THREE.Vector2(1, 1) },
         uMask: { value: store.get('brc4k') },
         uClouds: { value: store.get('clouds2k') },
         uSunDirW: { value: new THREE.Vector3(1, 0, 0) },
@@ -204,10 +215,56 @@ export function createEarth(rc, { textures, reducedMotion = false } = {}) {
     const pending = { day: null, night: null, mask: null, clouds: null };
     /** Slots that always hold a texture, so they show the key's placeholder until it loads. */
     const IMAGE_SLOT = { day: u.uDay, night: u.uNight };
+    /** The image slots' previews: bound sampler, uSharpen component, whether the slot shows it now. */
+    const PREV = {
+        day: { u: u.uDayPrev, c: 'x', on: false, seen: false, off: null, t0: NaN },
+        night: { u: u.uNightPrev, c: 'y', on: false, seen: false, off: null, t0: NaN },
+    };
+
+    /**
+     * One frame of a slot's sharpen-in (t0: NaN idle, -1 starts on this frame, else its start in s).
+     * @param {{on:boolean, seen:boolean, c:'x'|'y', t0:number}} p
+     * @param {number} now frame time, s
+     */
+    function sharpen(p, now) {
+        if (p.on) p.seen = true;   // this frame draws the preview
+        if (Number.isNaN(p.t0)) return;
+        if (p.t0 < 0) p.t0 = now;
+        const k = Math.min(1, Math.max(0, ((now - p.t0) * 1000) / SHARPEN_MS));
+        u.uSharpen.value[p.c] = k * k * (3 - 2 * k);
+        if (k >= 1) p.t0 = NaN;
+        else invalidate();
+    }
+
+    /** Shows a slot's preview while it has no real map (from now, or once the preview is in). */
+    function showPreview(slot, key) {
+        const p = PREV[slot];
+        const pk = previewKeyFor(interimKeyFor(key) ?? key);
+        if (!p || !pk) return;
+        const bind = (tex) => {
+            p.off = null;
+            if (active[slot]) return;
+            IMAGE_SLOT[slot].value = tex;
+            if (!p.on) p.seen = false;
+            p.on = true;
+            invalidate();
+        };
+        if (store.isReady(pk)) bind(store.get(pk));
+        else p.off = store.onReady(pk, bind);
+    }
 
     function bindSlot(slot, key) {
         const tex = store.get(key);
         if (IMAGE_SLOT[slot]) {
+            const p = PREV[slot];
+            if (p.off) { p.off(); p.off = null; }
+            if (p.on && p.seen && !reducedMotion) {
+                // Over a preview already on screen: keep it bound and sharpen into the map (update()).
+                p.u.value = IMAGE_SLOT[slot].value;
+                u.uSharpen.value[p.c] = 0;
+                p.t0 = -1;
+            }
+            p.on = false;
             IMAGE_SLOT[slot].value = tex;
         } else if (slot === 'mask') {
             u.uMask.value = tex;
@@ -234,6 +291,7 @@ export function createEarth(rc, { textures, reducedMotion = false } = {}) {
     const pendingInterim = { day: null, night: null, mask: null, clouds: null };
 
     function want(slot, key) {
+        if (PREV[slot]?.off) { PREV[slot].off(); PREV[slot].off = null; }
         if (pending[slot]) { pending[slot](); pending[slot] = null; }
         if (pendingInterim[slot]) { pendingInterim[slot](); pendingInterim[slot] = null; }
         if (!key) { clearSlot(slot); invalidate(); return; }
@@ -246,8 +304,10 @@ export function createEarth(rc, { textures, reducedMotion = false } = {}) {
             if (active[slot] !== stand) bindSlot(slot, stand);
         } else {
             if (!active[slot]) {
-                if (IMAGE_SLOT[slot]) IMAGE_SLOT[slot].value = store.get(stand ?? key);
-                else clearSlot(slot);
+                if (IMAGE_SLOT[slot]) {
+                    IMAGE_SLOT[slot].value = store.get(stand ?? key);
+                    showPreview(slot, key);
+                } else clearSlot(slot);
             }
             if (stand) {
                 pendingInterim[slot] = store.onReady(stand, () => {
@@ -360,6 +420,9 @@ export function createEarth(rc, { textures, reducedMotion = false } = {}) {
         /** Per rendered frame: follows the sky-view crossfade and the flat map's morph. */
         update(fi) {
             aurora.update(fi);
+            const now = Number.isFinite(fi?.timeS) ? fi.timeS : 0;
+            sharpen(PREV.day, now);
+            sharpen(PREV.night, now);
             const sb = Math.min(1, Math.max(0, fi?.skyBlend ?? 0));
             if (sb !== skyBlend) {
                 skyBlend = sb;
@@ -455,6 +518,7 @@ export function createEarth(rc, { textures, reducedMotion = false } = {}) {
         },
 
         dispose() {
+            for (const p of Object.values(PREV)) { if (p.off) p.off(); p.off = null; }
             for (const k of Object.keys(pending)) { if (pending[k]) pending[k](); pending[k] = null; }
             for (const k of Object.keys(pendingInterim)) { if (pendingInterim[k]) pendingInterim[k](); pendingInterim[k] = null; }
             mesh.geometry.dispose();

@@ -122,3 +122,41 @@ test('provider: one slot for the star being looked at; meta, fill and the card',
     extras.refresh();
     assert.deepEqual(extras.ids('star'), []);
 });
+
+test('a selected fast star is at the snapshot epoch before the sky module moves the catalogue', () => {
+    const cat = decodeSky(read('data/sky.json'));
+    const extras = createExtras();
+    const p = createStarProvider({ getCatalog: () => cat, getInfo: () => null });
+    extras.register(p);
+    p.track('star:69673');   // Arcturus, 2.3″/yr
+    extras.refresh();
+    const i = cat.stars.hip.indexOf(69673);
+    const j2000 = [...cat.stars.dirS.subarray(3 * i, 3 * i + 3)];
+    const s = createSnapshot();
+    computeSnapshot(Date.UTC(1000, 5, 1, 22), { latDeg: 50.91, lonDeg: 0.49, elevM: 0 }, s, { detail: 'frame' });
+    extras.fill(s);
+    const st = extras.state(s, 'star:69673');
+    const sep = Math.acos(Math.min(1, st.dirS[0] * j2000[0] + st.dirS[1] * j2000[1] + st.dirS[2] * j2000[2])) * 180 / Math.PI;
+    assert.ok(sep > 0.55 && sep < 0.75, `moved ${sep}°`);
+    assert.equal(cat.stars.pm.years, Math.round((Date.UTC(1000, 5, 1, 22) - Date.UTC(2000, 0, 1, 12)) / (365.25 * 864e5)));
+    assert.deepEqual([...st.dirS].map((v) => Math.fround(v)), [...cat.stars.dirS.subarray(3 * i, 3 * i + 3)]);
+});
+
+test('a star too far for a parallax: the light left before a moment that is safely later', () => {
+    const extras = createExtras();
+    const info = new Map([[26549, { plx: 0.5, eplx: 0.6, con: 'Ori' }]]);
+    const p = createStarProvider({ getCatalog: () => CAT, getInfo: () => info });
+    extras.register(p);
+    p.track('star:26549');
+    extras.refresh();
+    const s = createSnapshot();
+    computeSnapshot(T2026, { latDeg: 37, lonDeg: -118.2, elevM: 0 }, s, { detail: 'full' });
+    extras.fill(s);
+    const card = extras.card('star:26549', s);
+    const line = card.lines.find((l) => l.startsWith('Too far'));
+    assert.ok(line, card.lines.join(' | '));
+    assert.doesNotMatch(line, /telescope was invented|pyramids rose/);
+    const lower = parallaxDistance(0.5, 0.6).lowerLy;
+    const [, words] = HISTORY.filter((h) => h[0] > 2026 - lower && h[0] <= 2026).at(-1);
+    assert.match(line, new RegExp(`left before ${words}`));
+});

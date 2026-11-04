@@ -16,7 +16,8 @@
  */
 
 import { designations, starDisplayName } from '../data/starinfo.js';
-import { parallaxDistance, departureLine, lyWords, AU_PER_LY } from './lighttime.js';
+import { applyProperMotion, yearsFromJ2000 } from '../data/catalog.js';
+import { parallaxDistance, departureLine, lyWords, spanWords, historyAfter, AU_PER_LY } from './lighttime.js';
 import { guestRiseSet } from './guest-stars.js';
 import { sceneToRaDec } from './frames.js';
 import { AE } from './ae.js';
@@ -159,6 +160,10 @@ export function createStarProvider({ getCatalog, getInfo = () => null, needInfo 
             const hip = hipOf(id);
             const i = indexOf(hip);
             if (i < 0) { out.present = false; return; }
+            // The snapshot's epoch, before the sky module's apply() would move the catalogue: a
+            // selected fast star after a time jump is where the star field draws it (render/sky.js
+            // copies the moved directions when it sees the new epoch). No-op when already there.
+            if (Number.isFinite(snap?.tMs)) applyProperMotion(getCatalog(), Math.round(yearsFromJ2000(snap.tMs)));
             const st = getCatalog().stars;
             out.dirS[0] = st.dirS[3 * i]; out.dirS[1] = st.dirS[3 * i + 1]; out.dirS[2] = st.dirS[3 * i + 2];
             out.mag = st.mag[i];
@@ -195,7 +200,11 @@ export function createStarProvider({ getCatalog, getInfo = () => null, needInfo 
                 if (dist.assumed) caveat = 'Distance from the Hipparcos parallax with a typical error assumed; the year its light left is as uncertain.';
                 else if (rel >= 0.1) caveat = `Hipparcos parallax ${dist.plx.toFixed(2)} ± ${dist.eplx.toFixed(2)} mas: the distance, and so the year the light left, is uncertain by about ${Math.round(rel * 100)} %.`;
             } else if (dist && dist.lowerLy > 0) {
-                lines.push(`Too far for Hipparcos to measure: more than about ${lyWords(dist.lowerLy)} away, so the light you see left before ${Math.round(dist.lowerLy / 100) * 100 > 2000 ? 'the pyramids rose' : 'the telescope was invented'}.`);
+                // The light left before (simulated year − the bound): the first moment after that is safe.
+                const year = Number.isFinite(t) ? new Date(t).getUTCFullYear() : NaN;
+                const ev = Number.isFinite(year) ? historyAfter(year - dist.lowerLy) : null;
+                const when = ev && ev[0] <= year ? `before ${ev[1]}` : `more than ${spanWords(dist.lowerLy)} ago`;
+                lines.push(`Too far for Hipparcos to measure: more than about ${lyWords(dist.lowerLy)} away, so the light you see left ${when}.`);
             } else if (!info) {
                 lines.push('Looking up its distance…');
             }

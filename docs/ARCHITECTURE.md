@@ -59,6 +59,7 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/app/mars-host.js` | `createMarsHost(deps)`: standing on Mars (loaded by `main.js bindHost` the first time `store.host` is Mars). `enter()` hands the loop a Mars snapshot source (`loop.setHost`), broadcasts `setHost('mars')`, hides the Earth-only groups (`R.earthGroups`), registers the `sat:` provider and adds `render/mars-sky.js` once a renderer exists; `leave()` undoes it. No three.js. |
 | | `js/app/eclipse-chase.js` | `ribbonPlan` (which eclipse the globe's path ribbon shows), `chaseLegs`/`chaseTarget` and `createEclipseChase` (the shadow chase behind `actions.chaseEclipse`). No three.js. |
 | | `js/app/loop.js` | `createLoop(deps)`: the frame loop with render-on-demand, guarded module calls and strikes, governor sampling, the 4 Hz readout and idle supersampling (extra jittered frames once nothing moves, `core/sampling.js`). `redraw()` draws one frame on demand (captures); `step(now, dt, io)` runs one whole frame on a caller's time base (video sessions). |
+| | `js/app/tier-switch.js` | `createTierSwitch(hooks)`: the staged tier switch's sequencing (pause, stage, compile, commit, resume; DPR steps at once; a newer request replaces a staged one; a 10 s cap), driven by `main.js makeTierSwitch` (§8, Applying a tier). No three.js. |
 | | `js/app/capture.js` | `createCapture(deps).frame(opts)`: the scene rendered once at a requested size into a 2D canvas, with the label feed's labels reprojected for that camera (`projectAnchor`, `projectLabels`, `paintLabels`). Postcards and the long exposure's Save image. `session(opts)`: the same, frame after frame at one size (the time-lapse video). No three.js. |
 | | `js/app/recorder.js` | Time-lapse video export, loaded on demand by `actions.recordVideo`: the pure frame plans (`videoPlan`: holds and clock ranges for a day, a night of star trails, the 2027 eclipse chase; `nightSpan`), `pickEncoder`, and `recordVideo` (deterministic frames on a virtual time base, WebCodecs into `mp4.js`, else MediaRecorder in real time; state restored afterwards). No three.js. |
 | | `js/app/mp4.js` | A tiny faststart MP4 muxer for one H.264 (`avcC`) or VP9 (`vpcC`) track, pure; `mp4Boxes` walks boxes (tests). |
@@ -119,12 +120,12 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/astro/sky-guide.js` | Finding it in the real sky: hands at arm's length (`handSpan`: a fist ≈ 10°, a finger ≈ 1°), `findIt` ('Face south-east, 4 fists up from the horizon, 1 fist left of the Moon.'), `guideRefs` (the Moon, bright planets and, by night, 24 bright J2000 stars as signposts), the ruler's numbers (`separationDeg`, `fmtAngle`, `rulerText`) and `edgeHit` (where an off-screen pointer meets the free area's edge). |
 | Data | `js/data/catalog.js` | Decodes `data/sky.json` into GPU-ready typed arrays in the scene frame (with B−V and sky.json's own order, `srcHip`); `applyProperMotion(catalog, years)` moves the fast stars, their constellation endpoints and name labels in place; `mergeDeepStars` appends the max tier's `data/stars8.json`. |
 | | `js/data/starinfo.js` | Decodes `data/starinfo.json` (parallax per star, proper names, Bayer and Flamsteed designations; `GENITIVE`, `designations`). |
-| Render | `js/render/context.js` | Renderer, scene, camera, tier switching, `invalidate`/`onInvalidate`, context loss, stats; `setAccumulation` (long exposures), `capture` (a one-task render at another size), video sessions (`beginCapture`, `captureCamera`/`releaseCamera`, `endCapture`), `render(ss)` (a jittered supersampling sample; a shown overlay takes the same jitter) and `setOverlay` (a second scene drawn over the first with its own camera and depth: the orrery). |
+| Render | `js/render/context.js` | Renderer, scene, camera, tier switching (`setTier`, or staged: `prepareTier` builds the post chain, `compile({paced})` warms every variant, `commitTier` applies the DPR), `invalidate`/`onInvalidate`, context loss, stats; `setAccumulation` (long exposures), `capture` (a one-task render at another size), video sessions (`beginCapture`, `captureCamera`/`releaseCamera`, `endCapture`), `render(ss)` (a jittered supersampling sample; a shown overlay takes the same jitter) and `setOverlay` (a second scene drawn over the first with its own camera and depth: the orrery). |
 | | `js/render/postfx.js` | Composer with bloom and the final pass (FXAA when the scene target has no MSAA; the night-vision grade, `rc.setVision`). An `OverlayPass` right after the scene draws the overlay scene (`setOverlay`). While Expose is on, `AccumPass` (`accum.js`: two half-float targets, max-stacking, bright-only for the analemma) sits between the scene and the bloom; otherwise, on tiers that supersample, `SupersamplePass` (`supersample.js`: one half-float history, a hardware-blended running mean) sits there. |
 | | `js/render/streaks.js` | Fast-time star streaks, a render module for its per-frame hook: measures the camera's turn since the last frame and publishes `STREAK_UNIFORMS` (the shutter's opening as a world → view mat3, the cap), shared by the stars and the planet glyphs (`STREAK_VERT_CHUNK`), and `streakState.dim` for line art and the Milky Way. |
 | | `js/render/orrery.js` | The solar-system zoom's orrery: its own scene and camera in AU (the overlay), orbits, the Earth→body sight lines the beams fade into, sprites lit by the Sun, the Sun on the bodies' `DISC_FRAG`, the retrograde figure for a selected planet, edge arrows; live label points (`labelPoint`, `labelOffset`) and `pick`. Shaders in `shaders/orrery.glsl.js`. |
 | | `js/render/long-exposure.js` | The long exposure's controller, a render module for its per-frame hook: turns stacking on in sky view while `ui.expose` is set, resets the stack when the framing changes, gates star trails by daylight, reports `stats()`. |
-| | `js/render/textures.js` | Placeholder-first texture store with byte-weighted progress. Takes over `main.js`'s prefetched downloads, shows a day or night map's 512 px preview while it loads (`state(key) === 'preview'`), and holds eager uploads while the shaders compile (`holdUploads`). |
+| | `js/render/textures.js` | Placeholder-first texture store with byte-weighted progress. Takes over `main.js`'s prefetched downloads, shows a day or night map's 512 px preview while it loads (`state(key) === 'preview'`), and holds eager uploads while the shaders compile (`holdUploads`; a tier switch's `{bind: false}` hold binds a map only once it is on the GPU). `setAnisotropy(n, keys)` re-uploads through the hold. |
 | | `js/render/earth.js`, `atmosphere.js` | Earth shader (day, night lights with close-zoom filtering, the sharpen-in from the 512 px previews, sun glint and moonglint, moonlight, twilight, sculpted clouds, the face-on aurora, eclipse shadow, footprint) and atmosphere. |
 | | `js/render/aurora.js` | The aurora's limb-curtain shell (High and Max) and the driver of `AURORA_CHUNK` (`shaders/aurora.glsl.js`), whose uniforms the Earth and cloud materials also carry for the face-on oval on every tier. |
 | | `js/render/skyglow.js` | Uniforms of `SKYGLOW_CHUNK` (`shaders/skyglow.glsl.js`), filled from `snap.skyglow`: the moonlit sky and the city light dome per direction, for the dome, ground, stars and Milky Way. |
@@ -179,7 +180,11 @@ the UI and the render stack with literal `import('./…')` calls, so:
    (primary) load in parallel; the texture store claims them as soon as it exists, so they decode
    while the modules are built, and what is in before the compile starts is uploaded at once. If the catalog arrives late, the sky module gets it through
    `setCatalog`.
-6. **Compile.** `rc.compile()` (three's `compileAsync`) runs behind the loader, capped at 10 s.
+6. **Compile.** `rc.compile()` runs behind the loader, capped at 10 s: the scene (and the
+   overlay) against the post chain's input target, then the chain's own pass materials (bloom,
+   supersampling, the final pass) on a stand-in quad, with three's `compileAsync` where
+   `KHR_parallel_shader_compile` exists and `renderer.compile` otherwise (the links then happen at
+   the first frame).
    `textures.holdUploads` keeps eager uploads back until it settles and one frame is out: an
    upload issued while the GPU process links the shaders waits for that work on the main thread
    (≈ 360 ms measured on a desktop GPU), while one issued afterwards takes a few ms. A map decoded
@@ -758,6 +763,10 @@ frame(now):  dt = min(now − last, 100)
   hands over to text mode through `onRenderFailure`.
 - **No allocation.** One `FrameInfo` and one exposure object are reused. The option objects are
   frozen constants. Loops are indexed.
+- **Paused drawing.** `loop.setRenderPaused(paused, reason)` stops the drawing but not the clock or
+  the readouts. The reasons add up: `'context'` (the default: context loss, text mode) and `'tier'`
+  (a staged tier switch). Drawing resumes once none is left, so a switch that ends during a context
+  loss waits for the restore. `redraw()` draws nothing while paused.
 - **Redraw.** `loop.redraw()` draws one frame outside the cadence for `rc.capture`: the module
   updates with the current camera and the last `FrameInfo` (dt 0), the label feed's sync, then
   `rc.render()`; no DOM labels, stats or governor. `loop.labelOptions` exposes the label pool's
@@ -982,8 +991,60 @@ change.
   and write no depth; FXAA would turn a small star into an X. A context created for a composer
   tier has no canvas MSAA, so a later switch to Low keeps a lean chain (no bloom, no MSAA, FXAA)
   instead of the direct path. A Low boot keeps the direct path even if the driver refused MSAA.
-- **Applying a tier.** `applyTierCfg` calls `rc.setTier` and each module's `setQuality`, then loads
-  the tier's textures. The scene graph is never rebuilt.
+- **Applying a tier.** `applyTierCfg` hands the TierCfg to the tier switch (`app/tier-switch.js`,
+  wired by `main.js makeTierSwitch`). The scene graph is never rebuilt. A tier with the current
+  shader variants (a governor DPR step: the same tier name) applies at once, as before. Any other
+  tier is staged, so its first frame compiles and uploads nothing (`hitch-free-tier-switch`):
+  1. **Pause.** `loop.setRenderPaused(true, 'tier')`. The clock, the readouts and the panels go on.
+  2. **Stage.** `rc.prepareTier(cfg)` builds the post chain (composer on or off, MSAA target,
+     bloom, final pass, supersampling) at the current size, with no canvas resize, so nothing is
+     presented. Each module's `setQuality` sets its defines and meshes, and the tier's maps start
+     loading.
+  3. **Compile.** `rc.compile({paced: true})` compiles every scene material against the next
+     chain's input target (the canvas on the direct path), and every pass material against its
+     own target. With `KHR_parallel_shader_compile`, `compileAsync` does this off the main thread.
+     Without it, `paced` issues one new program per task, waits on a fence for the GPU process to
+     catch up with the frames and uploads queued before it (a fence's status changes only between
+     tasks, so polling it never blocks), and then links it. The main thread waits for one link at
+     a time instead of the whole batch in the first frame. Either way three's first use of each
+     new program (link status, info logs, uniform tables: `WebGLProgram.getUniforms`) runs now,
+     not in the first frame, where each of those synchronous queries would wait for that frame's
+     own draws.
+     `textures.holdUploads(compile, {bind: false})` holds the maps decoded meanwhile, and the
+     re-uploads of a new anisotropy (Max ↔ the rest; the tier's own maps, not Max's 4096 px
+     stand-ins), until the compile is done. Then they go out one per task. The commit waits for
+     the re-uploads only. A new map follows after it and becomes ready, and is bound, only after
+     its upload.
+  4. **Commit.** `rc.commitTier()` applies the DPR and sizes the composer. The resize clears the
+     canvas, so it comes after the compile: `presentIfCleared` redraws in the same task, with
+     nothing left to compile.
+  5. **Resume.** The next frame draws the new tier.
+
+  A request made while a switch is staged replaces it before anything is drawn. A compile that
+  has not settled after 10 s is given up: the switch commits and the first frame compiles the
+  rest, as before. A context lost meanwhile ends the compile, the switch commits, and drawing
+  waits for the restore. Bloom changes between Medium, High and Max (strength, radius, threshold,
+  mip scale) apply in place, without a new pass whose eight programs would compile again.
+  Measured under SwiftShader at 800 × 500 after a High boot, through `actions.setQuality`. The
+  figure is the longest main-thread block, from a 16 ms heartbeat, over three runs before and
+  seven after, on a machine shared with other jobs. A plain redraw blocks 20–80 ms. One High →
+  Medium run after the change blocked for 2.5 s; the other six stayed between 0.04 and 0.9 s.
+
+  | Switch | Before | After | Drawing paused for |
+  |---|---|---|---|
+  | High → Medium | 2.7–2.8 s | 0.04–0.9 s | 2.3–6.3 s |
+  | Medium → Low | 1.5–1.9 s | 0.04–0.21 s | 0.4–3.2 s |
+  | Low → High | 0.1–0.9 s | 0.02–0.07 s | 0.13–0.23 s |
+
+  The pause is about as long as the compile itself, which is the same work as before, except that
+  the main thread, the panels and input stay live through it. What is left on High → Medium is a
+  single program's link: the new Earth surface, cloud and atmosphere variants take 0.4–1 s each
+  on SwiftShader. SwiftShader links on the CPU and has no `KHR_parallel_shader_compile`, so these
+  numbers come from the paced path; with the extension the compile leaves the main thread
+  altogether. High → Max pauses drawing for 3.4–4.4 s there, and its 8192 px maps bind about 12 s
+  later, one upload per task. Long animation frames are no
+  measure under SwiftShader: a plain redraw reports one of about 1 s, because the frame waits for
+  the GPU process.
 - **Previews on every tier.** `earth_day_preview.webp` and `earth_night_preview.webp` (512 × 256,
   12 and 6 KB, from the 4096 maps by `scripts/build-textures.mjs`) are the critical keys of every
   tier: they gate the loader, stand in for the day and night maps (`PREVIEW` in
@@ -1022,6 +1083,8 @@ change.
 | A render module throws per frame | Three strikes, then it is hidden, with one toast. |
 | The renderer throws | Text mode (`context-failed`). |
 | `webglcontextlost` | Rendering pauses (the panels keep updating) and a non-blocking "Graphics were reset — restoring…" overlay appears. On restore, `textures.restore()` runs, the context drops the old composer unreleased (its GL objects died with the lost context) and builds a new one, and rendering resumes. |
+| Context lost during a tier switch | The compile ends at once, the switch commits, and drawing stays paused (the `'context'` reason) until the restore, which builds the chain for the committed tier. |
+| A tier switch's compile hangs | After 10 s the switch commits anyway and resumes drawing; the first frame compiles what is left. |
 | A texture fails | The placeholder stays (a day or night map keeps its 512 px preview), with one "Some imagery couldn't load." toast. If the previews fail, the loader waits for the full maps instead (or 5 s). |
 | `sky.json` fails | No stars or constellations, and a toast. |
 | The worker fails | The client falls back to the main thread transparently. |

@@ -907,6 +907,25 @@ export function createActions(deps) {
         say(`Aurora activity: ${s} (modelled)`);
     }
 
+    /**
+     * What the camera shows, read-only: rig.getView() (the URL's CamView: sky `{azDeg, altDeg,
+     * fovDeg}` with the vertical field) plus `aspect`, the scene canvas's width over height. Null
+     * without the 3D view. The sky dome draws its field-of-view wedge from it.
+     * @returns {(import('../core/types.js').CamView & {aspect:number})|null}
+     */
+    function getView() {
+        let v = null;
+        try {
+            v = render.rig?.getView?.() ?? null;
+        } catch {
+            v = null;
+        }
+        if (!v) return null;
+        const c = win?.document?.getElementById?.('scene');
+        const aspect = c?.clientWidth > 0 && c.clientHeight > 0 ? c.clientWidth / c.clientHeight : 16 / 9;
+        return { ...v, aspect };
+    }
+
     /** The shareable URL for the current state (camera included). */
     function shareUrl() {
         let cam = null;
@@ -1552,7 +1571,7 @@ export function createActions(deps) {
         toggleLayer, setQuality, setTzMode, setSkyDark, setAuroraActivity, share,
         toggleFullscreen, toggleCinema, resetCamera, replayIntro, jumpToEvent,
         // Extensions beyond SPEC §C.9 (used by shortcuts / the shell when present).
-        toggleDebug, openPalette, shareUrl, viewFromBody,
+        toggleDebug, openPalette, shareUrl, viewFromBody, getView,
         // Eclipse 2027 (ROADMAP Phase 1): the shared path request and 'Stand in the path'.
         eclipsePath: eclipsePathFor, standInPath, playEclipse,
         // Phase 5: long exposures and the capture path (postcards, Save image).

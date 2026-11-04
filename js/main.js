@@ -100,6 +100,9 @@ const R = {
     /** WebGL renderer string: the key of the governor's learned tier. */
     rendererString: '',
     /** @type {any} */ catalog: null,
+    /** data/sky.json as fetched by the 3D boot, and its decoded base catalogue (baseCatalog()). */
+    /** @type {Promise<any>|null} */ skyJsonP: null,
+    /** @type {Promise<any>|null} */ catalogP: null,
     /** @type {any} */ snapFull: null,
     /** @type {any} */ bus: null,
     /** @type {any} */ texMod: null,
@@ -439,7 +442,7 @@ async function boot() {
     const uiModP = import('./ui/index.js');
     const renderModsP = env.can3d ? importRenderStack() : null;
     const citiesJsonP = fetchJson('data/cities.json');
-    const skyJsonP = env.can3d ? fetchJson('data/sky.json') : null;
+    R.skyJsonP = env.can3d ? fetchJson('data/sky.json') : null;
 
     const cities = createCitiesProxy();
     const cityIndexP = citiesJsonP.then((json) => {
@@ -582,7 +585,8 @@ async function boot() {
         console.error('[main] astro client unavailable', err);
     }
     R.astro = astro;
-    const services = { cities, geocoder, astro, tz, format };
+    // `catalog()`: the decoded star catalogue, late-bound (it arrives with the 3D boot, or on first ask in text mode).
+    const services = { cities, geocoder, astro, tz, format, catalog: baseCatalog };
     // Extra objects beyond the nine bodies: the registry, and the providers that need no download.
     const extras = createExtras();
     R.extras = extras;
@@ -679,7 +683,7 @@ async function boot() {
         enterTextMode(env.webgl2 ? 'no-importmap' : 'no-webgl2');
     } else {
         try {
-            await bootRender({ env, hash, store, bus, clock, actions, render, loop, snap, governor, renderModsP, skyJsonP, astro, cities });
+            await bootRender({ env, hash, store, bus, clock, actions, render, loop, snap, governor, renderModsP, astro, cities });
         } catch (err) {
             enterTextMode('context-failed', err);
         }
@@ -865,6 +869,31 @@ function enterTextMode(reason, err) {
 }
 
 /**
+ * The decoded base star catalogue (data/sky.json, data/catalog.js decodeSky), once per visit:
+ * from the 3D boot's own fetch, else fetched on the first ask (text mode: the sky dome, a star
+ * selection). Late-bound for the UI as `services.catalog()`, since the UI mounts before it exists.
+ * Resolves null when it cannot load; the next ask tries again.
+ * @returns {Promise<any>}
+ */
+function baseCatalog() {
+    if (R.catalogP) return R.catalogP;
+    const p = (R.skyJsonP ?? fetchJson('data/sky.json')).then((json) => {
+        if (!json) return null;
+        try {
+            return decodeSky(json);
+        } catch (err) {
+            console.error('[main] sky.json could not be decoded', err);
+            return null;
+        }
+    }).then((cat) => {
+        if (!cat && R.catalogP === p) { R.catalogP = null; R.skyJsonP = null; }
+        return cat;
+    });
+    R.catalogP = p;
+    return p;
+}
+
+/**
  * Text mode: catalogue stars are registered by the render stack's catalogue install, which never
  * runs here, so a shared `sel=star:<hip>` link would wait for its data forever. The first star
  * selection fetches and decodes data/sky.json (pure data/catalog.js) and registers them.
@@ -875,10 +904,9 @@ function textModeStars(store) {
     const need = (sel) => {
         if (asked || R.starExtras || typeof sel !== 'string' || !sel.startsWith('star:')) return;
         asked = true;
-        fetchJson('data/sky.json').then((json) => {
-            if (!json || R.starExtras) { asked = false; return; }
+        baseCatalog().then((cat) => {
+            if (!cat || R.starExtras) { asked = false; return; }
             try {
-                const cat = decodeSky(json);
                 if (!R.catalog) { R.catalog = cat; R.baseCatalog = cat; }
                 R.starExtras = registerStars(R.extras, {
                     getCatalog: () => R.catalog, fetchJson, onInfo: () => R.loop?.refreshReadout?.(),
@@ -946,7 +974,7 @@ let currentCfg = null;
 let readyFlag = false;
 
 async function bootRender(ctx) {
-    const { env, hash, store, bus, clock, render, loop, snap, governor, renderModsP, skyJsonP, astro, cities } = ctx;
+    const { env, hash, store, bus, clock, render, loop, snap, governor, renderModsP, astro, cities } = ctx;
     const m = await renderModsP;
     if (!m?.context?.createRenderContext) throw new Error('The 3D engine could not be loaded.');
     loader.progress(0.35, 'Building the globe');
@@ -982,15 +1010,7 @@ async function bootRender(ctx) {
 
     // Star catalog (already decoded if sky.json beat the 3D engine here).
     let catalog = null;
-    const catalogP = (skyJsonP ?? Promise.resolve(null)).then((json) => {
-        if (!json) return null;
-        try {
-            return decodeSky(json);
-        } catch (err) {
-            console.error('[main] sky.json could not be decoded', err);
-            return null;
-        }
-    });
+    const catalogP = baseCatalog();
     catalog = await withTimeout(catalogP, 0);
 
     // Modules, each isolated: a failure skips that feature only.

@@ -627,8 +627,10 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
      * hitch, and the post chain's pass materials (bloom, supersampling, stacking, the final pass).
      * With KHR_parallel_shader_compile everything compiles at once off the main thread. Without it
      * the programs link on first use, in the first frame (boot), or with `paced` (tier switches)
-     * here, one new program per task: each is issued alone and linked before the next, so the
-     * main thread waits for one link at a time instead of for the whole batch at once.
+     * here, one new program per task: each is issued alone, a fence lets the GPU process catch up
+     * with what was queued before it (polled between tasks, which never blocks), and only then is
+     * it linked, so the main thread waits for one link at a time instead of a whole batch at once.
+     * `paced` also does three's first use of the new programs (firstUse) before resolving.
      * Resolves early when the context is lost.
      * @param {{paced?:boolean}} [opts]
      * @returns {Promise<void>} never rejects
@@ -636,13 +638,26 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
     async function compile({ paced = false } = {}) {
         if (lost || disposed) return;
         const parallel = !!renderer.extensions?.has?.('KHR_parallel_shader_compile');
+        const n0 = renderer.info.programs?.length ?? 0;
         let offLost = null;
         const lostP = new Promise((resolve) => { offLost = onContextLost(() => resolve()); });
         try {
             await Promise.race([lostP, paced && !parallel ? compilePaced() : compileAll(parallel)]);
+            if (paced && parallel && !lost) firstUse(n0);
         } catch { /* compile errors surface at first render */ }
         offLost();
         invalidate();
+    }
+
+    /**
+     * three's first use of the programs from index `from` on (WebGLProgram.getUniforms: the link
+     * status, the info logs, the uniform and attribute tables), done now instead of in the first
+     * frame that draws them, where each of those synchronous queries would wait for that frame's
+     * own draws. Waits for a link still running.
+     */
+    function firstUse(from) {
+        const programs = renderer.info.programs ?? [];
+        for (let k = from; k < programs.length; k++) programs[k].getUniforms?.();
     }
 
     function compileAll(parallel) {
@@ -678,13 +693,35 @@ export function createRenderContext(canvas, { tierCfg } = {}) {
             const n0 = programs ? programs.length : 0;
             compileUnit(units, i, run);
             const fresh = programs ? programs.length > n0 : false;
-            // Wait for this link alone (nothing else is queued), then let the main thread breathe.
-            if (fresh) for (let k = n0; k < programs.length; k++) gl.getProgramParameter(programs[k].program, gl.LINK_STATUS);
+            // Let the GPU process catch up first (a fence polled across tasks never blocks), then
+            // wait for this link alone (firstUse) and let the main thread breathe.
+            if (fresh) {
+                await gpuIdle(gl);
+                if (gen !== compileGen || lost) return;
+                firstUse(n0);
+            }
             if (fresh || performance.now() - t0 > 8) {
                 await nextTask();
                 t0 = performance.now();
             }
         }
+    }
+
+    /**
+     * Resolves once the GPU has run everything issued so far (a fence; its status only changes
+     * between tasks, so polling it never blocks), or after 3 s.
+     */
+    async function gpuIdle(gl) {
+        let sync = null;
+        try {
+            sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+            gl.flush();
+            const t0 = performance.now();
+            while (sync && !lost && performance.now() - t0 < 3000 && gl.getSyncParameter(sync, gl.SYNC_STATUS) !== gl.SIGNALED) {
+                await new Promise((resolve) => setTimeout(resolve, 4));
+            }
+        } catch { /* no fences: the link query below waits instead */ }
+        if (sync) gl.deleteSync(sync);
     }
 
     function onContextLost(cb) {

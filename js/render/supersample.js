@@ -134,7 +134,6 @@ export class SupersamplePass extends Pass {
         this._disposeTarget();
         this._blendMat.dispose();
         this._copyMat.dispose();
-        this._blendQuad.dispose();
-        this._copyQuad.dispose();
+        // Not the quads: their geometry is three's shared full-screen triangle (see render/accum.js).
     }
 }

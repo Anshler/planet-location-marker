@@ -28,6 +28,8 @@ import { mountShell } from './shell.js';
 import { mountToasts, mountFlash } from './toast.js';
 import { mountAnnouncer } from './announcer.js';
 import { bindShortcuts } from './shortcuts.js';
+import { toCalendar, fromCalendar } from '../core/tz.js';
+import { isExtraId } from '../core/selection.js';
 
 const HOUR = 3600e3;
 const DAY = 86400e3;
@@ -167,7 +169,10 @@ function createUiHub(ctx, rootEl) {
     }
 
     /**
-     * Wall-clock fields of `ms` in a zone, months 1-based, plus weekday `wd` (0 = Sunday).
+     * Wall-clock fields of `ms` in a zone, months 1-based, plus weekday `wd` (0 = Sunday). The date
+     * is in the display calendar: Julian before 15 Oct 1582 (`cal: 'julian'`, core/tz.js
+     * toCalendar), Gregorian after; weekdays are the same in both. Pass the fields (with `cal`) back
+     * to toUtc, even with an overflowing day.
      * @param {number} ms
      * @param {string} [tzName]
      */
@@ -186,18 +191,22 @@ function createUiHub(ctx, rootEl) {
             if (monthBase === 0) z = { ...z, mo: z.mo + 1 };
         }
         const wd = new Date(Date.UTC(z.y, z.mo - 1, z.d)).getUTCDay();
-        return { y: z.y, mo: z.mo, d: z.d, h: z.h, mi: z.mi, s: Math.floor(z.s || 0), offsetMin: z.offsetMin || 0, abbr: z.abbr || '', wd };
+        const c = toCalendar({ y: z.y, mo: z.mo, d: z.d });
+        return { y: c.y, mo: c.mo, d: c.d, cal: c.cal, h: z.h, mi: z.mi, s: Math.floor(z.s || 0), offsetMin: z.offsetMin || 0, abbr: z.abbr || '', wd };
     }
 
     /**
      * Wall-clock fields (months 1-based; day may overflow, e.g. 32) in a zone → UTC ms.
-     * Uses `services.tz.zonedToUtc` (DST-safe); falls back to a two-pass offset correction.
-     * @param {{y:number, mo:number, d:number, h?:number, mi?:number, s?:number}} f
+     * Uses `services.tz.zonedToUtc` (DST-safe); falls back to a two-pass offset correction. The
+     * date is in the calendar `f.cal` (as zoned() gives it); without one, a date on or before
+     * 4 Oct 1582 is read as Julian.
+     * @param {{y:number, mo:number, d:number, h?:number, mi?:number, s?:number, cal?:'julian'|'gregorian'}} f
      * @param {string} [tzName]
      */
     function toUtc(f, tzName = displayTz()) {
-        // Normalise overflowing fields through Date.UTC first (e.g. 31 Oct + 1 day).
-        const n = new Date(Date.UTC(f.y, f.mo - 1, f.d, f.h || 0, f.mi || 0, f.s || 0));
+        // The calendar date → proleptic Gregorian, then overflowing time fields through Date.UTC.
+        const gd = fromCalendar(f.y, f.mo, f.d, f.cal);
+        const n = new Date(Date.UTC(gd.y, gd.mo - 1, gd.d, f.h || 0, f.mi || 0, f.s || 0));
         const g = { y: n.getUTCFullYear(), mo: n.getUTCMonth() + 1, d: n.getUTCDate(), h: n.getUTCHours(), mi: n.getUTCMinutes(), s: n.getUTCSeconds() };
         if (monthBase === null) zoned(Date.UTC(2000, 0, 15), 'UTC');
         try {
@@ -309,11 +318,20 @@ function createUiHub(ctx, rootEl) {
     }
 
     // -- bodies -------------------------------------------------------------
-    const bodyName = (id) => BODIES[BODY_INDEX[id]]?.name ?? String(id);
+    // Extra objects (astro/extras.js; ctx.extras, the registry) answer the same three questions.
+    const extras = ctx.extras ?? null;
+    const bodyName = (id) => BODIES[BODY_INDEX[id]]?.name ?? (isExtraId(id) ? extras?.meta?.(id)?.name : null) ?? String(id);
     /** "The Sun" / "the Moon" / "Mars". */
     const bodySubject = (id, capital = true) => (id === 'sun' || id === 'moon'
         ? `${capital ? 'The' : 'the'} ${bodyName(id)}` : bodyName(id));
-    const bodyOf = (snap, id) => (snap && id in BODY_INDEX ? snap.bodies?.[BODY_INDEX[id]] ?? null : null);
+    /** A body's BodyState, or an extra object's ExtraState while it is present. */
+    const bodyOf = (snap, id) => {
+        if (!snap) return null;
+        if (id in BODY_INDEX) return snap.bodies?.[BODY_INDEX[id]] ?? null;
+        if (!isExtraId(id)) return null;
+        const st = extras?.state?.(snap, id) ?? null;
+        return st && st.present ? st : null;
+    };
 
     /** Compass point ("SE") — from services.format when present, else local. */
     function compass(az) {
@@ -545,7 +563,7 @@ function createUiHub(ctx, rootEl) {
         fmt, act,
         displayTz, observerTz, zoned, toUtc, fmtClock, fmtDay, fmtStamp, fmtSpoken, fmtWhen, offsetText,
         latLonText, placeLabel, placeShort, nearestCityText,
-        bodyName, bodySubject, bodyOf, compass, compassWords, altAz,
+        bodyName, bodySubject, bodyOf, compass, compassWords, altAz, extras,
         checkAlmanac, ingestAlmanac, ingestEvents, invalidateAlmanac, riseSetFor, tonightFor, observerKey, astroObserver,
         MONTHS, MONTHS_LONG, WEEKDAYS,
         /** True when transitions should be cuts. */

@@ -918,6 +918,9 @@ body.tier-medium:not(.is-coarse) .glass {
 .stamp { display: inline-flex; align-items: baseline; gap: 7px; font-size: 15.5px; font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: .005em; white-space: nowrap; }
 .stamp__sep { color: var(--faint); }
 .stamp__time { font-weight: 750; }
+/* The Julian-calendar tag (dates before 15 Oct 1582; its title gives the Gregorian date). */
+.stamp__cal { align-self: center; padding: 1px 5px; border: 1px solid var(--line); border-radius: 6px; color: var(--muted); font-size: 10.5px; font-weight: 650; letter-spacing: .04em; text-transform: uppercase; cursor: help; }
+.stamp__cal[hidden] { display: none; }
 .tb-accuracy { flex: none; }
 .tb-tz { flex: none; height: 30px; font-weight: 600; }
 .tb-lapse { flex: none; height: 32px; padding: 0 11px; }
@@ -1350,6 +1353,39 @@ body.no-webgl .vb-ruler, body.no-webgl .vb-point { display: none; }
 .tour-card__title { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; }
 .tour-card__title svg { flex-shrink: 0; color: var(--accent); }
 .tour-card__blurb { color: var(--muted); font-size: 11.5px; line-height: 1.35; }
+/* History (ROADMAP historic-skies): Moments, Famous comets, the sky you were born under. */
+.moments { display: grid; gap: 8px; margin: 0 0 18px; }
+.moment {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 9px 11px 10px;
+    border: 1px solid var(--line);
+    border-radius: var(--r-1);
+    background: rgba(255, 255, 255, .04);
+    color: var(--text);
+    text-decoration: none;
+    transition: background var(--t1) var(--ease), border-color var(--t1) var(--ease);
+}
+.moment:hover, .moment:focus-visible { background: rgba(255, 255, 255, .08); border-color: var(--line-2); }
+.moment__title { font-size: 13px; font-weight: 700; }
+.moment__when { color: var(--accent); font-size: 11.5px; font-weight: 650; }
+.moment__caption { color: var(--text-2); font-size: 12px; line-height: 1.4; }
+.moment__src { color: var(--faint); font-size: 10.5px; line-height: 1.35; }
+.moments--comets { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.born { margin: 0 0 18px; }
+.born__row { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 8px; }
+.born__row .field { flex: 1 1 120px; min-width: 0; }
+.born__caption { margin: 10px 0 0; padding: 9px 11px; border: 1px solid var(--line); border-radius: var(--r-1); background: rgba(255, 255, 255, .03); color: var(--text-2); font-size: 12.5px; line-height: 1.45; }
+.born__caption[hidden] { display: none; }
+/* An extra object's card (ui/body-card.js): the provider's sentences, facts and notes. */
+.card__extra { display: flex; flex-direction: column; gap: 6px; }
+.card__extra[hidden] { display: none; }
+.card__xline { margin: 0; color: var(--text-2); font-size: 13px; line-height: 1.45; }
+.card__xline:first-child { padding: 9px 11px; border: 1px solid var(--line); border-radius: 12px; background: rgba(255, 255, 255, .04); }
+.facts--extra { margin-top: 2px; }
+.card__caveat, .card__sources { margin-top: 2px; }
+.card__caveat[hidden], .card__sources[hidden] { display: none; }
 .filters { display: flex; gap: 6px; margin: 2px 0 14px; overflow-x: auto; scrollbar-width: none; }
 .filters::-webkit-scrollbar { display: none; }
 .filters .chip { flex: 1 0 auto; justify-content: center; padding: 0 10px; }
@@ -2016,7 +2052,7 @@ body.is-map .vb-track, body.is-map .vb-expose { display: none; }
 .ui[data-layout="mobile"] .stamp__day, .ui[data-layout="mobile"] .stamp__time { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .ui[data-layout="mobile"] .tb-play { width: 42px; height: 42px; }
 .ui[data-layout="mobile"] .tb-date { flex: 1 1 auto; justify-content: flex-start; min-width: 0; height: 44px; padding: 0 6px; }
-.ui[data-layout="mobile"] .tb-date__icon, .ui[data-layout="mobile"] .stamp__sep { display: none; }
+.ui[data-layout="mobile"] .tb-date__icon, .ui[data-layout="mobile"] .stamp__sep, .ui[data-layout="mobile"] .stamp__cal { display: none; }
 .ui[data-layout="mobile"] .stamp { flex-direction: column-reverse; align-items: flex-start; gap: 1px; line-height: 1.12; }
 .ui[data-layout="mobile"] .stamp__time { font-size: 18px; font-weight: 750; }
 .ui[data-layout="mobile"] .stamp__time.is-h12 { font-size: 16px; } /* "12:00:00 AM" */

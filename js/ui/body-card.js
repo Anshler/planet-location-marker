@@ -17,6 +17,12 @@
  *
  * Without a selection it shows a chooser with the nine bodies.
  *
+ * An extra object (core/selection.js `comet:halley`, `guest:sn1054`, `craft:voyager1`, …) gets the
+ * same card from its ExtraState and its provider's ExtraCard (astro/extras.js; ctx.extras): the
+ * kind line, the position sentence and 'find it', the provider's lines (light or radio time, the
+ * history), Look/Center/Telescope/Track, altitude, azimuth, rise · transit · set when known,
+ * magnitude, constellation and J2000 RA/Dec, the provider's facts, its caveat and sources.
+ *
  * @module ui/body-card
  */
 
@@ -26,6 +32,8 @@ import { icon } from './icons.js';
 import { moonPhaseName, isUp, lunarEclipseState, solarEclipseState, shownMag } from './sky-now.js';
 import { createEyepiece } from './eyepiece.js';
 import { findIt, guideRefs } from '../astro/sky-guide.js';
+import { isExtraId } from '../core/selection.js';
+import { extraSky } from '../astro/extras.js';
 
 const SYNODIC_DAYS = 29.530589;
 
@@ -118,6 +126,13 @@ export function mountBodyCard(root, ctx) {
         fact('date', 'RA / Dec (of date)', { wide: true, hint: 'Apparent, true equator and equinox of date' }),
         fact('sub', 'Sub-point', { wide: true, hint: 'Where on Earth it is straight overhead' }));
     const tonight = h('p', { class: 'card__tonight', hidden: true });
+    // Extra objects: the provider's sentences, extra facts, honesty note and sources.
+    const xLines = h('div', { class: 'card__xlines' });
+    const xFacts = h('dl', { class: 'facts facts--extra' });
+    const xCaveat = h('p', { class: 'note card__caveat' });
+    const xSources = h('p', { class: 'note card__sources' });
+    const xBox = h('div', { class: 'card__extra', hidden: true }, xLines, xFacts, xCaveat, xSources);
+    const tableNote = h('p', { class: 'note' }, 'Tables show apparent, refracted values; the 3D view draws astrometric J2000 directions.');
 
     // Rise · Transit · Set as three labelled cells (a day's set can come before its rise).
     const rtsCell = (iconName, label) => {
@@ -137,8 +152,7 @@ export function mountBodyCard(root, ctx) {
             h('div', { class: 'card__disc' }, disc),
             h('div', { class: 'card__titles' }, nameEl, kindEl),
             verdict),
-        sentence, findLine, light, moonLine, eyepiece.el, actions, tonight, grid,
-        h('p', { class: 'note' }, 'Tables show apparent, refracted values; the 3D view draws astrometric J2000 directions.'));
+        sentence, findLine, light, moonLine, xBox, eyepiece.el, actions, tonight, grid, tableNote);
 
     root.append(empty, card);
 
@@ -168,13 +182,38 @@ export function mountBodyCard(root, ctx) {
     let shownId = null;
     let discKey = '';
 
+    /** The card for an extra object: what the nine's card has, minus the disc-only parts. */
+    function showExtra(id) {
+        if (id === shownId) return;
+        shownId = id;
+        const m = ctx.extras?.meta?.(id) ?? null;
+        card.style.setProperty('--c', m?.color ?? 'var(--accent)');
+        nameEl.replaceChildren(h('span', { class: 'dot dot--lg', 'aria-hidden': 'true' }), m?.name ?? id);
+        drawExtraGlyph(disc, m?.color ?? '#cfe0ff', m?.kind ?? '');
+        disc.setAttribute('aria-label', m?.kindLabel ?? '');
+        xBox.hidden = false;
+        for (const k of ['phase', 'elong', 'size', 'date', 'sub']) facts[k].el.hidden = true;
+        verdict.hidden = true;
+        tonight.hidden = true;
+        moonLine.hidden = true;
+        eyepiece.el.hidden = true;
+        actPath.hidden = true;
+        discKey = '';
+    }
+
     function showFor(id) {
-        const has = !!id && id in BODY_INDEX;
+        const extra = isExtraId(id);
+        const has = !!id && (id in BODY_INDEX || extra);
         empty.hidden = has;
         card.hidden = !has;
+        card.classList.toggle('card--extra', extra);
         if (!has) { shownId = null; return; }
+        if (extra) { showExtra(id); return; }
         if (id !== shownId) {
             shownId = id;
+            xBox.hidden = true;
+            eyepiece.el.hidden = false;
+            for (const k of ['phase', 'elong', 'size', 'date', 'sub']) facts[k].el.hidden = false;
             const b = BODIES[BODY_INDEX[id]];
             card.style.setProperty('--c', `var(--body-${id})`);
             nameEl.replaceChildren(h('span', { class: 'dot dot--lg', 'aria-hidden': 'true' }), b.name);
@@ -192,8 +231,11 @@ export function mountBodyCard(root, ctx) {
         actLook.lastChild.textContent = sky ? 'Aim here' : 'Look from here';
         // A globe view: in sky view 'Center' already turns to the body, and text mode has no globe.
         const noGl = store.get().status?.webgl === false;
-        actFrom.hidden = sky || noGl;
+        const extra = isExtraId(sel());
+        actFrom.hidden = sky || noGl || extra;
         actScope.hidden = noGl;
+        actFoot.hidden = extra;
+        actCompare.hidden = extra;
         const rise = store.get().view?.vantage === 'moon';
         actRise.hidden = noGl || sel() !== 'moon';
         setAttr(actRise, 'aria-pressed', String(rise));
@@ -204,10 +246,83 @@ export function mountBodyCard(root, ctx) {
         actCompare.lastChild.textContent = o2 ? `Compared with ${o2.name || 'a second place'}` : 'Compare with…';
     }
 
+    /** An extra object's card (4 Hz): position, find it, the provider's ExtraCard. */
+    function updateExtra(snap, id) {
+        const m = ctx.extras?.meta?.(id) ?? null;
+        const st = ui.bodyOf(snap, id);
+        const info = st ? ctx.extras?.card?.(id, snap) ?? null : null;
+        const name = m?.name ?? id;
+        if (!st) {
+            setText(kindEl, m ? `${m.kindLabel || ''}` : 'Loading…');
+            setText(sentence, m ? `${name} is not in the sky at this date.` : 'Its data is still loading.');
+            findLine.hidden = true;
+            light.hidden = true;
+            xLines.replaceChildren();
+            xFacts.replaceChildren();
+            setText(xCaveat, '');
+            setText(xSources, '');
+            grid.hidden = true;
+            syncLayerButtons();
+            return;
+        }
+        grid.hidden = false;
+        const sky = extraSky(st);
+        const con = sky.constellation?.name || '';
+        setText(kindEl, `${info?.kindLabel || m?.kindLabel || ''}${con ? ` · in ${con}` : ''}`);
+        const { alt, az } = ui.altAz(st);
+        let sent = '';
+        if (Number.isFinite(alt)) {
+            const where = ui.compassWords(az);
+            if (st.above && alt >= 80) sent = `${name} is nearly overhead (${Math.round(alt)}°)`;
+            else if (st.above) sent = `${name} is ${Math.max(0, Math.round(alt))}° above the ${where} horizon`;
+            else sent = `${name} is ${Math.abs(Math.round(alt))}° below the ${where} horizon`;
+            sent += con ? `, in ${con}.` : '.';
+        }
+        if (info?.subtitle) sent = `${info.subtitle}. ${sent}`;
+        setText(sentence, sent);
+        const guide = st.above && Number.isFinite(alt) && Number.isFinite(st.mag) && st.mag < 6
+            ? findIt({ azDeg: az, altDeg: alt, mag: st.mag }, guideRefs(snap, null)) : null;
+        if (guide) setText(findText, lowerFirst(guide.text));
+        findLine.hidden = !guide;
+        light.hidden = true;
+        xLines.replaceChildren(...(info?.lines ?? []).map((t) => h('p', { class: 'card__xline' }, t)));
+        xFacts.replaceChildren(...(info?.facts ?? []).map(([k, v]) => h('div', { class: 'fact fact--wide' },
+            h('dt', { class: 'fact__label' }, k), h('dd', { class: 'fact__value' }, v))));
+        setText(xCaveat, info?.caveat ?? '');
+        xCaveat.hidden = !info?.caveat;
+        setText(xSources, info?.sources?.length ? `Sources: ${info.sources.join('; ')}.` : '');
+        xSources.hidden = !info?.sources?.length;
+        setText(facts.alt.dd, Number.isFinite(alt) ? ui.fmt('fmtAlt', alt) : '—');
+        setText(facts.az.dd, Number.isFinite(az) ? ui.fmt('fmtAz', az) : '—');
+        const rts = info?.rts ?? null;
+        facts.rts.el.hidden = !rts;
+        if (rts) {
+            rtsMsg.hidden = true;
+            facts.rts.dd.firstChild.hidden = false;
+            setText(rtsRise.time, rts.riseMs != null ? ui.fmtClock(rts.riseMs) : '—');
+            setText(rtsSet.time, rts.setMs != null ? ui.fmtClock(rts.setMs) : '—');
+            setText(rtsTransit.time, rts.transitMs != null ? ui.fmtClock(rts.transitMs) : '—');
+            setText(rtsTransit.extra, rts.transitAltDeg != null && rts.transitMs != null ? `${Math.round(rts.transitAltDeg)}° high` : '');
+        }
+        // The provider's own 'Distance' (with km) replaces the generic one.
+        facts.dist.el.hidden = !Number.isFinite(st.distAU) || !!info?.facts?.some(([k]) => k === 'Distance');
+        if (Number.isFinite(st.distAU)) setText(facts.dist.dd, ui.fmt('fmtDistAU', st.distAU));
+        facts.mag.el.hidden = !Number.isFinite(st.mag);
+        if (Number.isFinite(st.mag)) setText(facts.mag.dd, `${ui.fmt('fmtMag', st.mag)}${st.approx ? ' (approx.)' : ''}`);
+        setText(facts.con.dd, con ? `${con}${sky.constellation?.symbol ? ` (${sky.constellation.symbol})` : ''}` : '—');
+        setText(facts.j2000.dd, `${ui.fmt('fmtRA', sky.raH)} / ${ui.fmt('fmtDec', sky.decDeg)}`);
+        syncLayerButtons();
+    }
+
     function update(snap) {
         const id = sel();
         showFor(id);
+        if (id && isExtraId(id) && snap) { updateExtra(snap, id); return; }
         if (!id || !snap?.bodies) return;
+        grid.hidden = false;
+        facts.rts.el.hidden = false;
+        facts.dist.el.hidden = false;
+        facts.mag.el.hidden = false;
         const b = ui.bodyOf(snap, id);
         if (!b) return;
         const info = BODIES[BODY_INDEX[id]];
@@ -348,6 +463,8 @@ export function mountBodyCard(root, ctx) {
     }
 
     offs.push(store.subscribe((st) => st.selection, (id) => { showFor(id); if (ui.snap) update(ui.snap); }, { immediate: true }));
+    // A provider registering (its data arrived) completes an extra object's card.
+    if (ctx.extras?.onChange) offs.push(ctx.extras.onChange(() => { if (isExtraId(sel())) { shownId = null; if (ui.snap) update(ui.snap); } }));
     offs.push(store.subscribe((st) => st.layers, syncLayerButtons));
     offs.push(store.subscribe((st) => st.view, syncLayerButtons));
     offs.push(store.subscribe((st) => st.status?.webgl, syncLayerButtons));
@@ -446,6 +563,53 @@ export function drawPhaseDisc(cv, { frac, litRight, color, sun = false, moon = f
     lit.addColorStop(1, `rgb(${lo[0]},${lo[1]},${lo[2]})`);
     c.fillStyle = lit;
     c.fill();
+}
+
+/**
+ * The thumbnail of an extra object: a comet's head and tail, a spacecraft's diamond, or a star's
+ * glow with spikes (a guest star).
+ * @param {HTMLCanvasElement} cv
+ * @param {string} color
+ * @param {string} kind
+ */
+export function drawExtraGlyph(cv, color, kind) {
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const S = 64;
+    if (cv.width !== S * dpr) { cv.width = S * dpr; cv.height = S * dpr; cv.style.width = `${S}px`; cv.style.height = `${S}px`; }
+    const c = cv.getContext('2d');
+    if (!c) return;
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    c.clearRect(0, 0, S, S);
+    const [r, g, b] = hexRgb(color);
+    const glow = (x, y, rad, a) => {
+        const gr = c.createRadialGradient(x, y, 0, x, y, rad);
+        gr.addColorStop(0, `rgba(255,255,255,${a})`);
+        gr.addColorStop(0.25, `rgba(${r},${g},${b},${a * 0.8})`);
+        gr.addColorStop(1, `rgba(${r},${g},${b},0)`);
+        c.fillStyle = gr;
+        c.beginPath(); c.arc(x, y, rad, 0, Math.PI * 2); c.fill();
+    };
+    if (kind === 'comet') {
+        const tail = c.createLinearGradient(40, 24, 8, 56);
+        tail.addColorStop(0, `rgba(${r},${g},${b},0.75)`);
+        tail.addColorStop(1, `rgba(${r},${g},${b},0)`);
+        c.fillStyle = tail;
+        c.beginPath(); c.moveTo(44, 18); c.lineTo(4, 50); c.lineTo(10, 60); c.closePath(); c.fill();
+        glow(42, 22, 12, 1);
+    } else if (kind === 'craft') {
+        c.strokeStyle = `rgb(${r},${g},${b})`;
+        c.lineWidth = 2.5;
+        c.beginPath(); c.moveTo(32, 18); c.lineTo(46, 32); c.lineTo(32, 46); c.lineTo(18, 32); c.closePath(); c.stroke();
+        c.setLineDash([3, 4]);
+        c.lineWidth = 1.5;
+        c.beginPath(); c.moveTo(4, 60); c.lineTo(22, 42); c.stroke();
+        c.setLineDash([]);
+    } else {
+        glow(32, 32, 22, 1);
+        c.strokeStyle = `rgba(${r},${g},${b},0.55)`;
+        c.lineWidth = 1.2;
+        c.beginPath(); c.moveTo(32, 6); c.lineTo(32, 58); c.moveTo(6, 32); c.lineTo(58, 32); c.stroke();
+    }
 }
 
 function hexRgb(hex) {

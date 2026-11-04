@@ -556,6 +556,9 @@ export function createSky(rc, deps = {}) {
         if (selection && snap.bodies) {
             let b = null;
             for (let k = 0; k < snap.bodies.length; k++) if (snap.bodies[k].id === selection) { b = snap.bodies[k]; break; }
+            // An extra object (astro/extras.js) highlights its constellation too.
+            const xs = b ? null : snap.extras;
+            if (xs) for (let k = 0; k < xs.length; k++) if (xs[k].id === selection && xs[k].present) { b = xs[k]; break; }
             updateHighlight(b ? b.dirS : null);
         } else if (highlighted !== '') {
             setHighlight('');
@@ -681,5 +684,7 @@ export function createSky(rc, deps = {}) {
         object3d: group,
         apply, update, setLayers, setViewMode, setSelection, setQuality, setExposure,
         setCatalog, setReducedMotion, dispose,
+        /** The stars' material: other point sets at infinity (render/extras.js guest stars) share it. */
+        get starMaterial() { return starMaterial; },
     };
 }

@@ -45,6 +45,7 @@ export const LAYER_GROUPS = [
         title: 'Overlays',
         items: [
             ['trails', 'Path of selected body', ['T'], 'Six months either side, with retrograde loops'],
+            ['spacecraft', 'Spacecraft', null, 'Faint radio beams to Voyager 1 and 2, New Horizons and JWST, with the one-way radio time'],
             ['labels', 'Labels', null, null],
         ],
     },

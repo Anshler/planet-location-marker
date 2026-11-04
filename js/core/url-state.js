@@ -26,15 +26,15 @@ import { MIN_MS, MAX_MS, snapRate } from './clock.js';
 import { DEFAULT_STATE, SKY_DARK_SETTINGS, AURORA_SETTINGS, VANTAGE_SETTINGS, VIEW_MODES } from './store.js';
 import { canonTz, daysInMonth } from './tz.js';
 import { isTourId } from './tour-catalog.js';
+import { normalizeSelectionId, isSelectionId } from './selection.js';
 
-const BODY_IDS = Object.freeze(['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune']);
 const QUALITY_SETTINGS = Object.freeze(['auto', 'low', 'medium', 'high', 'max']);
 /** `ly` letters in canonical order (SPEC §F.4). Case-sensitive: c = lines, C = names. */
 export const LAYER_CODES = Object.freeze([
     ['b', 'beams'], ['g', 'ghostBeams'], ['o', 'sunMoonBeams'], ['s', 'stars'], ['c', 'constellations'],
     ['C', 'constellationNames'], ['n', 'starNames'], ['m', 'milkyWay'], ['k', 'clouds'], ['a', 'atmosphere'],
     ['e', 'ecliptic'], ['q', 'eqGrid'], ['z', 'altAzGrid'], ['h', 'horizon'], ['f', 'footprint'],
-    ['p', 'subpoints'], ['t', 'trails'], ['l', 'labels'], ['d', 'landscape'],
+    ['p', 'subpoints'], ['t', 'trails'], ['l', 'labels'], ['d', 'landscape'], ['v', 'spacecraft'],
 ].map((pair) => Object.freeze(pair)));
 const LAYER_BY_CODE = new Map(LAYER_CODES);
 const KNOWN_KEYS = new Set(['loc', 'n', 'cc', 'tz', 'el', 't', 'r', 'p', 'view', 'lock', 'sel', 'ly', 'q', 'sky', 'au', 'cam', 'trk', 'vt', 'intro', 'debug', 'tour',
@@ -378,10 +378,10 @@ function parseViewKeys(params, out, invalid) {
         else out.earthLock = f;
     }
     if (params.has('sel')) {
-        const v = params.get('sel').trim().toLowerCase();
-        if (v === '' || v === 'none') out.selection = null;
-        else if (BODY_IDS.includes(v)) out.selection = /** @type {any} */ (v);
-        else invalid.push('sel');
+        // A body, or an extra object's namespaced id (core/selection.js: comet:halley, craft:voyager1).
+        const v = normalizeSelectionId(params.get('sel'));
+        if (v === undefined) invalid.push('sel');
+        else out.selection = /** @type {any} */ (v);
     }
     if (params.has('ly')) {
         const code = params.get('ly').trim();
@@ -508,7 +508,7 @@ export function serializeHash({ state, clock, cam, extra } = {}) {
         if (trk === 'body' || trk === 'stars') parts.push(`trk=${trk[0]}`);
         const vt = s.view?.vantage;
         if (s.view?.mode === 'orbit' && vt !== 'none' && VANTAGE_SETTINGS.includes(vt)) parts.push(`vt=${vt}`);
-        if (typeof s.selection === 'string' && BODY_IDS.includes(s.selection)) parts.push(`sel=${s.selection}`);
+        if (isSelectionId(s.selection)) parts.push(`sel=${s.selection}`);
         const ly = layersToCode(s.layers);
         if (ly !== null && ly !== DEFAULT_LAYER_CODE) parts.push(`ly=${ly}`);
         const q = s.quality?.setting;

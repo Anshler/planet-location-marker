@@ -30,6 +30,9 @@ import { createHorizon } from './geo/horizon.js';
 import { mapPointOfDir } from './geo/mapview.js';
 import { BODIES, isBodyId, bodyById } from './astro/bodies.js';
 import { createSnapshot, computeSnapshot } from './astro/snapshot.js';
+import { createExtras } from './astro/extras.js';
+import { isSelectionId, isExtraId } from './core/selection.js';
+import { registerExtras } from './app/extras-setup.js';
 import { createAstroClient } from './astro/client.js';
 import { createSite, siteFor, manualSite } from './astro/skyglow.js';
 import { liftByRefraction } from './astro/photometry.js';
@@ -101,6 +104,8 @@ const R = {
     /** @type {any} */ bus: null,
     /** @type {any} */ texMod: null,
     /** @type {any} */ astro: null,
+    /** The extra-object registry (astro/extras.js): guest stars, comets, spacecraft, … */
+    /** @type {any} */ extras: null,
     /** The guided-tour runner (js/app/tours.js), created on the first tour. */
     /** @type {any} */ tours: null,
     /** 'Point at the sky' (js/camera/aim.js), created on first use. */
@@ -117,6 +122,8 @@ const app = {
     get store() { return R.store; },
     get clock() { return R.clock; },
     get actions() { return R.actions; },
+    /** The extra-object registry (astro/extras.js). */
+    get extras() { return R.extras; },
     /** The latest full-detail snapshot. */
     snapshot() { return R.loop?.snapFull ?? R.snapFull; },
     /** Frame and resource counters for smoke tests and the debug overlay. */
@@ -375,6 +382,9 @@ async function importRenderStack() {
         planets: import('./render/planets.js'),
         pin: import('./render/pin.js'),
         flare: import('./render/flare.js'),
+        extras: import('./render/extras.js'),
+        comets: import('./render/comets.js'),
+        craft: import('./render/craft.js'),
         orrery: import('./render/orrery.js'),
         longExposure: import('./render/long-exposure.js'),
         ruler: import('./render/ruler.js'),
@@ -473,7 +483,7 @@ async function boot() {
     const view = {
         mode: env.can3d && (hash.view === 'sky' || hash.view === 'map') && vantage === 'none' ? hash.view : 'orbit', earthLock: hash.earthLock ?? true,
         // Body tracking needs the body: trk=b without sel= tracks nothing.
-        track: hash.track === 'stars' || (hash.track === 'body' && isBodyId(hash.selection)) ? hash.track : 'none',
+        track: hash.track === 'stars' || (hash.track === 'body' && isSelectionId(hash.selection)) ? hash.track : 'none',
         vantage,
     };
     // A second place to compare with (loc2=): links only, never saved.
@@ -484,7 +494,7 @@ async function boot() {
     const store = createStore({
         observer,
         observer2,
-        selection: isBodyId(hash.selection) ? hash.selection : null,
+        selection: isSelectionId(hash.selection) ? hash.selection : null,
         view,
         layers,
         display: {
@@ -549,11 +559,14 @@ async function boot() {
     }
     R.astro = astro;
     const services = { cities, geocoder, astro, tz, format };
+    // Extra objects beyond the nine bodies: the registry, and the providers that need no download.
+    const extras = createExtras();
+    R.extras = extras;
 
     // ---- Actions (render objects are filled in later) ---------------------------------------
     const render = { rig: null, beams: null, pin: null, earth: null, governor };
     const actions = createActions({
-        store, bus, clock, prefs, tz, cities, render, astro,
+        store, bus, clock, prefs, tz, cities, render, astro, extras,
         getSnap: () => snap,
         runIntro: (opts) => runIntro(opts),
         toggleDebug: () => toggleDebug(),
@@ -577,8 +590,9 @@ async function boot() {
     });
 
     // ---- 3. Loop (headless until the renderer exists) and the UI ----------------------------
+    settle(registerExtras(extras, { fetchJson }));
     const loop = createLoop({
-        clock, store, bus, snap, snapFull,
+        clock, store, bus, snap, snapFull, extras,
         governor: env.webdriver ? null : governor,
         onGovernor: () => applyGovernorStep(),
         onRenderFailure: (err) => enterTextMode('context-failed', err),
@@ -591,7 +605,7 @@ async function boot() {
     try {
         const { mountUI } = await uiModP;
         mountUI(document.getElementById('ui-root'), {
-            store, bus, clock, actions, services, env: { coarse: env.coarse, reducedMotion: env.reducedMotion },
+            store, bus, clock, actions, services, extras, env: { coarse: env.coarse, reducedMotion: env.reducedMotion },
         });
         R.uiMounted = true;
     } catch (err) {
@@ -941,6 +955,11 @@ async function bootRender(ctx) {
     const pin = create('pin', m.pin && (() => m.pin.createPin(rc)), furniture);
     create('pin2', m.pin && (() => m.pin.createPin(rc, { second: true, reducedMotion: rm })), furniture);
     create('flare', m.flare && (() => m.flare.createFlare(rc, { horizon })), furnitureSpace);
+    // Extra objects (astro/extras.js): their glyphs and reticle at infinity, Halley's tails, the
+    // spacecraft's radio beams from the pin.
+    create('extras', m.extras && (() => m.extras.createExtrasLayer(rc, { extras: R.extras, sky })), space);
+    create('comets', m.comets && (() => m.comets.createComets(rc, { extras: R.extras })), space);
+    create('craft', m.craft && (() => m.craft.createCraftBeams(rc, { extras: R.extras, reducedMotion: rm })), furnitureSpace);
     // The angle ruler (sky view): its reading goes to ui.ruler and, as a label, to the feed.
     create('ruler', m.ruler && (() => m.ruler.createRuler(rc, { onChange: (r) => onRulerChange(r) })));
     // The solar-system zoom's orrery: its own scene and camera, drawn over the main scene.
@@ -988,6 +1007,7 @@ async function bootRender(ctx) {
         getPlanets: () => (R.mods.planets && !R.loop?.isDisabled?.(R.mods.planets) ? R.mods.planets : null),
         getRuler: () => (R.mods.ruler && !R.loop?.isDisabled?.(R.mods.ruler) ? R.mods.ruler : null),
         getOrrery: () => (R.mods.orrery && !R.loop?.isDisabled?.(R.mods.orrery) ? R.mods.orrery : null),
+        extras: R.extras,
     }) : null;
     R.labelsFeed = labelsFeed;
     loader.progress(0.45, 'Loading imagery');
@@ -1185,7 +1205,8 @@ function bindRenderState({ store, bus, clock, rc, rig, loop, snap, astro, m, lab
     rig.onTrackEnd?.(({ reason, kind, id }) => {
         const st = store.get();
         if ((st.view.track ?? 'none') !== 'none') store.set({ view: { ...st.view, track: 'none' } }, 'rig');
-        const what = kind === 'body' && isBodyId(id) ? bodyById(id).name : 'The tracked field';
+        const what = kind === 'body' && isBodyId(id) ? bodyById(id).name
+            : kind === 'body' && isExtraId(id) ? R.extras?.meta(id)?.name ?? 'The tracked object' : 'The tracked field';
         if (reason === 'set') bus.emit('toast', { message: `Tracking stopped: ${what} set below the horizon.`, kind: 'info' });
     });
     store.subscribe((s) => s.view.mode, (mode, prev, _state, source) => {
@@ -1301,7 +1322,7 @@ function bindRenderState({ store, bus, clock, rc, rig, loop, snap, astro, m, lab
             R.actions.setSystem?.(false);
             return;
         }
-        if (isBodyId(id)) {
+        if (isSelectionId(id)) {
             R.actions.select(id);
             store.set({ ui: { ...store.get().ui, panel: 'details' } }, 'labels');
             return;
@@ -1440,7 +1461,16 @@ function handleSceneClick({ store, rc, rig, snap, pick, ndc, dbl }) {
     } catch (err) {
         console.error('[main] body picking failed', err);
     }
-    if (id && isBodyId(id)) {
+    if (!id) {
+        // Extra objects (render/extras.js: guest stars, comets, spacecraft), at their drawn places.
+        try {
+            const cands = R.mods.extras?.pickCandidates?.() ?? null;
+            if (cands && cands.length) id = pick?.pickDir?.(ndc, camera, cands, rc.size, 16) ?? null;
+        } catch (err) {
+            console.error('[main] extra-object picking failed', err);
+        }
+    }
+    if (id && isSelectionId(id)) {
         R.actions.select(id, { fly: dbl });
         store.set({ ui: { ...store.get().ui, panel: 'details' } }, 'click');
         return;

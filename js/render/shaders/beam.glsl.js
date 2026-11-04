@@ -30,7 +30,9 @@
  * Both passes share these sources; pass B (x-ray, GreaterDepth) adds
  * `#define XRAY`. The second place's beams (ROADMAP two-observers) add `#define SECOND`: long
  * log-spaced dashes along the whole ribbon and a tint toward the second pin's amber (uTint), so
- * the two places' sightlines stay apart where they converge on the Moon.
+ * the two places' sightlines stay apart where they converge on the Moon. The spacecraft's radio
+ * links (render/craft.js) add `#define RADIO`: fine log-spaced dashes along the whole ribbon, a thin
+ * faint core and almost no glow, so they read as signals rather than sightlines to something seen.
  *
  * @module render/shaders/beam.glsl
  */
@@ -185,6 +187,10 @@ void main() {
     float dash2W = fwidth(dash2X);
     baseC = mix(vColor, uTint, 0.45);
 #endif
+#ifdef RADIO
+    float dashRX = lg * 40.0;
+    float dashRW = fwidth(dashRX);
+#endif
 
     // Cross-section: a thin HDR core inside a soft glow that reaches zero at the ribbon edge.
     float corePx = mix(1.6, 2.6, sel) * uDpr;
@@ -218,6 +224,11 @@ void main() {
     float dash2 = disc ? 1.0 : 0.25 + 0.75 * dashFiltered(dash2X, dash2W);
     core *= dash2;
     glow *= 0.7;
+#endif
+#ifdef RADIO
+    float dashR = disc ? 1.0 : 0.12 + 0.88 * dashFiltered(dashRX, dashRW);
+    core *= dashR * 0.42;
+    glow *= 0.1;
 #endif
 
 #ifdef XRAY

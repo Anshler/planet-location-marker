@@ -12,6 +12,7 @@
 
 import { APP_NAME } from '../version.js';
 import { BODIES, BODY_INDEX, isBodyId } from '../astro/bodies.js';
+import { isSelectionId, isExtraId } from '../core/selection.js';
 import { createSnapshot, computeSnapshot } from '../astro/snapshot.js';
 import { eclipsePath, citiesInPath, nearestCentrePoint, shadowPoint } from '../astro/eclipse-path.js';
 import { createEclipseChase } from './eclipse-chase.js';
@@ -292,6 +293,20 @@ export function lookSpanning(pts, minFovDeg = ECLIPSE_FOV_DEG) {
 }
 
 /**
+ * An extra object's state in a snapshot (astro/extras.js: snap.extras), by id; null when absent or
+ * not present at that instant.
+ * @param {any} snap
+ * @param {string} id
+ * @returns {import('../astro/extras.js').ExtraState|null}
+ */
+export function extraOf(snap, id) {
+    const xs = snap?.extras;
+    if (!xs || !isExtraId(id)) return null;
+    for (let i = 0; i < xs.length; i++) if (xs[i].id === id) return xs[i].present ? xs[i] : null;
+    return null;
+}
+
+/**
  * The sky look at the selected body when it is above the horizon, else undefined (the rig's
  * default look). Apparent (refracted) position, as the sky view draws it.
  * @param {string|null|undefined} selection
@@ -299,8 +314,8 @@ export function lookSpanning(pts, minFovDeg = ECLIPSE_FOV_DEG) {
  * @returns {{azDeg:number, altDeg:number}|undefined}
  */
 export function selectionLook(selection, snap) {
-    if (!selection || !isBodyId(selection)) return undefined;
-    const b = snap?.bodies?.[BODY_INDEX[selection]];
+    if (!selection || !isSelectionId(selection)) return undefined;
+    const b = isBodyId(selection) ? snap?.bodies?.[BODY_INDEX[selection]] : extraOf(snap, selection);
     return b && b.above && Number.isFinite(b.altDeg) ? { azDeg: b.azDeg, altDeg: b.altDeg } : undefined;
 }
 
@@ -330,6 +345,8 @@ export function viewModeLook(mode, source, selection, snap) {
  * @returns {number|null}
  */
 export function telescopeFov(id, snap, aspect = 16 / 9) {
+    // An extra object has no disc here: a comet gets room for its tails, anything else a finder's field.
+    if (isExtraId(id)) return extraOf(snap, id) ? (id.startsWith('comet:') ? 24 : 6) : null;
     const b = isBodyId(id) ? snap?.bodies?.[BODY_INDEX[id]] : null;
     if (!b || !(b.angDiamArcsec > 0)) return null;
     const r = b.angDiamArcsec / 7200;   // angular radius, degrees
@@ -373,6 +390,9 @@ export function createActions(deps) {
     const doc = deps.doc ?? (typeof document !== 'undefined' ? document : null);
     const nav = deps.nav ?? (typeof navigator !== 'undefined' ? navigator : null);
     const getSnap = deps.getSnap ?? (() => null);
+    // The extras registry (astro/extras.js): names of selectable objects beyond the nine.
+    const extras = deps.extras ?? null;
+    const nameOf = (id) => (isBodyId(id) ? BODIES[BODY_INDEX[id]].name : extras?.meta?.(id)?.name ?? String(id));
 
     /** @type {Observer[]} */
     const undoStack = [];
@@ -498,13 +518,13 @@ export function createActions(deps) {
     }
 
     /**
-     * Selects a body (or clears the selection).
+     * Selects a body or an extra object (core/selection.js: `comet:halley`), or clears the selection.
      * @param {string|null} id
      * @param {{fly?:boolean}} [opts]
      */
     function select(id, { fly = false } = {}) {
         const next = id == null || id === '' ? null : String(id);
-        if (next !== null && !isBodyId(next)) return;
+        if (next !== null && !isSelectionId(next)) return;
         store.set({ selection: next }, 'actions');
         if (next && fly) flyToBody(next);
     }
@@ -544,10 +564,12 @@ export function createActions(deps) {
         settle(rig().flyToDir?.(b.dirS, { animate: !reducedMotion() }));
     }
 
-    /** The body's entry in the current frame snapshot, when the 3D view is there to steer. */
+    /** The body's (or extra object's) entry in the current frame snapshot, when the 3D view is there to steer. */
     function bodyNow(id) {
-        if (!isBodyId(id) || !rig()) return null;
+        if (!rig()) return null;
         const snap = getSnap();
+        if (isExtraId(id)) return extraOf(snap, id);
+        if (!isBodyId(id)) return null;
         return snap?.bodies?.[BODY_INDEX[id]] ?? null;
     }
 
@@ -707,7 +729,7 @@ export function createActions(deps) {
         }
         if ((st.view.track ?? 'none') === kind) return true;
         store.set({ view: { ...st.view, track: kind } }, 'actions');
-        const name = kind === 'body' ? BODIES[BODY_INDEX[st.selection]].name : '';
+        const name = kind === 'body' ? nameOf(st.selection) : '';
         say(kind === 'body' ? `Tracking ${name}` : kind === 'stars' ? 'Locked to the stars: the Earth turns beneath them' : 'Tracking off');
         return true;
     }
@@ -734,7 +756,7 @@ export function createActions(deps) {
         const b = bodyNow(id);
         if (!b) return false;
         if (b.altGeomDeg < -2) {
-            toast(`${BODIES[BODY_INDEX[id]].name} is below the horizon now.`, 'info');
+            toast(`${nameOf(id)} is below the horizon now.`, 'info');
             return false;
         }
         const fov = telescopeFov(id, getSnap(), rig().camera?.aspect);
@@ -743,7 +765,7 @@ export function createActions(deps) {
         rig().telescope?.(fov);
         const view = store.get().view;
         store.set({ view: { ...view, mode: 'sky', track: 'body', vantage: 'none' } }, 'actions');
-        say(`Telescope on ${BODIES[BODY_INDEX[id]].name}`);
+        say(`Telescope on ${nameOf(id)}`);
         return true;
     }
 

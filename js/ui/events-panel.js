@@ -3,7 +3,10 @@
  * (Moon phases, oppositions, conjunctions, greatest elongations, eclipses —
  * including partial solar eclipses visible from the observer — equinoxes and
  * solstices), grouped by month, each with a Jump button. A "Next up" card leads.
- * Above them, the guided tours (core/tour-catalog.js; actions.startTour).
+ * Above them, the guided tours (core/tour-catalog.js; actions.startTour). Below them, history
+ * (ROADMAP historic-skies): the Moments library and the Famous comets (core/moments.js, links that
+ * set the URL hash, so the app flies there like any shared link), and 'The sky you were born under'
+ * (a date, a time, sky view at that instant and a caption from astro/sky-caption.js).
  *
  * Data comes from the UI hub, which keeps the list covering ±1 year around the
  * simulated time via `services.astro` (`events` op) and the app's `bus 'events'`.
@@ -13,6 +16,8 @@
 
 import { BODIES, BODY_INDEX } from '../astro/bodies.js';
 import { TOURS } from '../core/tour-catalog.js';
+import { MOMENTS, FAMOUS_COMETS } from '../core/moments.js';
+import { skyCaption } from '../astro/sky-caption.js';
 import { h, on, setText } from './dom.js';
 import { icon } from './icons.js';
 
@@ -64,12 +69,74 @@ export function mountEventsPanel(root, ctx) {
         class: 'tour-card', type: 'button', 'data-tour': t.id, 'aria-pressed': 'false',
         'aria-label': `Play the guided tour ${t.title}: ${t.blurb}`,
     }, h('span', { class: 'tour-card__title' }, icon('play', { size: 14 }), t.title), h('span', { class: 'tour-card__blurb' }, t.blurb)));
+    // History: Moments and Famous comets are deep links (core/moments.js).
+    const momentLink = (m, cls) => h('a', { class: cls, href: m.hash, 'data-moment': m.id },
+        h('span', { class: `${cls}__title` }, m.title),
+        h('span', { class: `${cls}__when` }, m.when ?? m.detail),
+        m.caption ? h('span', { class: `${cls}__caption` }, m.caption) : null,
+        m.sources ? h('span', { class: `${cls}__src` }, m.sources.join(' · ')) : null);
+    const moments = h('div', { class: 'moments', role: 'list', 'aria-label': 'Moments in history' },
+        MOMENTS.map((m) => h('div', { role: 'listitem' }, momentLink(m, 'moment'))));
+    const comets = h('div', { class: 'moments moments--comets', role: 'list', 'aria-label': 'Famous comets' },
+        FAMOUS_COMETS.map((m) => h('div', { role: 'listitem' }, momentLink(m, 'moment'))));
+    const bornDate = h('input', { class: 'input', type: 'date', min: '1000-01-01', max: '2999-12-31', required: true, 'aria-label': 'Date of birth' });
+    const bornTime = h('input', { class: 'input', type: 'time', value: '21:00', 'aria-label': 'Time (optional)' });
+    const bornCaption = h('p', { class: 'born__caption', 'aria-live': 'polite', hidden: true });
+    const bornForm = h('form', { class: 'born', novalidate: true },
+        h('div', { class: 'born__row' },
+            h('label', { class: 'field' }, h('span', { class: 'field__label' }, 'Date'), bornDate),
+            h('label', { class: 'field' }, h('span', { class: 'field__label' }, 'Time'), bornTime),
+            h('button', { class: 'btn btn--primary btn--sm', type: 'submit' }, icon('sky', { size: 16 }), 'Show my sky')),
+        bornCaption);
     root.append(
         h('div', { class: 'section-head' }, h('h2', { class: 'panel-title' }, 'Guided tours'), h('span', { class: 'pill' }, 'Narrated')),
         h('div', { class: 'tours', role: 'group', 'aria-label': 'Guided tours' }, tourBtns),
         h('div', { class: 'section-head' }, h('h2', { class: 'panel-title' }, 'Upcoming events'), h('span', { class: 'pill' }, 'Next 12 months')),
         filterBar, next, list, empty,
-        h('p', { class: 'note' }, 'Times are shown in the time-bar zone. Jump moves the clock (and the view, where useful) to the event.'));
+        h('p', { class: 'note' }, 'Times are shown in the time-bar zone. Jump moves the clock (and the view, where useful) to the event.'),
+        h('div', { class: 'section-head' }, h('h2', { class: 'panel-title' }, 'The sky you were born under')),
+        h('p', { class: 'pop__hint' }, 'Your birthday, from where you are now (change the place first for another one).'),
+        bornForm,
+        h('div', { class: 'section-head section-head--moments' }, h('h2', { class: 'panel-title' }, 'Moments in history'), h('span', { class: 'pill' }, 'Links')),
+        moments,
+        h('div', { class: 'section-head' }, h('h2', { class: 'panel-title' }, 'Famous comets'), h('span', { class: 'pill' }, 'Halley')),
+        comets,
+        h('p', { class: 'note' }, 'Dates before 15 October 1582 are Julian, as the records give them. Positions before 1600 are less certain (ΔT); comet tails and supernova light curves are models.'));
+
+    // A moment closes the phone sheet to its peek, so the sky it opens is in view.
+    offs.push(on(root, 'click', (e) => {
+        const a = /** @type {HTMLElement} */ (e.target).closest('[data-moment]');
+        if (!a) return;
+        const st = ctx.store.get();
+        if (st.ui.sheet !== 'peek') ctx.store.set({ ui: { ...st.ui, sheet: 'peek' } }, 'events');
+    }));
+
+    // 'The sky you were born under': that instant in sky view, then a caption from the readout.
+    let bornWait = null;
+    offs.push(on(bornForm, 'submit', (e) => {
+        e.preventDefault();
+        const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(bornDate.value || '');
+        if (!m) { bornDate.setAttribute('aria-invalid', 'true'); bornDate.focus(); return; }
+        bornDate.removeAttribute('aria-invalid');
+        const tm = /^(\d{2}):(\d{2})/.exec(bornTime.value || '') || ['', '21', '00'];
+        const ms = ui.toUtc({ y: +m[1], mo: +m[2], d: +m[3], h: +tm[1], mi: +tm[2], s: 0, cal: 'gregorian' });
+        if (!Number.isFinite(ms)) return;
+        clock.pause?.();
+        clock.setTime?.(ms, { animateMs: 0 });
+        ui.act('setViewMode', 'sky');
+        bornCaption.hidden = false;
+        bornCaption.textContent = 'Reading the sky…';
+        bornWait?.();
+        const done = ui.on('snap', (snap) => {
+            if (!snap || Math.abs(snap.tMs - ms) > 1000) return;
+            done();
+            bornWait = null;
+            const text = skyCaption(snap);
+            bornCaption.textContent = `${ui.fmtDay(ms)}, ${ui.fmtClock(ms)}: ${text}`;
+            ctx.bus?.emit?.('announce', text);
+        });
+        bornWait = done;
+    }));
     offs.push(ctx.store.subscribe((s) => s.ui.tour?.id ?? '', (id) => {
         for (const b of tourBtns) b.setAttribute('aria-pressed', String(b.dataset.tour === id));
     }, { immediate: true }));
@@ -179,7 +246,7 @@ export function mountEventsPanel(root, ctx) {
     return {
         update() { render(false); },
         shown() { render(true); },
-        destroy() { offs.forEach((off) => off()); root.textContent = ''; },
+        destroy() { bornWait?.(); offs.forEach((off) => off()); root.textContent = ''; },
     };
 }
 

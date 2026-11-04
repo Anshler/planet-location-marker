@@ -2,6 +2,8 @@ node_modules
 .claude*
 .scratch/
 data/raw/geonames/
+# Horizons responses cached by scripts/build-craft.mjs
+data/raw/horizons/
 # 8192 px build inputs of scripts/build-textures.mjs (fetch-vendor cache entries; never shipped)
 data/raw/textures/
 # outputs of scripts/stage-site.mjs and the CI smoke runs

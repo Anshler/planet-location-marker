@@ -16,7 +16,12 @@
 /** @typedef {{beams:boolean, ghostBeams:boolean, sunMoonBeams:boolean, stars:boolean, constellations:boolean,
  *   constellationNames:boolean, starNames:boolean, milkyWay:boolean, clouds:boolean, atmosphere:boolean, ecliptic:boolean,
  *   eqGrid:boolean, altAzGrid:boolean, horizon:boolean, footprint:boolean, subpoints:boolean, trails:boolean, labels:boolean,
- *   landscape:boolean}} Layers `landscape`: the sky view's illustrative landscape (geo/horizon.js) */
+ *   landscape:boolean, spacecraft:boolean}} Layers `landscape`: the sky view's illustrative landscape (geo/horizon.js);
+ *   `spacecraft`: the radio beams to Voyager 1 and 2, New Horizons and JWST (astro/craft.js), off by default */
+/** A selection (core/selection.js): one of the nine BodyIds, or an extra object's namespaced id
+ * `<kind>:<key>` with kind star | dso | comet | craft | guest (e.g. 'comet:halley', 'craft:voyager1'),
+ * resolved by the extras registry (astro/extras.js). BODY_IDS stays the contract for the nine.
+ * @typedef {BodyId|string} SelectionId */
 /** The solar eclipse in focus: set by actions.jumpToEvent for a solar eclipse event, cleared by any
  * other jump and once simulated time is more than a day from `peakMs` (main.js, eclipseFocusExpired).
  * `peakMs` is the event's instant (global greatest eclipse, or the local maximum when `local`);
@@ -34,7 +39,7 @@
  * @typedef {{source:string, offsetDeg:number, aligned:string|null}} AimState */
 /** `observer2`: a second place to compare with (ROADMAP two-observers), or null. view.mode 'map' is
  * the flat world map (the globe unrolled; camera/rig.js, geo/mapview.js).
- * @typedef {{ observer:Observer, observer2:Observer|null, selection:BodyId|null,
+ * @typedef {{ observer:Observer, observer2:Observer|null, selection:SelectionId|null,
  *   view:{mode:'orbit'|'sky'|'map', earthLock:boolean, track:'none'|'body'|'stars', vantage:'none'|'l1'|'moon', system:boolean},
  *   layers:Layers,
  *   display:{tzMode:'observer'|'device'|'utc', hour12:boolean, skyDark:'auto'|'pristine'|'1'|'2'|'3'|'4'|'5'|'6'|'7'|'8'|'9',
@@ -147,7 +152,7 @@
  *   |{mode:'map', latDeg:number, lonDeg:number, distance:number}} CamView */
 /** Result of `parseHash`. Every key is optional; `invalid` lists keys that were present but rejected or clamped.
  * @typedef {{ observer?:Observer&{cc:string}, observer2?:Observer&{cc:string}, tMs?:number, live?:boolean, rate?:number, playing?:boolean,
- *   view?:'orbit'|'sky'|'map', earthLock?:boolean, selection?:BodyId|null, layers?:Layers,
+ *   view?:'orbit'|'sky'|'map', earthLock?:boolean, selection?:SelectionId|null, layers?:Layers,
  *   quality?:'auto'|'low'|'medium'|'high'|'max', skyDark?:string, aurora?:'quiet'|'typical'|'storm', cam?:CamView, track?:'body'|'stars', vantage?:'l1'|'moon', intro?:boolean, debug?:boolean, tour?:string, invalid?:string[] }} HashState */
 
 /** Device probe for `detectTier` (js/core/quality.js).

@@ -4,7 +4,7 @@
 // Negative numbers use the true minus sign U+2212; angles use ° ′ ″. Every function returns an
 // em dash for unusable input instead of throwing or printing "NaN".
 
-import { utcToZoned } from './tz.js';
+import { utcToZoned, toCalendar } from './tz.js';
 
 const MINUS = '\u2212';
 const DASH = '\u2014';
@@ -17,13 +17,15 @@ const COMPASS8_WORDS = ['north', 'north-east', 'east', 'south-east', 'south', 's
 
 /** Scratch for utcToZoned: formatters run at UI rates, no need to allocate per call. */
 const zbuf = {};
+const cbuf = {};
 
 const pad2 = (n) => String(n).padStart(2, '0');
 /** @param {unknown} v */
 const num = (v) => (typeof v === 'number' ? v : Number(v));
 const fin = Number.isFinite;
 
-/** Day of week 0=Sun for a proleptic Gregorian date (Sakamoto's method). */
+/** Day of week 0=Sun for a proleptic Gregorian date (Sakamoto's method). The Julian calendar's
+ * dates fall on the same weekdays, so callers pass the Gregorian fields. */
 function weekday(y, mo, d) {
     const t = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
     const yy = mo < 3 ? y - 1 : y;
@@ -50,16 +52,19 @@ export function fmtInt(n) {
 }
 
 /**
- * 'Sun 11 Oct 2026' in `tz` (an invalid tz means UTC).
+ * 'Sun 11 Oct 2026' in `tz` (an invalid tz means UTC). Before 15 Oct 1582 the date is Julian, as
+ * records of the time give it (tz.toCalendar): 'Thu 4 Jul 1054'; `{calendar:true}` then appends
+ * ' (Julian)'.
  * @param {number} ms
  * @param {unknown} tz
- * @param {{weekday?:boolean, year?:boolean}} [opts]
+ * @param {{weekday?:boolean, year?:boolean, calendar?:boolean}} [opts]
  * @returns {string}
  */
-export function fmtDate(ms, tz, { weekday: withWeekday = true, year = true } = {}) {
+export function fmtDate(ms, tz, { weekday: withWeekday = true, year = true, calendar = false } = {}) {
     const z = utcToZoned(ms, tz, zbuf);
     if (!fin(z.y)) return DASH;
-    const core = `${z.d} ${MONTHS[z.mo - 1]}${year ? ` ${z.y}` : ''}`;
+    const c = toCalendar(z, cbuf);
+    const core = `${c.d} ${MONTHS[c.mo - 1]}${year ? ` ${c.y}` : ''}${calendar && c.cal === 'julian' ? ' (Julian)' : ''}`;
     return withWeekday ? `${WEEKDAYS[weekday(z.y, z.mo, z.d)]} ${core}` : core;
 }
 

@@ -156,6 +156,8 @@ export function createLoop(deps) {
     let skySite = deps.skySite ?? null;
     // Aurora activity (astro/geomag.js AURORA_SETTINGS), set by setAuroraActivity.
     let auroraActivity = deps.auroraActivity ?? 'typical';
+    // Extra objects beyond the nine bodies (astro/extras.js): snap.extras, filled per snapshot.
+    const extras = deps.extras ?? null;
 
     // Render stack (attached later in the normal boot).
     let rc = null;
@@ -255,6 +257,8 @@ export function createLoop(deps) {
     const offs = [];
     offs.push(store.subscribe((s) => s.observer, () => { observerDirty = true; dirty = true; }));
     offs.push(store.subscribe((s) => s.observer2, () => { observerDirty = true; dirty = true; }));
+    // A provider registering (its data arrived) recomputes both snapshots, so its objects appear.
+    if (extras && typeof extras.onChange === 'function') offs.push(extras.onChange(() => { observerDirty = true; dirty = true; }));
     offs.push(store.subscribe((s) => s.status.introPlaying, (v) => { introPlaying = !!v; dirty = true; }));
     offs.push(store.subscribe((s) => s.status.reducedMotion, (v) => { reducedMotion = !!v; dirty = true; }));
     // Any other state change may alter what is drawn (layers, selection, view, quality, ui).
@@ -353,10 +357,20 @@ export function createLoop(deps) {
         }
     }
 
-    /** snap.skyglow and snap.aurora for a freshly computed snapshot (snapshots without them are left alone). */
+    /**
+     * snap.skyglow, snap.aurora and snap.extras for a freshly computed snapshot (snapshots without
+     * the first two are left alone; the extras registry adds its states).
+     */
     function fillSkyglow(s) {
         if (s.skyglow) computeSkyglow(s, skySite, s.skyglow);
         if (s.aurora) computeAurora(s, auroraActivity, s.aurora);
+        if (extras) {
+            try {
+                extras.fill(s);
+            } catch (err) {
+                reportOnce('extras.fill', err);
+            }
+        }
     }
 
     /** True when this tier and chain supersample idle frames (and keeps the sampler's cap in step). */

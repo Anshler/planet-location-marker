@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
     parseHash, serializeHash, bindUrl, layersToCode, codeToLayers, camToCode, LAYER_CODES, DEFAULT_LAYER_CODE,
 } from '../js/core/url-state.js';
+import { isExtraId } from '../js/core/selection.js';
 import { DEFAULT_STATE, createStore } from '../js/core/store.js';
 import { createClock, MIN_MS, MAX_MS, RATES } from '../js/core/clock.js';
 
@@ -39,7 +40,7 @@ function assertValid(out, label) {
         assert.ok(o.name.length <= 80 && !/[\u0000-\u001f]/.test(o.name), `${label}: name2`);
         assert.equal(o.source, 'url');
     }
-    if ('selection' in out) assert.ok(out.selection === null || BODY_IDS.includes(out.selection));
+    if ('selection' in out) assert.ok(out.selection === null || BODY_IDS.includes(out.selection) || isExtraId(out.selection));
     if ('layers' in out) {
         assert.deepEqual(Object.keys(out.layers).sort(), [...LAYER_KEYS].sort());
         for (const v of Object.values(out.layers)) assert.equal(typeof v, 'boolean');
@@ -543,4 +544,22 @@ test('loc2: a second place round-trips (name, zone); bad values are reported, ne
     assert.equal(parseHash('#loc2=10,200').observer2.lonDeg, -160);
     // Nothing is written without a second place.
     assert.equal(serializeHash({ state: { observer2: null } }), '');
+});
+
+test('sel= round-trips extra objects (namespaced ids) and rejects malformed ones', () => {
+    assert.equal(parseHash('#sel=comet:halley').selection, 'comet:halley');
+    assert.equal(parseHash('#sel=Craft:Voyager1').selection, 'craft:voyager1');
+    assert.equal(parseHash('#sel=guest:sn1054').selection, 'guest:sn1054');
+    assert.equal(parseHash('#sel=star:32349').selection, 'star:32349');
+    assert.equal(parseHash('#sel=dso:m31').selection, 'dso:m31');
+    for (const bad of ['comet:', 'planet:x', 'comet:hal ley', 'comet:-x', `comet:${'a'.repeat(33)}`, 'craft:v1:x']) {
+        const p = parseHash(`#sel=${encodeURIComponent(bad)}`);
+        assert.equal(p.selection, undefined, bad);
+        assert.ok(p.invalid.includes('sel'), bad);
+    }
+    const state = { observer: { latDeg: 50.9, lonDeg: 0.5, elevM: 0, name: '', country: '', tz: null, tzApprox: true, source: 'url' },
+        selection: 'comet:halley', view: { mode: 'sky', earthLock: true }, layers: null };
+    const hash = serializeHash({ state, clock: { live: true } });
+    assert.match(hash, /(^|&)sel=comet:halley(&|$)/);
+    assert.equal(parseHash(hash).selection, 'comet:halley');
 });

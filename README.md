@@ -58,6 +58,10 @@ browser, and nothing needs the network.
   - A Tonight chart from dusk to dawn: when each world is up and how high, its best moment, and
     a drag to move through the night. Rows count down to the next rise and carry a 24-hour
     altitude sparkline.
+  - A Sky dome: the whole sky in one round chart (horizon, compass points, bright stars and
+    constellation figures, the ecliptic, the Moon at its phase and every planet where it stands),
+    held overhead or read as a map, with a tap to select. In Sky view it also shows the camera's
+    field of view.
 - **Events for the next 12 months:**
   - Moon phases;
   - oppositions and conjunctions;
@@ -73,7 +77,7 @@ browser, and nothing needs the network.
   - Three automatic quality tiers, with a governor that steps down when frames get slow, plus a
     manual Max (Settings → Quality) with 8K Earth maps and every effect at full detail, for fast GPUs.
   - The scene renders only when something changes.
-  - A text mode with full sky tables on devices without WebGL 2.
+  - A text mode with full sky tables and the Sky dome on devices without WebGL 2.
 - **Accessible.** Full keyboard control, screen-reader announcements, and support for
   `prefers-reduced-motion`.
 

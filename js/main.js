@@ -749,10 +749,12 @@ async function boot() {
         if (observerFromDefault && cur.source === 'default') {
             const guess = guessObserver(index);
             if (guess.source === 'tzguess') store.set({ observer: guess }, 'boot');
-        } else if ((cur.source === 'url' || cur.source === 'saved') && (cur.tzApprox || !cur.name || !cur.country)) {
+        } else if ((cur.source === 'url' || cur.source === 'saved') && (cur.tzApprox || !cur.name || !cur.country || (cur.cc && cur.country === cur.cc))) {
+            // (An observer saved with its ISO code as the country, 'Hanoi, VN', heals here too.)
+            const country = cur.cc && cur.country === cur.cc ? '' : cur.country;
             let refined = null;
             try {
-                refined = normalizeObserver({ ...cur, tz: cur.tzApprox ? null : cur.tz }, { cities, tz });
+                refined = normalizeObserver({ ...cur, country, tz: cur.tzApprox ? null : cur.tz }, { cities, tz });
             } catch {
                 refined = null;
             }

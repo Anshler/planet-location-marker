@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     shadowPoint, eventFraming, eclipseFocusExpired, createActions, ECLIPSE_LEAD_MS, eclipsePlayRange, lookSpanning,
-    telescopeFov, TELESCOPE_FOV_MIN,
+    telescopeFov, TELESCOPE_FOV_MIN, normalizeObserver,
 } from '../js/app/actions.js';
 import { createSnapshot, computeSnapshot } from '../js/astro/snapshot.js';
 import { localSolarEclipseAt, upcomingEvents } from '../js/astro/events.js';
@@ -430,4 +430,14 @@ test('telescope: ui.scope keeps the way back; leaveTelescope restores the field 
     assert.equal(scope(), null, 'too wide for a telescope');
     actions.scopeFromLink({ mode: 'sky', azDeg: 0, altDeg: 20, fovDeg: 0.5 });
     assert.deepEqual(scope(), { id, fovDeg: 0.5, prevFovDeg: 60, prevTrack: 'none' });
+});
+
+test('normalizeObserver: a link\'s cc= before the city index is in gives no country, never the code itself', () => {
+    const hanoi = { latDeg: 21.0245, lonDeg: 105.8412, name: 'Hanoi', cc: 'VN', tz: 'Asia/Bangkok', source: 'url' };
+    // The city service's proxy before cities.json: countryName answers the code, no nearest city.
+    const early = { countryName: (cc) => cc, nearest: () => null };
+    assert.equal(normalizeObserver(hanoi, { cities: early }).country, '');
+    const late = { countryName: (cc) => (cc === 'VN' ? 'Vietnam' : cc), nearest: () => null };
+    assert.equal(normalizeObserver(hanoi, { cities: late }).country, 'Vietnam');
+    assert.equal(normalizeObserver({ ...hanoi, country: 'Viet Nam' }, { cities: late }).country, 'Viet Nam', 'a given name is kept');
 });

@@ -154,8 +154,10 @@ function countryFor(cc, near, cities) {
             name = '';
         }
         if (name && name !== cc) return name;
-        if (near?.city?.cc === cc) return near.city.country ?? cc;
-        return name;
+        if (near?.city?.cc === cc) return near.city.country || '';
+        // The city index is not in yet (its proxy answers the code itself): no name rather than
+        // 'VN' kept for good; main.js fills it in once the index loads.
+        return name === cc ? '' : name;
     }
     return near?.city?.country ?? '';
 }

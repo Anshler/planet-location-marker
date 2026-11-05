@@ -722,8 +722,7 @@ body.tier-medium:not(.is-coarse) .glass {
     text-shadow: none;
     pointer-events: auto;
 }
-/* A tight bar (a window under 1100 px beside the panel) shows the wordmark as the mark alone, so
-   the place keeps its name; on Mars, where Back to Earth needs room too, the coordinates go first. */
+/* A tight bar (window < 1100 px): the mark alone; on Mars the coordinates go too. */
 @container topbar (max-width: 655px) {
     .ui[data-layout="desktop"] .brand { padding: 0 9px; }
     .brand__name { display: none; }
@@ -1002,7 +1001,6 @@ body.tier-medium:not(.is-coarse) .glass {
 @container timebar (max-width: 520px) {
     .tb-date { height: auto; min-height: 38px; }
     .stamp { flex-wrap: wrap; row-gap: 2px; }
-    /* The chevron keeps to the button's right edge instead of wrapping onto a line of its own. */
     .ui:not([data-layout="mobile"]) .tb-date { padding-right: 30px; }
     .ui:not([data-layout="mobile"]) .tb-date__chev { position: absolute; top: calc(50% - 8px); right: 10px; }
 }
@@ -1041,11 +1039,9 @@ body.tier-medium:not(.is-coarse) .glass {
 
 /* The status stack: a chip per mode under the top bar (and under the Eclipse Companion: --ecl-h,
    set by ui/eclipse-hud.js), oldest first, then the shortcut flash. */
-.status-stack { position: fixed; top: calc(64px + var(--safe-t) + var(--ecl-h, 0px)); left: calc((100vw - var(--panel-w) - var(--gutter)) / 2); z-index: 11; display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); max-width: calc(100vw - var(--panel-w) - var(--gutter) * 4); translate: -50% 0; pointer-events: none; }
-/* A wide window has room beside the Eclipse Companion, so the chips stay at the top of the view. */
-@media (min-width: 1240px) {
-    .ui[data-layout="desktop"] .status-stack { top: calc(64px + var(--safe-t)); left: calc((100vw - var(--panel-w) - var(--gutter) + var(--ecl-w, 0px)) / 2); max-width: calc(100vw - var(--panel-w) - var(--gutter) * 4 - var(--ecl-w, 0px)); }
-}
+.status-stack { position: fixed; top: calc(64px + var(--safe-t) + var(--sy, var(--ecl-h, 0px))); left: calc((100vw - var(--panel-w) - var(--gutter) + var(--sx, 0px)) / 2); z-index: 11; display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); max-width: calc(100vw - var(--panel-w) - var(--gutter) * 4 - var(--sx, 0px)); translate: -50% 0; pointer-events: none; }
+/* Wide windows: beside the Eclipse Companion (--sx), not below it (--sy). */
+@media (min-width: 1240px) { .ui[data-layout="desktop"] { --sx: var(--ecl-w); --sy: 0px; } }
 .status-stack > * { pointer-events: auto; }
 .mode { display: flex; align-items: center; gap: var(--sp-2); max-width: 100%; min-height: 40px; padding: var(--sp-1) var(--sp-1) var(--sp-1) var(--sp-3); border-radius: var(--r-pill); }
 .mode__icon { display: flex; flex: none; color: var(--accent); }
@@ -1575,8 +1571,7 @@ body.is-coarse .help:not(.is-keys) .help__grid { display: none; }
 .pt__steps .tb-step { flex: 1; height: var(--h-ctl); border: 1px solid var(--line); }
 .pop-time .seg { display: flex; }
 .pop-time .seg__btn { padding: 0 var(--sp-2); }
-/* Show times in: a long place name takes the room it needs, then wraps (never under its neighbours). */
-.seg--fit .seg__btn { flex: 1 1 auto; min-width: 0; height: auto; min-height: 30px; padding-block: 2px; line-height: 1.2; white-space: normal; overflow-wrap: anywhere; }
+.seg--fit .seg__btn { flex: 1 1 auto; min-width: 0; height: auto; min-height: 30px; white-space: normal; }
 .fold { border-top: 1px solid var(--line); }
 .fold > summary { padding: var(--sp-3) 0; font-size: var(--fs-3); font-weight: var(--fw-2); cursor: pointer; }
 .pt__body { padding-bottom: var(--sp-3); }
@@ -1964,8 +1959,7 @@ body.is-vantage #labels-root { visibility: hidden; }
    weekday and rate label, so the gaps and the rate floor are small and real time reads "1×". */
 .ui[data-layout="mobile"] .tb-main { flex-wrap: nowrap; gap: 4px; height: 46px; }
 .ui[data-layout="mobile"] .tb-rate .icon-btn { width: 34px; min-width: 34px; }
-/* Three lines: the time and the chevron, the day, then the zone ('Tokyo, UTC+9', the place
-   ellipsized first). A 360-px bar has no room for the day and the zone side by side. */
+/* Three lines: time and chevron, day, zone (no room for day and zone side by side). */
 .ui[data-layout="mobile"] .tb-play { width: 42px; height: 42px; }
 .ui[data-layout="mobile"] .tb-date { flex: 1 1 auto; gap: var(--sp-1); height: 44px; padding: 0 4px; }
 .ui[data-layout="mobile"] .stamp { flex-wrap: wrap; align-items: center; gap: 0 var(--sp-1); height: 44px; overflow: hidden; text-align: left; }
@@ -1977,7 +1971,6 @@ body.is-vantage #labels-root { visibility: hidden; }
 .ui[data-layout="mobile"] .tb-date__chev { order: 2; }
 .ui[data-layout="mobile"] .stamp__day, .ui[data-layout="mobile"] .stamp__zone { order: 4; flex-basis: 100%; font-size: var(--fs-2); line-height: 13px; }
 .ui[data-layout="mobile"] .stamp__day { min-width: 0; overflow: hidden; color: var(--muted); font-weight: var(--fw-2); text-overflow: ellipsis; }
-.ui[data-layout="mobile"] .stamp__zone { order: 5; font-size: var(--fs-1); }
 .ui[data-layout="mobile"] .stamp__zl { display: inline-flex; }
 .ui[data-layout="mobile"] .tb-rate__value { min-width: 36px; font-size: var(--fs-2); }
 .ui[data-layout="mobile"] .tb-rate { height: 36px; }
@@ -2168,7 +2161,6 @@ body.is-coarse #labels-root button.lbl::before { content: ""; position: absolute
 /* Touch-first copy: .for-fine shows with a mouse and keyboard, .for-coarse on touch; key caps and key
    hints hide on touch (the help dialog's key table keeps them), and the place search gets its Cancel. */
 body:not(.is-coarse) .for-coarse, body.is-coarse .for-fine { display: none !important; }
-/* Copy about the 3D view (.for-3d), and its text-mode twin (.for-text). */
 .ui[data-layout="text"] .for-3d, .ui:not([data-layout="text"]) .for-text { display: none !important; }
 :is(.btn, .dialog__title) > :is(.for-fine, .for-coarse, .for-text) { display: inline-flex; align-items: center; gap: inherit; }
 body.is-coarse .ui :is(.kbd, .kbds, .switch-row__keys):not(.help *) { display: none; }

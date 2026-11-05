@@ -136,8 +136,7 @@ export function mountEclipseHud(root, ctx) {
     let chosen = '';
     function fold() {
         const st = store.get(), sky = st.view?.mode === 'sky';
-        // A phone above peek or in Sky view, and any layout while a playback runs in Sky view (the
-        // Sun is the show then): the countdown alone.
+        // A playback in Sky view folds it on any layout.
         const auto = (ui.layout === 'mobile' && (st.ui?.sheet !== 'peek' || sky)) || (sky && !!clock?.range);
         const shut = chosen ? chosen === 'closed' : auto;
         root.classList.toggle('is-collapsed', shut);
@@ -276,17 +275,16 @@ export function mountEclipseHud(root, ctx) {
         store.subscribe((s) => s.ui?.sheet, fold), store.subscribe((s) => s.view?.mode, fold), ui.on('layout', fold),
         clock?.onChange?.((ev) => { if (ev?.type === 'range') fold(); }) ?? (() => {}));
 
-    // The status stack under the top bar (ui/modes.js: the mode chips) goes beside the panel on a
-    // wide window, else below it (css: --ecl-w and --ecl-h, its right edge and height plus a gap,
-    // 0 while it is hidden), never under it.
+    // The mode chips (ui/modes.js) go beside or below it (css --ecl-w, --ecl-h: its right edge and
+    // height plus a gap, 0 while hidden), never under it.
     const host = ui?.root ?? root.ownerDocument?.documentElement ?? null;
-    let lastH = -1, lastW = -1;
+    let last = '';
     const publish = () => {
         const r = root.hidden ? null : root.getBoundingClientRect?.();
-        const hgt = Math.ceil(r?.height || 0), w = hgt > 0 ? Math.ceil(r.right) + 8 : 0;
-        if ((hgt === lastH && w === lastW) || !host?.style) return;
-        lastH = hgt; lastW = w;
-        host.style.setProperty('--ecl-h', hgt > 0 ? `${hgt + 8}px` : '0px');
+        const hgt = Math.ceil(r?.height || 0), w = hgt ? Math.ceil(r.right) + 8 : 0;
+        if (`${hgt},${w}` === last || !host?.style) return;
+        last = `${hgt},${w}`;
+        host.style.setProperty('--ecl-h', `${hgt && hgt + 8}px`);
         host.style.setProperty('--ecl-w', `${w}px`);
     };
     const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(publish) : null;

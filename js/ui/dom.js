@@ -337,11 +337,8 @@ export function openPopover(anchor, panel, { placement = 'top', onClose, gap = 1
     const onKey = (e) => {
         if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); close(true); }
     };
-    // Focus moving on (Tab) closes it, so Esc can never act on the app underneath an open popover.
-    const onOut = (e) => {
-        const t = e.relatedTarget;
-        if (t && !panel.contains(t) && !anchor.contains(t)) close();
-    };
+    // Focus moving on closes it (Esc must never act under it).
+    const onOut = ({ relatedTarget: t }) => { if (t && !panel.contains(t) && !anchor.contains(t)) close(); };
     const offs = [
         on(document, 'pointerdown', onDown, true),
         on(panel, 'keydown', onKey),

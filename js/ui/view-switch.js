@@ -139,9 +139,8 @@ export function mountViewSwitch(root, ctx) {
     const coarse = () => document.body.classList.contains('is-coarse');
     const moreMenu = menu({
         button: moreBtn, label: 'More', host, placement, items: () => [
-            !gl() ? { icon: 'keyboard', name: 'Keyboard shortcuts', kbd: '?', detail: 'The keys, and what each one does', run: () => ui.toggleHelp(true) }
-                : { icon: coarse() ? 'help' : 'keyboard', name: coarse() ? 'Gestures and help' : 'Keyboard shortcuts and mouse', kbd: '?',
-                    detail: coarse() ? 'Drag, pinch and tap: what each one does' : 'The keys, and what the mouse does', run: () => ui.toggleHelp(true) },
+            { icon: gl() && coarse() ? 'help' : 'keyboard', name: !gl() ? 'Keyboard shortcuts' : coarse() ? 'Gestures and help' : 'Keyboard shortcuts and mouse', kbd: '?',
+                detail: !gl() ? 'The keys, and what each one does' : coarse() ? 'Drag, pinch and tap: what each one does' : 'The keys, and what the mouse does', run: () => ui.toggleHelp(true) },
             { icon: 'sparkle', name: 'Interface tips', detail: 'The three tips from the first visit, again', hidden: () => !gl(), run: () => ui.showTips() },
             { kind: 'check', icon: 'eye', name: 'Night vision', kbd: 'Shift+N', checked: () => !!st().display?.red,
                 // In red the accent is no cue, so the words say it is on.

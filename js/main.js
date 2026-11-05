@@ -1829,8 +1829,7 @@ function bindViewInsets(rig, store) {
                 const sheet = root.querySelector('.sheet')?.getBoundingClientRect();
                 if (sheet && sheet.height > 0) ins.bottom = clampPx(H - sheet.top, H * 0.55);
             }
-            // In Sky view the Eclipse Companion covers the top of the sky (the eclipsed Sun is framed
-            // below it, and below the mode chips under it on a phone or a narrow window).
+            // In Sky view the eclipsed Sun is framed below the Eclipse Companion.
             const ecl = store.get().view.mode === 'sky' ? root.querySelector('.ecl:not([hidden])')?.getBoundingClientRect() : null;
             if (ecl && ecl.height > 0 && ecl.bottom < H * 0.5) ins.top = clampPx(ecl.bottom + 8, H * 0.4);
         }

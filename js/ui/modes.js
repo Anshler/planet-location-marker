@@ -141,7 +141,7 @@ export function mountModes(host, ctx) {
         exitTop() {
             const r = core.exitTop();
             flash(r?.warn ?? r?.done);
-            // The flash is aria-hidden: a warning (the exposure's guard) must be heard as well.
+            // The flash is aria-hidden: a warning is said too.
             if (r?.warn) ctx.bus?.emit?.('announce', r.warn);
             return !!r;
         },
@@ -154,15 +154,12 @@ export function mountModes(host, ctx) {
     const syncLoop = () => {
         const r = clock?.range;
         if (!r || r.strideMs) return clear('loop');
-        const from = ui.fmtWhen(r.fromMs, clock.tMs), to = ui.fmtWhen(r.toMs, r.fromMs), stop = () => clock.setRange(null);
-        set('loop', r.loop === 'once' ? {
-            icon: 'timelapse', title: `Playing ${from} → ${to}`, detail: `Once through in ${r.durationS} s`,
+        const from = ui.fmtWhen(r.fromMs, clock.tMs), to = ui.fmtWhen(r.toMs, r.fromMs), once = r.loop === 'once', run = () => clock.setRange(null);
+        set('loop', {
+            icon: 'timelapse', title: once ? `Playing ${from} → ${to}` : `Looping ${from} → ${to}`,
+            detail: once ? `Once through in ${r.durationS} s` : `${r.durationS} s per loop, ${PLAY[r.loop] ?? PLAY.loop}`,
             actions: [{ label: 'Edit', run: () => ui.openTime?.('loop') }],
-            exit: { label: 'Stop', done: 'Playback stopped', run: stop },
-        } : {
-            icon: 'timelapse', title: `Looping ${from} → ${to}`, detail: `${r.durationS} s per loop, ${PLAY[r.loop] ?? PLAY.loop}`,
-            actions: [{ label: 'Edit', run: () => ui.openTime?.('loop') }],
-            exit: { label: 'Stop the loop', done: 'Loop stopped', run: stop },
+            exit: once ? { label: 'Stop', done: 'Playback stopped', run } : { label: 'Stop the loop', done: 'Loop stopped', run },
         });
     };
     const offClock = clock?.onChange?.((ev) => { if (ev?.type === 'range') syncLoop(); });

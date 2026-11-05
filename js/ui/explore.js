@@ -134,7 +134,6 @@ export function mountExplore(root, ctx) {
         tours.hidden = mars.el.hidden = !gl;
         setText(two.d, gl ? 'A second pin and its beams, compared in Up now' : 'The sky from a second place, compared in Up now');
         const o2 = s.observer2, onMars = s.host?.id === 'mars';
-        // A second place is an Earth comparison (Details hides Compare on Mars too).
         two.el.hidden = onMars;
         twoOn.hidden = !o2 || onMars;
         if (o2) setText(twoName, `Comparing with ${ui.placeShort(o2)}`);

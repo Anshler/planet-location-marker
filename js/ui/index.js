@@ -682,7 +682,7 @@ function startNarrator(ctx) {
     }));
 
     if (clock?.onChange) {
-        let lastOnce = false;
+        let once = false;
         offs.push(clock.onChange((ev) => {
             const type = ev?.type;
             if (type === 'clamp') {
@@ -694,9 +694,9 @@ function startNarrator(ctx) {
             if (type === 'live') { say('Live: showing the sky right now'); return; }
             if (type === 'rate') { say(`Speed ${ui.fmt('fmtRate', clock.rate)}`); return; }
             if (type === 'range') {
-                const r = clock.range, once = r ? r.loop === 'once' : lastOnce;
-                lastOnce = once;
-                say(r ? (once ? 'Playing.' : 'Loop started.') : (once ? 'Playback stopped.' : 'Loop stopped.'));
+                const r = clock.range;
+                if (r) once = r.loop === 'once';
+                say(r ? (once ? 'Playing.' : 'Loop started.') : once ? 'Playback stopped.' : 'Loop stopped.');
                 return;
             }
             if (type === 'pause' || type === 'jump' || type === 'play') {

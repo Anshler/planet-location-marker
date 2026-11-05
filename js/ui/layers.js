@@ -3,7 +3,9 @@
  * first (`where`: 'globe', which counts the map and the solar system, 'sky' or 'both'), then the
  * other view's; Quality, Sky conditions, Comfort, About this app (ui/about.js), Replay intro and
  * Reset all settings. Each group is a <details data-reveal> whose summary gives its state; pref
- * `displayOpen` keeps the open ones. Text mode keeps Sky conditions, Comfort, About and the App row.
+ * `displayOpen` keeps the open ones. Language · Ngôn ngữ (titled in both, so it is found in either)
+ * saves the choice and reloads (actions.setLanguage; core/i18n.js). Text mode keeps Sky conditions,
+ * Comfort, Language, About and the App row. Tables are English (N_), translated where shown.
  *
  * @module ui/layers
  */
@@ -15,57 +17,58 @@ import { VERSION } from '../version.js';
 import { h, on, setText, segmented, switchRow, tpl } from './dom.js';
 import { icon } from './icons.js';
 import { mountAbout } from './about.js';
+import { t, N_, LOCALES, locale } from '../core/i18n.js';
 
 /** Layer switches by meaning: [key, label, keys?, description?, where ('globe' | 'sky' | 'both')]. */
 export const LAYER_GROUPS = [
     {
-        id: 'beams', title: 'Beams and labels',
+        id: 'beams', title: N_('Beams and labels'),
         items: [
-            ['beams', 'Beams', ['B'], 'A line of sight from you to every body', 'globe'],
-            ['ghostBeams', 'Beams through the Earth', null, 'Dashed where a beam passes through the planet', 'globe'],
-            ['sunMoonBeams', 'Sun and Moon beams', null, null, 'globe'],
-            ['labels', 'Labels', null, null, 'both'],
+            ['beams', N_('Beams'), ['B'], N_('A line of sight from you to every body'), 'globe'],
+            ['ghostBeams', N_('Beams through the Earth'), null, N_('Dashed where a beam passes through the planet'), 'globe'],
+            ['sunMoonBeams', N_('Sun and Moon beams'), null, null, 'globe'],
+            ['labels', N_('Labels'), null, null, 'both'],
         ],
     },
     {
-        id: 'stars', title: 'Stars',
+        id: 'stars', title: N_('Stars'),
         items: [
-            ['stars', 'Stars', null, null, 'both'],
-            ['constellations', 'Constellation lines', ['C'], null, 'both'],
-            ['constellationNames', 'Constellation names', ['Shift', 'C'], null, 'both'],
-            ['starNames', 'Star names', null, null, 'both'],
-            ['milkyWay', 'Milky Way', ['Shift', 'M'], null, 'both'],
-            ['deepSky', 'Deep-sky objects', null, 'Galaxies, clusters and nebulae as faint smudges at their true size; zoom in to see them', 'both'],
+            ['stars', N_('Stars'), null, null, 'both'],
+            ['constellations', N_('Constellation lines'), ['C'], null, 'both'],
+            ['constellationNames', N_('Constellation names'), ['Shift', 'C'], null, 'both'],
+            ['starNames', N_('Star names'), null, null, 'both'],
+            ['milkyWay', N_('Milky Way'), ['Shift', 'M'], null, 'both'],
+            ['deepSky', N_('Deep-sky objects'), null, N_('Galaxies, clusters and nebulae as faint smudges at their true size; zoom in to see them'), 'both'],
         ],
     },
     {
-        id: 'guides', title: 'Guides',
+        id: 'guides', title: N_('Guides'),
         items: [
-            ['ecliptic', 'Ecliptic', ['E'], 'The Sun’s yearly path; planets stay close to it', 'both'],
-            ['eqGrid', 'Equatorial grid (RA/Dec)', ['G'], 'Right ascension and declination of date: the true pole and equinox', 'both'],
-            ['precession', 'The pole’s 26,000-year circle (precession)', null, 'The pole’s 26,000-year circle, the pole of date and the equinox points among the stars', 'both'],
-            ['sunPath', 'Sun paths and the analemma', null, 'Today’s and the solstices’ paths and the noon figure-8 in Sky view; the subsolar figure-8 on the globe', 'both'],
-            ['trails', 'Path ±6 months', ['T'], 'Six months either side, with retrograde loops', 'both'],
-            ['altAzGrid', 'Horizon grid', null, 'Altitude and azimuth when standing on the ground', 'sky'],
+            ['ecliptic', N_('Ecliptic'), ['E'], N_('The Sun’s yearly path; planets stay close to it'), 'both'],
+            ['eqGrid', N_('Equatorial grid (RA/Dec)'), ['G'], N_('Right ascension and declination of date: the true pole and equinox'), 'both'],
+            ['precession', N_('The pole’s 26,000-year circle (precession)'), null, N_('The pole’s 26,000-year circle, the pole of date and the equinox points among the stars'), 'both'],
+            ['sunPath', N_('Sun paths and the analemma'), null, N_('Today’s and the solstices’ paths and the noon figure-8 in Sky view; the subsolar figure-8 on the globe'), 'both'],
+            ['trails', N_('Path ±6 months'), ['T'], N_('Six months either side, with retrograde loops'), 'both'],
+            ['altAzGrid', N_('Horizon grid'), null, N_('Altitude and azimuth when standing on the ground'), 'sky'],
         ],
     },
     {
-        id: 'earth', title: 'Earth',
+        id: 'earth', title: N_('Earth'),
         items: [
-            ['clouds', 'Clouds', null, 'Illustrative, not live weather', 'globe'],
-            ['atmosphere', 'Atmosphere', null, null, 'globe'],
-            ['horizon', 'Horizon disc', null, 'Your local horizon with compass ticks', 'globe'],
-            ['footprint', 'Where it’s up on Earth', ['O'], 'Where on Earth the selected body is up', 'globe'],
-            ['subpoints', 'Overhead points', null, 'The spot on Earth directly below each body (always shown on the world map)', 'globe'],
-            ['landscape', 'Illustrative landscape', null, 'Invented hills, trees and sea for your place; rise and set times use the flat horizon', 'sky'],
+            ['clouds', N_('Clouds'), null, N_('Illustrative, not live weather'), 'globe'],
+            ['atmosphere', N_('Atmosphere'), null, null, 'globe'],
+            ['horizon', N_('Horizon disc'), null, N_('Your local horizon with compass ticks'), 'globe'],
+            ['footprint', N_('Where it’s up on Earth'), ['O'], N_('Where on Earth the selected body is up'), 'globe'],
+            ['subpoints', N_('Overhead points'), null, N_('The spot on Earth directly below each body (always shown on the world map)'), 'globe'],
+            ['landscape', N_('Illustrative landscape'), null, N_('Invented hills, trees and sea for your place; rise and set times use the flat horizon'), 'sky'],
         ],
     },
     {
-        id: 'orbit', title: 'In orbit',
+        id: 'orbit', title: N_('In orbit'),
         items: [
-            ['satellites', 'Satellites', null, 'The ISS, Tiangong, Hubble and bright rocket bodies moving in real time, with their next visible passes', 'both'],
-            ['spacecraft', 'Spacecraft', null, 'Faint radio beams to Voyager 1 and 2, New Horizons and JWST, with the one-way radio time', 'both'],
-            ['meteors', 'Meteors', null, 'Shower radiants near their peak and illustrative meteors; pause for an hour’s composite', 'sky'],
+            ['satellites', N_('Satellites'), null, N_('The ISS, Tiangong, Hubble and bright rocket bodies moving in real time, with their next visible passes'), 'both'],
+            ['spacecraft', N_('Spacecraft'), null, N_('Faint radio beams to Voyager 1 and 2, New Horizons and JWST, with the one-way radio time'), 'both'],
+            ['meteors', N_('Meteors'), null, N_('Shower radiants near their peak and illustrative meteors; pause for an hour’s composite'), 'sky'],
         ],
     },
 ];
@@ -86,10 +89,10 @@ export function layersFor(view) {
 }
 
 /** Bortle's names for classes 1…9. */
-export const BORTLE_NAMES = ['Excellent dark site', 'Typical dark site', 'Rural sky', 'Rural/suburban transition', 'Suburban sky',
-    'Bright suburban sky', 'Suburban/urban transition', 'City sky', 'Inner-city sky'];
-const TIER_NAME = { low: 'Low', medium: 'Medium', high: 'High', max: 'Max' };
-const AURORA_STATE = { quiet: 'Quiet aurora', typical: 'Typical aurora', storm: 'Aurora storm' };
+export const BORTLE_NAMES = [N_('Excellent dark site'), N_('Typical dark site'), N_('Rural sky'), N_('Rural/suburban transition'), N_('Suburban sky'),
+    N_('Bright suburban sky'), N_('Suburban/urban transition'), N_('City sky'), N_('Inner-city sky')];
+const TIER_NAME = { low: N_('Low'), medium: N_('Medium'), high: N_('High'), max: N_('Max') };
+const AURORA_STATE = { quiet: N_('Quiet aurora'), typical: N_('Typical aurora'), storm: N_('Aurora storm') };
 
 /**
  * Mounts the Display tab.
@@ -102,7 +105,7 @@ export function mountDisplay(root, ctx) {
     const offs = [];
     const st0 = store.get();
     const opened = loadPref('displayOpen', ['beams']);
-    const fill = (t, parts) => tpl(t, parts).textContent;
+    const fill = (text, parts) => tpl(text, parts).textContent;
     /** A group: its summary is its title and its state (`set`). */
     const fold = (id, title, ...kids) => {
         const state = h('span', { class: 'fold__state' });
@@ -120,21 +123,21 @@ export function mountDisplay(root, ctx) {
     const boxes = [...LAYER_GROUPS.map((g) => {
         for (const [key, label, keys, desc] of g.items) {
             rows[key] = switchRow({
-                label, desc: desc || undefined, keys: keys || undefined, checked: !!st0.layers?.[key],
+                label: t(label), desc: desc ? t(desc) : undefined, keys: keys || undefined, checked: !!st0.layers?.[key],
                 onChange: (v) => ui.act('toggleLayer', key, v),
             });
         }
-        return fold(g.id, g.title);
+        return fold(g.id, t(g.title));
     }), fold('other', otherTitle)];
-    const resetLayers = h('button', { class: 'btn btn--ghost btn--sm', type: 'button' }, icon('undo', { size: 15 }), 'Reset layers');
+    const resetLayers = h('button', { class: 'btn btn--ghost btn--sm', type: 'button' }, icon('undo', { size: 15 }), t('Reset layers'));
     const viewNote = h('p', { class: 'display__view' });
     // The rows are compact; ⓘ shows every layer's description (still each row's aria-describedby).
     const describe = h('button', {
-        class: 'icon-btn icon-btn--sm', type: 'button', 'aria-expanded': 'false', 'aria-label': 'What the layers show', 'data-tip': 'What the layers show',
+        class: 'icon-btn icon-btn--sm', type: 'button', 'aria-expanded': 'false', 'aria-label': t('What the layers show'), 'data-tip': t('What the layers show'),
     }, icon('info', { size: 16 }));
     const layersEl = h('div', { class: 'display-layers' },
         h('div', { class: 'section-head' }, viewNote, describe, resetLayers), boxes.map((b) => b.el),
-        h('p', { class: 'note' }, 'Layer choices are remembered on this device and included in shared links.'));
+        h('p', { class: 'note' }, t('Layer choices are remembered on this device and included in shared links.')));
     /** Each box's keys in this view. */
     let shown = [];
     let shownView = '';
@@ -145,72 +148,82 @@ export function mountDisplay(root, ctx) {
         const { groups, other: rest } = layersFor(view);
         shown = [...groups.map(([, keys]) => keys), rest];
         boxes.forEach((b, i) => b.body.replaceChildren(...shown[i].map((k) => rows[k].el)));
-        setText(otherTitle, view === 'sky' ? 'Only on the globe' : 'Only in Sky view');
-        setText(viewNote, view === 'sky' ? 'Layers for the Sky view.' : 'Layers for the globe view.');
+        setText(otherTitle, view === 'sky' ? t('Only on the globe') : t('Only in Sky view'));
+        setText(viewNote, view === 'sky' ? t('Layers for the Sky view.') : t('Layers for the globe view.'));
     }
     offs.push(on(describe, 'click', () => describe.setAttribute('aria-expanded', String(layersEl.classList.toggle('is-described')))));
     offs.push(on(resetLayers, 'click', () => {
         store.set({ layers: { ...DEFAULT_STATE.layers } });
-        ui.flash('Layers reset to their defaults');
-        ctx.bus.emit('announce', 'Layers reset to their defaults.');
+        ui.flash(t('Layers reset to their defaults'));
+        ctx.bus.emit('announce', t('Layers reset to their defaults.'));
     }));
 
     // ---------------------------------------------------------------- quality
     const quality = segmented({
-        label: 'Quality',
-        options: ['auto', 'low', 'medium', 'high', 'max'].map((v) => ({ value: v, label: v === 'auto' ? 'Auto' : TIER_NAME[v] })),
+        label: t('Quality'),
+        options: ['auto', 'low', 'medium', 'high', 'max'].map((v) => ({ value: v, label: v === 'auto' ? t('Auto') : t(TIER_NAME[v]) })),
         value: st0.quality?.setting || 'auto', onChange: (v) => ui.act('setQuality', v),
     });
     // Max is never chosen automatically, so its cost is spelled out next to the choice.
-    const maxNote = h('p', { class: 'note' }, 'Everything at full detail: 8K Earth maps, full screen resolution, every effect at its finest. '
-        + 'Large download (about 15 MB more); for fast GPUs.');
-    const qualityBox = fold('quality', 'Quality', quality.el, maxNote);
+    const maxNote = h('p', { class: 'note' }, [t('Everything at full detail: 8K Earth maps, full screen resolution, every effect at its finest.'),
+        t('Large download (about 15 MB more); for fast GPUs.')].join(' '));
+    const qualityBox = fold('quality', t('Quality'), quality.el, maxNote);
 
     // ---------------------------------------------------------------- sky conditions
     // Light pollution in the Sky view (js/astro/skyglow.js), focused by a reveal.
     const skyDark = h('select', { class: 'select', 'data-autofocus': '' },
-        h('option', { value: 'auto' }, 'Auto (from your place)'),
-        h('option', { value: 'pristine' }, 'Pristine (no light pollution)'),
-        ...BORTLE_NAMES.map((name, i) => h('option', { value: String(i + 1) }, `Bortle ${i + 1} · ${name}`)));
+        h('option', { value: 'auto' }, t('Auto (from your place)')),
+        h('option', { value: 'pristine' }, t('Pristine (no light pollution)')),
+        ...BORTLE_NAMES.map((name, i) => h('option', { value: String(i + 1) }, `Bortle ${i + 1} · ${t(name)}`)));
     skyDark.value = st0.display?.skyDark || 'auto';
     const skyHint = h('p', { class: 'note' });
     offs.push(on(skyDark, 'change', () => ui.act('setSkyDark', skyDark.value)));
     // The Kp the modelled ovals are drawn for (js/astro/geomag.js). No live data.
     const aurora = segmented({
-        label: 'Aurora',
-        options: [{ value: 'quiet', label: 'Quiet' }, { value: 'typical', label: 'Typical' }, { value: 'storm', label: 'Storm' }],
+        label: t('Aurora'),
+        options: [{ value: 'quiet', label: t('Quiet') }, { value: 'typical', label: t('Typical') }, { value: 'storm', label: t('Storm') }],
         value: st0.display?.aurora || 'typical', onChange: (v) => ui.act('setAuroraActivity', v),
     });
     const auroraHint = h('p', { class: 'note' });
-    const conditions = fold('conditions', 'Sky conditions',
-        h('label', { class: 'field' }, h('span', { class: 'field__label' }, 'Light pollution'), skyDark), skyHint,
-        h('div', { class: 'field' }, h('span', { class: 'field__label', 'aria-hidden': 'true' }, 'Aurora'), aurora.el), auroraHint);
+    const conditions = fold('conditions', t('Sky conditions'),
+        h('label', { class: 'field' }, h('span', { class: 'field__label' }, t('Light pollution')), skyDark), skyHint,
+        h('div', { class: 'field' }, h('span', { class: 'field__label', 'aria-hidden': 'true' }, t('Aurora')), aurora.el), auroraHint);
 
     // ---------------------------------------------------------------- comfort
     // A device preference (display.red, saved, never in links).
     const red = switchRow({
-        label: 'Night vision', keys: ['Shift', 'N'],
-        desc: 'A dim red screen that keeps your eyes dark-adapted outdoors. The screen stays awake while it is on',
+        label: t('Night vision'), keys: ['Shift', 'N'],
+        desc: t('A dim red screen that keeps your eyes dark-adapted outdoors. The screen stays awake while it is on'),
         checked: !!st0.display?.red, onChange: (v) => ui.act('setNightVision', v),
-        note: globalThis.navigator && !('wakeLock' in navigator) ? 'This browser cannot keep the screen awake' : '',
+        note: globalThis.navigator && !('wakeLock' in navigator) ? t('This browser cannot keep the screen awake') : '',
     });
     const motion = h('p', { class: 'note' });
-    const comfort = fold('comfort', 'Comfort', red.el, motion);
+    const comfort = fold('comfort', t('Comfort'), red.el, motion);
+
+    // ---------------------------------------------------------------- language
+    // Titled in both languages, each choice in its own: findable whatever the page speaks.
+    const langSeg = segmented({
+        label: 'Language · Ngôn ngữ', options: Object.entries(LOCALES).map(([value, label]) => ({ value, label })),
+        value: locale(), onChange: (v) => ui.act('setLanguage', v),
+    });
+    for (const b of langSeg.el.children) b.setAttribute('lang', b.dataset.value);
+    const langBox = fold('lang', 'Language · Ngôn ngữ', langSeg.el, h('p', { class: 'note' }, t('Changing the language reloads the page; the place, time and view stay.')));
+    langBox.set(LOCALES[locale()]);
 
     // ---------------------------------------------------------------- about, app
-    const aboutBox = fold('about', 'About this app');
-    aboutBox.set(fill('Version {version}', { version: VERSION }));
+    const aboutBox = fold('about', t('About this app'));
+    aboutBox.set(t('Version {version}', { version: VERSION }));
     const about = mountAbout(aboutBox.body, ctx);
-    const replay = h('button', { class: 'btn btn--soft', type: 'button' }, icon('play', { size: 14 }), 'Replay intro');
-    const reset = h('button', { class: 'btn btn--danger-ghost', type: 'button' }, icon('undo', { size: 16 }), 'Reset all settings');
-    const confirmYes = h('button', { class: 'btn btn--danger', type: 'button' }, 'Reset');
-    const confirmNo = h('button', { class: 'btn btn--ghost', type: 'button' }, 'Cancel');
-    const confirm = h('div', { class: 'confirm', role: 'group', 'aria-label': 'Confirm reset', hidden: true },
-        h('p', { class: 'confirm__text' }, 'Reset layers, quality and time display to their defaults? Your location is kept.'),
+    const replay = h('button', { class: 'btn btn--soft', type: 'button' }, icon('play', { size: 14 }), t('Replay intro'));
+    const reset = h('button', { class: 'btn btn--danger-ghost', type: 'button' }, icon('undo', { size: 16 }), t('Reset all settings'));
+    const confirmYes = h('button', { class: 'btn btn--danger', type: 'button' }, t('Reset'));
+    const confirmNo = h('button', { class: 'btn btn--ghost', type: 'button' }, t('Cancel'));
+    const confirm = h('div', { class: 'confirm', role: 'group', 'aria-label': t('Confirm reset'), hidden: true },
+        h('p', { class: 'confirm__text' }, t('Reset layers, quality and time display to their defaults? Your location is kept.')),
         h('div', { class: 'confirm__actions' }, confirmNo, confirmYes));
-    const noGl = h('p', { class: 'note' }, 'Layers are drawn in the 3D view, which this device can’t show.');
+    const noGl = h('p', { class: 'note' }, t('Layers are drawn in the 3D view, which this device can’t show.'));
 
-    root.append(layersEl, noGl, qualityBox.el, conditions.el, comfort.el, aboutBox.el,
+    root.append(layersEl, noGl, qualityBox.el, conditions.el, comfort.el, langBox.el, aboutBox.el,
         h('div', { class: 'group group--actions' }, h('div', { class: 'btn-row' }, replay, reset), confirm));
 
     offs.push(on(replay, 'click', () => ui.act('replayIntro')));
@@ -225,7 +238,7 @@ export function mountDisplay(root, ctx) {
         confirm.hidden = true;
         reset.hidden = false;
         reset.focus();
-        ctx.bus.emit('toast', { message: 'Settings reset to defaults', kind: 'info', timeoutMs: 3000 });
+        ctx.bus.emit('toast', { message: t('Settings reset to defaults'), kind: 'info', timeoutMs: 3000 });
     }));
 
     const sync = () => {
@@ -236,34 +249,35 @@ export function mountDisplay(root, ctx) {
         placeLayers();
         const ly = st.layers || {};
         for (const key in rows) rows[key].set(!!ly[key]);
-        boxes.forEach((b, i) => b.set(fill('{n} of {total} on', { n: shown[i].filter((k) => ly[k]).length, total: shown[i].length })));
-        rows.clouds.setNote(st.quality?.active === 'low' ? 'Not drawn at Low quality' : '');
+        boxes.forEach((b, i) => b.set(t('{n} of {total} on', { n: shown[i].filter((k) => ly[k]).length, total: shown[i].length })));
+        rows.clouds.setNote(st.quality?.active === 'low' ? t('Not drawn at Low quality') : '');
         const qs = st.quality?.setting || 'auto';
-        const tier = TIER_NAME[st.quality?.active] || 'Medium';
-        const chosen = TIER_NAME[qs] || 'Auto';
+        const tier = t(TIER_NAME[st.quality?.active] || 'Medium');
+        const chosen = TIER_NAME[qs] ? t(TIER_NAME[qs]) : t('Auto');
         quality.set(qs);
         // Auto, or Max held lower (repeated GPU context losses), says what runs.
-        qualityBox.set(chosen === tier ? tier : fill('{setting} (running {tier})', { setting: chosen, tier }));
+        qualityBox.set(chosen === tier ? tier : t('{setting} (running {tier})', { setting: chosen, tier }));
         maxNote.hidden = qs !== 'max';
         const sd = st.display?.skyDark || 'auto';
         if (skyDark.value !== sd) skyDark.value = sd;
         const sg = ui.snap?.skyglow;
         setText(skyHint, sd === 'auto'
-            ? `${sg?.auto ? `Estimated Bortle ${sg.bortle} from the cities around ${ui.placeShort(st.observer)}` : 'Estimated from the cities around you'}: moonlight and city glow brighten the sky and hide faint stars.`
-            : sd === 'pristine' ? 'No light pollution: the sky of a remote dark site, with moonlight only.'
-                : `Bortle ${sd}: the sky of ${BORTLE_NAMES[Number(sd) - 1].toLowerCase()}, wherever you are.`);
+            ? sg?.auto ? t('Estimated Bortle {n} from the cities around {place}: moonlight and city glow brighten the sky and hide faint stars.', { n: sg.bortle, place: ui.placeShort(st.observer) })
+                : t('Estimated from the cities around you: moonlight and city glow brighten the sky and hide faint stars.')
+            : sd === 'pristine' ? t('No light pollution: the sky of a remote dark site, with moonlight only.')
+                : t('{name} (Bortle {n}), wherever you are.', { n: sd, name: t(BORTLE_NAMES[Number(sd) - 1]) }));
         const au = st.display?.aurora || 'typical';
         aurora.set(au);
         setText(auroraHint, ovalSummary(au));
         const bortle = sd === 'auto' ? sg?.auto && sg.bortle : sd !== 'pristine' && sd;
         conditions.set(fill('{sky} · {aurora}', {
-            sky: bortle ? fill('Bortle {n}', { n: bortle }) : sd === 'auto' ? 'Auto' : 'No light pollution', aurora: AURORA_STATE[au],
+            sky: bortle ? fill('Bortle {n}', { n: bortle }) : sd === 'auto' ? t('Auto') : t('No light pollution'), aurora: t(AURORA_STATE[au]),
         }));
         red.set(!!st.display?.red);
-        comfort.set(st.display?.red ? 'Night vision on' : 'Night vision off');
+        comfort.set(st.display?.red ? t('Night vision on') : t('Night vision off'));
         setText(motion, st.status?.reducedMotion || ui.reducedMotion()
-            ? 'Reduced motion is on (system setting): transitions are cuts and the intro is skipped.'
-            : 'Animations follow your system’s motion setting.');
+            ? t('Reduced motion is on (system setting): transitions are cuts and the intro is skipped.')
+            : t('Animations follow your system’s motion setting.'));
     };
     for (const k of ['layers', 'quality', 'display', 'observer', 'status']) offs.push(store.subscribe((s) => s[k], sync));
     offs.push(store.subscribe((s) => s.view?.mode, sync));

@@ -1392,6 +1392,8 @@ body.is-coarse .ev__cal { width: 44px; height: 44px; }
 .fold__body { padding-bottom: var(--sp-3); }
 /* A Display group's state ("6 of 6 on"). */
 .fold__state { float: right; margin-left: var(--sp-3); color: var(--muted); font-weight: var(--fw-1); }
+/* A state that wraps below a long title (Vietnamese) stays in its summary. */
+.fold > summary::after { content: ""; display: block; clear: both; }
 /* A section ui.openPanel revealed: flashed once (an outline only under reduced motion). */
 [data-reveal] { scroll-margin: var(--sp-3); }
 .is-flash { border-radius: var(--r-s); outline: 2px solid var(--accent); outline-offset: 4px; animation: reveal 1.2s var(--ease-out); }

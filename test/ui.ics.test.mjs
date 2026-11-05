@@ -70,7 +70,8 @@ test('a VEVENT: UTC start and end, escaped summary and description with the link
     assert.equal(get('DTSTART'), icsDate(ev.c1Ms));
     assert.equal(get('DTEND'), icsDate(ev.c4Ms));
     assert.equal(get('DTSTAMP'), '20261104T120000Z');
-    assert.equal(get('UID'), `${ev.id}.25.69,32.64@planet-location-marker`);
+    assert.equal(get('UID'), `${ev.id}.25.69_32.64@planet-location-marker`, 'no comma in a TEXT value');
+    assert.equal(veventLines(ev, { nowMs: NOW, placeKey: 'a,b;c' }).find((l) => l.startsWith('UID:')), `UID:${ev.id}.a_b_c@planet-location-marker`);
     assert.match(get('SUMMARY'), /^Total solar eclipse visible here/);
     const desc = get('DESCRIPTION');
     assert.ok(desc.includes('\\n\\nTimes and visibility for Luxor\\, Egypt.'), desc);
@@ -104,6 +105,18 @@ test('buildCalendar: a folded VCALENDAR with CRLF line ends, one VEVENT per even
     assert.deepEqual(again, uids, 'the same events give the same UIDs on a later export');
     // A failing link builder still gives a calendar.
     assert.ok(buildCalendar(list.slice(0, 1), { nowMs: NOW, urlFor: () => { throw new Error('x'); } }).includes('BEGIN:VEVENT'));
+});
+
+test('a satellite pass keeps its UID when the pass search runs again (start times a few ms apart)', async () => {
+    const { passEvent } = await import('../js/ui/sat-passes.js');
+    const ui = { fmtClock: () => '21:03', compass: () => 'S' };
+    const pass = (startMs) => ({ id: 'sat:tiangong', name: 'Tiangong', startMs, peakMs: startMs + 180e3, endMs: startMs + 360e3, peakAltDeg: 60,
+        startAltDeg: 10, startAzDeg: 200, peakAzDeg: 180, endAzDeg: 90, mag: -2, starts: 'horizon', ends: 'shadow' });
+    const uid = (p) => veventLines(passEvent(p, ui), { nowMs: NOW, placeKey: placeKeyOf({ latDeg: 21.02, lonDeg: 105.84 }) }).find((l) => l.startsWith('UID:'));
+    const a = uid(pass(1793963390988)), b = uid(pass(1793963391026));
+    assert.equal(a, b);
+    assert.equal(a, 'UID:pass:sat:tiangong:29899390.21.02_105.84@planet-location-marker');
+    assert.notEqual(uid(pass(1793963390988 + 95 * 60e3)), a, 'the next pass is another event');
 });
 
 test('eclipseBundle: lunar and local solar eclipses, and global ones only when not seen here', () => {

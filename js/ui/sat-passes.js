@@ -39,12 +39,14 @@ export function passDetail(p, ui) {
 }
 
 /**
- * A SatPass as an Events-tab entry (kind 'sat-pass'; the Jump button watches it).
+ * A SatPass as an Events-tab entry (kind 'sat-pass'; the Jump button watches it). The id counts
+ * minutes: a pass search a moment later finds the same pass a few ms apart, and the calendar's
+ * UID (ui/ics.js) must stay the same so a re-added pass updates rather than duplicates.
  * @param {any} p
  * @param {any} ui
  */
 export function passEvent(p, ui) {
-    return { id: `pass:${p.id}:${Math.round(p.startMs)}`, kind: 'sat-pass', tMs: p.startMs, title: passTitle(p),
+    return { id: `pass:${p.id}:${Math.round(p.startMs / 60000)}`, kind: 'sat-pass', tMs: p.startMs, title: passTitle(p),
         detail: passDetail(p, ui), select: p.id, pass: p, color: p.color };
 }
 

@@ -114,13 +114,14 @@ export function veventLines(ev, { nowMs, url = '', place = '', placeKey = '', al
     const { startMs, endMs } = eventSpan(ev);
     const title = String(ev?.title || t('Sky event'));
     const uidBase = String(ev?.id || `${ev?.kind || 'event'}:${Math.round(startMs / 60000)}`).replace(/[^A-Za-z0-9:+._-]/g, '-');
+    const uidPlace = String(placeKey).replace(/[^A-Za-z0-9:+._-]/g, '_');
     const parts = [];
     if (ev?.detail) parts.push(String(ev.detail));
     if (place) parts.push(t('Times and visibility for {place}.', { place }));
     if (url) parts.push(t('See this sky: {url}', { url }));
     const lines = [
         'BEGIN:VEVENT',
-        `UID:${uidBase}${placeKey ? `.${placeKey}` : ''}@planet-location-marker`,
+        `UID:${uidBase}${uidPlace ? `.${uidPlace}` : ''}@planet-location-marker`,
         `DTSTAMP:${icsDate(nowMs)}`,
         `DTSTART:${icsDate(startMs)}`,
     ];
@@ -171,8 +172,8 @@ export function eclipseBundle(list, fromMs, toMs) {
         .sort((a, b) => a.tMs - b.tMs);
 }
 
-/** A coarse place key for UIDs: '48.86,2.35'. */
-export const placeKeyOf = (o) => (o && Number.isFinite(o.latDeg) && Number.isFinite(o.lonDeg) ? `${o.latDeg.toFixed(2)},${o.lonDeg.toFixed(2)}` : '');
+/** A coarse place key for UIDs: '48.86_2.35' (no comma: a UID is TEXT, RFC 5545 §3.3.11). */
+export const placeKeyOf = (o) => (o && Number.isFinite(o.latDeg) && Number.isFinite(o.lonDeg) ? `${o.latDeg.toFixed(2)}_${o.lonDeg.toFixed(2)}` : '');
 
 /**
  * Hands an .ics file to the user: the share sheet on a touch device that can share files, else

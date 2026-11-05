@@ -423,7 +423,7 @@ export function mountLocation(root, ctx) {
     }
 
     function cityModel(p, type) {
-        const sub = [p.admin && p.admin !== p.name ? p.admin : '', p.country || ''].filter(Boolean).join(', ');
+        const sub = [p.admin && p.admin !== p.name ? p.admin : '', ui.countryText(p)].filter(Boolean).join(', ');
         const meta = [];
         if (type === 'online' && p.source) meta.push(h('span', { class: `badge badge--${PROVIDER_TONE[p.source] || 'muted'}` }, PROVIDER_LABEL[p.source] ? t(PROVIDER_LABEL[p.source]) : p.source));
         meta.push(h('span', { class: 'pal-opt__coords' }, ui.latLonText(p.lat, p.lon, 1)));

@@ -617,7 +617,7 @@ function createUiHub(ctx, rootEl) {
         emit: em.emit,
         fmt, act,
         displayTz, observerTz, zoned, toUtc, fmtClock, fmtDate, fmtDay, fmtStamp, fmtSpoken, fmtWhen, offsetText,
-        latLonText, placeLabel, placeShort, placeName, nearestCityText,
+        latLonText, placeLabel, placeShort, placeName, nearestCityText, countryText,
         bodyName, bodySubject, bodyOf, compass, compassWords, altAz, extras, onMars,
         checkAlmanac, ingestAlmanac, ingestEvents, invalidateAlmanac, riseSetFor, tonightFor, observerKey, astroObserver,
         /** True when transitions should be cuts. */

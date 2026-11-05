@@ -145,7 +145,7 @@ export function mountViewSwitch(root, ctx) {
             { kind: 'check', icon: 'eye', name: 'Night vision', kbd: 'Shift+N', checked: () => !!st().display?.red,
                 // In red the accent is no cue, so the words say it is on.
                 detail: () => (st().display?.red ? 'On: choose again for full colour' : RED_DETAIL), run: () => ui.act('setNightVision') },
-            { icon: 'eye-off', name: 'Hide the interface', detail: 'Just the view; move the pointer or tap Show interface to return', kbd: 'H',
+            { icon: 'eye-off', name: 'Hide the interface', detail: () => (coarse() ? 'Just the view; tap Show interface to return' : 'Just the view; move the pointer to return'), kbd: 'H',
                 hidden: () => !gl(), run: () => ui.act('toggleCinema') },
             { kind: 'check', icon: 'fullscreen', name: 'Fullscreen', detail: 'Use the whole screen', kbd: 'F', checked: fsOn,
                 hidden: () => !gl() || (!document.fullscreenEnabled && !document.webkitFullscreenEnabled), run: () => ui.act('toggleFullscreen') },

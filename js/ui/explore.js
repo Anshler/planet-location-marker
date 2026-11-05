@@ -132,10 +132,11 @@ export function mountExplore(root, ctx) {
         const gl = s.status?.webgl !== false;
         // startTour and standOnMars need the 3D view.
         tours.hidden = mars.el.hidden = !gl;
-        const o2 = s.observer2;
-        twoOn.hidden = !o2;
+        const o2 = s.observer2, onMars = s.host?.id === 'mars';
+        // A second place is an Earth comparison (Details hides Compare on Mars too).
+        two.el.hidden = onMars;
+        twoOn.hidden = !o2 || onMars;
         if (o2) setText(twoName, `Comparing with ${ui.placeShort(o2)}`);
-        const onMars = s.host?.id === 'mars';
         setText(mars.t, onMars ? 'Back to the Earth' : 'Stand on Mars');
         setText(mars.d, onMars ? 'Leave Mars for your place on the Earth' : 'The sky from a landing site, with the Earth as an evening star');
     };

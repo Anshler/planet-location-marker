@@ -326,13 +326,15 @@ export function mountShell(root, ctx) {
         if (e.key === 'ArrowUp' && i < 2) { e.preventDefault(); setSnap(SNAPS[i + 1]); }
         else if (e.key === 'ArrowDown' && i > 0) { e.preventDefault(); setSnap(SNAPS[i - 1]); }
     }));
-    offs.push(on(sheet, 'keydown', (e) => {
+    // The trap at full covers the sheet and the tab bar, so Esc from either lowers it.
+    const lowerOnEsc = (e) => {
         if (e.key === 'Escape' && currentSnap === 'full' && !store.get().ui.palette && !store.get().ui.help) {
             e.stopPropagation();
             setSnap('half');
             handle.focus();
         }
-    }));
+    };
+    offs.push(on(sheet, 'keydown', lowerOnEsc), on(nav, 'keydown', lowerOnEsc));
 
     // ------------------------------------------------------------------ layouts
     const mq = window.matchMedia?.(MOBILE_QUERY);

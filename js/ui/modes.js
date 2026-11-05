@@ -141,6 +141,8 @@ export function mountModes(host, ctx) {
         exitTop() {
             const r = core.exitTop();
             flash(r?.warn ?? r?.done);
+            // The flash is aria-hidden: a warning (the exposure's guard) must be heard as well.
+            if (r?.warn) ctx.bus?.emit?.('announce', r.warn);
             return !!r;
         },
         flash,

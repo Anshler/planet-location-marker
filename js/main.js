@@ -49,7 +49,7 @@ import { createLabelsFeed } from './app/labels-feed.js';
 import { createCapture } from './app/capture.js';
 import { photoLayers } from './app/expose.js';
 import { playIntro, INTRO_TIMING } from './app/intro.js';
-import { showFallback, showContextLost, hideContextLost, showFatal } from './app/fallback.js';
+import { showFallback, showContextLost, contextRestoring, hideContextLost, showFatal } from './app/fallback.js';
 import { recordLoss, retryRecord, lossRecord, capTier } from './core/context-loss.js';
 import { buildDiagnostics } from './core/diagnostics.js';
 import { sessionLoad, sessionSave } from './app/session.js';
@@ -1763,6 +1763,7 @@ function bindRenderState({ store, bus, clock, rc, rig, loop, snap, astro, m, lab
             loop.setRenderPaused(false);
             loop.invalidate();
         };
+        contextRestoring();
         let restored = null;
         try {
             restored = textures?.restore?.(restoreKeys()) ?? null;

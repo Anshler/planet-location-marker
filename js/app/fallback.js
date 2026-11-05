@@ -19,6 +19,8 @@ const BANNER_ID = 'pc-fallback';
 const LOST_ID = 'pc-context-lost';
 /** After this long without a 'restored' event the overlay offers a reload. */
 const LOST_RELOAD_AFTER_MS = 8000;
+/** Once the context is back, how long the maps may take to come back before Reload is offered. */
+const RESTORING_RELOAD_AFTER_MS = 30000;
 
 /** @typedef {'no-webgl2'|'no-importmap'|'context-failed'|'context-unstable'} FallbackReason */
 
@@ -165,16 +167,36 @@ export function showContextLost() {
         box.append(inner);
         document.body.appendChild(box);
     }
+    armReload(box, t('The graphics context has not come back yet.'), LOST_RELOAD_AFTER_MS);
+}
+
+/** After `ms`, says `text` and offers Reload (once per overlay). */
+function armReload(box, text, ms) {
     clearTimeout(lostTimer);
     lostTimer = setTimeout(() => {
         const inner = box.querySelector('.pc-cl__box');
         if (!inner || inner.querySelector('button')) return;
         const msg = inner.querySelector('.pc-cl__msg');
-        if (msg) msg.textContent = t('The graphics context has not come back yet.');
+        if (msg) msg.textContent = text;
         const reload = el('button', { type: 'button' }, t('Reload'));
         reload.addEventListener('click', () => location.reload());
         inner.append(reload);
-    }, LOST_RELOAD_AFTER_MS);
+    }, ms);
+}
+
+/**
+ * The context is back ('webglcontextrestored') and the maps are being fetched again before
+ * drawing resumes: the overlay says so, drops a Reload offered meanwhile, and offers it again only
+ * if that takes RESTORING_RELOAD_AFTER_MS.
+ */
+export function contextRestoring() {
+    if (typeof document === 'undefined') return;
+    const box = document.getElementById(LOST_ID);
+    if (!box) return;
+    box.querySelector('.pc-cl__box button')?.remove();
+    const msg = box.querySelector('.pc-cl__msg');
+    if (msg) msg.textContent = t('Graphics are back — reloading the imagery…');
+    armReload(box, t('The imagery is taking a while to come back.'), RESTORING_RELOAD_AFTER_MS);
 }
 
 /** Removes the context-lost overlay (after 'webglcontextrestored'). */

@@ -51,7 +51,8 @@ import { horizonAltDeg } from '../geo/horizon.js';
 import { eqAngRadius, RING_OUTER, SCOPE_FROM_PX } from '../astro/disc.js';
 import { compareSight } from '../astro/parallax.js';
 import { mapPoint, mapPointOfDir } from '../geo/mapview.js';
-import { fmtDistKm } from '../core/format.js';
+import { fmtDistKm, fmtNum, placeName } from '../core/format.js';
+import { t, N_ } from '../core/i18n.js';
 
 /** @typedef {import('../core/types.js').LabelAnchor} LabelAnchor */
 /** @typedef {import('../core/types.js').AppState} AppState */
@@ -79,10 +80,10 @@ const CARDINAL_LIFT_RAD = 1.2 * Math.PI / 180;
 /** Orbit-view rim letters only while the horizon disc is big enough on screen to carry them. */
 const RIM_LABEL_MAX_DIST = 6;
 const CARDINALS = Object.freeze([
-    { id: 'card:N', text: 'N', az: 0, aria: 'North', color: '#ff7a6b' },
-    { id: 'card:E', text: 'E', az: 90, aria: 'East', color: '#e8edf6' },
-    { id: 'card:S', text: 'S', az: 180, aria: 'South', color: '#e8edf6' },
-    { id: 'card:W', text: 'W', az: 270, aria: 'West', color: '#e8edf6' },
+    { id: 'card:N', text: N_('N'), az: 0, aria: N_('North'), color: '#ff7a6b' },
+    { id: 'card:E', text: N_('E'), az: 90, aria: N_('East'), color: '#e8edf6' },
+    { id: 'card:S', text: N_('S'), az: 180, aria: N_('South'), color: '#e8edf6' },
+    { id: 'card:W', text: N_('W'), az: 270, aria: N_('West'), color: '#e8edf6' },
 ]);
 const STAR_COLOR = '#cdd6e4';
 const CONSTELLATION_COLOR = '#8fa6cc';
@@ -95,7 +96,7 @@ const PARALLAX_EVERY_MS = 500;
 const PARALLAX_ALONG = 0.55;
 const PARALLAX_OFFSET = Object.freeze([0, 26]);
 /** The solar-system zoom's Earth label (its dot is the orrery's Earth, OBSERVER_COLOR). */
-const EARTH_TEXT = 'Earth';
+const EARTH_TEXT = N_('Earth');
 /** Small screen offset so a star's or planet's own glyph is not covered by the label dot. */
 const GLYPH_OFFSET = Object.freeze([7, -7]);
 // Sky-view body label radius (CSS px): the dot (3 px, +4 px ring when selected) clears the glyph,
@@ -167,10 +168,10 @@ function homeLightAnchor(out, state, snap, live) {
     const min = homeLightMinutes(snap);
     const e = snap.bodies[BODY_INDEX.mars];
     if (min === null || !live.homeLight || !(e.altGeomDeg > 2) || state.layers?.beams === false) return;
-    const text = `the light from home left ${min} min ago`;
+    const text = t('the light from home left {n} min ago', { n: min });
     out.push({
         id: 'home-light', text, kind: 'trail', priority: PRIORITY.planet + 2, color: hostBodies('mars')[BODY_INDEX.mars].color,
-        dirS: live.homeLight, offsetPx: GLYPH_OFFSET, ariaLabel: `The light from the Earth left ${min} minutes ago`, interactive: false,
+        dirS: live.homeLight, offsetPx: GLYPH_OFFSET, ariaLabel: t('The light from the Earth left {n} minutes ago', { n: min }), interactive: false,
     });
 }
 
@@ -202,6 +203,7 @@ function bodyAnchors(out, state, snap, sky, live, opts, where = null) {
     for (let i = 0; i < BODIES.length; i++) {
         const b = table[i];
         if (opts.hideBody?.(b.id)) continue;
+        const name = t(b.name);
         const st = snap.bodies[i];
         const selected = sel === b.id;
         // From Mars the Earth outranks everything but the selection, and the Moon beside it is a planet-like point.
@@ -210,11 +212,11 @@ function bodyAnchors(out, state, snap, sky, live, opts, where = null) {
         /** @type {LabelAnchor & Record<string, any>} */
         const a = {
             id: b.id,
-            text: b.name,
+            text: name,
             kind: 'body',
             priority: selected ? PRIORITY.selected : base,
             color: b.color,
-            ariaLabel: `${b.name} — show details`,
+            ariaLabel: t('{body} — show details', { body: name }),
             interactive: true,
             bodyId: b.id,
             selected,
@@ -222,7 +224,7 @@ function bodyAnchors(out, state, snap, sky, live, opts, where = null) {
         };
         if (map && live?.bodyMap) {
             a.posS = live.bodyMap[i];
-            a.ariaLabel = `${b.name} is overhead here — show details`;
+            a.ariaLabel = t('{body} is overhead here — show details', { body: name });
             out.push(a);
             continue;
         }
@@ -232,7 +234,7 @@ function bodyAnchors(out, state, snap, sky, live, opts, where = null) {
             if (!p || p.length < 3) continue;
             a.posS = p;
             a.offsetPx = opts.systemOffset?.(b.id) || GLYPH_OFFSET;
-            a.title = `${b.name} (enlarged, not to scale)`;
+            a.title = t('{body} (enlarged, not to scale)', { body: name });
             out.push(a);
             continue;
         }
@@ -245,8 +247,8 @@ function bodyAnchors(out, state, snap, sky, live, opts, where = null) {
         }
         if (med) {
             a.med = med;
-            a.title = `${b.name}, magnified (not to scale)`;
-            a.ariaLabel = `${b.name}, shown magnified — show details`;
+            a.title = t('{body}, magnified (not to scale)', { body: name });
+            a.ariaLabel = t('{body}, shown magnified — show details', { body: name });
         }
         let point = null;
         try {
@@ -298,13 +300,14 @@ function extraAnchors(out, state, snap, extras, sky, live) {
             along = live.extraOrbit.get(id);
             if (!along) { along = new Float64Array([NaN, NaN, NaN]); live.extraOrbit.set(id, along); }
         }
+        const name = t(meta.name);
         const a = {
             id,
-            text: meta.name,
+            text: name,
             kind: 'body',
             priority: selected ? PRIORITY.selected : Number.isFinite(meta.priority) ? meta.priority : PRIORITY.extra,
             color: meta.color,
-            ariaLabel: `${meta.name} — show details`,
+            ariaLabel: t('{body} — show details', { body: name }),
             interactive: true,
             extra: true,
             selected,
@@ -327,7 +330,7 @@ function extraAnchors(out, state, snap, extras, sky, live) {
 }
 
 function observerAnchor(out, state, live) {
-    const name = state.observer?.name || 'Your location';
+    const name = placeName(state.observer?.name) || t('Your location');
     out.push({
         id: 'observer',
         text: name,
@@ -335,7 +338,7 @@ function observerAnchor(out, state, live) {
         priority: PRIORITY.observer,
         color: OBSERVER_COLOR,
         posS: live.pinHead,
-        ariaLabel: `Your location: ${name}. Change location`,
+        ariaLabel: t('Your location: {place}. Change location', { place: name }),
         interactive: true,
     });
 }
@@ -344,7 +347,7 @@ function observerAnchor(out, state, live) {
 function observer2Anchor(out, state, live) {
     const o2 = state.observer2;
     if (!o2 || !live.pin2Head) return;
-    const name = o2.name || 'Second place';
+    const name = placeName(o2.name) || t('Second place');
     out.push({
         id: 'observer2',
         text: name,
@@ -352,7 +355,7 @@ function observer2Anchor(out, state, live) {
         priority: PRIORITY.observer - 1,
         color: OBSERVER2_COLOR,
         posS: live.pin2Head,
-        ariaLabel: `Compared with ${name}. Change or remove the second place`,
+        ariaLabel: t('Compared with {place}. Change or remove the second place', { place: name }),
         interactive: true,
     });
 }
@@ -367,7 +370,7 @@ function observer2Anchor(out, state, live) {
 export function parallaxText(snap, scratch) {
     const r = snap?.second ? compareSight(snap, snap.second, MOON, scratch) : null;
     if (!r || !Number.isFinite(r.distKm)) return '';
-    return `Moon parallax ${r.sepDeg.toFixed(2)}° → ${fmtDistKm(Math.round(r.distKm / 1000) * 1000)}`;
+    return t('Moon parallax {deg}° → {dist}', { deg: fmtNum(r.sepDeg, 2), dist: fmtDistKm(Math.round(r.distKm / 1000) * 1000) });
 }
 
 /** Sky view: directions at infinity. Orbit view (`rim`): world points on the horizon disc rim. */
@@ -376,11 +379,11 @@ function cardinalAnchors(out, live, rim) {
         /** @type {LabelAnchor} */
         const a = {
             id: c.id,
-            text: c.text,
+            text: t(c.text),
             kind: 'cardinal',
             priority: PRIORITY.cardinal,
             color: c.color,
-            ariaLabel: c.aria,
+            ariaLabel: t(c.aria),
             interactive: false,
         };
         if (rim) a.posS = live.rim[k];
@@ -550,9 +553,9 @@ export function buildAnchors(state, snap, catalog, trails, opts = {}) {
         const ep = opts.systemPoint ? opts.systemPoint('earth') : null;
         if (ep && ep.length >= 3) {
             out.push({
-                id: 'earth', text: EARTH_TEXT, kind: 'observer', priority: PRIORITY.earth, color: OBSERVER_COLOR,
+                id: 'earth', text: t(EARTH_TEXT), kind: 'observer', priority: PRIORITY.earth, color: OBSERVER_COLOR,
                 posS: ep, offsetPx: opts.systemOffset?.('earth') || GLYPH_OFFSET,
-                ariaLabel: 'Earth — back to the globe', interactive: true,
+                ariaLabel: t('Earth — back to the globe'), interactive: true,
             });
         }
         if (catalog && layers.stars !== false && layers.starNames) starAnchors(out, catalog, false);
@@ -844,9 +847,9 @@ export function createLabelsFeed({ labels, store, snap, getCatalog = () => null,
         if (hk !== hostKey) { hostKey = hk; dirty = true; }
         if (mode === 'orbit' && store.get().observer2) {
             // The parallax note follows the time, but only a changed figure rebuilds the list.
-            const t = Date.now();
-            if (t - parallaxAt >= PARALLAX_EVERY_MS) {
-                parallaxAt = t;
+            const now = Date.now();
+            if (now - parallaxAt >= PARALLAX_EVERY_MS) {
+                parallaxAt = now;
                 const next = parallaxText(snap, sightScratch);
                 if (next !== parallax) { parallax = next; dirty = true; }
             }

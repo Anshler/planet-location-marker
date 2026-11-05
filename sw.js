@@ -34,7 +34,7 @@
 // {type:'skip-waiting'} activates a waiting version.
 // Other origins (the optional geocoders), sw.js and sw-manifest.json are left to the browser.
 
-const VERSION = '2.0.0';
+const VERSION = '2.1.0';
 const STAGED = false;
 const PREFIX = 'pc2-';
 const CACHE = `${PREFIX}${VERSION}`;

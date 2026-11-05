@@ -495,7 +495,7 @@ critical CSS read them.
   group in Display (Beams and labels, Stars, Guides, Earth, In orbit, the other view's, then Quality,
   Sky conditions, Comfort, About this app) is a `<details data-reveal="{id}">` whose summary is its
   title and its live state on the right ('6 of 6 on', 'Auto (running Low)', 'Bortle 9 · Typical
-  aurora', 'Night vision off', 'Version 2.0.0'), so the tab reads as a table of contents (1.0
+  aurora', 'Night vision off', 'Version 2.1.0'), so the tab reads as a table of contents (1.0
   screen at 1440×900 in both views). A first visit opens Beams and labels; after that pref
   `displayOpen` (the open ids, any toggle or reveal) restores what was left open.
   The help table's Layers rows and the shortcut flashes take their names from `LAYER_GROUPS`, and

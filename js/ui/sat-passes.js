@@ -7,7 +7,7 @@
  * @module ui/sat-passes
  */
 
-import { h, on, setText } from './dom.js';
+import { h, on, setText, nbsp } from './dom.js';
 import { icon } from './icons.js';
 import { t } from '../core/i18n.js';
 import { fmtMag } from '../core/format.js';
@@ -126,8 +126,9 @@ export function createPassBox(ctx) {
 
     function tick(now) {
         for (const { p, meta } of rows) {
-            const when = `${ui.fmtDay(p.startMs, { year: false })} · ${ui.fmtClock(p.startMs)}`;
-            const rel = now >= p.startMs && now <= p.endMs ? t('visible now, until {time}', { time: ui.fmtClock(p.endMs) }) : ui.fmt('fmtRelative', p.startMs, now);
+            // The date and the countdown each wrap as one unit (no lone 'nữa' or 'min').
+            const when = `${nbsp(ui.fmtDay(p.startMs, { year: false }))} · ${ui.fmtClock(p.startMs)}`;
+            const rel = now >= p.startMs && now <= p.endMs ? t('visible now, until {time}', { time: ui.fmtClock(p.endMs) }) : nbsp(ui.fmt('fmtRelative', p.startMs, now));
             setText(meta, `${when}${rel === '—' ? '' : ' · ' + rel}`);
         }
     }

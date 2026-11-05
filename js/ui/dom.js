@@ -443,6 +443,9 @@ export function switchRow({ label, desc, keys, checked, onChange, note }) {
     };
 }
 
+/** `s` with no-break spaces, so that it wraps as one unit ('4 ngày 11 giờ nữa'). */
+export const nbsp = (s) => String(s).replace(/ /g, '\u00a0');
+
 /**
  * Formats a key-cap list for display, e.g. kbd('Shift', 'C').
  * @param {...string} keys

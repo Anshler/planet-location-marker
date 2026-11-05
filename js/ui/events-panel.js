@@ -12,7 +12,7 @@
  */
 
 import { BODY_INDEX } from '../astro/bodies.js';
-import { h, on, setText, rovingKeys } from './dom.js';
+import { h, on, setText, rovingKeys, nbsp } from './dom.js';
 import { icon } from './icons.js';
 import { eventGlyph } from './event-glyphs.js';
 import { buildCalendar, eclipseBundle, icsFileName, placeKeyOf, saveIcs } from './ics.js';
@@ -20,8 +20,6 @@ import { passEvent, isBrightPass } from './sat-passes.js';
 import { t, tn, N_ } from '../core/i18n.js';
 
 const DAY = 86400e3;
-/** `s` with no-break spaces, so that it wraps as one unit. */
-const nbsp = (s) => s.replace(/ /g, ' ');
 /** Under All: the next 8 weeks, or at least this many events, before 'Show the rest'. */
 const WINDOW_DAYS = 56, WINDOW_MIN = 12;
 

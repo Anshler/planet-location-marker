@@ -327,7 +327,7 @@ export function mountTimebar(root, ctx) {
 
     // Show times in.
     const tzSeg = segmented({
-        label: 'Show times in', options: [{ value: 'observer', label: 'Your place' }, { value: 'device', label: 'This device' }, { value: 'utc', label: 'UTC' }],
+        label: 'Show times in', className: 'seg--fit', options: [{ value: 'observer', label: 'Your place' }, { value: 'device', label: 'This device' }, { value: 'utc', label: 'UTC' }],
         value: 'observer',
         onChange: (v) => { ui.act('setTzMode', v); ctx.bus.emit('announce', `Times in ${zoneText}.`); },
     });

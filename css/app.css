@@ -1558,6 +1558,8 @@ body.is-coarse .help:not(.is-keys) .help__grid { display: none; }
 .pt__steps .tb-step { flex: 1; height: var(--h-ctl); border: 1px solid var(--line); }
 .pop-time .seg { display: flex; }
 .pop-time .seg__btn { padding: 0 var(--sp-2); }
+/* Show times in: a long place name takes the room it needs, then wraps (never under its neighbours). */
+.seg--fit .seg__btn { flex: 1 1 auto; min-width: 0; height: auto; min-height: 30px; padding-block: 2px; line-height: 1.2; white-space: normal; overflow-wrap: anywhere; }
 .fold { border-top: 1px solid var(--line); }
 .fold > summary { padding: var(--sp-3) 0; font-size: var(--fs-3); font-weight: var(--fw-2); cursor: pointer; }
 .pt__body { padding-bottom: var(--sp-3); }
@@ -1945,21 +1947,21 @@ body.is-vantage #labels-root { visibility: hidden; }
    weekday and rate label, so the gaps and the rate floor are small and real time reads "1×". */
 .ui[data-layout="mobile"] .tb-main { flex-wrap: nowrap; gap: 4px; height: 46px; }
 .ui[data-layout="mobile"] .tb-rate .icon-btn { width: 34px; min-width: 34px; }
-/* Two lines: the time and the chevron, then the day and the zone's short form. The zone wraps onto
-   a third line, clipped, when the day leaves no room for it, so it is never cut in half. */
+/* Three lines: the time and the chevron, the day, then the zone ('Tokyo, UTC+9', the place
+   ellipsized first). A 360-px bar has no room for the day and the zone side by side. */
 .ui[data-layout="mobile"] .tb-play { width: 42px; height: 42px; }
 .ui[data-layout="mobile"] .tb-date { flex: 1 1 auto; gap: var(--sp-1); height: 44px; padding: 0 4px; }
-.ui[data-layout="mobile"] .stamp { flex-wrap: wrap; align-items: center; gap: 0 var(--sp-1); height: 34px; overflow: hidden; }
+.ui[data-layout="mobile"] .stamp { flex-wrap: wrap; align-items: center; gap: 0 var(--sp-1); height: 44px; overflow: hidden; text-align: left; }
 .ui[data-layout="mobile"] .stamp::after { content: ""; order: 3; flex-basis: 100%; }
 .ui[data-layout="mobile"] .tb-date__icon, .ui[data-layout="mobile"] .stamp__sep, .ui[data-layout="mobile"] .stamp__cal,
-.ui[data-layout="mobile"] .stamp__zl { display: none; }
-.ui[data-layout="mobile"] .stamp__time { order: 1; font-size: 18px; font-weight: var(--fw-3); line-height: 20px; }
+.ui[data-layout="mobile"] .stamp__zs, .ui[data-layout="mobile"] .stamp__zone::before { display: none; }
+.ui[data-layout="mobile"] .stamp__time { order: 1; font-size: 18px; font-weight: var(--fw-3); line-height: 18px; }
 .ui[data-layout="mobile"] .stamp__time.is-h12 { font-size: var(--fs-4); } /* "12:00:00 AM" */
 .ui[data-layout="mobile"] .tb-date__chev { order: 2; }
-.ui[data-layout="mobile"] .stamp__day, .ui[data-layout="mobile"] .stamp__zone { order: 4; font-size: var(--fs-2); line-height: 14px; }
+.ui[data-layout="mobile"] .stamp__day, .ui[data-layout="mobile"] .stamp__zone { order: 4; flex-basis: 100%; font-size: var(--fs-2); line-height: 13px; }
 .ui[data-layout="mobile"] .stamp__day { min-width: 0; overflow: hidden; color: var(--muted); font-weight: var(--fw-2); text-overflow: ellipsis; }
-.ui[data-layout="mobile"] .stamp__zone::before { margin-right: var(--sp-1); }
-.ui[data-layout="mobile"] .stamp__zs { display: inline; }
+.ui[data-layout="mobile"] .stamp__zone { order: 5; font-size: var(--fs-1); }
+.ui[data-layout="mobile"] .stamp__zl { display: inline-flex; }
 .ui[data-layout="mobile"] .tb-rate__value { min-width: 36px; font-size: var(--fs-2); }
 .ui[data-layout="mobile"] .tb-rate { height: 36px; }
 /* Text-only on the phone: the icon's width goes to the date (long rate labels such as "−10 min/s"

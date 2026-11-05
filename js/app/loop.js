@@ -44,6 +44,7 @@ import { exposureFor, skyBrightness } from '../astro/photometry.js';
 import { computeSkyglow } from '../astro/skyglow.js';
 import { computeAurora } from '../astro/geomag.js';
 import { createSupersampler, viewMotionPx } from '../core/sampling.js';
+import { t, N_ } from '../core/i18n.js';
 
 /** Recompute the 'frame' snapshot when simulated time has moved this far (ms). */
 export const SNAP_STALE_MS = 500;
@@ -96,26 +97,26 @@ export function labelMode(skyBlend, mapK, systemBlend = 0) {
 
 /** Human names for strike toasts. */
 const FEATURE_NAMES = Object.freeze({
-    earth: 'The Earth surface',
-    atmosphere: 'The atmosphere glow',
-    aurora: 'The aurora curtains',
-    sky: 'The star field',
-    bodies: 'The Sun, Moon and planet markers',
-    ground: 'The sky-view ground',
-    trails: 'Planet paths',
-    eclipsePath: 'The eclipse path',
-    beams: 'The beams',
-    beams2: 'The second place’s beams',
-    planets: 'The planet medallions',
-    pin: 'The location pin',
-    pin2: 'The second place’s pin',
-    flare: 'The lens flare',
-    orrery: 'The solar-system view',
-    longExposure: 'Long exposure',
-    satellites: 'The satellites',
-    labels: 'Sky labels',
-    rig: 'Camera motion',
-    debug: 'The debug overlay',
+    earth: N_('The Earth surface'),
+    atmosphere: N_('The atmosphere glow'),
+    aurora: N_('The aurora curtains'),
+    sky: N_('The star field'),
+    bodies: N_('The Sun, Moon and planet markers'),
+    ground: N_('The sky-view ground'),
+    trails: N_('Planet paths'),
+    eclipsePath: N_('The eclipse path'),
+    beams: N_('The beams'),
+    beams2: N_('The second place’s beams'),
+    planets: N_('The planet medallions'),
+    pin: N_('The location pin'),
+    pin2: N_('The second place’s pin'),
+    flare: N_('The lens flare'),
+    orrery: N_('The solar-system view'),
+    longExposure: N_('Long exposure'),
+    satellites: N_('The satellites'),
+    labels: N_('Sky labels'),
+    rig: N_('Camera motion'),
+    debug: N_('The debug overlay'),
 });
 
 /**
@@ -303,7 +304,7 @@ export function createLoop(deps) {
         if (m === labels) {
             try { labels.dispose?.(); } catch { /* ignore */ }
         }
-        bus.emit('toast', { message: `${FEATURE_NAMES[name] ?? 'A visual feature'} was turned off after repeated errors.`, kind: 'warn' });
+        bus.emit('toast', { message: t('{feature} was turned off after repeated errors.', { feature: t(FEATURE_NAMES[name] ?? N_('A visual feature')) }), kind: 'warn' });
         dirty = true;
     }
 
@@ -360,16 +361,16 @@ export function createLoop(deps) {
     }
 
     /** A snapshot for the observer's host world: the Earth's place, or the host's own (setHost). */
-    function snapAt(t, obs, out, opt) {
-        if (host) host.compute(t, out, opt);
-        else computeSnapshot(t, obs, out, opt);
+    function snapAt(simMs, obs, out, opt) {
+        if (host) host.compute(simMs, out, opt);
+        else computeSnapshot(simMs, obs, out, opt);
     }
 
     /** The second place's snapshot (into `out`), or null when there is no second place (or on Mars). */
-    function computeSecond(t, obs2, out, opt) {
+    function computeSecond(simMs, obs2, out, opt) {
         if (host || !obs2 || !Number.isFinite(obs2.latDeg) || !Number.isFinite(obs2.lonDeg)) return null;
         try {
-            computeSnapshot(t, obs2, out, opt);
+            computeSnapshot(simMs, obs2, out, opt);
             return out;
         } catch (err) {
             reportOnce('computeSnapshot(second)', err);
@@ -433,12 +434,12 @@ export function createLoop(deps) {
         // What was dirty before this frame's own snapshot step (supersampling: drift vs a change).
         const dirtyIn = dirty || observerDirty || jumped || !snapValid;
 
-        let t;
+        let simMs;
         try {
-            t = clock.tick(now);
+            simMs = clock.tick(now);
         } catch (err) {
             reportOnce('clock.tick', err);
-            t = clock.tMs;
+            simMs = clock.tMs;
         }
         const obs = store.get().observer;
         const obs2 = store.get().observer2 ?? null;
@@ -450,11 +451,11 @@ export function createLoop(deps) {
         const fine = rendering && rig !== null && !!rig.camera
             && ((rig.mode === 'sky' && rig.camera.fov < FINE_FOV_DEG) || rig.vantage === 'moon');
         if (rendering && (observerDirty || jumped || !snapValid
-            || (fine ? t !== snap.tMs : Math.abs(t - snap.tMs) >= SNAP_STALE_MS))) {
+            || (fine ? simMs !== snap.tMs : Math.abs(simMs - snap.tMs) >= SNAP_STALE_MS))) {
             try {
-                snapAt(t, obs, snap, OPT_FRAME);
+                snapAt(simMs, obs, snap, OPT_FRAME);
                 fillSkyglow(snap);
-                snap.second = computeSecond(t, obs2, snap2, OPT_FRAME);
+                snap.second = computeSecond(simMs, obs2, snap2, OPT_FRAME);
                 snapValid = true;
                 for (let i = 0; i < modules.length; i++) callModule(modules[i], 'apply', snap);
                 if (hooks.onApply) hooks.onApply(snap);
@@ -468,14 +469,14 @@ export function createLoop(deps) {
         // A change inside the 4 Hz interval (a new observer, an extras registry change) is kept
         // until the readout catches up, even with the clock paused.
         if (observerDirty) fullStale = true;
-        if (now - lastFull >= FULL_INTERVAL_MS && (!fullValid || t !== fullT || fullStale)) {
+        if (now - lastFull >= FULL_INTERVAL_MS && (!fullValid || simMs !== fullT || fullStale)) {
             try {
-                snapAt(t, obs, snapFull, OPT_FULL);
+                snapAt(simMs, obs, snapFull, OPT_FULL);
                 fillSkyglow(snapFull);
-                snapFull.second = computeSecond(t, obs2, snapFull2, OPT_FULL);
+                snapFull.second = computeSecond(simMs, obs2, snapFull2, OPT_FULL);
                 fullValid = true;
                 fullStale = false;
-                fullT = t;
+                fullT = simMs;
                 lastFull = now;
                 bus.emit('readout', snapFull);
             } catch (err) {
@@ -485,9 +486,9 @@ export function createLoop(deps) {
             if (!rendering && !snapValid) {
                 // Headless: keep the frame snapshot meaningful for snapshot() consumers.
                 try {
-                    snapAt(t, obs, snap, OPT_FRAME);
+                    snapAt(simMs, obs, snap, OPT_FRAME);
                     fillSkyglow(snap);
-                    snap.second = computeSecond(t, obs2, snap2, OPT_FRAME);
+                    snap.second = computeSecond(simMs, obs2, snap2, OPT_FRAME);
                     snapValid = true;
                 } catch { /* reported above */ }
             }
@@ -497,7 +498,7 @@ export function createLoop(deps) {
 
         if (rendering) {
             // 2b. Fast movers (satellites) at this frame's instant: tracking, labels and their module follow.
-            advanceMovers(t);
+            advanceMovers(simMs);
             // 3. Camera.
             let moving = false;
             let mode = 'orbit';
@@ -580,7 +581,7 @@ export function createLoop(deps) {
                 dirty = false;
                 fi.dtMs = dt;
                 fi.timeS = now / 1000;
-                fi.tMs = t;
+                fi.tMs = simMs;
                 fi.camera = camera;
                 fi.viewMode = mode;
                 fi.skyBlend = skyBlend;
@@ -696,21 +697,21 @@ export function createLoop(deps) {
         if (rc === null || renderPaused || renderFailed) return false;
         const dt = Math.min(Math.max(Number(dtMs) || 0, 0), 1000);
         last = now;
-        let t;
+        let simMs;
         try {
-            t = clock.tick(now);
+            simMs = clock.tick(now);
         } catch (err) {
             reportOnce('clock.tick', err);
-            t = clock.tMs;
+            simMs = clock.tMs;
         }
         const obs = store.get().observer;
         const obs2 = store.get().observer2 ?? null;
-        if (observerDirty || jumped || !snapValid || t !== snap.tMs) {
+        if (observerDirty || jumped || !snapValid || simMs !== snap.tMs) {
             try {
-                snapAt(t, obs, snap, OPT_FRAME);
+                snapAt(simMs, obs, snap, OPT_FRAME);
                 fillSkyglow(snap);
                 // The second place's beams and pin follow the session's time as well.
-                snap.second = computeSecond(t, obs2, snap2, OPT_FRAME);
+                snap.second = computeSecond(simMs, obs2, snap2, OPT_FRAME);
                 snapValid = true;
                 for (let i = 0; i < modules.length; i++) callModule(modules[i], 'apply', snap);
                 if (hooks.onApply) hooks.onApply(snap);
@@ -720,11 +721,11 @@ export function createLoop(deps) {
         }
         if (now - lastFull >= FULL_INTERVAL_MS || observerDirty) {
             try {
-                snapAt(t, obs, snapFull, OPT_FULL);
+                snapAt(simMs, obs, snapFull, OPT_FULL);
                 fillSkyglow(snapFull);
-                snapFull.second = computeSecond(t, obs2, snapFull2, OPT_FULL);
+                snapFull.second = computeSecond(simMs, obs2, snapFull2, OPT_FULL);
                 fullValid = true;
-                fullT = t;
+                fullT = simMs;
                 lastFull = now;
                 bus.emit('readout', snapFull);
             } catch (err) {
@@ -734,7 +735,7 @@ export function createLoop(deps) {
         }
         observerDirty = false;
         jumped = false;
-        advanceMovers(t);
+        advanceMovers(simMs);
         let mode = 'orbit';
         let skyBlend = 0;
         let mapK = 0;
@@ -766,7 +767,7 @@ export function createLoop(deps) {
         const camera = (rig && rig.camera) || rc.camera;
         fi.dtMs = dt;
         fi.timeS = now / 1000;
-        fi.tMs = t;
+        fi.tMs = simMs;
         fi.camera = camera;
         fi.viewMode = mode;
         fi.skyBlend = skyBlend;
@@ -827,12 +828,12 @@ export function createLoop(deps) {
      * Moves the extras registry's fast movers (satellites) to sim time `t` between snapshots (a
      * fresh snapshot has already filled them at its own instant). No allocation.
      */
-    function advanceMovers(t) {
-        if (!extras || !snapValid || typeof extras.advance !== 'function' || t === advancedT) return;
-        advancedT = t;
-        if (t === snap.tMs) return;
+    function advanceMovers(simMs) {
+        if (!extras || !snapValid || typeof extras.advance !== 'function' || simMs === advancedT) return;
+        advancedT = simMs;
+        if (simMs === snap.tMs) return;
         try {
-            extras.advance(snap, t);
+            extras.advance(snap, simMs);
         } catch (err) {
             reportOnce('extras.advance', err);
         }

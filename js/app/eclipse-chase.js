@@ -18,6 +18,7 @@
  * @module app/eclipse-chase
  */
 import { pathFrameLocal } from '../astro/eclipse-path.js';
+import { t } from '../core/i18n.js';
 
 const HALF_DAY_MS = 432e5;
 /** Wall-clock length of the chase across the whole path (s). */
@@ -185,19 +186,19 @@ export function createEclipseChase(deps) {
      * no path on Earth, there is no 3D view, or a newer call superseded it.
      */
     async function start(target) {
-        const t = typeof target === 'number' ? target : Number(target?.tMs);
-        if (!Number.isFinite(t)) return false;
+        const peak = typeof target === 'number' ? target : Number(target?.tMs);
+        if (!Number.isFinite(peak)) return false;
         stop();
         const mySeq = ++seq;
         let path = null;
         try {
-            path = await deps.eclipsePath(t);
+            path = await deps.eclipsePath(peak);
         } catch {
             path = null;
         }
         if (mySeq !== seq) return false;
         if (!path) {
-            toast('This eclipse has no path of totality or annularity on Earth.', 'info');
+            toast(t('This eclipse has no path of totality or annularity on Earth.'), 'info');
             return false;
         }
         const rig = deps.getRig();

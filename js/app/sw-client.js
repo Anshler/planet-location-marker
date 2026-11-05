@@ -14,6 +14,8 @@
 //
 // Loaded with import() at idle time (main.js), so it is not on the boot path.
 
+import { t } from '../core/i18n.js';
+
 const CACHE_PREFIX = 'pc2-';
 const RELOAD_FALLBACK_MS = 4000;
 const VERSION_TIMEOUT_MS = 3000;
@@ -70,9 +72,9 @@ export function createSwClient({ nav, win, bus, urls, reload, secure, loc } = {}
         if (!worker || typeof win?.MessageChannel !== 'function') return Promise.resolve(null);
         return new Promise((resolve) => {
             const ch = new win.MessageChannel();
-            const t = later(() => resolve(null), VERSION_TIMEOUT_MS);
+            const timer = later(() => resolve(null), VERSION_TIMEOUT_MS);
             ch.port1.onmessage = (e) => {
-                clearTimeout(t);
+                clearTimeout(timer);
                 resolve(e.data?.version ? { version: String(e.data.version), staged: !!e.data.staged } : null);
             };
             try {
@@ -106,7 +108,7 @@ export function createSwClient({ nav, win, bus, urls, reload, secure, loc } = {}
         else if (reg?.waiting && !state.waiting) askVersion(reg.waiting).then((v) => { state.waiting ??= v?.version ?? null; });
         if (offered || reloaded) return;
         offered = true;
-        bus?.emit('toast', { message: 'A new version is ready', kind: 'info', actionLabel: 'Reload', timeoutMs: 0, onAction: activate });
+        bus?.emit('toast', { message: t('A new version is ready'), kind: 'info', actionLabel: t('Reload'), timeoutMs: 0, onAction: activate });
     }
 
     function onMessage(e) {

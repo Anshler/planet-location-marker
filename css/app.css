@@ -1979,6 +1979,9 @@ body.is-vantage #labels-root { visibility: hidden; }
 .ui[data-layout="mobile"] .btn--now { gap: 5px; padding: 0 12px; height: 34px; }
 .ui[data-layout="mobile"] .btn--now > svg { display: none; }
 .ui[data-layout="mobile"] .badge--live { height: 34px; padding: 0 10px; }
+/* Vietnamese 'TRỰC TIẾP' is half again as wide as 'LIVE': a tighter pill keeps the date's column. */
+:lang(vi) .ui[data-layout="mobile"] .badge--live { padding: 0 5px; gap: 4px; letter-spacing: -.02em; }
+:lang(vi) .ui[data-layout="mobile"] .stamp { column-gap: 2px; }
 .ui[data-layout="mobile"] .tb-scrub { height: 36px; margin: 0; }
 .ui[data-layout="mobile"] .panel { position: static; display: block; width: auto; border: 0; border-radius: 0; background: none; box-shadow: none; }
 .ui[data-layout="mobile"] .panel__head { display: none; }

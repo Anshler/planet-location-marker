@@ -562,7 +562,9 @@ export function mountTimebar(root, ctx) {
         lastStampAt = now;
         const tm = clock.tMs;
         const z = ui.zoned(tm);
-        setText(stampDay, ui.fmtDay(tm));
+        // The phone's date sits under the clock in ≈ 116 px: elsewhere than English, Intl's numeric form ('T5, 5/11/2026').
+        setText(stampDay, ui.layout === 'mobile' && locale() !== 'en'
+            ? ui.fmtDate(tm, { weekday: 'narrow', day: 'numeric', month: 'numeric', year: 'numeric' }) : ui.fmtDay(tm));
         setText(stampTime, ui.fmtClock(tm, { seconds: true }));
         const jul = z.cal === 'julian';
         if (stampCal.hidden === jul) stampCal.hidden = !jul;

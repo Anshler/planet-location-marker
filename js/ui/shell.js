@@ -32,14 +32,15 @@ import { mountHelp } from './help.js';
 import { mountEclipseHud } from './eclipse-hud.js';
 import { mountTourBar } from './tour-bar.js';
 import { mountModes } from './modes.js';
+import { t, N_ } from '../core/i18n.js';
 
-/** Panel tabs, in display order (store PANELS). */
+/** Panel tabs, in display order (store PANELS); labels and titles are English, t() where shown. */
 export const TABS = [
-    { id: 'sky', label: 'Up now', icon: 'star', title: 'What is in the sky now', mount: mountSkyNow },
-    { id: 'details', label: 'Details', icon: 'target', title: 'The selected object', mount: mountBodyCard },
-    { id: 'events', label: 'Events', icon: 'calendar', title: 'Upcoming events', mount: mountEventsPanel },
-    { id: 'explore', label: 'Explore', icon: 'history', title: 'Tours, history and other places', mount: mountExplore },
-    { id: 'display', label: 'Display', icon: 'layers', title: 'Layers and settings', mount: mountDisplay },
+    { id: 'sky', label: N_('Up now'), icon: 'star', title: N_('What is in the sky now'), mount: mountSkyNow },
+    { id: 'details', label: N_('Details'), icon: 'target', title: N_('The selected object'), mount: mountBodyCard },
+    { id: 'events', label: N_('Events'), icon: 'calendar', title: N_('Upcoming events'), mount: mountEventsPanel },
+    { id: 'explore', label: N_('Explore'), icon: 'history', title: N_('Tours, history and other places'), mount: mountExplore },
+    { id: 'display', label: N_('Display'), icon: 'layers', title: N_('Layers and settings'), mount: mountDisplay },
 ];
 
 const SNAPS = ['peek', 'half', 'full'];
@@ -59,56 +60,56 @@ export function mountShell(root, ctx) {
     root.textContent = '';
 
     // ------------------------------------------------------------------ regions
-    const skip = h('a', { class: 'skip-link', href: '#tp-sky' }, 'Skip to the sky list');
+    const skip = h('a', { class: 'skip-link', href: '#tp-sky' }, t('Skip to the sky list'));
     offs.push(on(skip, 'click', (e) => { e.preventDefault(); openPanel('sky', { focus: true }); }));
 
     const topbarEl = h('header', { class: 'topbar' });
     const viewbarEl = h('div', { class: 'viewbar' });
-    const timebarEl = h('section', { class: 'timebar glass', 'aria-label': 'Time controls' });
+    const timebarEl = h('section', { class: 'timebar glass', 'aria-label': t('Time controls') });
     const hudEl = h('section', { class: 'ecl glass' });
     const overlay = h('div', { class: 'ui-overlay' });
 
     // ------------------------------------------------------------------ panel + tabs
-    const tablist = h('div', { class: 'tabs', role: 'tablist', 'aria-label': 'Panels', 'aria-orientation': 'horizontal' });
+    const tablist = h('div', { class: 'tabs', role: 'tablist', 'aria-label': t('Panels'), 'aria-orientation': 'horizontal' });
     const ink = h('span', { class: 'tabs__ink', 'aria-hidden': 'true' });
     const collapseBtn = h('button', {
-        class: 'icon-btn panel__collapse', type: 'button', 'aria-label': 'Collapse panel', 'aria-expanded': 'true',
-        'data-tip': 'Collapse panel', 'data-tip-side': 'left',
+        class: 'icon-btn panel__collapse', type: 'button', 'aria-label': t('Collapse panel'), 'aria-expanded': 'true',
+        'data-tip': t('Collapse panel'), 'data-tip-side': 'left',
     }, icon('panel-close', { size: 18 }));
     const body = h('div', { class: 'panel__body' });
     const panelHead = h('div', { class: 'panel__head' }, tablist, collapseBtn);
-    const panelEl = h('aside', { class: 'panel glass', 'aria-label': 'Sky information' }, panelHead, body);
+    const panelEl = h('aside', { class: 'panel glass', 'aria-label': t('Sky information') }, panelHead, body);
     // The phone's tab bar: the same tablist, moved (applyLayout).
-    const nav = h('nav', { class: 'navbar', 'aria-label': 'Panels' });
+    const nav = h('nav', { class: 'navbar', 'aria-label': t('Panels') });
     tablist.appendChild(ink);
 
     /** @type {Record<string, {tab: HTMLElement, pane: HTMLElement, mod: any}>} */
     const tabs = {};
-    for (const t of TABS) {
+    for (const tb of TABS) {
         const tab = h('button', {
-            class: 'tab', type: 'button', role: 'tab', id: `tab-${t.id}`, 'aria-controls': `tp-${t.id}`,
-            'aria-selected': 'false', tabindex: '-1', 'data-tab': t.id, 'data-tip': t.title, 'data-tip-side': 'left',
-        }, icon(t.icon, { size: 18 }), h('span', { class: 'tab__label' }, t.label));
+            class: 'tab', type: 'button', role: 'tab', id: `tab-${tb.id}`, 'aria-controls': `tp-${tb.id}`,
+            'aria-selected': 'false', tabindex: '-1', 'data-tab': tb.id, 'data-tip': t(tb.title), 'data-tip-side': 'left',
+        }, icon(tb.icon, { size: 18 }), h('span', { class: 'tab__label' }, t(tb.label)));
         const pane = h('section', {
-            class: `tabpanel tabpanel--${t.id}`, role: 'tabpanel', id: `tp-${t.id}`, 'aria-labelledby': `tab-${t.id}`,
+            class: `tabpanel tabpanel--${tb.id}`, role: 'tabpanel', id: `tp-${tb.id}`, 'aria-labelledby': `tab-${tb.id}`,
             tabindex: '0', hidden: true,
-        }, h('h2', { class: 'sr-only' }, t.label));
+        }, h('h2', { class: 'sr-only' }, t(tb.label)));
         tablist.appendChild(tab);
         body.appendChild(pane);
-        tabs[t.id] = { tab, pane, mod: null };
+        tabs[tb.id] = { tab, pane, mod: null };
     }
 
     // ------------------------------------------------------------------ sheet (mobile)
     const handle = h('button', {
         class: 'sheet__handle', type: 'button', 'aria-expanded': 'false', 'aria-controls': 'sheet-body',
-        'aria-label': 'Expand panel',
+        'aria-label': t('Expand panel'),
     }, h('span', { class: 'sheet__grip', 'aria-hidden': 'true' }));
     const sheetHead = h('div', { class: 'sheet__head' });
     const sheetBody = h('div', { class: 'sheet__body', id: 'sheet-body' });
-    const sheet = h('section', { class: 'sheet', 'aria-label': 'Time and sky panel' }, handle, sheetHead, sheetBody);
+    const sheet = h('section', { class: 'sheet', 'aria-label': t('Time and sky panel') }, handle, sheetHead, sheetBody);
 
     // ------------------------------------------------------------------ misc overlays
-    const cinemaExit = h('button', { class: 'cinema-exit', type: 'button' }, icon('eye', { size: 18 }), 'Show interface');
+    const cinemaExit = h('button', { class: 'cinema-exit', type: 'button' }, icon('eye', { size: 18 }), t('Show interface'));
     overlay.append(cinemaExit);
 
     // ------------------------------------------------------------------ mount modules
@@ -120,9 +121,9 @@ export function mountShell(root, ctx) {
     children.push(mountViewSwitch(viewbarEl, ctx));
     const hud = mountEclipseHud(hudEl, ctx);
     children.push(hud);
-    for (const t of TABS) {
-        tabs[t.id].mod = t.mount(tabs[t.id].pane, ctx);
-        children.push(tabs[t.id].mod);
+    for (const tb of TABS) {
+        tabs[tb.id].mod = tb.mount(tabs[tb.id].pane, ctx);
+        children.push(tabs[tb.id].mod);
     }
     children.push(mountLocation(overlay, ctx));
     children.push(mountHelp(overlay, ctx));
@@ -133,12 +134,12 @@ export function mountShell(root, ctx) {
     function selectTab(id, { focusTab = false } = {}) {
         if (!tabs[id]) id = 'sky';
         if (id !== activeTab) {
-            for (const t of TABS) {
-                const sel = t.id === id;
-                tabs[t.id].tab.setAttribute('aria-selected', String(sel));
-                tabs[t.id].tab.tabIndex = sel ? 0 : -1;
-                tabs[t.id].tab.classList.toggle('is-active', sel);
-                tabs[t.id].pane.hidden = !sel;
+            for (const tb of TABS) {
+                const sel = tb.id === id;
+                tabs[tb.id].tab.setAttribute('aria-selected', String(sel));
+                tabs[tb.id].tab.tabIndex = sel ? 0 : -1;
+                tabs[tb.id].tab.classList.toggle('is-active', sel);
+                tabs[tb.id].pane.hidden = !sel;
             }
             activeTab = id;
             const mod = tabs[id].mod;
@@ -153,17 +154,17 @@ export function mountShell(root, ctx) {
         if (focusTab) tabs[id].tab.focus();
     }
     function placeInk() {
-        const t = tabs[activeTab]?.tab;
-        if (!t || !t.offsetWidth) return;
-        ink.style.width = `${t.offsetWidth}px`;
-        ink.style.transform = `translateX(${t.offsetLeft}px)`;
+        const tb = tabs[activeTab]?.tab;
+        if (!tb || !tb.offsetWidth) return;
+        ink.style.width = `${tb.offsetWidth}px`;
+        ink.style.transform = `translateX(${tb.offsetLeft}px)`;
     }
     offs.push(on(tablist, 'click', (e) => {
         const btn = /** @type {HTMLElement} */ (e.target).closest('[role="tab"]');
         if (!btn) return;
         openPanel(btn.dataset.tab);
     }));
-    offs.push(rovingKeys(tablist, TABS.map((t) => tabs[t.id].tab), (tab) => {
+    offs.push(rovingKeys(tablist, TABS.map((tb) => tabs[tb.id].tab), (tab) => {
         setStoreUi({ panel: tab.dataset.tab });
         selectTab(tab.dataset.tab, { focusTab: true });
         if (ui.layout === 'mobile' && currentSnap === 'peek') setSnap('half');
@@ -176,8 +177,8 @@ export function mountShell(root, ctx) {
         panelEl.classList.toggle('is-rail', railed);
         tablist.setAttribute('aria-orientation', railed ? 'vertical' : 'horizontal');
         collapseBtn.setAttribute('aria-expanded', String(!railed));
-        collapseBtn.setAttribute('aria-label', railed ? 'Expand panel' : 'Collapse panel');
-        collapseBtn.dataset.tip = railed ? 'Expand panel' : 'Collapse panel';
+        collapseBtn.setAttribute('aria-label', railed ? t('Expand panel') : t('Collapse panel'));
+        collapseBtn.dataset.tip = collapseBtn.getAttribute('aria-label');
         collapseBtn.replaceChildren(icon(railed ? 'panel-open' : 'panel-close', { size: 18 }));
         root.classList.toggle('has-rail', railed);
         requestAnimationFrame(placeInk);
@@ -251,7 +252,7 @@ export function mountShell(root, ctx) {
         const folded = name === 'peek' && ui.layout === 'mobile';
         sheetBody.inert = folded;
         handle.setAttribute('aria-expanded', String(name !== 'peek'));
-        handle.setAttribute('aria-label', name === 'full' ? 'Collapse panel' : 'Expand panel');
+        handle.setAttribute('aria-label', name === 'full' ? t('Collapse panel') : t('Expand panel'));
         if (!fromStore) setStoreUi({ sheet: name });
         // Focus trap only while the sheet covers the screen: the sheet and the tab bar.
         if (name === 'full' && ui.layout === 'mobile') {
@@ -268,11 +269,11 @@ export function mountShell(root, ctx) {
     let suppressClick = false;
     offs.push(on(sheet, 'pointerdown', (e) => {
         if (ui.layout !== 'mobile' || e.button > 0) return;
-        const t = /** @type {HTMLElement} */ (e.target);
-        const onHandle = !!t.closest('.sheet__handle');
-        const inHead = !!t.closest('.sheet__head');
+        const tb = /** @type {HTMLElement} */ (e.target);
+        const onHandle = !!tb.closest('.sheet__handle');
+        const inHead = !!tb.closest('.sheet__head');
         if (!onHandle && !inHead) return;
-        if (!onHandle && t.closest('button, a, input, select, textarea, [role="slider"], .tb-scrub')) return;
+        if (!onHandle && tb.closest('button, a, input, select, textarea, [role="slider"], .tb-scrub')) return;
         const vis = heights[currentSnap];
         drag = { id: e.pointerId, y0: e.clientY, vis0: vis, vis, lastY: e.clientY, lastT: e.timeStamp, v: 0, moved: false };
     }));
@@ -433,9 +434,9 @@ export function mountShell(root, ctx) {
         clearTimeout(hintTimer);
         hintOff?.(); hintOff = null;
         if (!show) { ui.modes.clear('pick'); return; }
-        ui.modes.set('pick', { icon: 'pin', title: 'Pick a place', detail: 'Click or tap anywhere on Earth',
-            exit: { label: 'Cancel', done: 'Picking cancelled', run: () => ui.pickHint(false) } });
-        ctx.bus.emit('announce', 'Pick a place: click or tap anywhere on Earth');
+        ui.modes.set('pick', { icon: 'pin', title: t('Pick a place'), detail: t('Click or tap anywhere on Earth'),
+            exit: { label: t('Cancel'), done: t('Picking cancelled'), run: () => ui.pickHint(false) } });
+        ctx.bus.emit('announce', t('Pick a place: click or tap anywhere on Earth'));
         hintTimer = setTimeout(() => ui.pickHint(false), 15000);
         hintOff = store.subscribe((s) => s.observer, () => ui.pickHint(false));
     };

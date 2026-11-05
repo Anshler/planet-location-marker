@@ -233,7 +233,7 @@ test('Vietnamese: decimal comma, dot grouping, Intl dates, translated units (mac
         assert.equal(fmtDuration(2.5 * 365.25 * 864e5), '2,5 năm');
         assert.equal(fmtDuration((3 * 3600 + 12 * 60) * 1000), '3 giờ 12 phút');
         assert.equal(fmtRate(1), 'Thời gian thực');
-        assert.equal(fmtRate(-86400), `${M}1 ngày/giây`);
+        assert.equal(fmtRate(-86400), `${M}1 ngày/s`);
         assert.equal(fmtRelative(T + (3 * 3600 + 12 * 60) * 1000, T), '3 giờ 12 phút nữa');
         assert.equal(fmtRelative(T - 25 * 60e3, T), '25 phút trước');
         assert.equal(fmtLatLon(21.0285, 105.8542), '21,03° B 105,85° Đ');

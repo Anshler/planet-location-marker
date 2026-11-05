@@ -59,7 +59,7 @@ test('modes: the flash is the stack\'s last child, so it never covers a chip; ui
     const src = await readFile(new URL('../js/ui/modes.js', import.meta.url), 'utf8');
     assert.match(src, /insertBefore\(d\.root, flashEl\)/, 'chips are inserted before the flash');
     assert.match(src, /ui\.flash = flash/);
-    assert.match(src, /role: 'region', 'aria-label': 'Active modes'/);
+    assert.match(src, /role: 'region', 'aria-label': t\('Active modes'\)/);
     assert.match(src, /class: 'flash', 'aria-hidden': 'true'/);
 });
 

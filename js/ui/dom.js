@@ -458,7 +458,8 @@ export function kbd(...keys) {
 }
 
 /**
- * Fills a whole-phrase template: each `{name}` becomes `parts[name]`, a string or a Node.
+ * Fills a whole-phrase template: each `{name}` becomes `parts[name]`, a string or a Node. Copy is
+ * translated whole: tpl(t('Press {key} to search'), { key: kbd('K') }) (core/i18n.js).
  * @param {string} template
  * @param {Record<string, string|number|Node>} [parts]
  * @returns {DocumentFragment}

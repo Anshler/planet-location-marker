@@ -19,15 +19,15 @@ import { mountVideo } from './video.js';
 import { mountExpose, EXPOSE_PRESETS } from './expose.js';
 import { mountSkyTools, canPointAtSky } from './sky-tools.js';
 import { offerNow, install } from './install.js';
+import { t, N_, intl } from '../core/i18n.js';
 
-/** The viewpoints' chips: [title, detail, icon]. */
+/** The viewpoints' chips: [title, detail, icon] (English; t() where shown). */
 const VANTAGE_CHIP = Object.freeze({
-    l1: ['View from L1', '1.5 million km sunward', 'sun'],
-    moon: ['Earthrise', 'Lunar orbit, 150 km up · play time to watch it rise', 'moon'],
-    system: ['Solar system', 'Distances to scale · planets enlarged, not to scale', 'planet'],
+    l1: [N_('View from L1'), N_('1.5 million km sunward'), 'sun'],
+    moon: [N_('Earthrise'), N_('Lunar orbit, 150 km up · play time to watch it rise'), 'moon'],
+    system: [N_('Solar system'), N_('Distances to scale · planets enlarged, not to scale'), 'planet'],
 });
-const RED_DETAIL = 'A dim red screen for dark-adapted eyes, kept awake';
-const TOOLS_NAME = { orbit: 'Tools for the globe', map: 'Tools for the map', sky: 'Tools for the Sky view' };
+const TOOLS_NAME = { orbit: N_('Tools for the globe'), map: N_('Tools for the map'), sky: N_('Tools for the Sky view') };
 
 /**
  * Mounts the toolbar.
@@ -48,9 +48,9 @@ export function mountViewSwitch(root, ctx) {
     const segBtn = (mode, iconName, label, tip, kbd) => h('button', {
         class: 'seg__btn', type: 'button', role: 'radio', 'aria-checked': 'false', 'data-mode': mode, 'data-tip': tip, 'data-kbd': kbd,
     }, icon(iconName, { size: 18 }), h('span', { class: 'seg__label' }, label));
-    const segs = [segBtn('orbit', 'globe', 'Globe', 'Globe view', 'V'), segBtn('sky', 'sky', 'Sky', 'Stand here and look up', 'V'),
-        segBtn('map', 'map', 'Map', 'The world map', 'M')];
-    const seg = h('div', { class: 'seg seg--view glass', role: 'radiogroup', 'aria-label': 'View' }, ...segs);
+    const segs = [segBtn('orbit', 'globe', t('Globe'), t('Globe view'), 'V'), segBtn('sky', 'sky', t('Sky'), t('Stand here and look up'), 'V'),
+        segBtn('map', 'map', t('Map'), t('The world map'), 'M')];
+    const seg = h('div', { class: 'seg seg--view glass', role: 'radiogroup', 'aria-label': t('View') }, ...segs);
     // Its chip goes at once (view.system lasts the fly-back's first half).
     const leaveSystem = () => { ui.modes?.clear('view'); ui.act('setSystem', false); };
     const setMode = (mode) => {
@@ -68,71 +68,72 @@ export function mountViewSwitch(root, ctx) {
     // ---------------------------------------------------------------- Tools, Share, ⋯
     const btn = (cls, iconName, label, tip, kbd) => h('button', { class: `vb-btn glass ${cls}`, type: 'button', 'data-tip': tip, 'data-kbd': kbd },
         icon(iconName, { size: 19 }), h('span', { class: 'vb-btn__label' }, label), cls === 'vb-more' ? null : icon('chevron-down', { size: 14, className: 'vb-btn__chev' }));
-    const toolsBtn = btn('vb-tools', 'tools', 'Tools', 'Camera and sky tools');
+    const toolsBtn = btn('vb-tools', 'tools', t('Tools'), t('Camera and sky tools'));
     toolsBtn.append(h('span', { class: 'vb-btn__dot', 'aria-hidden': 'true' }));
-    const shareBtn = btn('vb-share', 'share', 'Share', 'Share', 'S');
-    const moreBtn = btn('vb-more', 'more', 'More', 'More');
-    moreBtn.setAttribute('aria-label', 'More');
+    const shareBtn = btn('vb-share', 'share', t('Share'), t('Share'), 'S');
+    const moreBtn = btn('vb-more', 'more', t('More'), t('More'));
+    moreBtn.setAttribute('aria-label', t('More'));
     root.append(seg, toolsBtn, shareBtn, moreBtn);
     root.setAttribute('role', 'group');
-    root.setAttribute('aria-label', 'View controls');
+    root.setAttribute('aria-label', t('View controls'));
     const placement = () => (ui.layout === 'mobile' ? 'bottom' : 'top');
 
     const pointable = canPointAtSky(typeof window !== 'undefined' ? window : null, !!(ctx.env?.coarse ?? st().status?.coarse));
     const view = () => st().view || {};
     const vt = () => (view().system ? 'system' : view().vantage ?? 'none');
     const look = (kind, iconName, name, detail) => ({
-        kind: 'radio', group: 'Look from', icon: iconName, name, detail, checked: () => vt() === kind,
+        kind: 'radio', group: t('Look from'), icon: iconName, name, detail, checked: () => vt() === kind,
         run: () => (kind === 'system' ? (ui.act('setSystem', true), sync()) : vt() === 'system' ? leaveSystem() : ui.act('setVantage', kind)),
     });
-    const reset = { group: 9, icon: 'home', name: 'Reset the view', detail: 'Back to the starting framing', kbd: 'Home', run: () => ui.act('resetCamera') };
+    const reset = () => ({ group: 9, icon: 'home', name: t('Reset the view'), detail: t('Back to the starting framing'), kbd: 'Home', run: () => ui.act('resetCamera') });
     const follow = (kind, name, detail) => ({
-        kind: 'radio', group: 'Follow', icon: kind === 'stars' ? 'star' : kind === 'body' ? 'crosshair' : 'sky', name, detail, kbd: 'K',
+        kind: 'radio', group: t('Follow'), icon: kind === 'stars' ? 'star' : kind === 'body' ? 'crosshair' : 'sky', name, detail, kbd: 'K',
         checked: () => (view().track ?? 'none') === kind, run: () => ui.act('setTracking', kind),
-        ...(kind === 'body' ? { disabled: () => !sel(), disabledText: 'Select something first' } : null),
+        ...(kind === 'body' ? { disabled: () => !sel(), disabledText: t('Select something first') } : null),
     });
     const toolsItems = () => {
         const mode = view().mode;
         if (mode === 'sky') {
             const x = st().ui.expose;
+            const lx = t('Long exposure (one image)');
             return [
-                follow('none', 'Look around freely', 'The view stays where you point it'),
-                follow('body', () => (sel() ? `Follow ${selName()}` : 'Follow the selection'), 'Keep it centred as time runs'),
-                follow('stars', 'Follow the stars', 'Turn with the sky, as a tracking mount does'),
-                { kind: 'check', group: 'Follow', icon: 'eye', name: () => (sel() ? `Telescope on ${selName()}` : 'Telescope'),
-                    detail: 'Its true size and orientation, followed', disabled: () => !sel(), disabledText: 'Select something first',
+                follow('none', t('Look around freely'), t('The view stays where you point it')),
+                follow('body', () => (sel() ? t('Follow {body}', { body: selName() }) : t('Follow the selection')), t('Keep it centred as time runs')),
+                follow('stars', t('Follow the stars'), t('Turn with the sky, as a tracking mount does')),
+                { kind: 'check', group: t('Follow'), icon: 'eye', name: () => (sel() ? t('Telescope on {body}', { body: selName() }) : t('Telescope')),
+                    detail: t('Its true size and orientation, followed'), disabled: () => !sel(), disabledText: t('Select something first'),
                     checked: () => !!st().ui.scope, run: () => (st().ui.scope ? ui.act('leaveTelescope') : ui.act('telescope', sel())) },
-                { kind: 'check', group: 'Measure and point', icon: 'ruler', name: 'Angle ruler', kbd: 'A',
-                    detail: 'Tap two things to measure the angle between them', checked: () => !!st().ui.ruler, run: () => ui.act('setRuler') },
-                { kind: 'check', group: 'Measure and point', icon: 'phone', name: 'Point the phone at the sky', detail: 'The view follows your phone',
+                { kind: 'check', group: t('Measure and point'), icon: 'ruler', name: t('Angle ruler'), kbd: 'A',
+                    detail: t('Tap two things to measure the angle between them'), checked: () => !!st().ui.ruler, run: () => ui.act('setRuler') },
+                { kind: 'check', group: t('Measure and point'), icon: 'phone', name: t('Point the phone at the sky'), detail: t('The view follows your phone'),
                     hidden: () => !pointable, checked: () => !!st().ui.aim, run: () => ui.act('pointAtSky') },
-                ...(x ? [{ group: 'Long exposure (one image)', icon: 'aperture', name: 'Stop the exposure', detail: `Long exposure: ${EXPOSE_PRESETS.find((p) => p.id === x)?.title ?? x}`, run: () => ui.act('expose', null) }]
-                    : EXPOSE_PRESETS.map((p) => ({ id: p.id, group: 'Long exposure (one image)', icon: 'aperture', name: p.title, detail: p.desc, run: () => ui.act('expose', p.id) }))),
-                ...(st().quality?.active === 'low' ? [{ note: 'Low quality stacks without the glow (bloom).', group: 'Long exposure (one image)' }] : []),
-                reset,
+                ...(x ? [{ group: lx, icon: 'aperture', name: t('Stop the exposure'), detail: t('Long exposure: {preset}', { preset: t(EXPOSE_PRESETS.find((p) => p.id === x)?.title ?? x) }), run: () => ui.act('expose', null) }]
+                    : EXPOSE_PRESETS.map((p) => ({ id: p.id, group: lx, icon: 'aperture', name: t(p.title), detail: t(p.desc), run: () => ui.act('expose', p.id) }))),
+                ...(st().quality?.active === 'low' ? [{ note: t('Low quality stacks without the glow (bloom).'), group: lx }] : []),
+                reset(),
             ];
         }
-        const skyTools = { group: 10, icon: 'sky', name: 'Sky view tools…', detail: 'Follow, telescope, angle ruler and long exposure',
+        const skyTools = { group: 10, icon: 'sky', name: t('Sky view tools…'), detail: t('Follow, telescope, angle ruler and long exposure'),
             run: () => { ui.act('setViewMode', 'sky'); requestAnimationFrame(() => tools.open()); } };
-        if (mode === 'map') return [reset, skyTools];
+        if (mode === 'map') return [reset(), skyTools];
         return [
-            look('none', 'globe', 'Near the Earth', 'Orbit the globe from close by'),
-            look('l1', 'sun', 'The L1 point', 'The sunlit Earth from 1.5 million km, as NASA’s DSCOVR sees it'),
-            look('moon', 'moon', 'Earthrise', 'The Earth rising over the Moon’s limb, from lunar orbit'),
-            look('system', 'planet', 'The whole solar system', 'Zoom out until the beams become lines across the solar system'),
-            { kind: 'check', group: 9, icon: 'globe', name: 'Turn with the Earth', detail: 'Your place stays in view as the Earth turns', kbd: 'L',
+            look('none', 'globe', t('Near the Earth'), t('Orbit the globe from close by')),
+            look('l1', 'sun', t('The L1 point'), t('The sunlit Earth from 1.5 million km, as NASA’s DSCOVR sees it')),
+            look('moon', 'moon', t('Earthrise'), t('The Earth rising over the Moon’s limb, from lunar orbit')),
+            look('system', 'planet', t('The whole solar system'), t('Zoom out until the beams become lines across the solar system')),
+            { kind: 'check', group: 9, icon: 'globe', name: t('Turn with the Earth'), detail: t('Your place stays in view as the Earth turns'), kbd: 'L',
                 hidden: () => vt() !== 'none', checked: () => !!view().earthLock, run: () => ui.act('setEarthLock', !view().earthLock) },
-            reset, skyTools,
+            reset(), skyTools,
         ];
     };
-    const tools = menu({ button: toolsBtn, label: 'Tools', items: toolsItems, host, placement });
+    const tools = menu({ button: toolsBtn, label: t('Tools'), items: toolsItems, host, placement });
 
     const shareMenu = menu({
-        button: shareBtn, label: 'Share', host, placement, items: () => [
+        button: shareBtn, label: t('Share'), host, placement, items: () => [
             // Inside the click, so the system share sheet keeps its user activation.
-            { icon: 'link', name: 'Share link', detail: () => (gl() ? 'Opens exactly this view: place, time, camera and layers' : 'Opens this place and time'), kbd: 'S', run: () => share() },
-            { icon: 'postcard', name: 'Postcard…', detail: 'A designed image of this view, ready to post', run: () => postcard.open() },
-            { icon: 'video', name: 'Time-lapse video…', detail: 'A clip of a day here, a night of turning stars or the 2027 eclipse',
+            { icon: 'link', name: t('Share link'), detail: () => (gl() ? t('Opens exactly this view: place, time, camera and layers') : t('Opens this place and time')), kbd: 'S', run: () => share() },
+            { icon: 'postcard', name: t('Postcard…'), detail: t('A designed image of this view, ready to post'), run: () => postcard.open() },
+            { icon: 'video', name: t('Time-lapse video…'), detail: t('A clip of a day here, a night of turning stars or the 2027 eclipse'),
                 hidden: () => !gl(), run: () => videoDlg.open() },
         ],
     });
@@ -140,19 +141,19 @@ export function mountViewSwitch(root, ctx) {
     const fsOn = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
     const coarse = () => document.body.classList.contains('is-coarse');
     const moreMenu = menu({
-        button: moreBtn, label: 'More', host, placement, items: () => [
-            { icon: gl() && coarse() ? 'help' : 'keyboard', name: !gl() ? 'Keyboard shortcuts' : coarse() ? 'Gestures and help' : 'Keyboard shortcuts and mouse', kbd: '?',
-                detail: !gl() ? 'The keys, and what each one does' : coarse() ? 'Drag, pinch and tap: what each one does' : 'The keys, and what the mouse does', run: () => ui.toggleHelp(true) },
-            { icon: 'sparkle', name: 'Interface tips', detail: 'The three tips from the first visit, again', hidden: () => !gl(), run: () => ui.showTips() },
-            { kind: 'check', icon: 'eye', name: 'Night vision', kbd: 'Shift+N', checked: () => !!st().display?.red,
+        button: moreBtn, label: t('More'), host, placement, items: () => [
+            { icon: gl() && coarse() ? 'help' : 'keyboard', name: !gl() ? t('Keyboard shortcuts') : coarse() ? t('Gestures and help') : t('Keyboard shortcuts and mouse'), kbd: '?',
+                detail: !gl() ? t('The keys, and what each one does') : coarse() ? t('Drag, pinch and tap: what each one does') : t('The keys, and what the mouse does'), run: () => ui.toggleHelp(true) },
+            { icon: 'sparkle', name: t('Interface tips'), detail: t('The three tips from the first visit, again'), hidden: () => !gl(), run: () => ui.showTips() },
+            { kind: 'check', icon: 'eye', name: t('Night vision'), kbd: 'Shift+N', checked: () => !!st().display?.red,
                 // In red the accent is no cue, so the words say it is on.
-                detail: () => (st().display?.red ? 'On: choose again for full colour' : RED_DETAIL), run: () => ui.act('setNightVision') },
-            { icon: 'eye-off', name: 'Hide the interface', detail: () => (coarse() ? 'Just the view; tap Show interface to return' : 'Just the view; move the pointer to return'), kbd: 'H',
+                detail: () => (st().display?.red ? t('On: choose again for full colour') : t('A dim red screen for dark-adapted eyes, kept awake')), run: () => ui.act('setNightVision') },
+            { icon: 'eye-off', name: t('Hide the interface'), detail: () => (coarse() ? t('Just the view; tap Show interface to return') : t('Just the view; move the pointer to return')), kbd: 'H',
                 hidden: () => !gl(), run: () => ui.act('toggleCinema') },
-            { kind: 'check', icon: 'fullscreen', name: 'Fullscreen', detail: 'Use the whole screen', kbd: 'F', checked: fsOn,
+            { kind: 'check', icon: 'fullscreen', name: t('Fullscreen'), detail: t('Use the whole screen'), kbd: 'F', checked: fsOn,
                 hidden: () => !gl() || (!document.fullscreenEnabled && !document.webkitFullscreenEnabled), run: () => ui.act('toggleFullscreen') },
-            { icon: 'download', name: 'Install the app', detail: 'Open it like an app, offline too', hidden: () => !offerNow(), run: () => install(ctx) },
-            { icon: 'info', name: 'About, credits and help', detail: 'Version, accuracy, credits, privacy, report a problem',
+            { icon: 'download', name: t('Install the app'), detail: t('Open it like an app, offline too'), hidden: () => !offerNow(), run: () => install(ctx) },
+            { icon: 'info', name: t('About, credits and help'), detail: t('Version, accuracy, credits, privacy, report a problem'),
                 run: () => ui.openPanel('display', { reveal: 'about' }) },
         ],
     });
@@ -171,30 +172,30 @@ export function mountViewSwitch(root, ctx) {
             b.tabIndex = on_ ? 0 : -1;
             b.classList.toggle('is-on', on_);
         }
-        setAttr(toolsBtn, 'aria-label', TOOLS_NAME[mode]);
+        setAttr(toolsBtn, 'aria-label', t(TOOLS_NAME[mode]));
         const k = vt();
         const trk = v.track ?? 'none';
         const busy = k !== 'none' || trk !== 'none' || !!(s.ui.scope || s.ui.ruler || s.ui.aim || s.ui.expose);
         toolsBtn.classList.toggle('is-on', busy);
         if (!gl()) return;
         const m = ui.modes;
-        const back = { label: 'Back to the globe', done: 'Back to the globe', run: () => (v.system ? leaveSystem() : ui.act('setViewMode', 'orbit')) };
-        if (mode === 'orbit' && VANTAGE_CHIP[k]) m.set('view', { icon: VANTAGE_CHIP[k][2], title: VANTAGE_CHIP[k][0], detail: VANTAGE_CHIP[k][1], exit: back });
+        const back = { label: t('Back to the globe'), done: t('Back to the globe'), run: () => (v.system ? leaveSystem() : ui.act('setViewMode', 'orbit')) };
+        if (mode === 'orbit' && VANTAGE_CHIP[k]) m.set('view', { icon: VANTAGE_CHIP[k][2], title: t(VANTAGE_CHIP[k][0]), detail: t(VANTAGE_CHIP[k][1]), exit: back });
         else m.clear('view');
         if (mode === 'map') {
-            m.set('map', { icon: 'map', title: 'World map', exit: back,
-                detail: 'Lines: sunset, civil, nautical and astronomical twilight. Dots: overhead now.' });
+            m.set('map', { icon: 'map', title: t('World map'), exit: back,
+                detail: t('Lines: sunset, civil, nautical and astronomical twilight. Dots: overhead now.') });
         } else m.clear('map');
         const sc = s.ui.scope;
         if (sc) {
-            const f = +sc.fovDeg.toPrecision(2);
-            m.set('scope', { icon: 'eye', title: `Telescope on ${ui.bodyName(sc.id)}`, detail: trk === 'body' ? `${f}° field, followed` : `${f}° field`,
-                exit: { label: 'Leave the telescope', done: 'Telescope off', run: () => ui.act('leaveTelescope') } });
+            const f = intl(Intl.NumberFormat, { maximumSignificantDigits: 2 }).format(sc.fovDeg);
+            m.set('scope', { icon: 'eye', title: t('Telescope on {body}', { body: ui.bodyName(sc.id) }), detail: trk === 'body' ? t('{f}° field, followed', { f }) : t('{f}° field', { f }),
+                exit: { label: t('Leave the telescope'), done: t('Telescope off'), run: () => ui.act('leaveTelescope') } });
         } else m.clear('scope');
         if (mode === 'sky' && trk !== 'none' && !sc) {
-            m.set('follow', { icon: trk === 'stars' ? 'star' : 'crosshair', title: trk === 'stars' ? 'Following the stars' : `Following ${selName()}`,
-                detail: trk === 'stars' ? 'The view turns with the sky' : 'Kept centred as time runs',
-                exit: { label: 'Stop following', done: 'Not following', run: () => ui.act('setTracking', 'none') } });
+            m.set('follow', { icon: trk === 'stars' ? 'star' : 'crosshair', title: trk === 'stars' ? t('Following the stars') : t('Following {body}', { body: selName() }),
+                detail: trk === 'stars' ? t('The view turns with the sky') : t('Kept centred as time runs'),
+                exit: { label: t('Stop following'), done: t('Not following'), run: () => ui.act('setTracking', 'none') } });
         } else m.clear('follow');
     }
     for (const sel_ of [(s) => s.view, (s) => s.selection, (s) => s.ui.scope, (s) => s.ui.ruler, (s) => s.ui.aim, (s) => s.ui.expose, (s) => s.status?.webgl]) {
@@ -217,13 +218,13 @@ export function mountViewSwitch(root, ctx) {
     offs.push(store.subscribe((s) => s.observer, flashFade));
 
     // ---------------------------------------------------------------- share
-    const urlInput = h('input', { class: 'input input--url', type: 'text', readonly: true, 'aria-label': 'Link to this view', spellcheck: 'false' });
-    const copyBtn = h('button', { class: 'btn btn--primary', type: 'button' }, icon('copy', { size: 16 }), 'Copy');
+    const urlInput = h('input', { class: 'input input--url', type: 'text', readonly: true, 'aria-label': t('Link to this view'), spellcheck: 'false' });
+    const copyBtn = h('button', { class: 'btn btn--primary', type: 'button' }, icon('copy', { size: 16 }), t('Copy'));
     const copyMsg = h('p', { class: 'share__msg', role: 'status' });
-    const closeBtn = h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Close' }, icon('close', { size: 18 }));
+    const closeBtn = h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Close') }, icon('close', { size: 18 }));
     const dialog = h('div', { class: 'dialog share glass', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'share-title' },
-        h('header', { class: 'dialog__head' }, h('h2', { class: 'dialog__title', id: 'share-title' }, icon('share', { size: 20 }), 'Share this view'), closeBtn),
-        h('p', { class: 'prose' }, 'This link opens exactly what you see: the place, the time, the view and the layers.'),
+        h('header', { class: 'dialog__head' }, h('h2', { class: 'dialog__title', id: 'share-title' }, icon('share', { size: 20 }), t('Share this view')), closeBtn),
+        h('p', { class: 'prose' }, t('This link opens exactly what you see: the place, the time, the view and the layers.')),
         h('div', { class: 'share__row' }, urlInput, copyBtn),
         copyMsg);
     const layer = h('div', { class: 'modal-layer share-layer', hidden: true }, h('div', { class: 'modal-backdrop' }), dialog);
@@ -252,7 +253,7 @@ export function mountViewSwitch(root, ctx) {
         let ok = false;
         try { await navigator.clipboard.writeText(urlInput.value); ok = true; } catch { ok = false; }
         if (!ok) { try { ok = document.execCommand?.('copy') === true; } catch { ok = false; } }
-        copyMsg.textContent = ok ? 'Link copied.' : `Press ${/Mac/.test(navigator.platform) ? '⌘' : 'Ctrl'}+C to copy the selected link.`;
+        copyMsg.textContent = ok ? t('Link copied.') : t('Press {key}+C to copy the selected link.', { key: /Mac/.test(navigator.platform) ? '⌘' : 'Ctrl' });
     }));
 
     /** Share flow shared by the menu and the S shortcut. */
@@ -265,7 +266,7 @@ export function mountViewSwitch(root, ctx) {
         } else {
             try { await navigator.clipboard.writeText(url); result = 'copied'; } catch { result = 'failed'; }
         }
-        if (result === 'copied') bus.emit('toast', { message: 'Link copied', kind: 'info', timeoutMs: 2500 });
+        if (result === 'copied') bus.emit('toast', { message: t('Link copied'), kind: 'info', timeoutMs: 2500 });
         else if (result === 'failed') openShare(url);
         return result;
     }

@@ -10,6 +10,7 @@ import { APP_NAME } from '../version.js';
 import { h, s, on, setText, uid } from './dom.js';
 import { icon } from './icons.js';
 import { marsSiteNear } from '../astro/mars-clock.js';
+import { t } from '../core/i18n.js';
 
 /**
  * The brand mark: a small Earth with a beam toward a planet.
@@ -52,8 +53,8 @@ export function mountTopbar(root, ctx) {
 
     // Standing on Mars: the chip names the Martian site, and a button goes home.
     const home = h('button', {
-        class: 'btn btn--soft glass topbar__home', type: 'button', hidden: true, 'data-tip': 'Back to the Earth', 'data-tip-side': 'bottom',
-    }, icon('globe', { size: 16 }), h('span', null, 'Back to Earth'));
+        class: 'btn btn--soft glass topbar__home', type: 'button', hidden: true, 'data-tip': t('Back to the Earth'), 'data-tip-side': 'bottom',
+    }, icon('globe', { size: 16 }), h('span', null, t('Back to Earth')));
     root.append(brand, h('div', { class: 'topbar__loc' }, chip, home));
     offs.push(on(home, 'click', () => ui.act('leaveMars')));
 
@@ -65,12 +66,13 @@ export function mountTopbar(root, ctx) {
         home.hidden = !mars;
         if (mars) {
             const site = marsSiteNear(host.latDeg, host.lonDeg, 0.5);
-            const label = `${host.name || site?.name || 'Mars'}, Mars`;
+            const name = host.name || site?.name;
+            const label = t('{site}, Mars', { site: name ? t(name) : t('Mars') });
             const coords = ui.latLonText(host.latDeg, host.lonDeg, 2);
             setText(chipName, label);
             setText(chipCoords, coords);
-            chip.setAttribute('aria-label', `Standing on Mars: ${label}, ${coords}. Choose a place on Mars`);
-            chip.title = `${label} · ${coords} (planetocentric, east longitude)`;
+            chip.setAttribute('aria-label', t('Standing on Mars: {place}, {coords}. Choose a place on Mars', { place: label, coords }));
+            chip.title = t('{place} · {coords} (planetocentric, east longitude)', { place: label, coords });
             return;
         }
         const o = store.get().observer;
@@ -80,7 +82,7 @@ export function mountTopbar(root, ctx) {
         const coords = ui.latLonText(o.latDeg, o.lonDeg, 2);
         setText(chipName, label);
         setText(chipCoords, coords);
-        chip.setAttribute('aria-label', `Location: ${label}, ${coords}. Search places and the sky`);
+        chip.setAttribute('aria-label', t('Location: {place}, {coords}. Search places and the sky', { place: label, coords }));
         chip.title = `${label} · ${coords}`;
     };
     offs.push(store.subscribe((st) => st.observer, render, { immediate: true }));

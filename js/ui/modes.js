@@ -12,6 +12,7 @@
 
 import { h, on, setText } from './dom.js';
 import { icon, swapIcon } from './icons.js';
+import { t } from '../core/i18n.js';
 
 /**
  * The stack without the DOM: chips in activation order (a Map keeps it), the newest on top.
@@ -60,7 +61,7 @@ export function mountModes(host, ctx) {
     const core = createModeStack();
     const flashEl = h('div', { class: 'flash', 'aria-hidden': 'true' });
     const more = h('button', { class: 'mode-more glass', type: 'button', hidden: true });
-    const el = h('div', { class: 'status-stack', role: 'region', 'aria-label': 'Active modes' }, more, flashEl);
+    const el = h('div', { class: 'status-stack', role: 'region', 'aria-label': t('Active modes') }, more, flashEl);
     host.appendChild(el);
     const doms = new Map();
     let n = 0;
@@ -115,7 +116,7 @@ export function mountModes(host, ctx) {
         const extra = doms.size - 2;
         more.hidden = extra < 1;
         if (extra < 1) el.classList.remove('is-all');
-        else setText(more, el.classList.contains('is-all') ? 'Show fewer' : `+${extra} more`);
+        else setText(more, el.classList.contains('is-all') ? t('Show fewer') : t('+{n} more', { n: extra }));
     }
     on(more, 'click', () => { el.classList.toggle('is-all'); syncMore(); });
 
@@ -150,16 +151,16 @@ export function mountModes(host, ctx) {
     ui.flash = flash;
 
     // A loop between two moments (not the analemma's daily stride: that is the exposure's).
-    const PLAY = { loop: 'repeating', pingpong: 'back and forth' };
     const syncLoop = () => {
         const r = clock?.range;
         if (!r || r.strideMs) return clear('loop');
         const from = ui.fmtWhen(r.fromMs, clock.tMs), to = ui.fmtWhen(r.toMs, r.fromMs), once = r.loop === 'once', run = () => clock.setRange(null);
+        const v = { from, to, s: r.durationS };
         set('loop', {
-            icon: 'timelapse', title: once ? `Playing ${from} → ${to}` : `Looping ${from} → ${to}`,
-            detail: once ? `Once through in ${r.durationS} s` : `${r.durationS} s per loop, ${PLAY[r.loop] ?? PLAY.loop}`,
-            actions: [{ label: 'Edit', run: () => ui.openTime?.('loop') }],
-            exit: once ? { label: 'Stop', done: 'Playback stopped', run } : { label: 'Stop the loop', done: 'Loop stopped', run },
+            icon: 'timelapse', title: once ? t('Playing {from} → {to}', v) : t('Looping {from} → {to}', v),
+            detail: once ? t('Once through in {s} s', v) : r.loop === 'pingpong' ? t('{s} s per loop, back and forth', v) : t('{s} s per loop, repeating', v),
+            actions: [{ label: t('Edit'), run: () => ui.openTime?.('loop') }],
+            exit: once ? { label: t('Stop'), done: t('Playback stopped'), run } : { label: t('Stop the loop'), done: t('Loop stopped'), run },
         });
     };
     const offClock = clock?.onChange?.((ev) => { if (ev?.type === 'range') syncLoop(); });

@@ -1119,6 +1119,13 @@ async function bootRender(ctx) {
     R.textures = textures;
     R.texMod = m.textures;
     textures?.setAnisotropy?.(currentCfg.anisotropy);
+    // Back online: the tier's maps that failed (a download, a restore's stand-in) are fetched again.
+    if (textures && m.textures.keysForTier) {
+        window.addEventListener('online', () => {
+            const k = m.textures.keysForTier(currentCfg);
+            settle(textures.load([...k.critical, ...k.primary, ...(readyFlag ? k.deferred : [])]));
+        });
+    }
     R.tierSwitch = makeTierSwitch(rc, loop, textures, m.textures, currentCfg);
     // 5. The previews and the tier's maps (already downloading since boot()) decode while the
     // modules are built; whatever is in before the compile starts is uploaded at once.

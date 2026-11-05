@@ -105,9 +105,12 @@ export function createTextureStore(renderer, { onProgress, prefetched = null } =
     let anisotropy = Math.min(8, maxAnisotropy);
     const useBitmap = bitmapDecodeUsable();
 
-    /** @type {Map<string, {key:string, state:'idle'|'loading'|'ready'|'failed', tex:THREE.Texture|null,
+    /**
+     * Every key asked for; `standIn`: a restore's preview or 1 × 1 image is in the map's place.
+     * @type {Map<string, {key:string, state:'idle'|'loading'|'ready'|'failed', tex:THREE.Texture|null,
      *   promise:Promise<void>|null, listeners:Set<Function>, received:number, bytes:number,
-     *   reloading:Promise<void>|null}>} */
+     *   reloading:Promise<void>|null, standIn:boolean}>}
+     */
     const entries = new Map();
     const placeholders = new Map();
     let disposed = false;
@@ -182,7 +185,42 @@ export function createTextureStore(renderer, { onProgress, prefetched = null } =
                 }
                 e.tex.needsUpdate = true;
                 e.state = 'failed';
+                e.standIn = true;
                 emit({ key: e.key, error: err instanceof Error ? err : new Error(String(err)) });
+            }
+        })();
+        e.reloading = p;
+        return p.finally(() => { if (e.reloading === p) e.reloading = null; });
+    }
+
+    /**
+     * Tries again for a map whose restore fell back to a stand-in (the next load() of its key: a
+     * tier change, or main.js when the browser is back online). The stand-in's GPU storage is in
+     * this context at its own size, so the Texture is disposed first and the map put back into
+     * the same object at full size: every material holding it shows it, and onReady fires.
+     * @returns {Promise<void>} never rejects
+     */
+    function retryStandIn(e) {
+        if (e.reloading) return e.reloading;
+        if (glLost()) return Promise.resolve();
+        const p = (async () => {
+            try {
+                const decoded = await download(ASSETS[e.key].url, fetch).promise.then(decode);
+                if (disposed || !e.tex || !e.standIn || glLost()) { decoded.image.close?.(); return; }
+                e.tex.dispose();
+                e.tex.image = decoded.image;
+                e.tex.flipY = decoded.flipY;
+                await new Promise((resolve) => upload(e.tex, resolve, true));
+                if (disposed || !e.tex) return;
+                e.standIn = false;
+                e.state = 'ready';
+                emit({ key: e.key, done: true });
+                for (const cb of [...e.listeners]) {
+                    try { cb(e.tex); } catch { /* one bad listener must not starve the others */ }
+                }
+                e.listeners.clear();
+            } catch {
+                // Still unreachable: the stand-in stays, and the next load() tries again.
             }
         })();
         e.reloading = p;
@@ -210,6 +248,7 @@ export function createTextureStore(renderer, { onProgress, prefetched = null } =
         e.state = 'idle';
         e.promise = null;
         e.received = 0;
+        e.standIn = false;
     }
 
     /** One held upload per task, each after a frame, so two large maps never share a long task. */
@@ -228,7 +267,7 @@ export function createTextureStore(renderer, { onProgress, prefetched = null } =
     function entryOf(key) {
         let e = entries.get(key);
         if (!e) {
-            e = { key, state: 'idle', tex: null, promise: null, listeners: new Set(), received: 0, bytes: ASSETS[key]?.bytes ?? 0, reloading: null };
+            e = { key, state: 'idle', tex: null, promise: null, listeners: new Set(), received: 0, bytes: ASSETS[key]?.bytes ?? 0, reloading: null, standIn: false };
             entries.set(key, e);
         }
         return e;
@@ -321,6 +360,9 @@ export function createTextureStore(renderer, { onProgress, prefetched = null } =
     function startLoad(key) {
         const asset = ASSETS[key];
         const e = entryOf(key);
+        if (e.standIn) return retryStandIn(e);
+        // A download that failed (offline, a timeout) is tried again by the next load().
+        if (e.state === 'failed' && !e.tex && asset) e.promise = null;
         if (e.promise) return e.promise;
         if (!asset) {
             e.state = 'failed';

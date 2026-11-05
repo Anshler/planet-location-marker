@@ -344,6 +344,49 @@ test('store: a closed map that cannot be fetched on restore takes its preview or
     }
 }));
 
+test('store: a stand-in left by a failed restore, and a failed download, are tried again by the next load()', () => withClosingDecoder(async () => {
+    const had = globalThis.fetch;
+    let fail = false;
+    const calls = [];
+    const ok = fakeFetch(calls), gone = fakeFetch(calls, { status: 503 });
+    globalThis.fetch = (url) => (fail ? gone(url) : ok(url));
+    try {
+        const uploads = [];
+        const store = createTextureStore(losableRenderer(uploads), {});
+        await store.load(['nightPreview', 'night2k']);
+        await tick(5);
+        const night = store.get('night2k');
+        fail = true;
+        await store.restore();
+        assert.equal(night.image, store.get('nightPreview').image, 'the preview stands in');
+        await store.load(['night2k', 'moon']);
+        assert.equal(store.isReady('night2k'), false, 'still offline: the stand-in stays');
+        assert.equal(store.state('moon'), 'failed');
+        // Back online (main.js reloads the tier's keys; a tier change does too).
+        fail = false;
+        let disposedOnce = 0;
+        night.addEventListener('dispose', () => disposedOnce++);
+        const seen = [];
+        store.onReady('night2k', (tex) => seen.push(tex));
+        uploads.length = 0;
+        calls.length = 0;
+        await store.load(['night2k', 'moon']);
+        assert.deepEqual(calls.sort(), [ASSETS.moon.url, ASSETS.night2k.url].sort());
+        assert.equal(store.isReady('night2k'), true);
+        assert.equal(store.get('night2k'), night, 'the same Texture: the materials holding the stand-in show the map');
+        assert.equal(disposedOnce, 1, 'the stand-in\'s storage (another size) goes first');
+        assert.equal(night.image.width, 2);
+        assert.deepEqual(seen, [night]);
+        assert.ok(uploads.includes('night2k'));
+        assert.equal(store.isReady('moon'), true, 'a failed first download is fetched again');
+        calls.length = 0;
+        await store.load(['night2k', 'moon']);
+        assert.deepEqual(calls, [], 'once in, never again');
+    } finally {
+        globalThis.fetch = had;
+    }
+}));
+
 test('store: a new anisotropy on a closed map fetches it again before the re-upload', () => withClosingDecoder(async () => {
     const had = globalThis.fetch;
     const calls = [];

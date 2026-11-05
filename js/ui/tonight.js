@@ -239,9 +239,9 @@ export function mountTonight(ctx) {
         buildLayer();
         const plotH = rows * LANE;
         c.imageSmoothingEnabled = false;
-        c.drawImage(layer, 0, 0, plotW, 1, GUTTER, TOP, plotW, plotH);
+        c.drawImage(layer, 0, 0, plotW, 1, gutter, TOP, plotW, plotH);
         for (let r = 0; r < rows; r++) {
-            c.drawImage(layer, 0, r + 1, plotW, 1, GUTTER, TOP + r * LANE + (LANE - RIBBON) / 2, plotW, RIBBON);
+            c.drawImage(layer, 0, r + 1, plotW, 1, gutter, TOP + r * LANE + (LANE - RIBBON) / 2, plotW, RIBBON);
         }
         // Hours in the display zone, spaced to fit.
         const span = win.toMs - win.fromMs;

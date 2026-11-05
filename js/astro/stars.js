@@ -22,9 +22,21 @@ import { guestRiseSet } from './guest-stars.js';
 import { sceneToRaDec } from './frames.js';
 import { AE } from './ae.js';
 import { parseSelectionId } from '../core/selection.js';
+import { t, N_, dec } from '../core/i18n.js';
 
 const DAY_MS = 86400000;
 const RAD2DEG = 180 / Math.PI;
+/** starKind's colours and luminosity classes as the card says them (a colour word fills its class's phrase). */
+const COLOUR_WORDS = Object.freeze({
+    Blue: N_('blue'), 'Blue-white': N_('blue-white'), White: N_('white'), 'Yellow-white': N_('yellow-white'), Yellow: N_('yellow'),
+    Orange: N_('orange'), Red: N_('red'),
+});
+const KIND_PHRASES = Object.freeze({
+    star: N_('{colour} star'), supergiant: N_('{colour} supergiant'), giant: N_('{colour} giant'), 'main-sequence star': N_('{colour} main-sequence star'),
+});
+const cap = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+/** starKind's result in the interface's language: 'Red supergiant', 'Sao siêu khổng lồ đỏ'. */
+const kindText = (k) => cap(t(KIND_PHRASES[k.kind.slice(k.colour.length + 1)] ?? '{colour} star', { colour: t(COLOUR_WORDS[k.colour] ?? k.colour) }));
 /** A deep (max-tier) star's parallax error when only the parallax shipped: Hipparcos' typical at V ≈ 7–8. */
 const DEEP_EPLX_MAS = 1.0;
 
@@ -126,7 +138,7 @@ export function createStarProvider({ getCatalog, getInfo = () => null, needInfo 
 
     return {
         kind: 'star',
-        kindLabel: 'Star',
+        kindLabel: N_('Star'),
         get active() { return active; },
         /**
          * Makes `id` the star with a registry slot (or none for anything else). Returns true when the
@@ -188,38 +200,44 @@ export function createStarProvider({ getCatalog, getInfo = () => null, needInfo 
             // M = m − 5·log10(d / 10 pc); 10 pc = 32.6 light-years.
             const absMag = dist && dist.ly > 0 ? st.mag[i] - 5 * Math.log10(dist.ly / 32.615638) : NaN;
             const k = starKind(bv, absMag);
-            const t = snap?.tMs ?? NaN;
+            const tMs = snap?.tMs ?? NaN;
             const lines = [];
             const facts = [];
-            if (des.length) facts.push(['Designation', des.join(' · ')]);
+            if (des.length) facts.push([t('Designation'), des.join(' · ')]);
             let caveat = '';
             if (dist && dist.ly > 0) {
-                lines.push(departureLine(t, dist.ly, dist.sigmaLy));
-                facts.push(['Distance', lyWords(dist.ly, dist.sigmaLy)]);
+                lines.push(departureLine(tMs, dist.ly, dist.sigmaLy));
+                facts.push([t('Distance'), lyWords(dist.ly, dist.sigmaLy)]);
                 const rel = dist.sigmaLy / dist.ly;
-                if (dist.assumed) caveat = 'Distance from the Hipparcos parallax with a typical error assumed; the year its light left is as uncertain.';
-                else if (rel >= 0.1) caveat = `Hipparcos parallax ${dist.plx.toFixed(2)} ± ${dist.eplx.toFixed(2)} mas: the distance, and so the year the light left, is uncertain by about ${Math.round(rel * 100)} %.`;
+                if (dist.assumed) caveat = t('Distance from the Hipparcos parallax with a typical error assumed; the year its light left is as uncertain.');
+                else if (rel >= 0.1) {
+                    caveat = t('Hipparcos parallax {plx} ± {err} mas: the distance, and so the year the light left, is uncertain by about {pct} %.',
+                        { plx: dec(dist.plx, 2), err: dec(dist.eplx, 2), pct: Math.round(rel * 100) });
+                }
             } else if (dist && dist.lowerLy > 0) {
                 // The light left before (simulated year − the bound): the first moment after that is safe.
-                const year = Number.isFinite(t) ? new Date(t).getUTCFullYear() : NaN;
+                const year = Number.isFinite(tMs) ? new Date(tMs).getUTCFullYear() : NaN;
                 const ev = Number.isFinite(year) ? historyAfter(year - dist.lowerLy) : null;
-                const when = ev && ev[0] <= year ? `before ${ev[1]}` : `more than ${spanWords(dist.lowerLy)} ago`;
-                lines.push(`Too far for Hipparcos to measure: more than about ${lyWords(dist.lowerLy)} away, so the light you see left ${when}.`);
+                const v = { dist: lyWords(dist.lowerLy), event: ev ? t(ev[1]) : '', span: spanWords(dist.lowerLy) };
+                lines.push(ev && ev[0] <= year ? t('Too far for Hipparcos to measure: more than about {dist} away, so the light you see left before {event}.', v)
+                    : t('Too far for Hipparcos to measure: more than about {dist} away, so the light you see left more than {span} ago.', v));
             } else if (!info) {
-                lines.push('Looking up its distance…');
+                lines.push(t('Looking up its distance…'));
             }
-            facts.push(['Colour', `${k.colour} (B−V ${Number.isFinite(bv) ? bv.toFixed(2) : '—'}, about ${k.cls}-type)`]);
-            if (Number.isFinite(absMag)) facts.push(['Luminosity', `absolute magnitude ${absMag < 0 ? '−' : '+'}${Math.abs(absMag).toFixed(1)} (the Sun: +4.8)`]);
+            facts.push([t('Colour'), t('{colour} (B−V {bv}, about {cls}-type)', { colour: cap(t(COLOUR_WORDS[k.colour] ?? k.colour)), bv: Number.isFinite(bv) ? dec(bv, 2) : '—', cls: k.cls })]);
+            if (Number.isFinite(absMag)) {
+                facts.push([t('Luminosity'), t('absolute magnitude {mag} (the Sun: +4.8)', { mag: `${absMag < 0 ? '−' : '+'}${dec(Math.abs(absMag), 1)}` })]);
+            }
             // How far from the celestial pole of date (earthMatrix·ŷ): Polaris was 6° off in 1000.
             const E = snap?.earthMatrix;
             if (E && E.length >= 16) {
                 const dot = stt.dirS[0] * E[4] + stt.dirS[1] * E[5] + stt.dirS[2] * E[6];
                 const away = Math.acos(Math.max(-1, Math.min(1, Math.abs(dot)))) * RAD2DEG;
-                if (away < 20) facts.push([`From the ${dot >= 0 ? 'north' : 'south'} celestial pole`, `${away.toFixed(2)}° (of date)`]);
+                if (away < 20) facts.push([dot >= 0 ? t('From the north celestial pole') : t('From the south celestial pole'), t('{deg}° (of date)', { deg: dec(away, 2) })]);
             }
             const o = snap?.observer;
-            if (o && Number.isFinite(t)) {
-                const day0 = Math.floor((t + o.lonDeg / 15 * 3600e3) / DAY_MS) * DAY_MS - o.lonDeg / 15 * 3600e3;
+            if (o && Number.isFinite(tMs)) {
+                const day0 = Math.floor((tMs + o.lonDeg / 15 * 3600e3) / DAY_MS) * DAY_MS - o.lonDeg / 15 * 3600e3;
                 const key = `${id}|${day0}|${o.latDeg.toFixed(2)}|${o.lonDeg.toFixed(2)}`;
                 if (key !== rtsKey) {
                     rtsKey = key;
@@ -228,7 +246,7 @@ export function createStarProvider({ getCatalog, getInfo = () => null, needInfo 
                 }
             }
             return {
-                kindLabel: k.kind,
+                kindLabel: kindText(k),
                 subtitle: info?.name && des[0] ? des[0] : '',
                 lines,
                 facts,

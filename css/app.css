@@ -651,7 +651,8 @@ body.tier-medium:not(.is-coarse) .glass {
     display: flex;
     align-items: center;
     gap: 10px;
-    max-width: calc(100vw - var(--panel-w) - var(--gutter) * 4);
+    width: calc(100vw - var(--panel-w) - var(--gutter) * 4);
+    container: topbar / inline-size;
     pointer-events: none;
 }
 .ui[data-layout="desktop"] .panel {
@@ -720,6 +721,15 @@ body.tier-medium:not(.is-coarse) .glass {
     box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, .045);
     text-shadow: none;
     pointer-events: auto;
+}
+/* A tight bar (a window under 1100 px beside the panel) shows the wordmark as the mark alone, so
+   the place keeps its name; on Mars, where Back to Earth needs room too, the coordinates go first. */
+@container topbar (max-width: 655px) {
+    .ui[data-layout="desktop"] .brand { padding: 0 9px; }
+    .brand__name { display: none; }
+}
+@container topbar (max-width: 780px) {
+    body.is-mars .loc-chip__sep, body.is-mars .loc-chip__coords { display: none; }
 }
 .topbar__loc { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .loc-chip {
@@ -992,6 +1002,9 @@ body.tier-medium:not(.is-coarse) .glass {
 @container timebar (max-width: 520px) {
     .tb-date { height: auto; min-height: 38px; }
     .stamp { flex-wrap: wrap; row-gap: 2px; }
+    /* The chevron keeps to the button's right edge instead of wrapping onto a line of its own. */
+    .ui:not([data-layout="mobile"]) .tb-date { padding-right: 30px; }
+    .ui:not([data-layout="mobile"]) .tb-date__chev { position: absolute; top: calc(50% - 8px); right: 10px; }
 }
 /* Narrow desktop bars (small laptops, rail closed): two rows instead of overlapping controls.
    shell.js measures the bar, so the view switch above follows the taller height. */

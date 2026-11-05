@@ -1005,6 +1005,8 @@ body.tier-medium:not(.is-coarse) .glass {
 @container timebar (max-width: 520px) {
     .tb-date { height: auto; min-height: 38px; }
     .stamp { flex-wrap: wrap; row-gap: 2px; }
+    /* Each part starts its own line: no '·' left at the head of one. */
+    .stamp__sep, .stamp__zone::before { display: none; }
     .ui:not([data-layout="mobile"]) .tb-date { padding-right: 30px; }
     .ui:not([data-layout="mobile"]) .tb-date__chev { position: absolute; top: calc(50% - 8px); right: 10px; }
 }
@@ -2232,7 +2234,8 @@ body.is-mars { --body-mars: #6fb6ff; }
 .ui[data-layout="mobile"] .topbar__home span { display: none; }
 .palette__mars { padding: 0 0 6px; overflow-y: auto; }
 .palette__mars .palette__mode { color: #ffc79e; }
-.palette__mars .palette__mars .btn-row { padding: 6px 14px 0; }
+.palette__mars > .note { margin: var(--sp-3) 14px var(--sp-1); }
+.palette__mars .btn-row { padding: 6px 14px 0; }
 .mars-sites { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 6px; padding: 10px 14px 0; }
 .mars-site { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--r-s); background: rgba(255, 140, 80, .06); color: var(--text); text-align: left; cursor: pointer; }
 .mars-site:hover, .mars-site:focus-visible { background: rgba(255, 140, 80, .14); border-color: rgba(255, 160, 100, .45); }

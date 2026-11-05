@@ -30,7 +30,8 @@ import { tonight as tonightReport } from '../astro/almanac.js';
 import { localSolarEclipseAt } from '../astro/events.js';
 import { AE } from '../astro/ae.js';
 import { GLOBE_MAX_R } from '../astro/orrery.js';
-import { fmtTime, compassWord } from '../core/format.js';
+import { fmtTime, compassWord, placeName } from '../core/format.js';
+import { t, N_ } from '../core/i18n.js';
 import { isTourId, tourById } from '../core/tour-catalog.js';
 import { telescopeFov } from './actions.js';
 
@@ -65,7 +66,7 @@ const POLL_MS = 120;
 /** The total solar eclipse of 2 August 2027 and the tour's viewpoint in the path, Luxor (6 min 25 s). */
 export const ECLIPSE_2027_MS = Date.parse('2027-08-02T10:07:00Z');
 export const ECLIPSE_2027_SITE = Object.freeze({
-    latDeg: 25.6872, lonDeg: 32.6396, elevM: 80, name: 'Luxor', country: 'Egypt', cc: 'EG', tz: 'Africa/Cairo',
+    latDeg: 25.6872, lonDeg: 32.6396, elevM: 80, name: 'Luxor', country: N_('Egypt'), cc: 'EG', tz: 'Africa/Cairo',
 });
 
 /** Planets worth a stop tonight: the naked-eye ones with these verdicts. */
@@ -74,8 +75,8 @@ const MOON_VERDICTS = PLANET_VERDICTS;
 const DIM_PLANETS = new Set(['uranus', 'neptune']);
 const MAX_PLANET_STOPS = 5;
 const TELESCOPE_CAPTION = Object.freeze({
-    jupiter: 'Through a small telescope: Jupiter’s cloud belts and its four Galilean moons, lined up along its equator.',
-    saturn: 'Through a small telescope: Saturn and its rings.',
+    jupiter: N_('Through a small telescope: Jupiter’s cloud belts and its four Galilean moons, lined up along its equator.'),
+    saturn: N_('Through a small telescope: Saturn and its rings.'),
 });
 
 const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
@@ -85,13 +86,13 @@ const settle = (p) => {
     if (p && typeof p.catch === 'function') p.catch(noop);
     return p;
 };
-const nameOf = (id) => BODIES[BODY_INDEX[id]]?.name ?? id;
+const nameOf = (id) => t(BODIES[BODY_INDEX[id]]?.name ?? id);
 
-/** '6 min 25 s' (durations under an hour, to the second). */
+/** '6 min 25 s' (durations under an hour, to the second), in the locale. */
 export function minSec(ms) {
     const s = Math.max(0, Math.round(ms / 1000));
     const m = Math.floor(s / 60);
-    return m ? `${m} min ${s % 60} s` : `${s} s`;
+    return m ? t('{m} min {s} s', { m, s: s % 60 }) : t('{n} s', { n: s });
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -115,15 +116,15 @@ export function tonightSteps(res, { place, fmt, sunAt, latDeg }) {
     if (fin(sunset)) {
         const s = sunAt(sunset);
         steps.push({
-            caption: `Tonight from ${place}. The Sun sets at ${fmt(sunset)} in the ${compassWord(s.azDeg)}.`,
+            caption: t('Tonight from {place}. The Sun sets at {time} in the {dir}.', { place, time: fmt(sunset), dir: compassWord(s.azDeg) }),
             time: { tMs: sunset - 4 * MIN, animateMs: 1600, play: false }, view: 'sky', select: null, track: 'none',
             look: { azDeg: s.azDeg, altDeg: 6, fovDeg: 70 }, then: { time: { rate: 60, play: true } }, holdMs: 6000,
         });
         if (dark !== null) {
             steps.push({
                 caption: fin(tw.astroDuskMs) && dark === tw.astroDuskMs
-                    ? `Twilight fades. The sky is fully dark by ${fmt(dark)}.`
-                    : `Twilight fades, but the sky stays bright tonight: the Sun never sinks far below the horizon.`,
+                    ? t('Twilight fades. The sky is fully dark by {time}.', { time: fmt(dark) })
+                    : t('Twilight fades, but the sky stays bright tonight: the Sun never sinks far below the horizon.'),
                 time: { range: { fromMs: sunset, toMs: dark, durationS: 6, loop: 'once', ease: 'inOut' } },
                 look: { azDeg: s.azDeg, altDeg: 22, fovDeg: 95 }, holdMs: 6500,
             });
@@ -131,8 +132,8 @@ export function tonightSteps(res, { place, fmt, sunAt, latDeg }) {
     } else {
         steps.push({
             caption: res && res.nightStartMs === null
-                ? `Tonight from ${place}: the Sun does not set, so the sky never gets dark.`
-                : `Tonight from ${place}.`,
+                ? t('Tonight from {place}: the Sun does not set, so the sky never gets dark.', { place })
+                : t('Tonight from {place}.', { place }),
             holdMs: 4500,
         });
     }
@@ -144,19 +145,19 @@ export function tonightSteps(res, { place, fmt, sunAt, latDeg }) {
         .slice(0, MAX_PLANET_STOPS);
     for (const p of planets) {
         steps.push({
-            caption: p.sentence || `${nameOf(p.id)} tonight.`,
+            caption: p.sentence || t('{body} tonight.', { body: nameOf(p.id) }),
             time: { tMs: p.bestMs, animateMs: 1400, play: false }, view: 'sky', select: p.id, track: 'none',
             look: { azDeg: p.bestAzDeg, altDeg: Math.max(4, p.bestAltDeg), fovDeg: 40 },
             then: { track: 'body', time: { rate: 300, play: true } }, holdMs: 6500,
         });
         if (TELESCOPE_CAPTION[p.id] && (p.verdict === 'excellent' || p.verdict === 'good')) {
-            steps.push({ caption: TELESCOPE_CAPTION[p.id], telescope: p.id, time: { rate: 60, play: true }, holdMs: 7000 });
+            steps.push({ caption: t(TELESCOPE_CAPTION[p.id]), telescope: p.id, time: { rate: 60, play: true }, holdMs: 7000 });
         }
     }
     if (!planets.length) {
         const at = fin(dark) ? dark + HOUR : fin(sunset) ? sunset + 2 * HOUR : null;
         steps.push({
-            caption: 'No bright planets are well placed tonight, but the stars are out.',
+            caption: t('No bright planets are well placed tonight, but the stars are out.'),
             ...(at !== null ? { time: { tMs: at, animateMs: 1400, play: false } } : {}),
             view: 'sky', select: null, track: 'none', look: { azDeg: latDeg >= 0 ? 180 : 0, altDeg: 40, fovDeg: 80 },
             then: { time: { rate: 300, play: true } }, holdMs: 6000,
@@ -166,17 +167,19 @@ export function tonightSteps(res, { place, fmt, sunAt, latDeg }) {
     const moon = reports.find((r) => r?.id === 'moon');
     if (ok(moon) && MOON_VERDICTS.has(moon.verdict)) {
         steps.push({
-            caption: moon.sentence || 'The Moon tonight.',
+            caption: moon.sentence || t('The Moon tonight.'),
             time: { tMs: moon.bestMs, animateMs: 1400, play: false }, view: 'sky', select: 'moon', track: 'none',
             look: { azDeg: moon.bestAzDeg, altDeg: Math.max(4, moon.bestAltDeg), fovDeg: 30 },
             then: { track: 'body', time: { rate: 300, play: true } }, holdMs: 6000,
         });
-        const lit = fin(moon.phaseFrac) ? `, ${Math.round(moon.phaseFrac * 100)}% lit` : '';
-        steps.push({ caption: `Up close: the Moon${lit}. Craters stand out best along the line between day and night.`, telescope: 'moon', time: { rate: 60, play: true }, holdMs: 6500 });
+        const caption = fin(moon.phaseFrac)
+            ? t('Up close: the Moon, {pct}% lit. Craters stand out best along the line between day and night.', { pct: Math.round(moon.phaseFrac * 100) })
+            : t('Up close: the Moon. Craters stand out best along the line between day and night.');
+        steps.push({ caption, telescope: 'moon', time: { rate: 60, play: true }, holdMs: 6500 });
     } else if (moon?.sentence) {
         steps.push({ caption: moon.sentence, holdMs: 4500 });
     }
-    steps.push({ caption: `That’s tonight from ${place}. Clear skies!`, holdMs: 3500 });
+    steps.push({ caption: t('That’s tonight from {place}. Clear skies!', { place }), holdMs: 3500 });
     return steps;
 }
 
@@ -210,33 +213,35 @@ export function yearSteps({ observer, place, seasons }) {
     const north = lat >= 0;
     const steps = [
         {
-            caption: `A year in a minute. The globe holds still at dawn in ${place} each day: watch the line between day and night.`,
+            caption: t('A year in a minute. The globe holds still at dawn in {place} each day: watch the line between day and night.', { place }),
             // Side-on to the dawn line, without beams: it turns about the disc centre like a clock hand.
             view: 'orbit', earthLock: true, select: null, track: 'none', layers: { beams: false, ghostBeams: false, sunMoonBeams: false },
             fly: { latDeg: north ? 10 : -10, lonDeg: lon, distance: 3.9 },
             time: { tMs: dawn(marMs), animateMs: 1800, play: false }, holdMs: 3500,
         },
-        { caption: 'March equinox: the Sun stands over the equator, and day and night are equal everywhere.', sweep: sweep(marMs, junMs, 7000), holdMs: 700 },
-        { caption: 'June solstice: the Sun is over the Tropic of Cancer, and the Arctic has the midnight sun.', sweep: sweep(junMs, sepMs, 7000), holdMs: 700 },
-        { caption: 'September equinox: the Sun crosses the equator again, heading south.', sweep: sweep(sepMs, decMs, 7000), holdMs: 700 },
-        { caption: 'December solstice: the Sun is over the Tropic of Capricorn. Now it is the Antarctic’s turn.', sweep: sweep(decMs, nextMarMs, 7000), holdMs: 900 },
+        { caption: t('March equinox: the Sun stands over the equator, and day and night are equal everywhere.'), sweep: sweep(marMs, junMs, 7000), holdMs: 700 },
+        { caption: t('June solstice: the Sun is over the Tropic of Cancer, and the Arctic has the midnight sun.'), sweep: sweep(junMs, sepMs, 7000), holdMs: 700 },
+        { caption: t('September equinox: the Sun crosses the equator again, heading south.'), sweep: sweep(sepMs, decMs, 7000), holdMs: 700 },
+        { caption: t('December solstice: the Sun is over the Tropic of Capricorn. Now it is the Antarctic’s turn.'), sweep: sweep(decMs, nextMarMs, 7000), holdMs: 900 },
     ];
     const hi = Math.round(Math.min(90, noonAlt(lat, north ? OBLIQUITY_DEG : -OBLIQUITY_DEG)));
     const lo = Math.round(noonAlt(lat, north ? -OBLIQUITY_DEG : OBLIQUITY_DEG));
-    const [hiMonth, loMonth] = north ? ['June', 'December'] : ['December', 'June'];
+    const [hiMonth, loMonth] = north ? [N_('June'), N_('December')] : [N_('December'), N_('June')];
     const tropics = Math.abs(lat) < OBLIQUITY_DEG;
-    const low = lo > 0 ? `sinks to ${lo}° in ${loMonth}` : `stays below the horizon in ${loMonth}`;
+    const v = { place, hi, lo, hiMonth: t(hiMonth), loMonth: t(loMonth) };
     steps.push({
         caption: tropics
-            ? `The same year at noon in ${place}: the Sun passes straight overhead twice, ${low}, and weaves east and west in a figure-eight.`
-            : `The same year at noon in ${place}: the Sun rides ${hi}° high in ${hiMonth}, ${low}, and weaves east and west in a figure-eight.`,
+            ? lo > 0 ? t('The same year at noon in {place}: the Sun passes straight overhead twice, sinks to {lo}° in {loMonth}, and weaves east and west in a figure-eight.', v)
+                : t('The same year at noon in {place}: the Sun passes straight overhead twice, stays below the horizon in {loMonth}, and weaves east and west in a figure-eight.', v)
+            : lo > 0 ? t('The same year at noon in {place}: the Sun rides {hi}° high in {hiMonth}, sinks to {lo}° in {loMonth}, and weaves east and west in a figure-eight.', v)
+                : t('The same year at noon in {place}: the Sun rides {hi}° high in {hiMonth}, stays below the horizon in {loMonth}, and weaves east and west in a figure-eight.', v),
         view: 'sky', select: 'sun', track: 'none',
         // The horizon stays in the frame below the lowest noon Sun.
         look: { azDeg: north ? 180 : 0, altDeg: clamp((hi + Math.max(lo, 0)) / 2 - 10, 12, 50), fovDeg: 84 },
         time: { tMs: noon(marMs), animateMs: 0, play: false },
         sweep: { fromMs: noon(marMs), stepMs: DAY, count: days(noon(marMs), noon(nextMarMs)), wallMs: 15000 }, holdMs: 1200,
     });
-    steps.push({ caption: 'All of it from the 23.4° tilt of Earth’s axis.', holdMs: 3000 });
+    steps.push({ caption: t('All of it from the 23.4° tilt of Earth’s axis.'), holdMs: 3000 });
     return steps;
 }
 
@@ -250,27 +255,30 @@ export function yearSteps({ observer, place, seasons }) {
  */
 export function eclipseSteps(ev, { site, sunAt }) {
     const chase = {
-        caption: 'Now ride the Moon’s shadow: three hours from the Atlantic to the Indian Ocean in forty seconds.',
+        caption: t('Now ride the Moon’s shadow: three hours from the Atlantic to the Indian Ocean in forty seconds.'),
         chase: fin(ev?.tMs) ? ev.tMs : ECLIPSE_2027_MS, holdMs: 60000,
     };
-    const end = { caption: 'Mark the date: 2 August 2027. Clear skies!', holdMs: 3500 };
+    const end = { caption: t('Mark the date: 2 August 2027. Clear skies!'), holdMs: 3500 };
     if (!ev || !fin(ev.c2Ms) || !fin(ev.c3Ms)) return [chase, end];
     const c2 = ev.c2Ms, c3 = ev.c3Ms, dur = minSec(c3 - c2);
+    const durS = Math.max(0, Math.round((c3 - c2) / 1000));
+    const durMin = durS >= 60 ? t('{n} min', { n: Math.floor(durS / 60) }) : t('{n} s', { n: durS });
     const mid = sunAt((c2 + c3) / 2);
     const out = sunAt(c3);
     return [
         {
-            caption: `2 August 2027: the Moon’s shadow crosses Spain, North Africa and Arabia. From ${site.name}, ${site.country}, totality lasts ${dur}, one of the longest of the century.`,
+            caption: t('2 August 2027: the Moon’s shadow crosses Spain, North Africa and Arabia. From {site}, {country}, totality lasts {dur}, one of the longest of the century.',
+                { site: site.name, country: t(site.country), dur }),
             observer: site, view: 'orbit', select: 'sun', track: 'none',
             fly: { latDeg: site.latDeg, lonDeg: site.lonDeg, distance: 2.6 },
             time: { tMs: c2 - 30 * MIN, animateMs: 1800, play: false },
             eclipse: { peakMs: ev.tMs, kind: ev.eclipseKind ?? 'total', local: true, eventId: ev.id ?? null }, holdMs: 6500,
         },
-        { caption: 'Twenty seconds to totality. The last sliver of Sun breaks into Baily’s beads, then the diamond ring.', event: ev, untilMs: c2 + 1500, holdMs: 30000 },
-        { caption: `Totality: ${dur} of night at midday. The corona streams out, and the brightest planets and stars appear.`, holdMs: 11000 },
-        { caption: 'Look around: a 360° sunset glows on every horizon.', view: 'sky', look: { azDeg: mid.azDeg, altDeg: clamp(mid.altDeg - 40, 25, 42), fovDeg: 100 }, holdMs: 8000 },
+        { caption: t('Twenty seconds to totality. The last sliver of Sun breaks into Baily’s beads, then the diamond ring.'), event: ev, untilMs: c2 + 1500, holdMs: 30000 },
+        { caption: t('Totality: {dur} of night at midday. The corona streams out, and the brightest planets and stars appear.', { dur }), holdMs: 11000 },
+        { caption: t('Look around: a 360° sunset glows on every horizon.'), view: 'sky', look: { azDeg: mid.azDeg, altDeg: clamp(mid.altDeg - 40, 25, 42), fovDeg: 100 }, holdMs: 8000 },
         {
-            caption: `${dur.replace(/ \d+ s$/, '')} later the Moon moves on, and the Sun returns in a second diamond ring.`,
+            caption: t('{dur} later the Moon moves on, and the Sun returns in a second diamond ring.', { dur: durMin }),
             time: { tMs: c3 - 15e3, animateMs: 1500, play: true, rate: 1 }, view: 'sky',
             look: { azDeg: out.azDeg, altDeg: Math.min(88, out.altDeg), fovDeg: 5 }, untilMs: c3 + 5000, holdMs: 26000,
         },
@@ -289,7 +297,7 @@ export function eclipseSteps(ev, { site, sunAt }) {
 export function ambientSteps({ observer, place, snap, cycle }) {
     const shift = cycle % 2 ? -40 : 40;
     const steps = [{
-        caption: `Live from ${place}: the Sun, the Moon and the planets in their true directions.`, captionMs: 7000,
+        caption: t('Live from {place}: the Sun, the Moon and the planets in their true directions.', { place }), captionMs: 7000,
         time: { live: true }, view: 'orbit', earthLock: true, select: null, track: 'none', cinema: true,
         fly: { latDeg: clamp(observer.latDeg, -60, 60) * 0.7, lonDeg: observer.lonDeg + shift, distance: 3.8, durationMs: 30000 },
         holdMs: 30000,
@@ -297,12 +305,12 @@ export function ambientSteps({ observer, place, snap, cycle }) {
     const best = highestBright(snap);
     steps.push(best
         ? {
-            caption: `${nameOf(best.id)}, ${Math.round(best.altDeg)}° up in the ${compassWord(best.azDeg)}.`, captionMs: 7000,
+            caption: t('{body}, {deg}° up in the {dir}.', { body: nameOf(best.id), deg: Math.round(best.altDeg), dir: compassWord(best.azDeg) }), captionMs: 7000,
             view: 'sky', select: best.id, track: 'none', look: { azDeg: best.azDeg, altDeg: best.altDeg, fovDeg: 50 },
             then: { track: 'stars' }, holdMs: 30000,
         }
         : {
-            caption: 'The sky overhead, live.', captionMs: 7000, view: 'sky', select: null, track: 'none',
+            caption: t('The sky overhead, live.'), captionMs: 7000, view: 'sky', select: null, track: 'none',
             look: { azDeg: observer.latDeg >= 0 ? 180 : 0, altDeg: 45, fovDeg: 90 }, then: { track: 'stars' }, holdMs: 30000,
         });
     return steps;
@@ -429,7 +437,7 @@ export function createTourRunner(deps) {
 
     function placeOf(o) {
         const n = typeof o?.name === 'string' ? o.name.trim() : '';
-        return n || 'your location';
+        return placeName(n) || t('your location');
     }
 
     async function tonightFor(observer, tMs, signal) {
@@ -653,8 +661,8 @@ export function createTourRunner(deps) {
     function bindInput(r) {
         if (typeof win?.addEventListener !== 'function') return noop;
         const inBar = (e) => {
-            const t = e?.target;
-            return !!(t && typeof t.closest === 'function' && t.closest('[data-tour-ui]'));
+            const el = e?.target;
+            return !!(el && typeof el.closest === 'function' && el.closest('[data-tour-ui]'));
         };
         const onPointer = (e) => {
             if (!inBar(e)) interrupt(r);
@@ -770,7 +778,7 @@ export function createTourRunner(deps) {
             console.error('[tours] restoring the view failed', err);
         }
         store.set({ ui: { ...store.get().ui, tour: null } }, 'tour');
-        say(reason === 'done' ? `${r.info.title}: the end` : 'Tour ended');
+        say(reason === 'done' ? t('{tour}: the end', { tour: t(r.info.title) }) : t('Tour ended'));
     }
 
     // ---- API ----------------------------------------------------------------------------------
@@ -795,7 +803,7 @@ export function createTourRunner(deps) {
             steps: [], index: 0, cycle: 0, paused: false, held: false, wake: null, advance: false, view: null, offInput: noop,
         };
         run = r;
-        r.view = { id, title: info.title, step: 0, steps: 0, caption: 'Preparing the tour…', paused: false, ambient };
+        r.view = { id, title: info.title, step: 0, steps: 0, caption: t('Preparing the tour…'), paused: false, ambient };
         store.set({ ui: { ...store.get().ui, tour: r.view, sheet: 'peek' } }, 'tour');
         r.offInput = bindInput(r);
         try {
@@ -859,7 +867,7 @@ export function createTourRunner(deps) {
         r.held = true;
         r.stepAc?.abort();
         publish(r, { paused: true });
-        say('Tour paused. Resume or end it from the caption bar.');
+        say(t('Tour paused. Resume or end it from the caption bar.'));
     }
 
     function wakeUp(r, advance) {

@@ -151,22 +151,23 @@ Use the 1000–3000 range and the unused Astronomy Engine APIs.
 
 | Status | ID | Item | Impact | Effort | Notes |
 |---|---|---|---|---|---|
-| todo | `tonight-planner` | Tonight planner: a dusk-to-dawn visibility chart, with countdowns and sparklines in Sky now | 3 | M |  |
-| todo | `sky-dome-chart` | All-sky dome chart: a live planisphere at the top of Sky now and the hero of text mode ★ | 3 | M |  |
-| todo | `event-glyphs-and-ics` | Event glyphs that show the event, and 'Add to calendar' (.ics) offline | 2 | S |  |
-| todo | `first-run-touch-onboarding` | Touch-aware first run: gesture tips, a 3-step coach mark, an intro caption and an Install button | 3 | M |  |
-| todo | `night-vision-mode` | Night-vision red mode with a screen wake lock for real observing | 2 | S |  |
-| todo | `sky-ribbon-scrubber` | Sky-ribbon scrubber: true sky colours, Moon and selected-body bands, fling and haptics | 2 | M |  |
-| todo | `picker-place-preview` | Location picker that previews each place's sky: local time, day or night, Moon up | 2 | S |  |
-| todo | `i18n-a11y-readiness` | i18n and accessibility readiness: a string table, Intl-driven dates, Vietnamese first, and contrast and transparency modes | 2 | L |  |
-| todo | `instant-earth-progressive-textures` | Instant Earth: 15 KB preview textures, early tier-aware preloads, and a sharpen-in instead of a flat blue ball ★ | 3 | L |  |
-| todo | `boot-critical-path-diet` | Boot diet: remove about 0.6 s of main-thread blocking behind the loader (GL probe, a 399 ms upload, shader-error readbacks, per-chunk redraws) | 2 | S |  |
-| todo | `sw-atomic-updates-offline-ci` | Service worker 2.0: content-hashed versions, atomic precache, a 'new version ready' toast, and an offline-reload smoke test in CI | 3 | M |  |
-| todo | `regression-gates-ci` | Visual-regression goldens and performance budgets in CI, using the zero-dependency PNG decoder the repo already has | 3 | M |  |
-| todo | `hitch-free-tier-switch` | Hitch-free tier switches: compile the next tier's shader variants and upload its textures before swapping | 3 | M |  |
-| todo | `context-loss-backoff-and-diagnostics` | Memory-pressure-aware context-loss recovery, warning-free restore, and a 'Copy diagnostics' button | 2 | S |  |
-| todo | `ktx2-gpu-compressed-textures` | GPU-compressed textures (KTX2/Basis, vendored from three r170): about 6-8x less VRAM, no upload freezes, fewer context losses on phones ★ | 2 | L |  |
+| done | `tonight-planner` | Tonight planner: a dusk-to-dawn visibility chart, with countdowns and sparklines in Sky now | 3 | M | b198b27, d81f643. The series comes from tonight() itself (no extra AE calls); the chart now sits in Up now's Charts card. |
+| done | `sky-dome-chart` | All-sky dome chart: a live planisphere at the top of Sky now and the hero of text mode ★ | 3 | M | be853f2, 5314967. Late-bound services.catalog(); text mode fetches sky.json lazily instead of an embedded star list. |
+| done | `event-glyphs-and-ics` | Event glyphs that show the event, and 'Add to calendar' (.ics) offline | 2 | S | f7b17ea, 9391e66, 38c2eef. Inline SVG glyphs; share sheet on touch, download on desktop; eclipse bundle. |
+| done | `first-run-touch-onboarding` | Touch-aware first run: gesture tips, a 3-step coach mark, an intro caption and an Install button | 3 | M | 2367cf5, 620d71d, dc454a0, cbabc51. Install dialog and iOS hint unverified on real devices. |
+| done | `night-vision-mode` | Night-vision red mode with a screen wake lock for real observing | 2 | S | ffb5eac, ec50f4c. CSS filter-function chain (exact in Chrome; Safari/Firefox unverified); Shift+N; one shared wake lock. |
+| done | `sky-ribbon-scrubber` | Sky-ribbon scrubber: true sky colours, Moon and selected-body bands, fling and haptics | 2 | M | 311a3cb. Fling and haptics dropped (verifier). Also fixed the scrubber's sunSeries reply never landing. |
+| done | `picker-place-preview` | Location picker that previews each place's sky: local time, day or night, Moon up | 2 | S | d40c6db, ca670f0. From the snapshot's sub-points; no new astro module. |
+| done | `i18n-a11y-readiness` | i18n and accessibility readiness: a string table, Intl-driven dates, Vietnamese first, and contrast and transparency modes | 2 | L | a11y: cda1cf4, 6a8963d. i18n: b037c4b…4f3c14c (English-keyed js/core/i18n.js, data/i18n/vi.json fetched on demand, #lang=, Intl dates/numbers, the table posted to the worker, inline loader in Vietnamese). Open: city names are English data. |
+| done | `instant-earth-progressive-textures` | Instant Earth: 15 KB preview textures, early tier-aware preloads, and a sharpen-in instead of a flat blue ball ★ | 3 | L | 454bf5a, 94252b0, 7f53cd1, 7b2ef01. Text mode no longer downloads three.js. |
+| done | `boot-critical-path-diet` | Boot diet: remove about 0.6 s of main-thread blocking behind the loader (GL probe, a 399 ms upload, shader-error readbacks, per-chunk redraws) | 2 | S | 454bf5a (upload gate after compile, onProgress invalidates on done/error). checkShaderErrors kept on (measured no gain); probe-context reuse not done. Re-measure on a real GPU. |
+| done | `sw-atomic-updates-offline-ci` | Service worker 2.0: content-hashed versions, atomic precache, a 'new version ready' toast, and an offline-reload smoke test in CI | 3 | M | e8dba3d, d8d88d9, 9e9a034. |
+| done | `regression-gates-ci` | Visual-regression goldens and performance budgets in CI, using the zero-dependency PNG decoder the repo already has | 3 | M | bfa2901, 3b20705, 84df306. Count-based perf gates run in CI now. Goldens: run Actions → CI → 'Render goldens' once and commit the artifact into test/golden/; until then the compare step skips with a notice. |
+| done | `hitch-free-tier-switch` | Hitch-free tier switches: compile the next tier's shader variants and upload its textures before swapping | 3 | M | ea1d251, d65e2ac, 5795e55, 2940d40. The KHR_parallel_shader_compile path is unexercised here (SwiftShader): re-measure on a GPU. |
+| done | `context-loss-backoff-and-diagnostics` | Memory-pressure-aware context-loss recovery, warning-free restore, and a 'Copy diagnostics' button | 2 | S | 5a9365d, da826a3, 4020003. |
+| dropped | `ktx2-gpu-compressed-textures` | GPU-compressed textures (KTX2/Basis, vendored from three r170): about 6-8x less VRAM, no upload freezes, fewer context losses on phones ★ | 2 | L | Transcoder not vendored (verifier: ~0.5 MB, ETC1S no smaller than today's JPEGs, the freeze claim refuted). The cheaper memory win shipped instead: 2280e23 closes decoded bitmaps and re-fetches them on restore. Revisit if diagnostics show phones losing the context. |
 | done | `max-tier` | Max quality tier: manual, no size budget (8K Earth day/night/clouds, 4K Moon, full DPR, max MSAA/anisotropy, full-res bloom) ★ | 4 | M | Owner request 2026-11-04. Merge after fd4dbbc. Heavy future effects belong on max. |
+| done | `ui-redesign` | Whole-interface redesign: one labelled toolbar, five tabs by intent, a Time popover, mode chips, folding Display ★ | 4 | L | Owner request 2026-11-05 ("dense and complex; complex is fine but it has to be intuitive"). Spec, scores and deviations: [roadmap/UI-REDESIGN.md](roadmap/UI-REDESIGN.md). b048021…e531e1e. |
 
 ## Dropped at review
 
@@ -242,3 +243,22 @@ Use the 1000–3000 range and the unused Astronomy Engine APIs.
   rebuild). npm test (848), size, vendor/textures/data --check, smoke (desktop, sub-path, mobile, UTC + reduced motion),
   text mode pass. PHASE 6 DONE. Next session: Phase 7 (interface & engineering), then the deferred items; the graphify
   graph is rebuilt once at the very end (owner's call).
+- 2026-11-05: Phase 7 built in two lanes (engineering merged at 39ac72c, UI at 8ec82b0), with the
+  first-use geometry flake fixed at its source (4fa1c92) and budgets re-baselined (40131ce: low 5.2, medium 5.975 MB, both under
+  the 6 MB line). Revised per the verifiers: no ribbon fling/haptics, no KTX2 transcoder (bitmap release instead), checkShaderErrors
+  kept (measured no gain on SwiftShader).
+- 2026-11-05: Owner request: the interface had become dense. Whole-UI redesign from two audits, three competing designs and a
+  judge (docs/roadmap/UI-REDESIGN.md), built in four chunks plus QA fixes and folding Display (b048021..e531e1e): one labelled
+  toolbar, tabs Up now / Details / Events / Explore / Display (Layers, Settings and About merged; old tab= links alias), a Time
+  popover, mode chips with an ordered Esc, a phone tab bar and 44 px targets. Display went from 2.2 screens to 1.
+- 2026-11-05: i18n with Vietnamese (b037c4b..4f3c14c): English-keyed js/core/i18n.js, data/i18n/vi.json (1,836 strings, fetched
+  only when active), #lang=, Intl dates and numbers, the table posted to the astro worker, the inline loader in Vietnamese, and a
+  native-quality terminology and layout review.
+- 2026-11-05: Phase 7 final review (3 lens reviewers, an adversarial verifier, 1 fixer): 18 confirmed (2 major: vi.json missing
+  offline after an update; a restore re-uploading max's maps after a step-down), 5 refuted (incl. the feared daily SW toast:
+  tle.json is outside the version hash); all fixed in 0668010..c03573e, plus Vietnamese names for Vietnam's cities. npm test
+  (1043), size (low 5.16 / medium 5.92 MB), vendor/textures/data/modgraph --check, every ci.yml smoke step (desktop sub-path,
+  mobile, UTC + reduced motion, staged offline reload, context loss, perf gates low/high), Vietnamese and text-mode smokes pass.
+  PHASE 7 DONE. Open: render the goldens once (Actions → CI → Render goldens) and commit them; re-measure the boot and tier
+  switch on a real GPU; city names beyond Vietnam's largest stay English data; a native read of the long-form Vietnamese
+  (event sentences, tour captions); the deferred items; rebuild the graphify graph (owner's call: once, now).

@@ -1674,8 +1674,16 @@ The interface speaks English and Vietnamese. gettext style: **the English source
   Where space is tight outside English the time bar uses Intl's compact forms: ticks 'T3 14', the
   phone's date 'T5, 5/11/2026'.
 - **Layout.** Vietnamese runs about a quarter longer. `:lang(vi)` rules in css/app.css absorb the
-  few places that need it (the phone's LIVE pill); prefer a layout that wraps over a per-language
-  rule.
+  few places that need it (the phone's LIVE pill, the time bar's date icon between 800 and 880 px,
+  the empty Details picker's two columns); prefer a layout that wraps over a per-language rule.
+  Every Vietnamese syllable is a word, so a phrase can break anywhere: a date or a countdown that
+  must wrap as one unit goes through `nbsp()` (ui/dom.js), and a translation may hold a no-break
+  space itself ('Hết toàn phần' on the eclipse track, '({n} phút)').
+- **Wording.** One Vietnamese term per concept, applied across vi.json; keep new strings to it:
+  độ cao, phương vị, cấp sao ('cấp' in compact rows), trong chòm {con}, thiên thể được chọn, góc
+  nhìn for the camera and khung nhìn for the 3D view, lượt bay qua, các lần tiếp xúc, khách tinh,
+  phần tử quỹ đạo, 'nhật, nguyệt thực' as the short generic; tab and button names are quoted in
+  running text (“Trên trời”, “Bây giờ”), and 'của bạn' only where it disambiguates.
 - **Choosing.** `#lang=vi|en` (this visit only; the address bar keeps it), then the saved choice
   (pref `lang`, Display → Language · Ngôn ngữ), then `navigator.language` ('vi…' → Vietnamese),
   else English. At boot `main.js` fetches `data/i18n/<code>.json` alongside the UI module and

@@ -1037,10 +1037,9 @@ body.tier-medium:not(.is-coarse) .glass {
     .seg--view .seg__btn { padding: 0 var(--sp-3); }
 }
 
-/* The status stack: a chip per mode under the top bar (and under the Eclipse Companion: --ecl-h,
-   set by ui/eclipse-hud.js), oldest first, then the shortcut flash. */
+/* The status stack: a chip per mode, oldest first, then the shortcut flash; under the top bar, and
+   below the Eclipse Companion (--sy, else --ecl-h) or, on a wide window, beside it (--sx). */
 .status-stack { position: fixed; top: calc(64px + var(--safe-t) + var(--sy, var(--ecl-h, 0px))); left: calc((100vw - var(--panel-w) - var(--gutter) + var(--sx, 0px)) / 2); z-index: 11; display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); max-width: calc(100vw - var(--panel-w) - var(--gutter) * 4 - var(--sx, 0px)); translate: -50% 0; pointer-events: none; }
-/* Wide windows: beside the Eclipse Companion (--sx), not below it (--sy). */
 @media (min-width: 1240px) { .ui[data-layout="desktop"] { --sx: var(--ecl-w); --sy: 0px; } }
 .status-stack > * { pointer-events: auto; }
 .mode { display: flex; align-items: center; gap: var(--sp-2); max-width: 100%; min-height: 40px; padding: var(--sp-1) var(--sp-1) var(--sp-1) var(--sp-3); border-radius: var(--r-pill); }
@@ -1955,8 +1954,7 @@ body.is-vantage #labels-root { visibility: hidden; }
 }
 .ui[data-sheet="peek"] .sheet__body { visibility: hidden; }
 .ui[data-layout="mobile"] .timebar { position: static; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; gap: 0; }
-/* The main row is tight: the date must keep its year ("Wed 11 Nov 2026") at 390 px for every
-   weekday and rate label, so the gaps and the rate floor are small and real time reads "1×". */
+/* The main row is tight: small gaps and rate floor, and real time reads "1×". */
 .ui[data-layout="mobile"] .tb-main { flex-wrap: nowrap; gap: 4px; height: 46px; }
 .ui[data-layout="mobile"] .tb-rate .icon-btn { width: 34px; min-width: 34px; }
 /* Three lines: time and chevron, day, zone (no room for day and zone side by side). */

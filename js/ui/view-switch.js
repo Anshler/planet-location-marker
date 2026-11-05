@@ -51,10 +51,12 @@ export function mountViewSwitch(root, ctx) {
     const segs = [segBtn('orbit', 'globe', 'Globe', 'Globe view', 'V'), segBtn('sky', 'sky', 'Sky', 'Stand here and look up', 'V'),
         segBtn('map', 'map', 'Map', 'The world map', 'M')];
     const seg = h('div', { class: 'seg seg--view glass', role: 'radiogroup', 'aria-label': 'View' }, ...segs);
+    // Its chip goes at once (view.system lasts the fly-back's first half).
+    const leaveSystem = () => { ui.modes?.clear('view'); ui.act('setSystem', false); };
     const setMode = (mode) => {
         const v = st().view;
         // Globe is also the way back from a viewpoint and from the solar system.
-        if (mode === 'orbit' && v?.mode === 'orbit' && v?.system) ui.act('setSystem', false);
+        if (mode === 'orbit' && v?.mode === 'orbit' && v?.system) leaveSystem();
         else if (v?.mode !== mode || (v?.vantage ?? 'none') !== 'none') ui.act('setViewMode', mode);
     };
     offs.push(on(seg, 'click', (e) => {
@@ -81,7 +83,7 @@ export function mountViewSwitch(root, ctx) {
     const vt = () => (view().system ? 'system' : view().vantage ?? 'none');
     const look = (kind, iconName, name, detail) => ({
         kind: 'radio', group: 'Look from', icon: iconName, name, detail, checked: () => vt() === kind,
-        run: () => (kind === 'system' ? ui.act('setSystem', true) : vt() === 'system' ? ui.act('setSystem', false) : ui.act('setVantage', kind)),
+        run: () => (kind === 'system' ? (ui.act('setSystem', true), sync()) : vt() === 'system' ? leaveSystem() : ui.act('setVantage', kind)),
     });
     const reset = { group: 9, icon: 'home', name: 'Reset the view', detail: 'Back to the starting framing', kbd: 'Home', run: () => ui.act('resetCamera') };
     const follow = (kind, name, detail) => ({
@@ -176,7 +178,7 @@ export function mountViewSwitch(root, ctx) {
         toolsBtn.classList.toggle('is-on', busy);
         if (!gl()) return;
         const m = ui.modes;
-        const back = { label: 'Back to the globe', done: 'Back to the globe', run: () => (v.system ? ui.act('setSystem', false) : ui.act('setViewMode', 'orbit')) };
+        const back = { label: 'Back to the globe', done: 'Back to the globe', run: () => (v.system ? leaveSystem() : ui.act('setViewMode', 'orbit')) };
         if (mode === 'orbit' && VANTAGE_CHIP[k]) m.set('view', { icon: VANTAGE_CHIP[k][2], title: VANTAGE_CHIP[k][0], detail: VANTAGE_CHIP[k][1], exit: back });
         else m.clear('view');
         if (mode === 'map') {

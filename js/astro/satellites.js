@@ -27,6 +27,8 @@ import { parseTle, sgp4init, sgp4, gstime, temeToEf, jdOfMs } from './sgp4.js';
 import { discVisibleFraction } from './shadow.js';
 import { AU_KM, EARTH_RADIUS_KM, SUN_RADIUS_KM } from './bodies.js';
 import { m4MulDir } from './frames.js';
+import { t, N_, dec } from '../core/i18n.js';
+import { fmtInt } from '../core/format.js';
 
 const DEG = Math.PI / 180;
 const DAY_MS = 86400000;
@@ -49,18 +51,18 @@ export const PASS_MIN_MS = 60000;
  * NORAD numbers.
  */
 export const SAT_INFO = Object.freeze({
-    iss: { norad: 25544, name: 'ISS', full: 'International Space Station', kindLabel: 'Space station', color: '#9ff0d0', stdMag: -1.8, priority: 86,
-        note: 'Crewed without a break since November 2000; about 109 m across its solar-array truss, the largest thing humans have built in space.' },
-    tiangong: { norad: 48274, name: 'Tiangong', full: 'Tiangong (China Space Station, Tianhe core)', kindLabel: 'Space station', color: '#ffc78f', stdMag: -0.6, priority: 84,
-        note: 'China’s space station: the Tianhe core module (2021) with the Wentian and Mengtian laboratories, crewed since 2021.' },
-    hubble: { norad: 20580, name: 'Hubble', full: 'Hubble Space Telescope', kindLabel: 'Space telescope', color: '#b9c8ff', stdMag: 2.2, priority: 82,
-        note: 'Launched in 1990 and serviced five times by Space Shuttle crews; its 28.5° orbit keeps it below the horizon north of about 50° latitude (and south of 50° S).' },
-    'sl16-22285': { norad: 22285, name: 'Zenit stage (1992)', full: 'SL-16 R/B: a Zenit-2 second stage', kindLabel: 'Rocket body', color: '#d7c3a6', stdMag: 2.3, priority: 64,
-        note: 'An 11 m spent Zenit-2 upper stage, one of the brightest pieces of debris in orbit; it tumbles, so it can flicker.' },
-    'sl16-25407': { norad: 25407, name: 'Zenit stage (1998)', full: 'SL-16 R/B: a Zenit-2 second stage', kindLabel: 'Rocket body', color: '#d7c3a6', stdMag: 2.3, priority: 63,
-        note: 'An 11 m spent Zenit-2 upper stage, left in an 840 km orbit; it tumbles, so it can flicker.' },
-    'sl16-31793': { norad: 31793, name: 'Zenit stage (2007)', full: 'SL-16 R/B: a Zenit-2 second stage', kindLabel: 'Rocket body', color: '#d7c3a6', stdMag: 2.3, priority: 62,
-        note: 'An 11 m spent Zenit-2 upper stage, left in an 840 km orbit; it tumbles, so it can flicker.' },
+    iss: { norad: 25544, name: 'ISS', full: N_('International Space Station'), kindLabel: N_('Space station'), color: '#9ff0d0', stdMag: -1.8, priority: 86,
+        note: N_('Crewed without a break since November 2000; about 109 m across its solar-array truss, the largest thing humans have built in space.') },
+    tiangong: { norad: 48274, name: 'Tiangong', full: N_('Tiangong (China Space Station, Tianhe core)'), kindLabel: N_('Space station'), color: '#ffc78f', stdMag: -0.6, priority: 84,
+        note: N_('China’s space station: the Tianhe core module (2021) with the Wentian and Mengtian laboratories, crewed since 2021.') },
+    hubble: { norad: 20580, name: 'Hubble', full: N_('Hubble Space Telescope'), kindLabel: N_('Space telescope'), color: '#b9c8ff', stdMag: 2.2, priority: 82,
+        note: N_('Launched in 1990 and serviced five times by Space Shuttle crews; its 28.5° orbit keeps it below the horizon north of about 50° latitude (and south of 50° S).') },
+    'sl16-22285': { norad: 22285, name: N_('Zenit stage (1992)'), full: N_('SL-16 R/B: a Zenit-2 second stage'), kindLabel: N_('Rocket body'), color: '#d7c3a6', stdMag: 2.3, priority: 64,
+        note: N_('An 11 m spent Zenit-2 upper stage, one of the brightest pieces of debris in orbit; it tumbles, so it can flicker.') },
+    'sl16-25407': { norad: 25407, name: N_('Zenit stage (1998)'), full: N_('SL-16 R/B: a Zenit-2 second stage'), kindLabel: N_('Rocket body'), color: '#d7c3a6', stdMag: 2.3, priority: 63,
+        note: N_('An 11 m spent Zenit-2 upper stage, left in an 840 km orbit; it tumbles, so it can flicker.') },
+    'sl16-31793': { norad: 31793, name: N_('Zenit stage (2007)'), full: N_('SL-16 R/B: a Zenit-2 second stage'), kindLabel: N_('Rocket body'), color: '#d7c3a6', stdMag: 2.3, priority: 62,
+        note: N_('An 11 m spent Zenit-2 upper stage, left in an 840 km orbit; it tumbles, so it can flicker.') },
 });
 
 /**
@@ -217,13 +219,13 @@ export function lookAt(sat, tMs, obs, out, full = true) {
     const gmst = gstime(jdOfMs(tMs));
     out.gmst = gmst;
     temeToEf(_teme, gmst, out.ef);
-    const t = out.topo, e = out.ef;
-    t[0] = e[0] - obs.ef[0]; t[1] = e[1] - obs.ef[1]; t[2] = e[2] - obs.ef[2];
-    const range = Math.hypot(t[0], t[1], t[2]);
+    const tp = out.topo, e = out.ef;
+    tp[0] = e[0] - obs.ef[0]; tp[1] = e[1] - obs.ef[1]; tp[2] = e[2] - obs.ef[2];
+    const range = Math.hypot(tp[0], tp[1], tp[2]);
     out.rangeKm = range;
-    const u = (t[0] * obs.up[0] + t[1] * obs.up[1] + t[2] * obs.up[2]) / range;
-    const n = t[0] * obs.north[0] + t[1] * obs.north[1] + t[2] * obs.north[2];
-    const ea = t[0] * obs.east[0] + t[1] * obs.east[1] + t[2] * obs.east[2];
+    const u = (tp[0] * obs.up[0] + tp[1] * obs.up[1] + tp[2] * obs.up[2]) / range;
+    const n = tp[0] * obs.north[0] + tp[1] * obs.north[1] + tp[2] * obs.north[2];
+    const ea = tp[0] * obs.east[0] + tp[1] * obs.east[1] + tp[2] * obs.east[2];
     out.altDeg = Math.asin(Math.max(-1, Math.min(1, u))) / DEG;
     let az = Math.atan2(ea, n) / DEG;
     if (az < 0) az += 360;
@@ -248,7 +250,7 @@ export function lookAt(sat, tMs, obs, out, full = true) {
     const s = out.sun;
     out.sunAltDeg = Math.asin(Math.max(-1, Math.min(1, s[0] * obs.up[0] + s[1] * obs.up[1] + s[2] * obs.up[2]))) / DEG;
     out.lit = sunlitFraction(e, s, sunAU);
-    out.cosPhase = -(s[0] * t[0] + s[1] * t[1] + s[2] * t[2]) / range;
+    out.cosPhase = -(s[0] * tp[0] + s[1] * tp[1] + s[2] * tp[2]) / range;
     out.mag = satMagnitude(sat.stdMag, range, out.cosPhase, out.lit);
     return true;
 }
@@ -272,10 +274,10 @@ const _ef = new Float64Array(3);
 export function groundTrack(sat, centerMs, spanMs, n, radius, outPos, outMin) {
     let ok = 0;
     for (let k = 0; k < n; k++) {
-        const t = centerMs + spanMs * (2 * k / (n - 1) - 1);
-        outMin[k] = (t - centerMs) / 60000;
-        if (sgp4(sat.rec, (t - sat.epochMs) / 60000, _teme) === null) {
-            temeToEf(_teme, gstime(jdOfMs(t)), _ef);
+        const ms = centerMs + spanMs * (2 * k / (n - 1) - 1);
+        outMin[k] = (ms - centerMs) / 60000;
+        if (sgp4(sat.rec, (ms - sat.epochMs) / 60000, _teme) === null) {
+            temeToEf(_teme, gstime(jdOfMs(ms)), _ef);
             const s = radius / Math.hypot(_ef[0], _ef[1], _ef[2]);
             outPos[k * 3] = _ef[0] * s;
             outPos[k * 3 + 1] = _ef[2] * s;
@@ -355,7 +357,7 @@ export function createSatProvider(sats, { json = null } = {}) {
 
     return {
         kind: 'sat',
-        kindLabel: 'Satellite',
+        kindLabel: N_('Satellite'),
         // Earth satellites: their geometry is from Earth, so they are not present from Mars.
         host: 'earth',
         ids: () => ids,
@@ -376,24 +378,32 @@ export function createSatProvider(sats, { json = null } = {}) {
             if (!s || !D?.ok) return null;
             const L = D.look;
             const age = D.ageDays;
-            const ageText = `${Math.abs(age) < 1 ? `${Math.round(Math.abs(age) * 24)} h` : `${Math.abs(age).toFixed(1)} days`} ${age < 0 ? 'before' : 'old'}`;
-            const lat = `${Math.abs(L.latDeg).toFixed(1)}° ${L.latDeg >= 0 ? 'N' : 'S'}`;
-            const lon = `${Math.abs(L.lonDeg).toFixed(1)}° ${L.lonDeg >= 0 ? 'E' : 'W'}`;
-            const lit = L.lit >= 0.999 ? 'In sunlight' : L.lit <= 0.001 ? 'In the Earth’s shadow: dark' : `Entering or leaving the Earth’s shadow (${Math.round(L.lit * 100)} % of the Sun)`;
+            const hrs = Math.abs(age) < 1, n = hrs ? Math.round(Math.abs(age) * 24) : dec(Math.abs(age), 1);
+            const ageText = age < 0 ? (hrs ? t('{n} h before', { n }) : t('{n} days before', { n })) : hrs ? t('{n} h old', { n }) : t('{n} days old', { n });
+            const lat = `${dec(Math.abs(L.latDeg), 1)}° ${L.latDeg >= 0 ? t('N') : t('S')}`;
+            const lon = `${dec(Math.abs(L.lonDeg), 1)}° ${L.lonDeg >= 0 ? t('E') : t('W')}`;
+            const pct = Math.round(L.lit * 100);
+            const lit = L.lit >= 0.999 ? (st.above ? t('In sunlight now.') : t('In sunlight now, below your horizon.'))
+                : L.lit <= 0.001 ? (st.above ? t('In the Earth’s shadow: dark now.') : t('In the Earth’s shadow: dark now, below your horizon.'))
+                    : st.above ? t('Entering or leaving the Earth’s shadow ({pct} % of the Sun) now.', { pct })
+                        : t('Entering or leaving the Earth’s shadow ({pct} % of the Sun) now, below your horizon.', { pct });
+            const cv = { age: ageText, days: TLE_VALID_DAYS };
             return {
-                kindLabel: s.kindLabel,
-                subtitle: `${s.full} · NORAD ${s.norad}`,
+                kindLabel: t(s.kindLabel),
+                subtitle: `${t(s.full)} · NORAD ${s.norad}`,
                 lines: [
-                    `${Math.round(L.heightKm)} km up, moving at ${L.speedKmS.toFixed(2)} km/s: once around the Earth every ${Math.round(s.periodMin)} min.`,
-                    `${lit} now${st.above ? '' : ', below your horizon'}.`,
-                    s.note,
+                    t('{km} km up, moving at {v} km/s: once around the Earth every {min} min.', { km: fmtInt(L.heightKm), v: dec(L.speedKmS, 2), min: Math.round(s.periodMin) }),
+                    lit,
+                    t(s.note),
                 ],
                 facts: [
-                    ['Distance', `${Math.round(L.rangeKm).toLocaleString('en-US')} km`],
-                    ['Below it', `${lat}, ${lon}`],
-                    ['Orbital elements', `${new Date(s.epochMs).toISOString().slice(0, 16).replace('T', ' ')} UTC · ${ageText}`],
+                    [t('Distance'), t('{km} km', { km: fmtInt(L.rangeKm) })],
+                    [t('Below it'), t('{lat}, {lon}', { lat, lon })],
+                    [t('Orbital elements'), `${new Date(s.epochMs).toISOString().slice(0, 16).replace('T', ' ')} UTC · ${ageText}`],
                 ],
-                caveat: `Positions from orbital elements ${ageText}: they drift by a few km a day (more after a reboost), so times can be off by tens of seconds${st.approx ? ' — these are past their best' : ''}. Not shown more than ${TLE_VALID_DAYS} days from the elements. Brightness is approximate (attitude and panel glints change it).`,
+                caveat: st.approx
+                    ? t('Positions from orbital elements {age}: they drift by a few km a day (more after a reboost), so times can be off by tens of seconds — these are past their best. Not shown more than {days} days from the elements. Brightness is approximate (attitude and panel glints change it).', cv)
+                    : t('Positions from orbital elements {age}: they drift by a few km a day (more after a reboost), so times can be off by tens of seconds. Not shown more than {days} days from the elements. Brightness is approximate (attitude and panel glints change it).', cv),
                 sources: ['CelesTrak GP element sets (data/tle.json)', 'SGP4 (Vallado et al., AIAA 2006-6753)'],
             };
         },
@@ -445,14 +455,14 @@ export function satellitePasses(sat, observer, fromMs, toMs, { max = 40 } = {}) 
     const hi = Math.min(toMs, sat.epochMs + TLE_VALID_DAYS * DAY_MS);
     const out = [];
     if (!(hi > lo)) return out;
-    const altAt = (t) => (lookAt(sat, t, obs, L, false) ? L.altDeg : -90);
-    const up = (t) => altAt(t) >= 0;
-    const vis = (t) => lookAt(sat, t, obs, L, true) && visibleLook(L);
+    const altAt = (ms) => (lookAt(sat, ms, obs, L, false) ? L.altDeg : -90);
+    const up = (ms) => altAt(ms) >= 0;
+    const vis = (ms) => lookAt(sat, ms, obs, L, true) && visibleLook(L);
     let t0 = lo;
     let a0 = up(t0);
     let riseMs = a0 ? lo : NaN;
-    for (let t = lo + COARSE_MS; t <= hi + COARSE_MS && out.length < max; t += COARSE_MS) {
-        const t1 = Math.min(t, hi);
+    for (let ms = lo + COARSE_MS; ms <= hi + COARSE_MS && out.length < max; ms += COARSE_MS) {
+        const t1 = Math.min(ms, hi);
         const a1 = up(t1);
         if (!a0 && a1) riseMs = bisect(t0, t1, false, up);
         if (a0 && (!a1 || t1 >= hi)) {
@@ -472,10 +482,10 @@ export function satellitePasses(sat, observer, fromMs, toMs, { max = 40 } = {}) 
 function analysePass(sat, riseMs, setMs, vis, L, obs) {
     if (!(setMs > riseMs)) return null;
     let first = NaN, last = NaN;
-    for (let t = riseMs; t <= setMs; t += FINE_MS) {
-        if (vis(t)) {
-            if (!Number.isFinite(first)) first = t;
-            last = t;
+    for (let ms = riseMs; ms <= setMs; ms += FINE_MS) {
+        if (vis(ms)) {
+            if (!Number.isFinite(first)) first = ms;
+            last = ms;
         }
     }
     if (!Number.isFinite(first)) return null;
@@ -483,7 +493,7 @@ function analysePass(sat, riseMs, setMs, vis, L, obs) {
     const endMs = last < setMs ? bisect(last, Math.min(setMs, last + FINE_MS), true, vis) : last;
     if (endMs - startMs < PASS_MIN_MS) return null;
     // Highest point of the visible part (golden-section on altitude; passes are unimodal).
-    const alt = (t) => (lookAt(sat, t, obs, L, false) ? L.altDeg : -90);
+    const alt = (ms) => (lookAt(sat, ms, obs, L, false) ? L.altDeg : -90);
     let a = startMs, b = endMs;
     const g = (Math.sqrt(5) - 1) / 2;
     let c = b - g * (b - a), d = a + g * (b - a);
@@ -496,8 +506,8 @@ function analysePass(sat, riseMs, setMs, vis, L, obs) {
     if (alt(endMs) > alt(peakMs)) peakMs = endMs;
     // Brightest along the visible part.
     let mag = Infinity;
-    for (let t = startMs; t <= endMs; t += FINE_MS) if (lookAt(sat, t, obs, L, true) && L.mag < mag) mag = L.mag;
-    const at = (t) => { lookAt(sat, t, obs, L, true); return { alt: L.altDeg, az: L.azDeg, lit: L.lit, sunAlt: L.sunAltDeg, mag: L.mag }; };
+    for (let ms = startMs; ms <= endMs; ms += FINE_MS) if (lookAt(sat, ms, obs, L, true) && L.mag < mag) mag = L.mag;
+    const at = (ms) => { lookAt(sat, ms, obs, L, true); return { alt: L.altDeg, az: L.azDeg, lit: L.lit, sunAlt: L.sunAltDeg, mag: L.mag }; };
     const s = at(startMs), p = at(peakMs), e = at(endMs);
     if (lookAt(sat, peakMs, obs, L, true) && L.mag < mag) mag = L.mag;
     const how = (x) => (x.alt <= PASS_MIN_ALT_DEG + 0.3 ? 'rim' : x.lit < PASS_MIN_LIT + 0.05 ? 'shadow' : 'twilight');

@@ -226,7 +226,7 @@ export function mountBodyCard(root, ctx) {
         card.style.setProperty('--c', m?.color ?? 'var(--accent)');
         nameEl.replaceChildren(h('span', { class: 'dot dot--lg', 'aria-hidden': 'true' }), m?.name ?? id);
         drawExtraGlyph(disc, m?.color ?? '#cfe0ff', m?.kind ?? '');
-        disc.setAttribute('aria-label', m?.kindLabel ?? '');
+        disc.setAttribute('aria-label', t(m?.kindLabel ?? ''));
         xBox.hidden = false;
         xLines.hidden = false;
         for (const k of ['phase', 'elong', 'size', 'date', 'sub']) facts[k].el.hidden = true;
@@ -299,7 +299,7 @@ export function mountBodyCard(root, ctx) {
         const name = m?.name ?? id;
         passBox.update(id, snap);
         if (!st) {
-            setText(kindEl, m ? `${m.kindLabel || ''}` : t('Loading…'));
+            setText(kindEl, m ? t(m.kindLabel || '') : t('Loading…'));
             const mars = !!ui.onMars?.();
             setText(sentence, !m ? t('Its data is still loading.') : m.kind === 'sat' && mars
                 ? t('Earth satellites are seen from the Earth: use Back to Earth to follow {name}.', { name })
@@ -322,7 +322,7 @@ export function mountBodyCard(root, ctx) {
         morePos.hidden = false;
         const sky = extraSky(st);
         const con = sky.constellation?.name || '';
-        setText(kindEl, info?.kindLabel || m?.kindLabel || '');
+        setText(kindEl, info?.kindLabel || t(m?.kindLabel || ''));
         const { alt, az } = ui.altAz(st);
         let sent = Number.isFinite(alt) ? positionText(name, !!st.above, alt, ui.compassWords(az), con) : '';
         if (info?.subtitle) sent = `${info.subtitle}. ${sent}`;

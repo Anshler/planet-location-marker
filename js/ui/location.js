@@ -247,7 +247,7 @@ export function mountLocation(root, ctx) {
         for (const id of ex?.ids?.() ?? []) {
             const m = ex.meta(id);
             if (!m || m.kind === 'star' || (m.kind === 'moon' && !mars) || (m.kind === 'sat' && mars)) continue;
-            out.push({ id, name: m.name, also: m.short !== m.name ? m.short : '', kind: m.kind, label: m.kindLabel || '' });
+            out.push({ id, name: m.name, also: m.short !== m.name ? m.short : '', kind: m.kind, label: t(m.kindLabel || '') });
         }
         for (const st of starNames ?? []) out.push({ id: `star:${st.hip}`, name: st.name, kind: 'star', label: t('Star'), dir: st.dirS });
         skyIndex = out;

@@ -34,7 +34,7 @@ import { mountIntroCaption } from './intro-caption.js';
 import { mountCoach } from './coach.js';
 import { toCalendar, fromCalendar } from '../core/tz.js';
 import { isExtraId } from '../core/selection.js';
-import { t, N_, dateText, timeText } from '../core/i18n.js';
+import { t, N_, dateText, timeText, intl, locale } from '../core/i18n.js';
 import { placeName } from '../core/format.js';
 
 const HOUR = 3600e3;
@@ -307,7 +307,7 @@ function createUiHub(ctx, rootEl) {
     function placeLabel(o, { country = true } = {}) {
         if (!o) return '';
         const name = placeName(String(o.name || '').trim());
-        const ctry = String(o.country || '').trim();
+        const ctry = countryText(o);
         if (name) {
             if (country && ctry && !name.toLowerCase().includes(ctry.toLowerCase())) return `${name}, ${ctry}`;
             return name;
@@ -315,6 +315,15 @@ function createUiHub(ctx, rootEl) {
         const near = nearestCityText(o.latDeg, o.lonDeg);
         if (near) return t('near {place}', { place: near });
         return latLonText(o.latDeg, o.lonDeg, 2);
+    }
+
+    /** An observer's country: the data's English name, or the locale's own from its ISO code ('Việt Nam'). */
+    function countryText(o) {
+        let name = '';
+        if (o?.cc && locale() !== 'en') {
+            try { name = intl(Intl.DisplayNames, { type: 'region' }).of(o.cc) || ''; } catch { name = ''; }
+        }
+        return name || String(o?.country || '').trim();
     }
 
     /** Short place name for the clock's zone and summaries ("Hanoi"). */

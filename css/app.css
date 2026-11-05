@@ -1380,7 +1380,7 @@ button.ev > svg { color: var(--muted); }
 .evg { display: block; }
 .ev__cal { width: 30px; padding: 0; color: var(--text-2); }
 body.is-coarse .ev__cal { width: 44px; height: 44px; }
-.ev-bundle { margin: 12px 0 2px; }
+.ev-bundle { margin: 12px 0 2px; max-width: 100%; height: auto; min-height: 28px; padding-block: 6px; white-space: normal; text-align: left; line-height: 1.25; }
 
 /* 14 ─ Explore and Display ---------------------------------------------------------------- */
 .moments__all { margin: -6px 0 18px; }

@@ -103,9 +103,9 @@ function riseSetText(ui, id, up, now) {
 export function downText(ui, rs, now) {
     if (rs.nextRiseMs != null) {
         const d = rs.nextRiseMs - now;
-        const rel = ui.fmt('fmtRelative', rs.nextRiseMs, now);
-        if (rel !== '—' && Math.abs(d) < 30e3) return t('rising now');
-        if (rel !== '—' && d > 0) return t('rises {when}', { when: rel });
+        const dur = ui.fmt('fmtDuration', d);
+        if (dur !== '—' && Math.abs(d) < 30e3) return t('rising now');
+        if (dur !== '—' && d > 0) return t('rises in {time}', { time: dur });
     }
     return rs.status === 'never' ? t('stays down') : t('below horizon');
 }

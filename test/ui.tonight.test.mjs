@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { nightWindow, seriesAlt, ribbonAlpha } from '../js/ui/tonight.js';
 import { downText } from '../js/ui/sky-now.js';
 import { tonight } from '../js/astro/almanac.js';
-import { fmtRelative } from '../js/core/format.js';
+import { fmtDuration } from '../js/core/format.js';
 
 const HOUR = 3600e3;
 const PARIS = { latDeg: 48.8566, lonDeg: 2.3522, elevM: 35, tz: 'Europe/Paris' };
@@ -56,7 +56,7 @@ test('ribbonAlpha: clear below the horizon, brighter the higher, faint by day', 
 });
 
 test('downText: a countdown to the rise instead of repeating "below horizon"', () => {
-    const ui = { fmt: (name, ...a) => (name === 'fmtRelative' ? fmtRelative(...a) : '—') };
+    const ui = { fmt: (name, ...a) => (name === 'fmtDuration' ? fmtDuration(...a) : '—') };
     const t = Date.parse('2026-11-04T20:30:00Z');
     assert.equal(downText(ui, { nextRiseMs: t + 3 * HOUR + 36 * 60e3, status: 'normal' }, t), 'rises in 3 h 36 min');
     assert.equal(downText(ui, { nextRiseMs: t + 10e3, status: 'normal' }, t), 'rising now');

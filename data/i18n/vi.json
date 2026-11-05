@@ -769,7 +769,7 @@
 "online place search": "tìm địa điểm trực tuyến",
 "orbital elements of the ISS, Tiangong, Hubble and bright rocket bodies (refreshed with each deploy; SGP4 after Vallado et al. 2006)": "tham số quỹ đạo của ISS, Tiangong, Hubble và các tầng tên lửa sáng (cập nhật mỗi lần triển khai; SGP4 theo Vallado và cộng sự 2006)",
 "r170 · 3D rendering": "r170 · dựng hình 3D",
-"rises {when}": "mọc trong {when}",
+"rises in {time}": "mọc sau {time}",
 "rising now": "đang mọc",
 "south": "nam",
 "south-east": "đông nam",

@@ -294,7 +294,10 @@ function createUiHub(ctx, rootEl) {
         if (!cities?.nearest) return null;
         try {
             const r = cities.nearest(lat, lon);
-            if (r && r.city && r.km <= 300) return r.city.country ? `${r.city.name}, ${r.city.country}` : r.city.name;
+            if (r && r.city && r.km <= 300) {
+                const ctry = countryText(r.city);
+                return ctry ? `${r.city.name}, ${ctry}` : r.city.name;
+            }
         } catch { /* ignore */ }
         return null;
     }
@@ -317,13 +320,24 @@ function createUiHub(ctx, rootEl) {
         return latLonText(o.latDeg, o.lonDeg, 2);
     }
 
-    /** An observer's country: the data's English name, or the locale's own from its ISO code ('Việt Nam'). */
+    /**
+     * An observer's country: the data's English name, or the locale's own from its ISO code
+     * ('Việt Nam'). Without a code (the default observer, older links and prefs) the code is looked
+     * up from the English name in the offline city list's countries.
+     */
     function countryText(o) {
-        let name = '';
-        if (o?.cc && locale() !== 'en') {
-            try { name = intl(Intl.DisplayNames, { type: 'region' }).of(o.cc) || ''; } catch { name = ''; }
+        const en = String(o?.country || '').trim();
+        if (locale() === 'en') return en;
+        let cc = o?.cc || '';
+        if (!cc && en) {
+            const all = services.cities?.countries || {};
+            for (const k in all) if (all[k] === en) { cc = k; break; }
         }
-        return name || String(o?.country || '').trim();
+        let name = '';
+        if (cc) {
+            try { name = intl(Intl.DisplayNames, { type: 'region' }).of(cc) || ''; } catch { name = ''; }
+        }
+        return name || en;
     }
 
     /** Short place name for the clock's zone and summaries ("Hanoi"). */

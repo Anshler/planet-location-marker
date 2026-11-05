@@ -36,6 +36,8 @@ import { twilightClass } from './photometry.js';
 import { computeGalilean } from './moons.js';
 import { NO_GAP } from './totality.js';
 import { MARS_RADIUS_KM, DEFAULT_MARS_SITE, createMarsTime, marsTimeTT, marsSiteNear } from './mars-clock.js';
+import { t, N_, dec } from '../core/i18n.js';
+import { fmtInt } from '../core/format.js';
 
 /** The BODIES slot that holds the Earth when the observer stands on Mars. */
 export const EARTH_SLOT = BODY_INDEX.mars;
@@ -388,10 +390,10 @@ function fillMoon(el, m, ttDays, o, sun) {
 }
 
 const MOON_FACTS = Object.freeze({
-    phobos: { color: '#d9c3a8', size: '27 × 22 × 18 km', period: '7 h 39 min',
-        note: 'It orbits faster than Mars turns, so it rises in the west and sets in the east, twice a sol.' },
-    deimos: { color: '#cdbfae', size: '15 × 12 × 11 km', period: '30 h 18 min',
-        note: 'It orbits just slower than Mars turns: it rises in the east and takes about 2.5 sols to cross the sky.' },
+    phobos: { color: '#d9c3a8', size: '27 × 22 × 18 km', h: 7, min: 39,
+        note: N_('It orbits faster than Mars turns, so it rises in the west and sets in the east, twice a sol.') },
+    deimos: { color: '#cdbfae', size: '15 × 12 × 11 km', h: 30, min: 18,
+        note: N_('It orbits just slower than Mars turns: it rises in the east and takes about 2.5 sols to cross the sky.') },
 });
 
 /**
@@ -404,7 +406,7 @@ export function createMarsMoonsProvider() {
     const index = new Map(MARS_MOONS.map((m, k) => [`moon:${m.id}`, k]));
     return {
         kind: 'moon',
-        kindLabel: 'Moon of Mars',
+        kindLabel: N_('Moon of Mars'),
         host: 'mars',
         ids: () => ids,
         meta(id) {
@@ -428,20 +430,20 @@ export function createMarsMoonsProvider() {
             const ms = snap && snap.mars && k !== undefined ? snap.mars.moons[k] : null;
             if (!ms) return null;
             const m = MARS_MOONS[k], f = MOON_FACTS[m.id];
-            const lines = [f.note];
-            if (ms.eclipsed) lines.push('It is in Mars’s shadow now: eclipsed.');
+            const lines = [t(f.note)];
+            if (ms.eclipsed) lines.push(t('It is in Mars’s shadow now: eclipsed.'));
             return {
-                kindLabel: 'Moon of Mars',
-                subtitle: `${Math.round(ms.distKm).toLocaleString('en-US')} km away · ${Math.round(ms.phaseFrac * 100)}% lit`,
+                kindLabel: t('Moon of Mars'),
+                subtitle: t('{km} km away · {pct}% lit', { km: fmtInt(ms.distKm), pct: Math.round(ms.phaseFrac * 100) }),
                 lines,
                 facts: [
-                    ['Size', f.size],
-                    ['Orbit', `${m.aKm.toLocaleString('en-US')} km from Mars’s centre`],
-                    ['Period', f.period],
-                    ['Apparent size', `${(ms.angDiamArcsec / 60).toFixed(1)}′`],
-                    ['Magnitude', ms.eclipsed ? 'eclipsed' : ms.mag.toFixed(1)],
+                    [t('Size'), f.size],
+                    [t('Orbit'), t('{km} km from Mars’s centre', { km: fmtInt(m.aKm) })],
+                    [t('Period'), t('{h} h {m} min', { h: f.h, m: f.min })],
+                    [t('Apparent size'), `${dec(ms.angDiamArcsec / 60, 1)}′`],
+                    [t('Magnitude'), ms.eclipsed ? t('eclipsed') : dec(ms.mag, 1)],
                 ],
-                caveat: 'From mean orbital elements (JPL): its place is good to about a degree.',
+                caveat: t('From mean orbital elements (JPL): its place is good to about a degree.'),
                 sources: ['Brozović, Jacobson & Park 2025 (JPL MAR099 mean elements)', 'Jacobson 2010, AJ 139, 668'],
             };
         },

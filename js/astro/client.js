@@ -6,14 +6,18 @@
  * one call per setTimeout(0) tick so the page stays responsive.
  *
  * The worker is created lazily on the first call, so it never competes with
- * the critical boot path.
+ * the critical boot path. Its first message is the interface's locale and string table
+ * (core/i18n.js; the locale only changes by a reload), so worker-side t() speaks it too.
  *
  * @module astro/client
  */
 
+import { locale, strings } from '../core/i18n.js';
+
 /**
  * @typedef {{
  *   call: (op:string, args?:object, opts?:{signal?:AbortSignal}) => Promise<any>,
+ *   eclipsePath: (peakMs:number, opts?:{cities?:ArrayLike<object>, n?:number, stepS?:number, signal?:AbortSignal}) => Promise<any>,
  *   dispose: () => void,
  *   readonly mode: 'idle'|'worker'|'fallback'|'disposed'
  * }} AstroClient
@@ -98,6 +102,8 @@ export function createAstroClient(options = {}) {
             return;
         }
         mode = 'worker';
+        // id 0 is never pending: the reply is dropped.
+        if (strings()) worker.postMessage({ id: 0, op: 'locale', args: { code: locale(), table: strings() } });
         worker.addEventListener('message', onMessage);
         worker.addEventListener('error', switchToFallback);
         worker.addEventListener('messageerror', switchToFallback);
@@ -162,6 +168,33 @@ export function createAstroClient(options = {}) {
         });
     }
 
+    /**
+     * The path of the central solar eclipse near `peakMs` (eclipse-path.js `eclipsePath`), or null.
+     * With `cities` (Place-like {lat, lon, pop} records, e.g. the offline index's `list`), the
+     * result's `cities` lists the largest `n` inside the band, each with its record as `city`.
+     * The list goes over as packed numbers, so it costs no structured clone of the records.
+     * @param {number} peakMs
+     * @param {{cities?:ArrayLike<{lat:number, lon:number, pop?:number}>, n?:number, stepS?:number,
+     *          signal?:AbortSignal}} [opts]
+     * @returns {Promise<any>}
+     */
+    async function eclipsePath(peakMs, { cities, n, stepS, signal } = {}) {
+        const list = cities && cities.length ? cities : null;
+        let packed;
+        if (list) {
+            packed = new Float64Array(list.length * 3);
+            for (let i = 0; i < list.length; i++) {
+                const c = list[i];
+                packed[3 * i] = Number(c?.lat);
+                packed[3 * i + 1] = Number(c?.lon);
+                packed[3 * i + 2] = Number(c?.pop) || 0;
+            }
+        }
+        const res = await call('eclipsePath', { peakMs, stepS, cities: packed, nCities: n }, { signal });
+        if (res && list && Array.isArray(res.cities)) res.cities = res.cities.map((c) => ({ ...c, city: list[c.index] ?? null }));
+        return res;
+    }
+
     /** Terminates the worker and rejects every pending call with an AbortError. */
     function dispose() {
         if (mode === 'disposed') return;
@@ -185,6 +218,7 @@ export function createAstroClient(options = {}) {
 
     return {
         call,
+        eclipsePath,
         dispose,
         get mode() {
             return mode;

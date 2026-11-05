@@ -16,8 +16,10 @@ npm start                     # node scripts/serve.mjs → http://localhost:8080
 npm test                      # node --test "test/**/*.test.mjs" (zero dependencies)
 npm run smoke                 # headless Chrome, every non-local host blocked, SPEC §H assertions
 npm run size                  # transfer budgets per quality tier
+npm run preload               # regenerate index.html's boot modulepreload lists (scripts/lib/modgraph.mjs)
 npm run vendor                # re-fetch pinned vendor files, verify sha256 (vendor/VENDOR.json)
 npm run data                  # rebuild data/sky.json, data/milkyway.png, data/cities.json from data/raw
+npm run textures              # re-encode the derived 2k textures in headless Chrome (vendor/DERIVED.json; --check in CI)
 ```
 
 - Node 22+ is needed for the tooling only.
@@ -49,7 +51,8 @@ before larger changes.
 index.html      import map (three → vendor/three), inline loader, feature detection, error capture
 js/main.js      composition root: boot order, wiring, store→module subscriptions, window.__app
 js/app/         actions (the UI's only API) · loop (render-on-demand) · labels-feed · intro · fallback
-js/core/        store · bus · clock · url-state · quality (tiers, governor) · prefs · tz · format   [pure]
+js/core/        store · bus · clock · url-state · quality (tiers, governor) · prefs · tz · format ·
+                i18n (t/tn/N_, Intl)                                                               [pure]
 js/geo/         cities (offline) · geocode (online, optional) · coords                            [pure]
 js/astro/       ae (astronomy-engine) · bodies · frames · snapshot · almanac · events · paths ·
                 shadow · photometry · worker + client                                              [pure]
@@ -57,7 +60,9 @@ js/data/        catalog (sky.json decoder)                                      
 js/render/      context · postfx · textures · earth · atmosphere · sky · bodies · ground · beams ·
                 pin · labels · trails · flare · debug        (three.js; loaded with dynamic import)
 js/camera/      rig (orbit / sky view / Earth-lock / fly-to) · picking
-js/ui/          DOM interface; talks to the app only via store, clock, actions
+js/ui/          DOM interface; talks to the app only via store, clock, actions. Toolbar
+                (Globe|Sky|Map · Tools · Share · ⋯), tabs Up now · Details · Events · Explore · Display
+data/i18n/      locale tables keyed by the English text (vi.json), fetched only when active
 ```
 
 **Hard rules (tests enforce them):**
@@ -79,6 +84,13 @@ js/ui/          DOM interface; talks to the app only via store, clock, actions
   `Float64Array(9)` matrices. three.js gets column-major `Float64Array(16)`.
 - **Clean console.** A healthy boot logs a single `console.info`. The smoke test fails on console
   errors.
+- **User-visible strings.** Every on-screen string, aria-label, tooltip, toast and announcement goes
+  through `t('English text', {vars})` (or `tn` for counts) from `js/core/i18n.js` as one whole
+  phrase with `{placeholders}`, never built from fragments. Module-level tables mark their strings
+  with `N_()` and translate where shown. Add the Vietnamese to `data/i18n/vi.json`:
+  `test/repo.i18n.test.mjs` fails on missing, stale or placeholder-mismatched keys. Machine formats
+  (URL hash, .ics structure, diagnostics) stay unlocalized. Strings built in the astro worker use
+  the table the client posts to it.
 
 **Key concepts:**
 
@@ -99,19 +111,27 @@ js/ui/          DOM interface; talks to the app only via store, clock, actions
   - **Governor.** The governor samples consecutive rendered frames only.
 - **Render modules** implement `{object3d, apply(snap), update(fi), setLayers, setViewMode,
   setSelection, setQuality, dispose}`. `main.js` adds them to the scene, and they never add
-  themselves. Add a new one in `importRenderStack()` and the `create(...)` list in `main.js`.
-- **State.** `store` holds observer, selection, view, layers, display, quality, ui and status.
+  themselves. Add a new one in `importRenderStack()` and the `create(...)` list in `main.js`, then
+  run `npm run preload` (index.html preloads the boot graph; a repo test checks the list).
+- **State.** `store` holds observer, observer2 (the second place, `loc2=`), host (Earth or Mars),
+  selection, view, layers, display, quality, ui and status.
   `clock` owns simulated time (Live, the rate ladder, tweens, range loops, clamped to 1000–3000).
   The URL hash mirrors both (`core/url-state.js`, throttled `replaceState`).
 - **Observer chain at boot.** URL hash, then saved prefs, then the largest city in the device
   timezone (canonical `byTz`), then Greenwich. Clicked points take the timezone and name of the
   nearest city within 300 km, otherwise an approximate `Etc/GMT±n` zone.
-- **Quality.** There are three tiers (low, medium and high) and a downgrade-only governor (DPR
-  first, then tier). Tiers switch in place: `rc.setTier`, then each module's `setQuality`, then the
-  tier's textures.
+- **Quality.** There are three automatic tiers (low, medium and high) and a downgrade-only governor
+  (DPR first, then tier), plus a manual `max` tier with no size budget (8K maps, every knob at full;
+  never auto-picked, never governed). Heavy assets and effects belong on max. Tiers switch in place
+  and in stages (`js/app/tier-switch.js`): pause drawing, stage each module's `setQuality` and the
+  post chain, compile against the target they will draw into while the new maps upload, then
+  commit the DPR and drawing buffer and resume, so no frame pays a synchronous compile.
 - **Failure handling.**
   - No WebGL2 or no import maps gives text mode with a banner.
-  - Context loss pauses rendering behind an overlay, then restores.
+  - Context loss pauses rendering behind an overlay, then restores without WebGL warnings,
+    re-fetching the current tier's maps. A second loss within 60 s steps down a tier for the
+    session (remembered in sessionStorage for the next boot); a third falls back to text mode
+    with Retry.
   - Missing textures or catalog keep placeholders and show a toast.
   - Boot errors end on the inline loader's error panel, never a blank page.
 

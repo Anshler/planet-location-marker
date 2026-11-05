@@ -6,26 +6,29 @@
  * meaning. Arrow keys and +/− belong to the camera rig and are not handled here;
  * Backquote calls `actions.toggleDebug()` when the app provides it.
  *
- * Every change also flashes a short visual confirmation ("Beams off").
+ * Every change also flashes a short visual confirmation ("Beams off"). Esc, after the menus,
+ * dialogs and tours that take it first: Search, Help, a text field, the hidden interface, the
+ * newest mode chip (ui/modes.js exitTop), then the selection.
  *
  * @module ui/shortcuts
  */
 
 import { BODIES } from '../astro/bodies.js';
 import { LAYER_GROUPS } from './layers.js';
+import { t, N_ } from '../core/i18n.js';
 
 const LAYER_LABEL = Object.fromEntries(LAYER_GROUPS.flatMap((g) => g.items.map(([k, l]) => [k, l])));
 const bound = new WeakMap();
-const STEP_LABEL = { hour: '1 hour', day: '1 day', siderealDay: '1 sidereal day' };
+const STEP_LABEL = { hour: N_('1 hour'), day: N_('1 day'), siderealDay: N_('1 sidereal day') };
 
 /** True when the event target is a text-entry control. */
-function isTyping(t) {
-    if (!t || !(t instanceof Element)) return false;
-    if (/** @type {HTMLElement} */ (t).isContentEditable) return true;
-    const tag = t.tagName;
+function isTyping(el) {
+    if (!el || !(el instanceof Element)) return false;
+    if (/** @type {HTMLElement} */ (el).isContentEditable) return true;
+    const tag = el.tagName;
     if (tag === 'TEXTAREA' || tag === 'SELECT') return true;
     if (tag !== 'INPUT') return false;
-    const type = (t.getAttribute('type') || 'text').toLowerCase();
+    const type = (el.getAttribute('type') || 'text').toLowerCase();
     return !['checkbox', 'radio', 'button', 'submit', 'reset', 'range', 'color', 'file', 'image'].includes(type);
 }
 
@@ -43,7 +46,8 @@ export function bindShortcuts(ctx) {
 
     function toggleLayer(key) {
         const on = !store.get().layers?.[key];
-        const text = `${LAYER_LABEL[key] || key} ${on ? 'on' : 'off'}`;
+        const layer = LAYER_LABEL[key] ? t(LAYER_LABEL[key]) : key;
+        const text = on ? t('{layer} on', { layer }) : t('{layer} off', { layer });
         // actions.toggleLayer announces the change itself; announce only on the fallback path.
         if (typeof ctx.actions?.toggleLayer === 'function') act('toggleLayer', key, on);
         else { store.set({ layers: { ...store.get().layers, [key]: on } }); ctx.bus?.emit?.('announce', text); }
@@ -57,6 +61,7 @@ export function bindShortcuts(ctx) {
         if (st.ui?.help) { ui?.toggleHelp?.(false); e.preventDefault(); return; }
         if (isTyping(e.target)) { /** @type {HTMLElement} */ (e.target).blur(); return; }
         if (st.ui?.cinema) { act('toggleCinema'); e.preventDefault(); return; }
+        if (ui?.modes?.exitTop()) { e.preventDefault(); return; }
         if (st.selection) { act('select', null); e.preventDefault(); }
     }
 
@@ -72,8 +77,8 @@ export function bindShortcuts(ctx) {
         // Help works even over other dialogs.
         if (e.key === '?' || (e.code === 'Slash' && e.shiftKey)) { e.preventDefault(); ui?.toggleHelp?.(); return; }
         if (st.ui?.palette || st.ui?.help) return;
-        const t = /** @type {Element} */ (e.target);
-        const onControl = !!t?.closest?.('button, a[href], [role="switch"], [role="tab"], [role="slider"], [role="option"], [role="radio"], summary');
+        const target = /** @type {Element} */ (e.target);
+        const onControl = !!target?.closest?.('button, a[href], [role="switch"], [role="tab"], [role="slider"], [role="option"], [role="radio"], summary');
         if ((e.code === 'Space' || e.code === 'Enter') && onControl) return;
         // Arrow keys inside composite widgets are theirs.
         if (e.code.startsWith('Arrow') || (e.code === 'Home' && onControl)) return;
@@ -82,39 +87,54 @@ export function bindShortcuts(ctx) {
         const code = e.code;
         if (code === 'Space') {
             clock.toggle();
-            flash(clock.playing ? 'Playing' : 'Paused');
+            flash(clock.playing ? t('Playing') : t('Paused'));
         } else if (code === 'BracketLeft') {
-            clock.slower(); flash(`Speed ${rateText()}`);
+            clock.slower(); flash(t('Speed {rate}', { rate: rateText() }));
         } else if (code === 'BracketRight') {
-            clock.faster(); flash(`Speed ${rateText()}`);
+            clock.faster(); flash(t('Speed {rate}', { rate: rateText() }));
         } else if (code === 'KeyR' && !e.shiftKey) {
-            clock.reverse(); flash(clock.rate < 0 ? 'Time runs backward' : 'Time runs forward');
+            clock.reverse(); flash(clock.rate < 0 ? t('Time runs backward') : t('Time runs forward'));
         } else if (code === 'Comma' || code === 'Period') {
             const kind = e.altKey ? 'siderealDay' : e.shiftKey ? 'day' : 'hour';
             const n = code === 'Comma' ? -1 : 1;
             clock.step(kind, n);
-            flash(`${n < 0 ? '−' : '+'}${STEP_LABEL[kind]}`);
+            flash(`${n < 0 ? '−' : '+'}${t(STEP_LABEL[kind])}`);
+        } else if (code === 'KeyN' && e.shiftKey) {
+            // Before plain N (goLive), which would otherwise take Shift+N too.
+            flash(act('setNightVision') ? t('Night vision on') : t('Night vision off'));
         } else if (code === 'KeyN') {
-            clock.goLive(); flash('Live');
+            clock.goLive(); flash(t('Live'));
         } else if (/^(Digit|Numpad)[1-9]$/.test(code) && !e.shiftKey && !e.altKey) {
             const b = BODIES[Number(code.slice(-1)) - 1];
             if (b) {
                 if (st.selection === b.id) act('flyToBody', b.id);
                 else act('select', b.id);
-                flash(b.name);
+                flash(t(b.name));
             }
         } else if ((code === 'Digit0' || code === 'Numpad0') && !e.shiftKey) {
             act('select', null);
         } else if (code === 'KeyV') {
             act('cycleView');
-            flash(store.get().view?.mode === 'sky' ? 'Sky view' : 'Globe view');
+            flash(store.get().view?.mode === 'sky' ? t('Sky view') : t('Globe view'));
         } else if (code === 'KeyL') {
             const on = !st.view?.earthLock;
             act('setEarthLock', on);
-            flash(on ? 'View locked to Earth' : 'View unlocked');
+            flash(on ? t('Turning with the Earth') : t('Holding the view still'));
+        } else if (code === 'KeyK') {
+            const k = act('cycleTracking');
+            const body = ui?.bodyName?.(store.get().selection);
+            flash(k === 'body' ? (body ? t('Following {body}', { body }) : t('Following the selection')) : k === 'stars' ? t('Following the stars') : t('Not following'));
+        } else if (code === 'KeyA' && !e.shiftKey && !e.altKey) {
+            const on = act('setRuler');
+            if (on) flash(t('Ruler: tap two things in the sky'));
+            else if (st.ui?.ruler) flash(t('Ruler off'));
         } else if (code === 'KeyB') toggleLayer('beams');
         else if (code === 'KeyC') toggleLayer(e.shiftKey ? 'constellationNames' : 'constellations');
-        else if (code === 'KeyM') toggleLayer('milkyWay');
+        else if (code === 'KeyM' && e.shiftKey) toggleLayer('milkyWay');
+        else if (code === 'KeyM') {
+            const on = act('toggleMap');
+            flash(on ? t('World map') : t('Globe view'));
+        }
         else if (code === 'KeyE') toggleLayer('ecliptic');
         else if (code === 'KeyG') toggleLayer('eqGrid');
         else if (code === 'KeyO') toggleLayer('footprint');

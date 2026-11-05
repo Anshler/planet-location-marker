@@ -51,3 +51,55 @@ test('every module reachable from the page exists, locally, with no bare specifi
     assert.ok(g.modules.includes('vendor/three/three.module.min.js'), 'three is reached through the import map');
     assert.ok(g.modules.includes('vendor/astronomy-engine/astronomy.js'), 'astronomy-engine is reached');
 });
+
+// ---------------------------------------------------------------- boot modulepreload lists
+
+test('index.html preloads the whole boot graph, and the lists are current (modgraph --write)', async () => {
+    const { bootModules, withBootPreloads } = await import('../scripts/lib/modgraph.mjs');
+    const lists = bootModules(ROOT);
+    assert.equal(withBootPreloads(HTML, lists), HTML, 'stale: run node scripts/lib/modgraph.mjs --write');
+    const { core, view3d } = lists;
+    assert.equal(core[0], 'js/main.js');
+    assert.ok(core.includes('js/ui/index.js') && core.includes('vendor/astronomy-engine/astronomy.js'));
+    assert.equal(view3d[0], 'vendor/three/three.module.min.js', 'three.js first');
+    for (const m of ['js/render/context.js', 'js/render/postfx.js', 'vendor/three/addons/shaders/CopyShader.js', 'js/camera/rig.js']) {
+        assert.ok(view3d.includes(m), `${m} (the deepest import chain) is preloaded`);
+    }
+    // Text mode needs neither: main.js's and the UI's static graphs stay free of three.js.
+    assert.ok(!core.some((p) => p.startsWith('vendor/three/') || p.startsWith('js/render/') || p.startsWith('js/camera/')),
+        'the core list is three-free');
+    assert.ok(!core.some((p) => view3d.includes(p)), 'no module in both lists');
+    for (const p of [...core, ...view3d]) assert.ok(fs.existsSync(`${ROOT}/${p}`), `${p} exists`);
+    // Lazy modules are not preloaded.
+    for (const p of ['js/app/tours.js', 'js/app/recorder.js', 'js/app/mars-host.js']) {
+        assert.ok(!core.includes(p) && !view3d.includes(p), `${p} loads on demand only`);
+    }
+});
+
+test('three.js and the previews are preloaded only when the 3D view can run (text mode skips them)', async () => {
+    const { ASSETS } = await import('../js/core/texture-plan.js');
+    const staticPreloads = DOC.links.filter((l) => /modulepreload/i.test(l.rel ?? '')).map((l) => norm(l.href));
+    assert.ok(!staticPreloads.some((h) => h.startsWith('vendor/three/')), 'no static three.js modulepreload');
+    const detect = DOC.scripts.find((s) => s.inline.includes('w.__pcEnv = env'))?.inline ?? '';
+    // Also behind the context-loss record: a tab whose 3D view gave up boots in text mode (main.js).
+    const guard = detect.indexOf('if (env.webgl2 && env.importmap && !unstable) {');
+    assert.ok(guard > detect.indexOf('w.__pcEnv = env'), 'after the probe, behind its result');
+    const block = detect.slice(guard);
+    assert.ok(block.indexOf("'vendor/three/three.module.min.js'") > 0);
+    for (const key of ['dayPreview', 'nightPreview']) {
+        assert.ok(block.includes(`preload('preload', '${ASSETS[key].url}', 'fetch')`), `${key} preloaded as fetch`);
+    }
+    // crossorigin (anonymous) + same-origin credentials = the mode fetch() uses, so the request is reused.
+    assert.match(block, /l\.as = as; l\.crossOrigin = 'anonymous';/);
+});
+
+test('data/cities.json is preloaded only on a page no service worker controls (no cross-world preload warning)', () => {
+    const norm = (h) => String(h ?? '').replace(/^\.\//, '');
+    assert.ok(!DOC.links.some((l) => norm(l.href) === 'data/cities.json'), 'no static preload link');
+    const s = DOC.scripts.find((x) => x.inline.includes("'data/cities.json'"))?.inline ?? '';
+    const guard = s.indexOf('navigator.serviceWorker.controller) return;');
+    assert.ok(guard > 0, 'skipped under a controlling worker');
+    assert.ok(s.indexOf("l.rel = 'preload'") > guard);
+    // The same mode and credentials as main.js's fetch, so the request is reused.
+    assert.match(s, /l\.as = 'fetch';.*l\.crossOrigin = 'anonymous';/);
+});

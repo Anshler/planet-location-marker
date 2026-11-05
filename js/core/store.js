@@ -29,19 +29,69 @@ function isPlainObject(v) {
 }
 
 /**
+ * display.skyDark choices ('Sky darkness' in Settings, `sky=` in the URL): 'auto' estimates the
+ * light pollution from nearby cities (astro/skyglow.js), 'pristine' has none, '1'…'9' is a Bortle class.
+ */
+export const SKY_DARK_SETTINGS = Object.freeze(['auto', 'pristine', '1', '2', '3', '4', '5', '6', '7', '8', '9']);
+
+/**
+ * display.aurora choices ('Aurora activity' in Settings, `au=` in the URL): the Kp the modelled
+ * auroral ovals are drawn for (astro/geomag.js AURORA_KP: 1, 3, 7). A setting, never live data.
+ */
+export const AURORA_SETTINGS = Object.freeze(['quiet', 'typical', 'storm']);
+
+/**
+ * view.vantage choices (`vt=` in the URL; globe view only): 'l1', the sunlit Earth from 1.5 million km
+ * sunward (DSCOVR), and 'moon', Earthrise from a low lunar orbit (astro/vantage.js, camera/rig.js).
+ */
+export const VANTAGE_SETTINGS = Object.freeze(['none', 'l1', 'moon']);
+
+/*
+ * view.system: the globe view is zoomed out into the solar system (the orrery shown, camera/rig.js
+ * systemBlend past one half). Set by main.js from the rig, never by the URL: `cam` carries the
+ * distance (an orbit distance beyond 150 R), and it is not saved.
+ */
+
+/**
+ * view.mode choices (`view=` in the URL): the globe ('orbit'), standing at the observer ('sky') and
+ * the flat world map ('map': the globe unrolled, camera/rig.js, geo/mapview.js).
+ */
+export const VIEW_MODES = Object.freeze(['orbit', 'sky', 'map']);
+
+/**
+ * ui.panel choices: the panel's tabs (ui/shell.js TABS, in display order). `tab=` in the URL opens
+ * one (the install shortcut to Events); it is read, never written.
+ */
+export const PANELS = Object.freeze(['sky', 'details', 'events', 'explore', 'display']);
+/** The old tabs' ids, still read by `tab=`: [the tab that holds them now, the section it reveals]. */
+export const PANEL_ALIASES = Object.freeze({ layers: ['display'], settings: ['display', 'conditions'], about: ['display', 'about'] });
+
+/**
+ * host: the world the observer stands on (ROADMAP stand-on-mars, `host=mars` + `hloc=` in the URL).
+ * 'earth' is the observer's place; 'mars' is the sky view from an areographic site (planetocentric
+ * °N/°E; astro/host-mars.js), Jezero Crater by default. The site is kept while on Earth, so 'Stand on
+ * Mars' returns to the last one. Leaving the sky view or choosing an Earth place returns to Earth.
+ */
+export const HOST_DEFAULT = Object.freeze({ id: 'earth', latDeg: 18.4447, lonDeg: 77.4508, name: 'Jezero Crater' });
+
+/**
  * The initial application state (SPEC §C.3). Frozen: copy before modifying.
  * @type {Readonly<AppState>}
  */
 export const DEFAULT_STATE = deepFreeze({
     observer: { latDeg: 51.4769, lonDeg: -0.0005, elevM: 0, name: 'Royal Observatory Greenwich', country: 'United Kingdom', tz: 'Europe/London', tzApprox: false, source: 'default' },
-    selection: null, view: { mode: 'orbit', earthLock: true },
+    // A second place to compare with (ROADMAP two-observers; `loc2` in the URL), or null.
+    observer2: null,
+    host: HOST_DEFAULT,
+    selection: null, view: { mode: 'orbit', earthLock: true, track: 'none', vantage: 'none', system: false },
     layers: {
         beams: true, ghostBeams: true, sunMoonBeams: true, stars: true, constellations: true, constellationNames: true, starNames: true,
         milkyWay: true, clouds: true, atmosphere: true, ecliptic: false, eqGrid: false, altAzGrid: true, horizon: true, footprint: false,
-        subpoints: false, trails: false, labels: true,
+        subpoints: false, trails: false, labels: true, landscape: true, spacecraft: false, deepSky: true, precession: false, sunPath: false, meteors: true, satellites: true,
     },
-    display: { tzMode: 'observer', hour12: false }, quality: { setting: 'auto', active: 'medium', ceiling: 'medium' },
-    ui: { panel: 'sky', sheet: 'peek', cinema: false, help: false, palette: false },
+    display: { tzMode: 'observer', hour12: false, skyDark: 'auto', aurora: 'typical', red: false }, quality: { setting: 'auto', active: 'medium', ceiling: 'medium' },
+    // scope: the telescope's chip and way back (actions.telescope / leaveTelescope), never in links.
+    ui: { panel: 'sky', sheet: 'peek', cinema: false, help: false, palette: false, eclipse: null, tour: null, scope: null },
     status: { phase: 'boot', progress: 0, webgl: true, onlineSearch: 'unknown', reducedMotion: false, coarse: false, introPlaying: false },
 });
 

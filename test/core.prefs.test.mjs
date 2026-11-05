@@ -34,7 +34,8 @@ function withStorage(storage, fn) {
 
 test('keys and prefix', () => {
     assert.equal(PREFIX, 'pc2.');
-    assert.deepEqual([...PREF_KEYS], ['observer', 'layers', 'quality', 'display', 'introSeen', 'geocache', 'recentPlaces']);
+    assert.deepEqual([...PREF_KEYS], ['observer', 'layers', 'quality', 'display', 'introSeen', 'geocache', 'recentPlaces',
+        'qualityLearned', 'tonightOpen', 'skyDome', 'installHint', 'coachSeen', 'uiVersion', 'displayOpen', 'lang']);
 });
 
 test('persists to localStorage under pc2.', () => {
@@ -60,6 +61,15 @@ test('reads values written in an earlier session', () => {
         // Written by a previous page load: present in storage, absent from this session's memory.
         ls.map.set('pc2.display', JSON.stringify({ tzMode: 'utc', hour12: true }));
         assert.deepEqual(load('display', { tzMode: 'observer', hour12: false }), { tzMode: 'utc', hour12: true });
+    });
+});
+
+test('a Max quality choice is saved and read back like any other', () => {
+    const ls = fakeStorage();
+    withStorage(ls, () => {
+        assert.equal(save('quality', 'max'), true);
+        assert.equal(ls.map.get('pc2.quality'), '"max"');
+        assert.equal(load('quality', 'auto'), 'max');
     });
 });
 

@@ -1,43 +1,48 @@
 // Display formatters (SPEC §C.3).
 //
-// Deterministic English output, independent of the browser locale (the UI copy is English).
-// Negative numbers use the true minus sign U+2212; angles use ° ′ ″. Every function returns an
-// em dash for unusable input instead of throwing or printing "NaN".
+// In the interface's locale (core/i18n.js): English is deterministic, independent of the browser
+// locale; Vietnamese has a decimal comma, dot grouping and Intl's dates. Never use these for
+// machine formats (the URL hash, .ics, CSV, diagnostics). Negative numbers use the true minus
+// sign U+2212; angles use ° ′ ″. Every function returns an em dash for unusable input instead of
+// throwing or printing "NaN".
 
-import { utcToZoned } from './tz.js';
+import { utcToZoned, toCalendar } from './tz.js';
+import { t, N_, dec, intl, locale, dateText, timeText } from './i18n.js';
 
 const MINUS = '\u2212';
 const DASH = '\u2014';
 const AU_KM = 149597870.7;
 const SYNODIC_MONTH_D = 29.530589;
-const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const COMPASS16 = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
-const COMPASS8_WORDS = ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'];
+const COMPASS16 = [N_('N'), N_('NNE'), N_('NE'), N_('ENE'), N_('E'), N_('ESE'), N_('SE'), N_('SSE'), N_('S'), N_('SSW'), N_('SW'),
+    N_('WSW'), N_('W'), N_('WNW'), N_('NW'), N_('NNW')];
+const COMPASS8_WORDS = [N_('north'), N_('north-east'), N_('east'), N_('south-east'), N_('south'), N_('south-west'), N_('west'), N_('north-west')];
 
 /** Scratch for utcToZoned: formatters run at UI rates, no need to allocate per call. */
 const zbuf = {};
+const cbuf = {};
 
 const pad2 = (n) => String(n).padStart(2, '0');
 /** @param {unknown} v */
 const num = (v) => (typeof v === 'number' ? v : Number(v));
 const fin = Number.isFinite;
 
-/** Day of week 0=Sun for a proleptic Gregorian date (Sakamoto's method). */
+/** Day of week 0=Sun for a proleptic Gregorian date (Sakamoto's method). The Julian calendar's
+ * dates fall on the same weekdays, so callers pass the Gregorian fields. */
 function weekday(y, mo, d) {
-    const t = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
+    const k = [0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4];
     const yy = mo < 3 ? y - 1 : y;
-    const w = (yy + Math.floor(yy / 4) - Math.floor(yy / 100) + Math.floor(yy / 400) + t[mo - 1] + d) % 7;
+    const w = (yy + Math.floor(yy / 4) - Math.floor(yy / 100) + Math.floor(yy / 400) + k[mo - 1] + d) % 7;
     return (w + 7) % 7;
 }
 
-/** Up to 3 significant digits, no trailing zeros: 2.5, 30, 0.25. */
+/** Up to 3 significant digits, no trailing zeros: 2.5, 30, 0.25 (Vietnamese 2,5). */
 function sig3(x) {
-    return String(Number(x.toPrecision(3)));
+    const v = Number(x.toPrecision(3));
+    return locale() === 'en' ? String(v) : intl(Intl.NumberFormat, { maximumFractionDigits: 20 }).format(v);
 }
 
 /**
- * Integer with thousands separators: 384400 → '384,400'.
+ * Integer with thousands separators: 384400 → '384,400' (Vietnamese '384.400').
  * @param {number} n
  * @returns {string}
  */
@@ -45,22 +50,40 @@ export function fmtInt(n) {
     const x = num(n);
     if (!fin(x)) return DASH;
     const r = Math.round(Math.abs(x));
-    const s = String(r).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    const s = locale() === 'en' ? String(r).replace(/\B(?=(\d{3})+(?!\d))/g, ',') : intl(Intl.NumberFormat).format(r);
     return r !== 0 && x < 0 ? MINUS + s : s;
 }
 
 /**
- * 'Sun 11 Oct 2026' in `tz` (an invalid tz means UTC).
- * @param {number} ms
- * @param {unknown} tz
- * @param {{weekday?:boolean, year?:boolean}} [opts]
+ * A decimal number in the interface's locale, true minus sign: fmtNum(-1.25, 1) → '−1.3'
+ * (Vietnamese '−1,3'). Not grouped in English (as toFixed).
+ * @param {number} n
+ * @param {number} [digits]
  * @returns {string}
  */
-export function fmtDate(ms, tz, { weekday: withWeekday = true, year = true } = {}) {
+export function fmtNum(n, digits = 0) {
+    const x = num(n);
+    if (!fin(x)) return DASH;
+    const s = dec(Math.abs(x), digits);
+    return x < 0 && Number(Math.abs(x).toFixed(digits)) !== 0 ? MINUS + s : s;
+}
+
+/**
+ * 'Sun 11 Oct 2026' in `tz` (an invalid tz means UTC; Vietnamese 'CN, 11 thg 10, 2026'). Before
+ * 15 Oct 1582 the date is Julian, as records of the time give it (tz.toCalendar): 'Thu 4 Jul 1054';
+ * `{calendar:true}` then appends ' (Julian)'.
+ * @param {number} ms
+ * @param {unknown} tz
+ * @param {{weekday?:boolean, year?:boolean, calendar?:boolean}} [opts]
+ * @returns {string}
+ */
+export function fmtDate(ms, tz, { weekday: withWeekday = true, year = true, calendar = false } = {}) {
     const z = utcToZoned(ms, tz, zbuf);
     if (!fin(z.y)) return DASH;
-    const core = `${z.d} ${MONTHS[z.mo - 1]}${year ? ` ${z.y}` : ''}`;
-    return withWeekday ? `${WEEKDAYS[weekday(z.y, z.mo, z.d)]} ${core}` : core;
+    const c = toCalendar(z, cbuf);
+    const date = dateText({ y: c.y, mo: c.mo, d: c.d, wd: weekday(z.y, z.mo, z.d) },
+        { weekday: withWeekday && 'short', day: 'numeric', month: 'short', year: year && 'numeric' });
+    return calendar && c.cal === 'julian' ? t('{date} (Julian)', { date }) : date;
 }
 
 /**
@@ -74,9 +97,7 @@ export function fmtDate(ms, tz, { weekday: withWeekday = true, year = true } = {
 export function fmtTime(ms, tz, hour12 = false, { seconds = true } = {}) {
     const z = utcToZoned(ms, tz, zbuf);
     if (!fin(z.y)) return DASH;
-    const sec = seconds ? `:${pad2(z.s)}` : '';
-    if (hour12) return `${z.h % 12 || 12}:${pad2(z.mi)}${sec} ${z.h < 12 ? 'AM' : 'PM'}`;
-    return `${pad2(z.h)}:${pad2(z.mi)}${sec}`;
+    return timeText(z, { seconds, hour12 });
 }
 
 /**
@@ -126,10 +147,8 @@ export function fmtDec(deg) {
  * @returns {string}
  */
 export function fmtDeg(deg, digits = 1) {
-    const x = num(deg);
-    if (!fin(x)) return DASH;
-    const s = Math.abs(x).toFixed(digits);
-    return `${x < 0 && Number(s) !== 0 ? MINUS : ''}${s}°`;
+    const s = fmtNum(deg, digits);
+    return s === DASH ? s : `${s}°`;
 }
 
 /**
@@ -149,7 +168,7 @@ export function fmtAlt(deg) {
 export function compass16(azDeg) {
     const x = num(azDeg);
     if (!fin(x)) return DASH;
-    return COMPASS16[((Math.round(x / 22.5) % 16) + 16) % 16];
+    return t(COMPASS16[((Math.round(x / 22.5) % 16) + 16) % 16]);
 }
 
 /**
@@ -160,7 +179,7 @@ export function compass16(azDeg) {
 export function compassWord(azDeg) {
     const x = num(azDeg);
     if (!fin(x)) return DASH;
-    return COMPASS8_WORDS[((Math.round(x / 45) % 8) + 8) % 8];
+    return t(COMPASS8_WORDS[((Math.round(x / 45) % 8) + 8) % 8]);
 }
 
 /**
@@ -184,8 +203,8 @@ export function fmtDistKm(km) {
     const x = num(km);
     if (!fin(x) || x < 0) return DASH;
     // Thresholds sit where the smaller unit would round up to "1000.0 million" / "1,000,000".
-    if (x >= 999.95e6) return `${(x / 1e9).toFixed(2)} billion km`;
-    if (x >= 999999.5) return `${(x / 1e6).toFixed(1)} million km`;
+    if (x >= 999.95e6) return t('{n} billion km', { n: dec(x / 1e9, 2) });
+    if (x >= 999999.5) return t('{n} million km', { n: dec(x / 1e6, 1) });
     return `${fmtInt(x)} km`;
 }
 
@@ -197,10 +216,7 @@ export function fmtDistKm(km) {
 export function fmtDistAU(au) {
     const x = num(au);
     if (!fin(x) || x < 0) return DASH;
-    let a;
-    if (x >= 9.995) a = x.toFixed(2);
-    else if (x >= 0.0995) a = x.toFixed(3);
-    else a = x.toFixed(5);
+    const a = dec(x, x >= 9.995 ? 2 : x >= 0.0995 ? 3 : 5);
     return `${a} AU · ${fmtDistKm(x * AU_KM)}`;
 }
 
@@ -213,23 +229,23 @@ export function fmtDistAU(au) {
 export function fmtDuration(ms) {
     const x = Math.abs(num(ms));
     if (!fin(x)) return DASH;
-    if (x < 59.5e3) return `${Math.round(x / 1e3)} s`;
+    if (x < 59.5e3) return t('{n} s', { n: Math.round(x / 1e3) });
     const totalMin = Math.round(x / 6e4);
-    if (totalMin < 60) return `${totalMin} min`;
-    if (totalMin < 1440) {
-        const h = Math.floor(totalMin / 60), m = totalMin % 60;
-        return m ? `${h} h ${m} min` : `${h} h`;
-    }
+    if (totalMin < 60) return t('{n} min', { n: totalMin });
+    if (totalMin < 1440) return hm(Math.floor(totalMin / 60), totalMin % 60);
     const totalH = Math.round(x / 36e5);
-    const days = Math.floor(totalH / 24);
-    if (days < 60) {
+    const d = Math.floor(totalH / 24);
+    if (d < 60) {
         const h = totalH % 24;
-        return h ? `${days} d ${h} h` : `${days} d`;
+        return h ? t('{d} d {h} h', { d, h }) : t('{n} d', { n: d });
     }
     const dExact = x / 864e5;
-    if (dExact < 365.25) return `${Math.round(dExact / 30.436875)} mo`;
-    return `${sig3(dExact / 365.25)} yr`;
+    if (dExact < 365.25) return t('{n} mo', { n: Math.round(dExact / 30.436875) });
+    return t('{n} yr', { n: sig3(dExact / 365.25) });
 }
+
+/** '3 h 12 min', '3 h'. */
+const hm = (h, m) => (m ? t('{h} h {m} min', { h, m }) : t('{n} h', { n: h }));
 
 /**
  * Light travel time from seconds: 1.28 → '1.3 s', 499 → '8 min 19 s', 4860 → '1 h 21 min'.
@@ -239,37 +255,35 @@ export function fmtDuration(ms) {
 export function fmtLightTime(sec) {
     const x = num(sec);
     if (!fin(x) || x < 0) return DASH;
-    if (x < 9.95) return `${x.toFixed(1)} s`;
-    if (x < 59.5) return `${Math.round(x)} s`;
+    if (x < 59.5) return t('{n} s', { n: dec(x, x < 9.95 ? 1 : 0) });
     const total = Math.round(x);
     if (total < 3600) {
         const m = Math.floor(total / 60), s = total % 60;
-        return s ? `${m} min ${s} s` : `${m} min`;
+        return s ? t('{m} min {s} s', { m, s }) : t('{n} min', { n: m });
     }
     const tm = Math.round(x / 60);
-    if (tm < 1440) {
-        const h = Math.floor(tm / 60), m = tm % 60;
-        return m ? `${h} h ${m} min` : `${h} h`;
-    }
+    if (tm < 1440) return hm(Math.floor(tm / 60), tm % 60);
     return fmtDuration(x * 1000);
 }
 
 /**
  * Simulation rate (sim-seconds per wall-second): 1 → 'Real time', 10 → '10×', 60 → '1 min/s',
  * 3600 → '1 h/s', −86400 → '−1 d/s', 31557600 → '1 yr/s'. Off-ladder rates (timelapse) work too.
+ * `compact` (the phone time bar) writes real time as '1×', like the rest of the × ladder.
  * @param {number} rate
+ * @param {{compact?: boolean}} [opts]
  * @returns {string}
  */
-export function fmtRate(rate) {
+export function fmtRate(rate, { compact = false } = {}) {
     const x = num(rate);
     if (!fin(x)) return DASH;
-    if (x === 1) return 'Real time';
-    if (x === 0) return 'Paused';
+    if (x === 1) return compact ? '1×' : t('Real time');
+    if (x === 0) return t('Paused');
     const a = Math.abs(x), sign = x < 0 ? MINUS : '';
-    if (a >= 31557600 * 0.9995) return `${sign}${sig3(a / 31557600)} yr/s`;
-    if (a >= 86400 * 0.9995) return `${sign}${sig3(a / 86400)} d/s`;
-    if (a >= 3600 * 0.9995) return `${sign}${sig3(a / 3600)} h/s`;
-    if (a >= 60 * 0.9995) return `${sign}${sig3(a / 60)} min/s`;
+    if (a >= 31557600 * 0.9995) return t('{n} yr/s', { n: sign + sig3(a / 31557600) });
+    if (a >= 86400 * 0.9995) return t('{n} d/s', { n: sign + sig3(a / 86400) });
+    if (a >= 3600 * 0.9995) return t('{n} h/s', { n: sign + sig3(a / 3600) });
+    if (a >= 60 * 0.9995) return t('{n} min/s', { n: sign + sig3(a / 60) });
     return `${sign}${sig3(a)}×`;
 }
 
@@ -279,10 +293,7 @@ export function fmtRate(rate) {
  * @returns {string}
  */
 export function fmtMag(m) {
-    const x = num(m);
-    if (!fin(x)) return DASH;
-    const s = Math.abs(x).toFixed(1);
-    return `${x < 0 && Number(s) !== 0 ? MINUS : ''}${s}`;
+    return fmtNum(m, 1);
 }
 
 /**
@@ -307,7 +318,7 @@ export function fmtPct(frac) {
 export function fmtAngSize(arcsec) {
     const x = num(arcsec);
     if (!fin(x) || x < 0) return DASH;
-    if (x < 59.95) return `${x.toFixed(1)}″`;
+    if (x < 59.95) return `${dec(x, 1)}″`;
     const total = Math.round(x);
     return `${Math.floor(total / 60)}′ ${pad2(total % 60)}″`;
 }
@@ -336,15 +347,18 @@ export function fmtLatLon(lat, lon, mode = 'dec', { digits = 2, sep = ' ' } = {}
     if (mode === 'dms') {
         const [ad, am, as] = dms(Math.abs(la));
         const [od, om, os] = dms(Math.abs(lo));
-        const ns = la < 0 && ad + am + as > 0 ? 'S' : 'N';
-        const ew = lo < 0 && od + om + os > 0 ? 'W' : 'E';
-        return `${ad}°${pad2(am)}′${pad2(as)}″ ${ns}${sep}${od}°${pad2(om)}′${pad2(os)}″ ${ew}`;
+        const ns = la < 0 && ad + am + as > 0 ? t('S') : t('N');
+        const ew = lo < 0 && od + om + os > 0 ? t('W') : t('E');
+        return pair(`${ad}°${pad2(am)}′${pad2(as)}″ ${ns}`, `${od}°${pad2(om)}′${pad2(os)}″ ${ew}`, sep);
     }
     const as = Math.abs(la).toFixed(digits), os = Math.abs(lo).toFixed(digits);
-    const ns = la < 0 && Number(as) !== 0 ? 'S' : 'N';
-    const ew = lo < 0 && Number(os) !== 0 ? 'W' : 'E';
-    return `${as}° ${ns}${sep}${os}° ${ew}`;
+    const ns = la < 0 && Number(as) !== 0 ? t('S') : t('N');
+    const ew = lo < 0 && Number(os) !== 0 ? t('W') : t('E');
+    return pair(`${dec(Math.abs(la), digits)}° ${ns}`, `${dec(Math.abs(lo), digits)}° ${ew}`, sep);
 }
+
+/** ', ' is the locale's list separator (Vietnamese '; ', next to its decimal comma). */
+const pair = (lat, lon, sep) => (sep === ', ' ? t('{lat}, {lon}', { lat, lon }) : lat + sep + lon);
 
 /**
  * Time from `nowMs` to `ms`: 'in 3 h 12 min', '25 min ago', 'now' (within 30 s).
@@ -355,9 +369,30 @@ export function fmtLatLon(lat, lon, mode = 'dec', { digits = 2, sep = ' ' } = {}
 export function fmtRelative(ms, nowMs) {
     const d = num(ms) - num(nowMs);
     if (!fin(d)) return DASH;
-    if (Math.abs(d) < 30e3) return 'now';
+    if (Math.abs(d) < 30e3) return t('now');
     const s = fmtDuration(d);
-    return d > 0 ? `in ${s}` : `${s} ago`;
+    return d > 0 ? t('in {time}', { time: s }) : t('{time} ago', { time: s });
+}
+
+/**
+ * Names app/actions.js and core/store.js give places in English, and the cities (data/cities.json,
+ * GeoNames' English) a locale names its own way: Vietnam's largest and the conventional exonyms.
+ */
+const NAMED = [N_('North Pole'), N_('South Pole'), N_('Royal Observatory Greenwich'),
+    N_('Ho Chi Minh City'), N_('Hanoi'), N_('Haiphong'), N_('Da Nang'), N_('Qui Nhon'),
+    N_('Beijing'), N_('Shanghai'), N_('Guangzhou'), N_('Hong Kong'), N_('Taipei'), N_('Moscow')];
+
+/**
+ * An observer's stored name in the locale. app/actions.js names places in English, since names
+ * live in links and prefs: 'near Lyon' → 'gần Lyon', 'North Pole' → 'Bắc Cực' (and the default
+ * observer), 'Hanoi' → 'Hà Nội'; others as given. Display only: links, prefs and the place search
+ * keep the English.
+ * @param {string} name
+ * @returns {string}
+ */
+export function placeName(name) {
+    const s = String(name ?? '');
+    return s.startsWith('near ') ? t('near {place}', { place: placeName(s.slice(5)) }) : NAMED.includes(s) ? t(s) : s;
 }
 
 /**
@@ -371,14 +406,14 @@ export function moonPhaseName(phaseDeg) {
     if (!fin(x)) return DASH;
     const p = ((x % 360) + 360) % 360;
     const near = (c) => Math.abs(((p - c + 540) % 360) - 180) <= 6;
-    if (near(0)) return 'New Moon';
-    if (near(90)) return 'First quarter';
-    if (near(180)) return 'Full Moon';
-    if (near(270)) return 'Last quarter';
-    if (p < 90) return 'Waxing crescent';
-    if (p < 180) return 'Waxing gibbous';
-    if (p < 270) return 'Waning gibbous';
-    return 'Waning crescent';
+    if (near(0)) return t('New Moon');
+    if (near(90)) return t('First quarter');
+    if (near(180)) return t('Full Moon');
+    if (near(270)) return t('Last quarter');
+    if (p < 90) return t('Waxing crescent');
+    if (p < 180) return t('Waxing gibbous');
+    if (p < 270) return t('Waning gibbous');
+    return t('Waning crescent');
 }
 
 /**

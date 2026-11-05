@@ -4,14 +4,15 @@ import assert from 'node:assert/strict';
 import {
     parseHash, serializeHash, bindUrl, layersToCode, codeToLayers, camToCode, LAYER_CODES, DEFAULT_LAYER_CODE,
 } from '../js/core/url-state.js';
+import { isExtraId } from '../js/core/selection.js';
 import { DEFAULT_STATE, createStore } from '../js/core/store.js';
 import { createClock, MIN_MS, MAX_MS, RATES } from '../js/core/clock.js';
 
 const BODY_IDS = ['sun', 'moon', 'mercury', 'venus', 'mars', 'jupiter', 'saturn', 'uranus', 'neptune'];
 const LAYER_KEYS = Object.keys(DEFAULT_STATE.layers);
-const ALLOWED_KEYS = new Set(['observer', 'tMs', 'live', 'rate', 'playing', 'view', 'earthLock', 'selection', 'layers', 'quality', 'cam', 'intro', 'debug', 'invalid']);
+const ALLOWED_KEYS = new Set(['observer', 'observer2', 'tMs', 'live', 'rate', 'playing', 'view', 'earthLock', 'selection', 'layers', 'quality', 'skyDark', 'aurora', 'cam', 'track', 'intro', 'debug', 'invalid']);
 const SPEC_EXAMPLE = '#loc=21.0285,105.8542&n=Hanoi&cc=VN&tz=Asia/Ho_Chi_Minh&el=15&t=2027-08-02T10:07:00Z&r=3600&p=1&view=orbit&lock=1&sel=moon'
-    + '&ly=bgoscCnmkazhl&q=auto&cam=o:21.0,105.8,3.2|s:142.3,25.0,60&intro=0&debug=1';
+    + '&ly=bgoscCnmkazhldw&q=auto&cam=o:21.0,105.8,3.2|s:142.3,25.0,60&intro=0&debug=1';
 
 /** Asserts every invariant a parsed hash must satisfy. */
 function assertValid(out, label) {
@@ -31,20 +32,30 @@ function assertValid(out, label) {
     if ('tMs' in out) assert.ok(out.tMs >= MIN_MS && out.tMs <= MAX_MS, `${label}: t`);
     if ('rate' in out) assert.ok(RATES.includes(out.rate), `${label}: rate ${out.rate}`);
     for (const k of ['live', 'playing', 'earthLock', 'intro', 'debug']) if (k in out) assert.equal(typeof out[k], 'boolean', `${label}: ${k}`);
-    if ('view' in out) assert.ok(['orbit', 'sky'].includes(out.view));
-    if ('selection' in out) assert.ok(out.selection === null || BODY_IDS.includes(out.selection));
+    if ('view' in out) assert.ok(['orbit', 'sky', 'map'].includes(out.view));
+    if (out.observer2) {
+        const o = out.observer2;
+        assert.ok(Number.isFinite(o.latDeg) && Math.abs(o.latDeg) <= 90, `${label}: lat2`);
+        assert.ok(Number.isFinite(o.lonDeg) && o.lonDeg > -180 && o.lonDeg <= 180, `${label}: lon2 ${o.lonDeg}`);
+        assert.ok(o.name.length <= 80 && !/[\u0000-\u001f]/.test(o.name), `${label}: name2`);
+        assert.equal(o.source, 'url');
+    }
+    if ('selection' in out) assert.ok(out.selection === null || BODY_IDS.includes(out.selection) || isExtraId(out.selection));
     if ('layers' in out) {
         assert.deepEqual(Object.keys(out.layers).sort(), [...LAYER_KEYS].sort());
         for (const v of Object.values(out.layers)) assert.equal(typeof v, 'boolean');
     }
-    if ('quality' in out) assert.ok(['auto', 'low', 'medium', 'high'].includes(out.quality));
+    if ('quality' in out) assert.ok(['auto', 'low', 'medium', 'high', 'max'].includes(out.quality));
+    if ('skyDark' in out) assert.ok(['auto', 'pristine', '1', '2', '3', '4', '5', '6', '7', '8', '9'].includes(out.skyDark));
     if (out.cam) {
         const c = out.cam;
         if (c.mode === 'orbit') {
-            assert.ok(Math.abs(c.latDeg) <= 90 && c.lonDeg > -180 && c.lonDeg <= 180 && c.distance >= 1.08 && c.distance <= 150, `${label}: cam`);
+            assert.ok(Math.abs(c.latDeg) <= 90 && c.lonDeg > -180 && c.lonDeg <= 180 && c.distance >= 1.08 && c.distance <= 2e6, `${label}: cam`);
+        } else if (c.mode === 'map') {
+            assert.ok(Math.abs(c.latDeg) <= 90 && c.lonDeg > -180 && c.lonDeg <= 180 && c.distance >= 0.05 && c.distance <= 20, `${label}: map cam`);
         } else {
             assert.equal(c.mode, 'sky');
-            assert.ok(c.azDeg >= 0 && c.azDeg < 360 && c.altDeg >= -10 && c.altDeg <= 89 && c.fovDeg >= 5 && c.fovDeg <= 100, `${label}: cam`);
+            assert.ok(c.azDeg >= 0 && c.azDeg < 360 && c.altDeg >= -10 && c.altDeg <= 89 && c.fovDeg >= 0.2 && c.fovDeg <= 100, `${label}: cam`);
         }
     }
     if (out.invalid) {
@@ -74,7 +85,8 @@ test('parses the SPEC §F.4 example completely', () => {
     assert.equal(p.view, 'orbit');
     assert.equal(p.earthLock, true);
     assert.equal(p.selection, 'moon');
-    assert.deepEqual(p.layers, DEFAULT_STATE.layers);
+    // The example predates the deep-sky ('x') and satellite ('i') layers, both on by default: a link without them turns them off.
+    assert.deepEqual(p.layers, { ...DEFAULT_STATE.layers, deepSky: false, satellites: false });
     assert.equal(p.quality, 'auto');
     assert.deepEqual(p.cam, { mode: 'orbit', latDeg: 21, lonDeg: 105.8, distance: 3.2 }, 'the part matching view');
     assert.equal(p.intro, false);
@@ -84,9 +96,9 @@ test('parses the SPEC §F.4 example completely', () => {
 });
 
 test('the default layer code matches DEFAULT_STATE', () => {
-    assert.equal(DEFAULT_LAYER_CODE, 'bgoscCnmkazhl');
+    assert.equal(DEFAULT_LAYER_CODE, 'bgoscCnmkazhldxwi');
     assert.equal(LAYER_CODES.length, LAYER_KEYS.length);
-    assert.deepEqual(codeToLayers('bgoscCnmkazhl'), { layers: { ...DEFAULT_STATE.layers }, unknown: false });
+    assert.deepEqual(codeToLayers('bgoscCnmkazhldxwi'), { layers: { ...DEFAULT_STATE.layers }, unknown: false });
     assert.equal(layersToCode(null), null);
 });
 
@@ -142,7 +154,11 @@ test('round trip of the orbit camera and of an {orbit, sky} pair', () => {
     assert.deepEqual(parseHash(`#view=sky&cam=${code}`).cam, pair.sky);
     assert.deepEqual(parseHash(`#cam=${code}`).cam, orbit);
     assert.equal(camToCode({ kind: 'o', lat: 1, lon: 2, dist: 3 }), 'o:1,2,3', 'aliases accepted');
-    assert.equal(camToCode({ type: 's', yaw: -30, pitch: 95, fov: 1 }), 's:330,89,5', 'clamped and wrapped');
+    assert.equal(camToCode({ type: 's', yaw: -30, pitch: 95, fov: 0.05 }), 's:330,89,0.2', 'clamped and wrapped');
+    // The telescope zoom keeps three significant digits of a narrow field.
+    assert.equal(camToCode({ mode: 'sky', az: 10, alt: 20, fov: 0.31234 }), 's:10,20,0.312');
+    assert.equal(camToCode({ mode: 'sky', az: 10, alt: 20, fov: 2.4567 }), 's:10,20,2.46');
+    assert.equal(camToCode({ mode: 'sky', az: 10, alt: 20, fov: 45.67 }), 's:10,20,45.7');
     assert.equal(camToCode('o:1,2,3|garbage'), 'o:1,2,3');
     assert.equal(camToCode({ mode: 'orbit', latDeg: 1 }), '');
     assert.equal(camToCode(42), '');
@@ -211,8 +227,12 @@ test('clamping and snapping', () => {
     const el = parseHash('#loc=1,2&el=99999');
     assert.equal(el.observer.elevM, 9000);
     assert.deepEqual(el.invalid, ['el']);
-    assert.deepEqual(parseHash('#cam=o:95,370,500').cam, { mode: 'orbit', latDeg: 90, lonDeg: 10, distance: 150 });
-    assert.deepEqual(parseHash('#cam=s:-30,120,1').cam, { mode: 'sky', azDeg: 330, altDeg: 89, fovDeg: 5 });
+    assert.deepEqual(parseHash('#cam=o:95,370,5e7').cam, { mode: 'orbit', latDeg: 90, lonDeg: 10, distance: 2e6 });
+    // Past 150 R is the solar-system zoom: kept, and written in whole radii from 1000 R.
+    assert.deepEqual(parseHash('#cam=o:30,10,500').cam, { mode: 'orbit', latDeg: 30, lonDeg: 10, distance: 500 });
+    assert.equal(camToCode({ mode: 'orbit', latDeg: 30, lonDeg: 10, distance: 140733.4 }), 'o:30,10,140733');
+    assert.deepEqual(parseHash('#cam=s:-30,120,0.1').cam, { mode: 'sky', azDeg: 330, altDeg: 89, fovDeg: 0.2 });
+    assert.deepEqual(parseHash('#cam=s:-30,120,0.5').cam, { mode: 'sky', azDeg: 330, altDeg: 89, fovDeg: 0.5 });
 });
 
 test('invalid values are dropped and reported; unknown keys are ignored', () => {
@@ -271,6 +291,10 @@ test('accepts "#…", "…", "?…" and whole URLs; first occurrence of a key wi
     assert.equal(parseHash('sel=mars').selection, 'mars');
     assert.equal(parseHash('?sel=mars').selection, 'mars');
     assert.equal(parseHash('https://anshler.github.io/planet-location-marker/?x=1#sel=mars&q=low').quality, 'low');
+    assert.equal(parseHash('#q=max').quality, 'max', 'max is a deep-linkable choice');
+    const maxState = { ...DEFAULT_STATE, quality: { setting: 'max', active: 'max', ceiling: 'high' } };
+    assert.match(serializeHash({ state: maxState, clock: { tMs: 0, rate: 1, playing: true, live: true } }), /(^#|&)q=max(&|$)/);
+    assert.equal(parseHash('#q=ultra').quality, undefined);
     assert.equal(parseHash('#sel=mars&sel=venus').selection, 'mars');
     assert.equal(parseHash('#sel=none').selection, null);
     assert.equal(parseHash('#sel=MARS').selection, 'mars');
@@ -283,7 +307,8 @@ test('fuzz: 1500 random hashes never throw and always validate', () => {
         'loc', 'n', 'cc', 'tz', 'el', 't', 'r', 'p', 'view', 'lock', 'sel', 'ly', 'q', 'cam', 'intro', 'debug', 'o:', 's:',
         'Asia/Saigon', 'UTC', 'Etc/GMT-7', 'now', 'sky', 'orbit', 'mars', 'auto', 'bgoscC', '\u0000', '\uD800', '\uDFFF', '😀', 'ñ',
         ' ', '\n', '?', '/', '\\', '"', "'", '<script>', 'NaN', 'Infinity', '1e999', '-0', '2027-08-02T10:07:00Z', '0500-01-01',
-        '%2B07:00', 'constructor', '__proto__', 'toString', 'loc=1,2', 't=2027', 'r=3600', 'cam=o:1,2,3'];
+        '%2B07:00', 'constructor', '__proto__', 'toString', 'loc=1,2', 't=2027', 'r=3600', 'cam=o:1,2,3',
+        'loc2', 'n2', 'tz2', 'map', 'm:', 'loc2=-33.9,18.4', 'view=map', 'cam=m:1,2,3'];
     for (let i = 0; i < 1000; i++) {
         let s = '';
         const len = Math.floor(rand() * 30);
@@ -291,7 +316,8 @@ test('fuzz: 1500 random hashes never throw and always validate', () => {
         const out = parseHash(s);
         assertValid(out, JSON.stringify(s));
         const hash = serializeHash({
-            state: { ...DEFAULT_STATE, ...(out.observer ? { observer: out.observer } : {}), ...(out.layers ? { layers: out.layers } : {}) },
+            state: { ...DEFAULT_STATE, ...(out.observer ? { observer: out.observer } : {}), ...(out.layers ? { layers: out.layers } : {}),
+                ...(out.observer2 ? { observer2: out.observer2 } : {}) },
             clock: { tMs: out.tMs ?? MIN_MS, rate: out.rate ?? 1, playing: out.playing ?? true, live: out.live ?? true },
             cam: out.cam,
         });
@@ -424,8 +450,191 @@ test('bindUrl: hashchange reports the parsed link; debug=1 is preserved; history
     off();
 });
 
+test('bindUrl: a lang= edited into the address bar is reported and kept by later writes (never the launch one)', (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: 9_500_000 });
+    const win = fakeWin('#lang=en');
+    const store = createStore();
+    const seen = [];
+    const off = bindUrl({ win, store, clock: null, onExternalChange: (p) => seen.push(p) });
+    win.location.hash = '#sel=mars&lang=vi';
+    win.fire('hashchange');
+    assert.equal(seen[0].lang, 'vi', 'main.js reloads in that language');
+    store.set({ selection: 'venus' });
+    t.mock.timers.tick(600);
+    assert.match(win.calls.at(-1), /lang=vi$/, 'not lang=en written back');
+    win.location.hash = '#sel=jupiter';
+    win.fire('hashchange');
+    store.set({ selection: 'saturn' });
+    t.mock.timers.tick(600);
+    assert.doesNotMatch(win.calls.at(-1), /lang=/, 'a link without lang= drops it');
+    off();
+});
+
 test('bindUrl: missing pieces are tolerated', () => {
     assert.equal(typeof bindUrl(), 'function');
     assert.equal(typeof bindUrl({ win: {} }), 'function');
     assert.equal(typeof bindUrl({ win: { history: {}, location: {} } }), 'function');
+});
+
+test('sky=: the Sky darkness setting round-trips; auto is implicit; anything else is invalid', () => {
+    assert.equal(parseHash('#sky=7').skyDark, '7');
+    assert.equal(parseHash('#sky=Pristine').skyDark, 'pristine');
+    assert.equal(parseHash('#sky=auto').skyDark, 'auto');
+    const bad = parseHash('#sky=10');
+    assert.equal(bad.skyDark, undefined);
+    assert.deepEqual(bad.invalid, ['sky']);
+    const state = (v) => ({ ...DEFAULT_STATE, display: { ...DEFAULT_STATE.display, skyDark: v } });
+    assert.equal(serializeHash({ state: state('auto') }).includes('sky='), false);
+    assert.match(serializeHash({ state: state('3') }), /&sky=3(&|$)/);
+    assert.equal(parseHash(serializeHash({ state: state('pristine') })).skyDark, 'pristine');
+});
+
+test('au=: the Aurora activity setting round-trips; typical is implicit; anything else is invalid', () => {
+    assert.equal(parseHash('#au=storm').aurora, 'storm');
+    assert.equal(parseHash('#au=Quiet').aurora, 'quiet');
+    const bad = parseHash('#au=7');
+    assert.equal(bad.aurora, undefined);
+    assert.deepEqual(bad.invalid, ['au']);
+    const state = (v) => ({ ...DEFAULT_STATE, display: { ...DEFAULT_STATE.display, aurora: v } });
+    assert.equal(serializeHash({ state: state('typical') }).includes('au='), false);
+    assert.match(serializeHash({ state: state('storm') }), /&au=storm(&|$)/);
+    assert.equal(parseHash(serializeHash({ state: state('quiet') })).aurora, 'quiet');
+});
+
+test('trk: sky-view tracking round-trips (b = the selected body, s = the stars)', () => {
+    assert.equal(parseHash('#trk=b').track, 'body');
+    assert.equal(parseHash('#trk=S').track, 'stars');
+    assert.equal(parseHash('#trk=0').track, undefined);
+    assert.equal(parseHash('#trk=0').invalid, undefined);
+    assert.deepEqual(parseHash('#trk=x').invalid, ['trk']);
+    const view = (track) => ({ state: { view: { mode: 'sky', earthLock: true, track } } });
+    assert.equal(serializeHash(view('body')), '#view=sky&trk=b');
+    assert.equal(serializeHash(view('stars')), '#view=sky&trk=s');
+    assert.equal(serializeHash(view('none')), '#view=sky');
+    for (const t of ['body', 'stars']) assert.equal(parseHash(serializeHash(view(t))).track, t);
+});
+
+test('vt: vantage points round-trip in globe view (l1, moon); none and sky view write nothing', () => {
+    assert.equal(parseHash('#vt=l1').vantage, 'l1');
+    assert.equal(parseHash('#vt=MOON').vantage, 'moon');
+    for (const v of ['none', '0', '']) {
+        assert.equal(parseHash(`#vt=${v}`).vantage, undefined);
+        assert.equal(parseHash(`#vt=${v}`).invalid, undefined);
+    }
+    assert.deepEqual(parseHash('#vt=mars').invalid, ['vt']);
+    const st = (mode, vantage) => ({ state: { view: { mode, earthLock: true, track: 'none', vantage } } });
+    assert.equal(serializeHash(st('orbit', 'l1')), '#vt=l1');
+    assert.equal(serializeHash(st('orbit', 'moon')), '#vt=moon');
+    assert.equal(serializeHash(st('orbit', 'none')), '');
+    assert.equal(serializeHash(st('sky', 'moon')), '#view=sky');
+    for (const v of ['l1', 'moon']) assert.equal(parseHash(serializeHash(st('orbit', v))).vantage, v);
+    // The camera key keeps the orbit pose a vantage returns to.
+    const h = serializeHash({ ...st('orbit', 'moon'), cam: { mode: 'orbit', latDeg: 10, lonDeg: 20, distance: 3.4 } });
+    assert.deepEqual(parseHash(h).cam, { mode: 'orbit', latDeg: 10, lonDeg: 20, distance: 3.4 });
+});
+
+test('view=map: the flat world map round-trips with its m: camera; a vantage is never written with it', () => {
+    assert.equal(parseHash('#view=map').view, 'map');
+    assert.equal(parseHash('#view=MAP').view, 'map');
+    assert.deepEqual(parseHash('#view=maps').invalid, ['view']);
+    const st = { view: { mode: 'map', earthLock: true, track: 'none', vantage: 'l1' } };
+    const h = serializeHash({ state: st, cam: { mode: 'map', latDeg: 12.345, lonDeg: -200, distance: 2.5 } });
+    assert.equal(h, '#view=map&cam=m:12.35,160,2.5');
+    const p = parseHash(h);
+    assert.equal(p.view, 'map');
+    assert.deepEqual(p.cam, { mode: 'map', latDeg: 12.35, lonDeg: 160, distance: 2.5 });
+    // Clamped like every camera; the view's own part is picked from a pair.
+    assert.deepEqual(parseHash('#cam=m:95,10,999').cam, { mode: 'map', latDeg: 90, lonDeg: 10, distance: 20 });
+    assert.equal(parseHash('#view=map&cam=o:1,2,3|m:4,5,6').cam.mode, 'map');
+    assert.equal(camToCode({ mode: 'm', lat: 1, lon: 2, dist: 0.0001 }), 'm:1,2,0.05');
+});
+
+test('loc2: a second place round-trips (name, zone); bad values are reported, never applied', () => {
+    const p = parseHash('#loc=52.52,13.4&n=Berlin&loc2=-33.9249,18.4241&n2=Cape+Town&tz2=Africa/Johannesburg');
+    assert.deepEqual(p.observer2, {
+        latDeg: -33.9249, lonDeg: 18.4241, elevM: 0, name: 'Cape Town', country: '', cc: '', tz: 'Africa/Johannesburg',
+        tzApprox: false, source: 'url',
+    });
+    assert.equal(p.invalid, undefined);
+    const h = serializeHash({ state: { observer: p.observer, observer2: p.observer2 } });
+    assert.match(h, /&loc2=-33\.9249,18\.4241&n2=Cape%20Town&tz2=Africa\/Johannesburg/);
+    assert.deepEqual(parseHash(h).observer2, p.observer2);
+    assert.deepEqual(parseHash('#loc2=95,10').invalid, ['loc2']);
+    assert.equal(parseHash('#loc2=95,10').observer2, undefined);
+    assert.deepEqual(parseHash('#loc2=10,20&tz2=Mars/Olympus').invalid, ['tz2']);
+    assert.equal(parseHash('#loc2=10,200').observer2.lonDeg, -160);
+    // Nothing is written without a second place.
+    assert.equal(serializeHash({ state: { observer2: null } }), '');
+});
+
+test('sel= round-trips extra objects (namespaced ids) and rejects malformed ones', () => {
+    assert.equal(parseHash('#sel=comet:halley').selection, 'comet:halley');
+    assert.equal(parseHash('#sel=Craft:Voyager1').selection, 'craft:voyager1');
+    assert.equal(parseHash('#sel=guest:sn1054').selection, 'guest:sn1054');
+    assert.equal(parseHash('#sel=star:32349').selection, 'star:32349');
+    assert.equal(parseHash('#sel=dso:m31').selection, 'dso:m31');
+    for (const bad of ['comet:', 'planet:x', 'comet:hal ley', 'comet:-x', `comet:${'a'.repeat(33)}`, 'craft:v1:x']) {
+        const p = parseHash(`#sel=${encodeURIComponent(bad)}`);
+        assert.equal(p.selection, undefined, bad);
+        assert.ok(p.invalid.includes('sel'), bad);
+    }
+    const state = { observer: { latDeg: 50.9, lonDeg: 0.5, elevM: 0, name: '', country: '', tz: null, tzApprox: true, source: 'url' },
+        selection: 'comet:halley', view: { mode: 'sky', earthLock: true }, layers: null };
+    const hash = serializeHash({ state, clock: { live: true } });
+    assert.match(hash, /(^|&)sel=comet:halley(&|$)/);
+    assert.equal(parseHash(hash).selection, 'comet:halley');
+});
+
+test('a single cam= without view= names the view; view= wins when both are given', () => {
+    assert.equal(parseHash('#cam=o:20,-130,7').view, 'orbit');
+    assert.equal(parseHash('#cam=s:180,20,60').view, 'sky');
+    assert.equal(parseHash('#cam=m:10,20,2').view, 'map');
+    const both = parseHash('#view=sky&cam=o:20,-130,7|s:180,20,60');
+    assert.equal(both.view, 'sky');
+    assert.equal(both.cam.mode, 'sky');
+    // A pair without view= is the app's own orbit link: no view is implied.
+    assert.equal(parseHash('#cam=o:20,-130,7|s:180,20,60').view, undefined);
+});
+
+test('tab= opens a panel tab: read, validated, never written', async () => {
+    const { PANELS } = await import('../js/core/store.js');
+    assert.deepEqual([...PANELS], ['sky', 'details', 'events', 'explore', 'display']);
+    assert.equal(parseHash('#tab=events').panel, 'events', 'the manifest shortcut');
+    assert.equal(parseHash('#tab=explore').panel, 'explore');
+    assert.equal(parseHash('#tab=display').reveal, undefined);
+    const bad = parseHash('#tab=console');
+    assert.equal(bad.panel, undefined);
+    assert.deepEqual(bad.invalid, ['tab']);
+    assert.equal(parseHash('#tab=').invalid, undefined, 'empty: ignored');
+    const state = { ...DEFAULT_STATE, ui: { ...DEFAULT_STATE.ui, panel: 'events' } };
+    assert.ok(!serializeHash({ state }).includes('tab'), 'the open tab is not part of a link');
+});
+
+test('tab= reads the old tabs as Display, revealing their section; an alias is never invalid', () => {
+    for (const [v, reveal] of [['layers', undefined], ['settings', 'conditions'], ['Settings', 'conditions'], ['about', 'about']]) {
+        const p = parseHash(`#view=sky&tab=${v}`);
+        assert.equal(p.panel, 'display', v);
+        assert.equal(p.reveal, reveal, v);
+        assert.equal(p.invalid, undefined, v);
+    }
+    for (const v of ['constructor', '__proto__', 'toString']) assert.deepEqual(parseHash(`#tab=${v}`).invalid, ['tab'], v);
+});
+
+test('the shell mounts exactly the PANELS tabs, in order', async () => {
+    const fs = await import('node:fs');
+    const { PANELS } = await import('../js/core/store.js');
+    const src = fs.readFileSync(new URL('../js/ui/shell.js', import.meta.url), 'utf8');
+    const block = src.slice(src.indexOf('export const TABS'), src.indexOf('];', src.indexOf('export const TABS')));
+    assert.deepEqual([...block.matchAll(/\{ id: '([a-z]+)'/g)].map((m) => m[1]), [...PANELS]);
+});
+
+test('lang: en or vi for this visit, kept like debug, never invented', () => {
+    assert.equal(parseHash('#lang=vi').lang, 'vi');
+    assert.equal(parseHash('#lang=EN').lang, 'en');
+    const bad = parseHash('#lang=fr');
+    assert.equal(bad.lang, undefined);
+    assert.deepEqual(bad.invalid, ['lang']);
+    assert.equal(serializeHash({ state: {}, extra: { lang: 'vi' } }), '#lang=vi');
+    assert.equal(serializeHash({ state: {}, extra: { lang: 'xx' } }), '');
+    assert.equal(serializeHash({ state: {} }), '');
 });

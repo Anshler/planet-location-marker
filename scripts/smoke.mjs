@@ -23,6 +23,8 @@
 //   --format=png|jpeg --quality=0..100   screenshot encoding (quality: jpeg only)
 //   --tz=Area/City           emulate a time zone (e.g. --tz=UTC to regression-test UTC systems)
 //   --reduced-motion         emulate prefers-reduced-motion: reduce
+//   --media=f:v,f:v          emulate other media features (CDP Emulation.setEmulatedMedia), e.g.
+//                            --media=prefers-contrast:more,forced-colors:active,prefers-reduced-transparency:reduce
 //   --subpath=/repo/         serve the site under a sub-path, like GitHub Pages
 //   --json=file              also write the results as JSON
 //   --verbose                echo console messages and requests as they happen
@@ -38,6 +40,23 @@
 //   --browser=chrome|edge|<path>   browser executable (default: first Chrome/Edge found)
 //   --root=dir               serve this directory instead of the repo (e.g. the staged Pages artifact)
 //   --chrome-args=a,b        extra browser command-line switches (e.g. --force_low_power_gpu)
+//   --throttle=rtt,kbps      emulate a slow network: round-trip latency (ms) and download speed
+//                            (kbit/s), e.g. --throttle=150,9000 (CDP Network.emulateNetworkConditions)
+//   --offline-reload         the service worker's offline promise: opens the page with #sw=1, waits
+//                            for the worker to control it and reply 'precached', then goes offline
+//                            (CDP offline emulation, and the server stops) and reloads. The reload
+//                            must get ready, receive the astro worker's events and be served by the
+//                            worker alone; the other checks then run offline. Use it on the staged
+//                            site (--root=_site after node scripts/stage-site.mjs _site) to test the
+//                            deploy's manifest; on the repo it tests the dev worker
+//   --context-loss           WEBGL_lose_context: lose and restore the context once the app is ready;
+//                            drawing must resume, the overlay leave and no WebGL warning appear
+//   --perf[=low|medium|high] count-based performance gates (scripts/lib/perf-gates.mjs), once the app is
+//                            ready: shader programs and draw calls within the tier's budget (globe and
+//                            sky view), no frame in 3 s on the paused globe, none in a paused sky view
+//                            (a twinkling tier: ≤ 32/s), no getBoundingClientRect inside a frame
+//                            callback during a 3 s time-lapse. With a tier and no --url it opens the
+//                            scene the budgets were measured on (perfScene) at that tier
 //
 // Exit codes: 0 pass · 1 errors or failed assertions · 2 infrastructure problem.
 
@@ -54,8 +73,9 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // ------------------------------------------------------------------ options --------------
 
 const KNOWN_FLAGS = new Set(['url', 'out', 'wait', 'width', 'height', 'dpr', 'mobile', 'eval', 'block', 'offline',
-    'expect-ready', 'assert', 'format', 'quality', 'tz', 'reduced-motion', 'subpath', 'json', 'verbose', 'help',
-    'at', 'fail', 'no-webgl', 'init', 'gpu', 'angle', 'headed', 'browser', 'root', 'chrome-args']);
+    'expect-ready', 'assert', 'format', 'quality', 'tz', 'reduced-motion', 'media', 'subpath', 'json', 'verbose', 'help',
+    'at', 'fail', 'no-webgl', 'init', 'gpu', 'angle', 'headed', 'browser', 'root', 'chrome-args', 'throttle',
+    'offline-reload', 'context-loss', 'perf']);
 const GEOCODER_HOSTS = new Set(['geocoding-api.open-meteo.com', 'photon.komoot.io', 'nominatim.openstreetmap.org']);
 const LOCAL_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
@@ -64,19 +84,28 @@ const args = Object.fromEntries(process.argv.slice(2).map((a) => {
     return m ? [m[1], m[2] ?? 'true'] : [a, 'true'];
 }));
 if (args.help) {
-    const head = fs.readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\n').slice(1, 40);
-    console.log(head.filter((l) => l.startsWith('//')).map((l) => l.slice(3)).join('\n'));
+    const lines = fs.readFileSync(fileURLToPath(import.meta.url), 'utf8').split('\n');
+    const head = lines.slice(1, lines.findIndex((l, i) => i > 0 && !l.startsWith('//')));
+    console.log(head.map((l) => l.slice(3)).join('\n'));
     process.exit(0);
 }
 for (const k of Object.keys(args)) if (!KNOWN_FLAGS.has(k)) console.warn(`smoke: unknown option --${k} (ignored)`);
 
 const flag = (k) => args[k] !== undefined && args[k] !== 'false';
 const ASSERT = flag('assert');
-const EXPECT_READY = ASSERT || flag('expect-ready');
+const OFFLINE_RELOAD = flag('offline-reload');
+const CONTEXT_LOSS = flag('context-loss');
+const PERF = flag('perf');
+const PERF_TIER = PERF && /^(low|medium|high|max)$/.test(args.perf) ? args.perf : null;
+const EXPECT_READY = ASSERT || flag('expect-ready') || OFFLINE_RELOAD || CONTEXT_LOSS || PERF;
+/** --perf: the gates' shim, probe and judge (they import js/core/quality.js, so only when asked). */
+const perfGates = PERF ? await import('./lib/perf-gates.mjs') : null;
 const MOBILE = flag('mobile');
 const FORMAT = /^jpe?g$/i.test(args.format ?? '') ? 'jpeg' : 'png';
+/** `url` with `flag` (e.g. 'sw=1') in its hash. */
+const withHashFlag = (url, f) => (url.includes('#') ? `${url}${/[#&]$/.test(url) ? '' : '&'}${f}` : `${url}#${f}`);
 const OPT = {
-    url: args.url ?? '/',
+    url: OFFLINE_RELOAD ? withHashFlag(args.url ?? '/', 'sw=1') : args.url ?? (PERF_TIER ? perfGates.perfScene(PERF_TIER) : '/'),
     wait: Number(args.wait ?? (EXPECT_READY ? 15000 : 8000)),
     width: Number(args.width ?? (MOBILE ? 390 : 1440)),
     height: Number(args.height ?? (MOBILE ? 844 : 900)),
@@ -85,6 +114,8 @@ const OPT = {
     out: args.out ?? path.join(os.tmpdir(), `smoke${MOBILE ? '-mobile' : ''}.${FORMAT === 'jpeg' ? 'jpg' : 'png'}`),
     tz: args.tz && args.tz !== 'true' ? args.tz : null,
     reducedMotion: flag('reduced-motion'),
+    media: (args.media ?? '').split(',').map((s) => s.trim().split(':')).filter(([n, v]) => n && v && n !== 'true')
+        .map(([name, value]) => ({ name, value })),
     offline: flag('offline'),
     block: (args.block ?? '').split(',').map((s) => s.trim()).filter((s) => s && s !== 'true'),
     subpath: args.subpath && args.subpath !== 'true' ? args.subpath : null,
@@ -100,6 +131,7 @@ const OPT = {
     browser: args.browser && args.browser !== 'true' ? args.browser : null,
     root: args.root && args.root !== 'true' ? path.resolve(args.root) : ROOT,
     chromeArgs: (args['chrome-args'] ?? '').split(',').map((s) => s.trim()).filter((s) => s && s !== 'true'),
+    throttle: /^\d+,\d+$/.test(args.throttle ?? '') ? args.throttle.split(',').map(Number) : null,
 };
 for (const k of ['wait', 'width', 'height', 'dpr']) {
     if (!(OPT[k] > 0)) {
@@ -111,7 +143,7 @@ const EXPECTED_VERSION = fs.readFileSync(path.join(ROOT, 'js', 'version.js'), 'u
 
 // ------------------------------------------------------------------ state ----------------
 
-const log = { errors: [], warnings: [], requests: [], failed: [] };
+const log = { errors: [], warnings: [], requests: [], failed: [], responses: [] };
 const checks = [];
 const check = (name, ok, detail) => checks.push({ name, ok: Boolean(ok), detail });
 const hostOf = (u) => {
@@ -148,7 +180,7 @@ const watchdog = setTimeout(async () => {
     console.error('smoke: timed out');
     await cleanup();
     process.exit(2);
-}, OPT.wait + 120000);
+}, OPT.wait + 120000 + (PERF ? 240000 : 0));
 watchdog.unref();
 
 // ------------------------------------------------------------------ helpers --------------
@@ -190,16 +222,23 @@ function wireEvents(client) {
         log.requests.push(p.request.url);
         verbose(`→ ${p.request.method} ${p.request.url}`);
     });
+    // The service worker's own fetches (an --offline-reload's network-first tries, which fail offline
+    // by design) are not the page's: a page request the worker cannot serve fails on its own session.
+    const swSessions = new Set();
     client.on('Network.loadingFailed', (p, sid) => {
-        if (!p.canceled) log.failed.push({ url: urls.get(`${sid}|${p.requestId}`) ?? '?', why: p.errorText });
+        if (p.canceled || swSessions.has(sid)) return;
+        log.failed.push({ url: urls.get(`${sid}|${p.requestId}`) ?? '?', why: p.errorText });
     });
-    client.on('Network.responseReceived', (p) => {
+    client.on('Network.responseReceived', (p, sid) => {
+        if (swSessions.has(sid)) return;
+        log.responses.push({ url: p.response.url, fromServiceWorker: !!p.response.fromServiceWorker });
         if (p.response.status >= 400) log.failed.push({ url: p.response.url, why: `HTTP ${p.response.status}` });
     });
     // Module workers (astro worker) get their own sessions; listen to their console, errors
     // and module requests too (a 404 inside the worker must fail the run like any other).
     client.on('Target.attachedToTarget', (p) => {
         if (!/worker/.test(p.targetInfo.type)) return;
+        if (p.targetInfo.type === 'service_worker') swSessions.add(p.sessionId);
         workerSessions++;
         for (const m of ['Runtime.enable', 'Network.enable', 'Runtime.runIfWaitingForDebugger']) {
             client.send(m, {}, p.sessionId).catch(() => {});
@@ -249,19 +288,53 @@ async function openPage(exe) {
     // Emulation must be in place before navigation.
     for (const d of ['Page', 'Runtime', 'Network', 'Log']) await page(`${d}.enable`);
     await page('Network.setCacheDisabled', { cacheDisabled: true });
+    if (OPT.throttle) {
+        const [latency, kbps] = OPT.throttle;
+        await page('Network.emulateNetworkConditions', {
+            offline: false, latency, downloadThroughput: (kbps * 1000) / 8, uploadThroughput: (kbps * 1000) / 8,
+        });
+    }
     await page('Emulation.setDeviceMetricsOverride', { width: OPT.width, height: OPT.height, deviceScaleFactor: OPT.dpr, mobile: MOBILE });
     if (MOBILE) {
         await page('Emulation.setTouchEmulationEnabled', { enabled: true, maxTouchPoints: 5 });
         await page('Emulation.setUserAgentOverride', { userAgent: mobileUserAgent(userAgent), platform: 'Android' });
     }
     if (OPT.tz) await page('Emulation.setTimezoneOverride', { timezoneId: OPT.tz });
-    if (OPT.reducedMotion) {
-        await page('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-reduced-motion', value: 'reduce' }] });
-    }
+    const features = [...(OPT.reducedMotion ? [{ name: 'prefers-reduced-motion', value: 'reduce' }] : []), ...OPT.media];
+    if (features.length) await page('Emulation.setEmulatedMedia', { features });
     if (OPT.fail.length) await page('Fetch.enable', fetchPatterns());
     if (OPT.init) await page('Page.addScriptToEvaluateOnNewDocument', { source: OPT.init });
+    if (OFFLINE_RELOAD) await page('Page.addScriptToEvaluateOnNewDocument', { source: COUNT_EVENTS });
+    if (PERF) await page('Page.addScriptToEvaluateOnNewDocument', { source: perfGates.PERF_SHIM });
     await page('Target.setAutoAttach', { autoAttach: true, waitForDebuggerOnStart: false, flatten: true });
     return page;
+}
+
+// --offline-reload: counts the bus 'events' payloads (the astro worker's event search) from the
+// moment the app creates its bus, so the count cannot miss an early emit.
+const COUNT_EVENTS = `(() => {
+    let app;
+    Object.defineProperty(window, '__app', { configurable: true, get() { return app; }, set(v) {
+        app = v;
+        const t0 = Date.now();
+        const t = setInterval(() => {
+            const bus = v && v.internals && v.internals.bus;
+            if (!bus && Date.now() - t0 < 30000) return;
+            clearInterval(t);
+            if (bus) bus.on('events', (l) => { window.__smokeEvents = (window.__smokeEvents || 0) + (Array.isArray(l) ? l.length : 0); });
+        }, 20);
+    } });
+})();`;
+
+/** Polls a JS expression every 250 ms until it is truthy or `ms` pass; returns its value or null. */
+async function pollFor(evaluate, expression, ms) {
+    const deadline = Date.now() + ms;
+    while (Date.now() < deadline) {
+        const v = await evaluate(expression).catch(() => null);
+        if (v) return v;
+        await sleep(250);
+    }
+    return null;
 }
 
 /** Polls window.__app.ready every 250 ms until the deadline; returns ms since t0 or null. */
@@ -281,8 +354,13 @@ function describeRun(target, exe) {
     if (OPT.block.length) bits.push(`blocked ${OPT.block.join(',')}`);
     if (OPT.tz) bits.push(`tz=${OPT.tz}`);
     if (OPT.reducedMotion) bits.push('reduced motion');
+    if (OPT.media.length) bits.push(OPT.media.map((f) => `${f.name}: ${f.value}`).join(', '));
     if (OPT.noWebgl) bits.push('no WebGL');
     if (OPT.fail.length) bits.push(`404 for ${OPT.fail.join(',')}`);
+    if (OPT.throttle) bits.push(`throttled to ${OPT.throttle[0]} ms RTT, ${OPT.throttle[1]} kbit/s`);
+    if (OFFLINE_RELOAD) bits.push('offline reload through the service worker');
+    if (CONTEXT_LOSS) bits.push('context loss and restore');
+    if (PERF) bits.push('performance gates');
     console.log(`smoke: ${target}\n       ${bits.join(', ')}; ${exe.split(/[\\/]/).pop()}`);
 }
 
@@ -344,6 +422,12 @@ async function run() {
         await sleep(600);   // a few frames after the camera settles
     }
 
+    // ---- --perf, --context-loss, then --offline-reload (the checks below then run on the reloaded page)
+    let perf = null;
+    if (PERF && readyMs !== null) perf = await perfRun(evaluate);
+    if (CONTEXT_LOSS && readyMs !== null) await contextLoss(evaluate);
+    if (OFFLINE_RELOAD && readyMs !== null) readyMs = await offlineReload(page, evaluate) ?? readyMs;
+
     // ---- optional user expression, then the screenshot
     let evalResult;
     if (args.eval) evalResult = await evaluate(args.eval).catch((e) => `threw: ${e.message}`);
@@ -355,7 +439,104 @@ async function run() {
     let final = null;
     if (ASSERT && readyMs !== null) final = await acceptance({ evaluate, stats });
 
-    return { target, readyMs, evalResult, final, shot: true, atFiles };
+    return { target, readyMs, evalResult, final, shot: true, atFiles, perf };
+}
+
+/** --perf: runs the probe in the page and judges it (scripts/lib/perf-gates.mjs). */
+async function perfRun(evaluate) {
+    const m = await evaluate(`(${perfGates.perfProbe})(${JSON.stringify(perfGates.PROBE_OPTIONS)})`)
+        .catch((e) => ({ error: e.message }));
+    for (const c of perfGates.judgePerf(m)) check(c.name, c.ok, c.detail);
+    return m;
+}
+
+/**
+ * --context-loss: WEBGL_lose_context, 400 ms lost, then restored. The render context must leave its
+ * lost state (the closed maps re-fetched), the overlay go, five frames be drawn (time runs at 1 h/s
+ * meanwhile, at most 30 s, then the clock is put back) and no WebGL warning be logged.
+ */
+async function contextLoss(evaluate) {
+    const warnBefore = log.warnings.length;
+    const r = await evaluate(`(async () => {
+        const rc = window.__app && window.__app.internals && window.__app.internals.rc;
+        if (!rc || !rc.renderer) return { error: 'no render context (text mode?)' };
+        const canvas = rc.renderer.domElement;
+        const ext = rc.renderer.getContext().getExtension('WEBGL_lose_context');
+        if (!ext) return { error: 'no WEBGL_lose_context' };
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        const once = (type) => new Promise((r) => canvas.addEventListener(type, r, { once: true }));
+        const overlay = () => !!document.getElementById('pc-context-lost');
+        const c = window.__app.clock, wasLive = c.live, t0 = c.tMs, rate = c.rate, playing = c.playing;
+        const lost = once('webglcontextlost');
+        ext.loseContext();
+        await lost;
+        await sleep(400);
+        const shown = overlay();
+        const restored = once('webglcontextrestored');
+        const tr = performance.now();
+        ext.restoreContext();
+        await restored;
+        while (rc.lost && performance.now() - tr < 20000) await sleep(100);
+        const restoreMs = Math.round(performance.now() - tr);
+        const f0 = window.__app.stats().frames;
+        c.setRate(3600);
+        c.play();
+        // The first frame after a restore links the shaders again: seconds on SwiftShader.
+        const tf = performance.now();
+        while (window.__app.stats().frames - f0 < 5 && performance.now() - tf < 30000) await sleep(100);
+        const frames = window.__app.stats().frames - f0, framesMs = Math.round(performance.now() - tf);
+        if (wasLive) c.goLive(); else { c.setTime(t0); c.setRate(rate); if (!playing) c.pause(); }
+        return { stillLost: rc.lost, restoreMs, frames, framesMs, shown, gone: !overlay(), phase: window.__app.stats().phase };
+    })()`).catch((e) => ({ error: e.message }));
+    await sleep(500);   // a warning from the restore's last frames arrives asynchronously
+    const glWarnings = log.warnings.slice(warnBefore).filter((w) => /webgl|gl_invalid|does not belong to this context/i.test(w));
+    if (r?.error) {
+        check('context loss', false, r.error);
+        return;
+    }
+    check('context loss: overlay while lost', r.shown, r.shown ? 'shown' : 'not shown');
+    check('context loss: restored', !r.stillLost && r.gone && r.phase === 'ready',
+        `${r.restoreMs} ms, overlay ${r.gone ? 'gone' : 'still up'}, phase=${r.phase}`);
+    check('context loss: frames resume', r.frames >= 5, `${r.frames} frames in ${(r.framesMs / 1000).toFixed(1)} s`);
+    check('context loss: no WebGL warnings', glWarnings.length === 0,
+        glWarnings.length ? `${glWarnings.length}: ${[...new Set(glWarnings)].slice(0, 2).join(' | ')}` : '0');
+}
+
+/**
+ * --offline-reload: the worker must control the page and have precached it; then the page goes
+ * offline (CDP emulation, and the server stops: a request the worker forwards fails) and reloads.
+ * Returns the reload's ready time, or null.
+ */
+async function offlineReload(page, evaluate) {
+    const sw = await pollFor(evaluate, `(() => { const s = window.__app && window.__app.sw;
+        return s && s.controlled && s.precached ? JSON.parse(JSON.stringify(s)) : null; })()`, 45000);
+    check('service worker: controls, precached', !!sw, sw ? `${sw.version}${sw.staged ? ' (staged manifest)' : ' (dev: no manifest)'}` : 'not within 45 s');
+    if (!sw) return null;
+    const staged = fs.existsSync(path.join(OPT.root, 'sw-manifest.json'))
+        ? JSON.parse(fs.readFileSync(path.join(OPT.root, 'sw-manifest.json'), 'utf8')) : null;
+    if (staged) check('service worker: the manifest\'s version', sw.version === staged.version && sw.staged, `${sw.version} (sw-manifest.json: ${staged.version})`);
+    const cached = await evaluate(`(async () => { let n = 0; for (const k of await caches.keys()) if (k.startsWith('pc2-')) n += (await (await caches.open(k)).keys()).length; return n; })()`).catch(() => 0);
+    if (staged) check('service worker: precache complete', cached >= staged.precache.length, `${cached} cached / ${staged.precache.length} precached files`);
+
+    await page('Network.emulateNetworkConditions', { offline: true, latency: 0, downloadThroughput: -1, uploadThroughput: -1 });
+    await server.close();
+    server = null;
+    const mark = log.responses.length;
+    const t1 = Date.now();
+    await page('Page.reload', {});
+    const readyMs = await waitForReady(evaluate, t1);
+    check('offline reload: ready', readyMs !== null, readyMs === null ? `not ready after ${OPT.wait / 1000} s` : `${(readyMs / 1000).toFixed(1)} s`);
+    if (readyMs === null) return null;
+    const controlled = await evaluate('window.__app.sw.controlled === true').catch(() => false);
+    check('offline reload: controlled', controlled, controlled ? 'by the service worker' : 'no controller');
+    const events = await pollFor(evaluate, '(window.__smokeEvents || 0) > 0 ? window.__smokeEvents : null', 30000);
+    check('offline reload: events', events > 0, `${events ?? 0} events from the astro worker`);
+    const toast = await evaluate(`document.querySelector('.toasts')?.textContent ?? ''`).catch(() => '');
+    check('offline reload: every image', !/couldn.t load/i.test(toast), /couldn.t load/i.test(toast) ? 'the imagery toast showed' : 'no imagery toast');
+    const after = log.responses.slice(mark).filter((r) => /^https?:/.test(r.url) && isLocal(r.url));
+    const fromSw = after.filter((r) => r.fromServiceWorker).length;
+    check('offline reload: served by the worker', after.length > 0 && fromSw === after.length, `${fromSw}/${after.length} responses`);
+    return readyMs;
 }
 
 /** SPEC §H: stats sanity, version, and memory stability while time runs at 1 day/s. */
@@ -378,6 +559,7 @@ async function acceptance({ evaluate, stats }) {
         if (s.geometries !== prev.geometries || s.textures !== prev.textures) stableSince = Date.now();
         prev = s;
     }
+    await interfaceChecks(evaluate);
     const started = await evaluate('(() => { const c = window.__app.clock; c.setRate(86400); c.play(); return true; })()')
         .catch((e) => `threw: ${e.message}`);
     check('clock.setRate(86400); play()', started === true, started === true ? 'ok' : String(started));
@@ -402,6 +584,52 @@ async function acceptance({ evaluate, stats }) {
         else check('beamsVisible ≥ 7', s10.beamsVisible >= 7, `beamsVisible=${s10.beamsVisible}`);
     }
     return s10;
+}
+
+// Layout checks that need a live page: a shared link's selection opens its card, and the phone
+// time bar shows the whole date (with its year) on every weekday, including two-digit days.
+async function interfaceChecks(evaluate) {
+    if (/[#&]sel=[a-z]/.test(OPT.url)) {
+        const tab = await evaluate(`document.getElementById('tab-details')?.getAttribute('aria-selected') ?? 'missing'`)
+            .catch((e) => `threw: ${e.message}`);
+        check('sel= opens Details', tab === 'true', `#tab-details aria-selected=${tab}`);
+    }
+    const layout = await evaluate(`document.getElementById('ui-root')?.dataset.layout ?? ''`).catch(() => '');
+    // The toolbar's three menus are there whenever the 3D view is (UI-REDESIGN §4.2).
+    if (layout !== 'text') {
+        const missing = await evaluate(`['.vb-tools', '.vb-share', '.vb-more'].filter((s) => !document.querySelector('.viewbar ' + s))`)
+            .catch((e) => [`threw: ${e.message}`]);
+        check('toolbar: Tools, Share, More', Array.isArray(missing) && missing.length === 0, missing?.length ? `missing ${missing}` : 'all three');
+    }
+    if (layout !== 'mobile') return;
+    // The phone's tab bar shows all five tabs with the sheet at its peek (§3.3).
+    const tabs = await evaluate(`(() => {
+        const st = window.__app.store, ui = st.get().ui;
+        if (ui.sheet !== 'peek') st.set({ ui: { ...ui, sheet: 'peek' } });
+        return [...document.querySelectorAll('.navbar [role="tab"]')].filter((t) => {
+            const r = t.getBoundingClientRect();
+            return r.width >= 44 && r.height >= 44 && r.top >= 0 && r.bottom <= innerHeight && t.checkVisibility?.() !== false;
+        }).length;
+    })()`).catch(() => -1);
+    check('phone tab bar visible at peek', tabs === 5, `${tabs} of 5 tabs visible`);
+    // 4–17 Nov 2026 holds every weekday with one- and two-digit days ("Wed 11 Nov", "Mon 16 Nov").
+    const clipped = await evaluate(`(async () => {
+        const c = window.__app.clock, t0 = c.tMs, wasLive = c.live, wasPlaying = c.playing;
+        const frame = () => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+        const bad = [];
+        c.pause();
+        for (let k = 0; k < 14; k += 1) {
+            c.setTime(Date.UTC(2026, 10, 4, 12) + k * 864e5);
+            await frame();
+            for (const el of document.querySelectorAll('.tb-date .stamp__day, .tb-date .stamp__time')) {
+                if (el.scrollWidth > el.clientWidth) bad.push(el.textContent + ' (' + el.scrollWidth + '>' + el.clientWidth + ')');
+            }
+        }
+        if (wasLive) c.goLive(); else { c.setTime(t0); if (wasPlaying) c.play(); }
+        return bad;
+    })()`).catch((e) => [`threw: ${e.message}`]);
+    check('phone date unclipped (14 days)', Array.isArray(clipped) && clipped.length === 0,
+        Array.isArray(clipped) && clipped.length ? clipped.slice(0, 3).join(', ') : 'all fit');
 }
 
 function judgeLogs() {
@@ -449,6 +677,7 @@ if (result?.final && !result.final.error) {
     console.log(`  info  stats  fps=${f.fps} frames=${f.frames} drawCalls=${f.drawCalls} geometries=${f.geometries} `
         + `textures=${f.textures} beams=${f.beamsVisible} labels=${f.labelsVisible}`);
 }
+if (result?.perf) console.log(`  info  perf   ${perfGates.perfSummary(result.perf)}`);
 if (result?.evalResult !== undefined) {
     const v = result.evalResult;
     console.log('eval:', typeof v === 'string' ? v : JSON.stringify(v, null, 2));
@@ -467,8 +696,9 @@ if (OPT.json) {
     fs.mkdirSync(path.dirname(path.resolve(OPT.json)), { recursive: true });
     fs.writeFileSync(OPT.json, JSON.stringify({
         ok: !failed, url: result?.target ?? null, viewport: { width: OPT.width, height: OPT.height, dpr: OPT.dpr, mobile: MOBILE },
-        options: { offline: OPT.offline, tz: OPT.tz, reducedMotion: OPT.reducedMotion, subpath: OPT.subpath, noWebgl: OPT.noWebgl, fail: OPT.fail },
-        readyMs: result?.readyMs ?? null, checks, stats: result?.final ?? null, errors: log.errors, warnings: log.warnings,
+        options: { offline: OPT.offline, tz: OPT.tz, reducedMotion: OPT.reducedMotion, media: OPT.media, subpath: OPT.subpath, noWebgl: OPT.noWebgl, fail: OPT.fail,
+            offlineReload: OFFLINE_RELOAD, contextLoss: CONTEXT_LOSS, perf: PERF, root: OPT.root === ROOT ? null : OPT.root },
+        readyMs: result?.readyMs ?? null, checks, stats: result?.final ?? null, perf: result?.perf ?? null, errors: log.errors, warnings: log.warnings,
         external: net.external, failed: log.failed, screenshot: result?.shot ? path.resolve(OPT.out) : null,
     }, null, 2));
 }

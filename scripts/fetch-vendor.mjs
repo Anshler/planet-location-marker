@@ -11,10 +11,19 @@
 //   node scripts/fetch-vendor.mjs --update        accept new hashes (after a deliberate bump)
 //
 // Pins: three.js code from npm 0.170.0; planet textures from the three.js repo at tag r170;
-// the clouds PNG and lens flares at r186 (re-optimised PNGs, same images); astronomy-engine 2.1.19 (its npm
+// the lens flares at r186 (re-optimised PNGs, same images); astronomy-engine 2.1.19 (its npm
 // package ships no LICENSE, so that comes from the matching git tag); d3-celestial data at
 // commit 7e720a3 (master as of 2022-07-05; the repo has no tag for it on jsDelivr).
 // GeoNames is not vendored — scripts/build-cities.mjs downloads it to a gitignored cache.
+// Textures re-encoded from these files are not vendored either: scripts/build-textures.mjs
+// makes them and locks them in vendor/DERIVED.json, so they count as listed here.
+//
+// The max quality tier's 8192 px maps come straight from Solar System Scope (CC BY 4.0), the
+// source the three.js 4096 maps were made from. Their download URLs are not versioned, so the
+// sha256 in the lock is the pin. Two of them are only inputs to build-textures (the cloud map is
+// re-encoded as grey WebP, the Moon halved): those are `cache` entries, kept in the gitignored
+// data/raw/textures/ (25 MB that never ship). This script downloads them like any other file;
+// --check verifies them when present and skips them when not (CI checks the outputs' hashes).
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -24,11 +33,11 @@ import { download } from './lib/http.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const LOCK = path.join(ROOT, 'vendor', 'VENDOR.json');
+const DERIVED_LOCK = path.join(ROOT, 'vendor', 'DERIVED.json');
 
 const THREE = { name: 'three', version: '0.170.0', license: 'MIT', base: 'https://cdn.jsdelivr.net/npm/three@0.170.0/' };
 const AE = { name: 'astronomy-engine', version: '2.1.19', license: 'MIT' };
 const TEX170 = { version: 'r170', base: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r170/examples/textures/' };
-const TEX186 = { version: 'r186', base: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r186/examples/textures/' };
 const D3C = {
     name: 'd3-celestial', version: '7e720a3de062059d4c5400a379146a601d9010e0', license: 'BSD-3-Clause',
     base: 'https://cdn.jsdelivr.net/gh/ofrohn/d3-celestial@7e720a3de062059d4c5400a379146a601d9010e0/',
@@ -41,7 +50,12 @@ const texture = (pin, sub, file, license) => ({
 });
 const SSS = 'CC-BY-4.0 (Solar System Scope, via three.js examples)';
 const THREE_EX = 'three.js examples (NASA-derived imagery; no separate licence stated)';
-const RO_ME = 'three.js examples (ro.me)';
+const SSS8K = { version: 'Solar System Scope 8k', base: 'https://www.solarsystemscope.com/textures/download/', license: 'CC-BY-4.0 (Solar System Scope)' };
+/** An 8192 px Solar System Scope map: shipped as-is under assets/textures/, or (cache) a build input. */
+const sss8k = (file, dst, cache = false) => ({
+    name: `texture:${file}`, version: SSS8K.version, license: SSS8K.license, url: SSS8K.base + file, path: dst,
+    ...(cache ? { cache: true } : {}),
+});
 
 /** The pinned download list (SPEC §G). Order is the order written to VENDOR.json. */
 export const MANIFEST = [
@@ -57,16 +71,23 @@ export const MANIFEST = [
     texture(TEX170, 'planets', 'earth_day_4096.jpg', SSS),
     texture(TEX170, 'planets', 'earth_night_4096.jpg', SSS),
     texture(TEX170, 'planets', 'earth_bump_roughness_clouds_4096.jpg', SSS),
-    texture(TEX170, 'planets', 'earth_atmos_2048.jpg', THREE_EX),
-    texture(TEX170, 'planets', 'earth_specular_2048.jpg', THREE_EX),
-    texture(TEX186, 'planets', 'earth_clouds_1024.png', THREE_EX),   // re-optimised PNG after r170
     texture(TEX170, 'planets', 'moon_1024.jpg', THREE_EX),
-    texture(TEX186, 'lensflare', 'lensflare0.png', RO_ME),
-    texture(TEX186, 'lensflare', 'lensflare3.png', RO_ME),
-    ...['stars.6.json', 'constellations.lines.json', 'constellations.json', 'starnames.json', 'mw.json'].map((f) => ({
+    sss8k('8k_earth_daymap.jpg', 'assets/textures/earth_day_8192.jpg'),
+    sss8k('8k_earth_nightmap.jpg', 'assets/textures/earth_night_8192.jpg'),
+    sss8k('8k_earth_clouds.jpg', 'data/raw/textures/8k_earth_clouds.jpg', true),
+    sss8k('8k_moon.jpg', 'data/raw/textures/8k_moon.jpg', true),
+    ...['stars.6.json', 'constellations.lines.json', 'constellations.json', 'starnames.json', 'mw.json', 'messier.json'].map((f) => ({
         name: D3C.name, version: D3C.version, license: D3C.license, url: `${D3C.base}data/${f}`, path: `data/raw/${f}`,
     })),
     { name: D3C.name, version: D3C.version, license: D3C.license, url: `${D3C.base}LICENSE`, path: 'data/raw/LICENSE-d3-celestial' },
+    // Build inputs of scripts/build-stars.mjs (gitignored data/raw/cache/): the max tier's deeper
+    // stars, and the Hipparcos New Reduction (van Leeuwen 2007) as NASA HEASARC distributes it (its
+    // URL is not versioned, so the sha256 is the pin; HEASARC tables are public).
+    { name: D3C.name, version: D3C.version, license: D3C.license, url: `${D3C.base}data/stars.8.json`, path: 'data/raw/cache/stars.8.json', cache: true },
+    {
+        name: 'hipparcos-new-reduction', version: 'HEASARC hipnewcat (2025-10-24 export)', license: 'Public (ESA/van Leeuwen 2007; NASA HEASARC)',
+        url: 'https://heasarc.gsfc.nasa.gov/FTP/heasarc/dbase/tdat_files/heasarc_hipnewcat.tdat.gz', path: 'data/raw/cache/heasarc_hipnewcat.tdat.gz', cache: true,
+    },
 ];
 
 /** @param {Buffer} buf @returns {string} hex sha256 */
@@ -97,10 +118,12 @@ function listFiles(dir) {
     return out;
 }
 
-/** Files under vendor/ and assets/textures/ that the manifest does not know about. */
+/** Files under vendor/ and assets/textures/ that neither lock knows about. */
 function unlistedFiles() {
     const known = new Set(MANIFEST.map((m) => m.path));
     known.add('vendor/VENDOR.json');
+    known.add('vendor/DERIVED.json');
+    for (const p of readLock(DERIVED_LOCK).keys()) known.add(p);   // checked by build-textures --check
     return [...listFiles(path.join(ROOT, 'vendor')), ...listFiles(path.join(ROOT, 'assets', 'textures'))]
         .map((f) => path.relative(ROOT, f).replaceAll('\\', '/'))
         .filter((f) => !known.has(f));
@@ -114,6 +137,7 @@ const readLocal = (m) => {
 /** --check: offline verification of one entry → problem string or null. */
 function checkEntry(m, pinned) {
     const buf = readLocal(m);
+    if (!buf && m.cache && pinned) return { skipped: m.path };   // a gitignored build input, not fetched here
     if (!buf) return `missing ${m.path}`;
     if (!pinned) return `not in VENDOR.json: ${m.path}`;
     return sha256(buf) === pinned ? null : `hash mismatch: ${m.path}`;
@@ -151,7 +175,10 @@ async function syncEntry(m, pinned, { force, update }) {
     if (pinned && hash !== pinned && !update) {
         return `local ${m.path} does not match VENDOR.json (restore it, or --update after a deliberate change)`;
     }
-    return { name: m.name, version: m.version, url: m.url, path: m.path, sha256: hash, license: m.license, bytes: buf.length };
+    return {
+        name: m.name, version: m.version, url: m.url, path: m.path, sha256: hash, license: m.license, bytes: buf.length,
+        ...(m.cache ? { cache: true } : {}),
+    };
 }
 
 async function main() {
@@ -161,6 +188,7 @@ async function main() {
     const lock = readLock();
     const problems = [];
     const entries = [];
+    const skipped = [];
 
     for (const m of MANIFEST) {
         const pinned = lock.get(m.path)?.sha256;
@@ -169,8 +197,10 @@ async function main() {
         else if (mode === 'remote') result = await verifyRemoteEntry(m);
         else result = await syncEntry(m, pinned, opts);
         if (typeof result === 'string') problems.push(result);
+        else if (result?.skipped) skipped.push(result.skipped);
         else if (result) entries.push(result);
     }
+    if (skipped.length) console.log(`not cached (build inputs, fetched by a plain run): ${skipped.join(', ')}`);
 
     const extra = unlistedFiles();
     if (extra.length) console.warn(`unlisted files (not shipped by the manifest):\n  ${extra.join('\n  ')}`);

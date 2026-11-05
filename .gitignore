@@ -2,8 +2,20 @@ node_modules
 .claude*
 .scratch/
 data/raw/geonames/
-# outputs of scripts/stage-site.mjs and the CI smoke runs
+# Horizons responses cached by scripts/build-craft.mjs
+data/raw/horizons/
+# 8192 px build inputs of scripts/build-textures.mjs (fetch-vendor cache entries; never shipped)
+data/raw/textures/
+# Hipparcos New Reduction + d3-celestial stars.8 (build inputs of scripts/build-stars.mjs)
+data/raw/cache/
+# outputs of scripts/stage-site.mjs, the CI smoke runs and scripts/golden.mjs
 _site/
 smoke/
 # machine-specific interpreter path written by graphify
 graphify-out/.graphify_python
+# graphify: machine-local state and dated backups of the curated graph
+graphify-out/.graphify_root
+graphify-out/.graphify_labels.pending.json
+graphify-out/.graphify_labels.json.sig
+graphify-out/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]/
+golden-out/

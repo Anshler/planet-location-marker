@@ -1,7 +1,15 @@
 /**
  * Post-processing chain (SPEC §C.6, §E.6): HDR scene target (half float, MSAA)
  * → UnrealBloom (optional, at `bloom.scale` resolution) → FinalPass
- * (ACES tone mapping + sRGB + vignette + blue-noise dither) or OutputPass.
+ * (FXAA when the target has no MSAA + ACES tone mapping + sRGB + vignette + blue-noise dither)
+ * or OutputPass. While Expose (long-exposure stacking) is on, an AccumPass (render/accum.js) sits
+ * between the scene and the bloom: `setAccumulation(on)`, `accum` (its flags and frame count).
+ * Otherwise, on tiers that supersample when idle, a SupersamplePass (render/supersample.js) sits
+ * there: `setSupersample(on)`, and `render(ss)` with ss = {weight} blends the frame into its running
+ * mean (ss = null skips the pass). Once a few samples are in, FXAA steps aside (uFxaa).
+ * `setOverlay({scene, camera}|null)` adds an OverlayPass right after the scene: a second scene
+ * (the solar-system zoom's orrery) drawn into the same target over a cleared depth buffer, so the
+ * stack and the supersampling mean both take it in (render/context.js jitters its camera too).
  *
  * The bloom input and the final pass scrub NaN/Inf (`pcFinite`), so one bad scene pixel stays
  * one pixel instead of being blurred into a screen-sized black block.
@@ -18,7 +26,13 @@ import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
 import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { Pass } from 'three/addons/postprocessing/Pass.js';
 import { FINITE_CHUNK } from './shaders/common.glsl.js';
+import { AccumPass } from './accum.js';
+import { SupersamplePass } from './supersample.js';
+
+/** Accumulated samples after which the final pass's FXAA steps aside (the mean is already smooth). */
+const SS_NO_FXAA_SAMPLES = 4;
 
 /**
  * Brightest value a scene pixel may feed into the bloom (the Sun core peaks near 30). With
@@ -43,20 +57,98 @@ void main() {
 }
 `;
 
+/**
+ * FXAA 3.11 "console" (Lottes) for scene targets without MSAA (touch Medium, SPEC §E.6), on depth
+ * silhouettes only: the Earth's limb, the Moon's disc, the pin. Stars, lines and beams are drawn
+ * anti-aliased and write no depth, and FXAA would turn a 3-px star into an X; texture detail stays
+ * sharp too. Four depth taps gate it (w = 1 − depth ∝ 1/distance, background 0); past the gate,
+ * centre and diagonal taps give the contrast and edge direction and 2–4 taps along the edge are
+ * blended. The input is HDR, so taps are tone-mapped first with an invertible max-channel
+ * Reinhard, t = c / (1 + max c): the Sun and beams cannot saturate the edge metric (√ luma) or
+ * the blend, and t / (1 − max t) maps the result back. PC_FXAA is set on tier changes only.
+ */
+const FXAA_CHUNK = /* glsl */ `
+#ifdef PC_FXAA
+#define FXAA_EDGE 0.125
+#define FXAA_EDGE_MIN 0.03125
+#define FXAA_REDUCE_MUL 0.125
+#define FXAA_REDUCE_MIN 0.0078125
+#define FXAA_SPAN_MAX 8.0
+uniform sampler2D tDepth;
+uniform float uFxaa;
+bool fxaaSilhouette(vec2 uv, vec2 px) {
+    float a = 1.0 - texture2D(tDepth, uv + vec2(-1.0, -1.0) * px).r;
+    float b = 1.0 - texture2D(tDepth, uv + vec2(1.0, -1.0) * px).r;
+    float c = 1.0 - texture2D(tDepth, uv + vec2(-1.0, 1.0) * px).r;
+    float d = 1.0 - texture2D(tDepth, uv + vec2(1.0, 1.0) * px).r;
+    float wMax = max(max(a, b), max(c, d));
+    return wMax - min(min(a, b), min(c, d)) > 0.02 * wMax;
+}
+vec3 fxaaTone(vec3 c) {
+    c = max(c, vec3(0.0));
+    return c / (1.0 + max(c.r, max(c.g, c.b)));
+}
+vec3 fxaaTap(vec2 uv) {
+    return fxaaTone(pcFinite(texture2D(tDiffuse, uv).rgb));
+}
+float fxaaLuma(vec3 t) {
+    return sqrt(dot(t, vec3(0.299, 0.587, 0.114)));
+}
+vec3 pcFxaa(vec3 hdrM, vec2 uv, vec2 px) {
+    if (!fxaaSilhouette(uv, px)) return hdrM;
+    vec3 rgbM = fxaaTone(hdrM);
+    float lM = fxaaLuma(rgbM);
+    float lNW = fxaaLuma(fxaaTap(uv + vec2(-1.0, -1.0) * px));
+    float lNE = fxaaLuma(fxaaTap(uv + vec2(1.0, -1.0) * px));
+    float lSW = fxaaLuma(fxaaTap(uv + vec2(-1.0, 1.0) * px));
+    float lSE = fxaaLuma(fxaaTap(uv + vec2(1.0, 1.0) * px));
+    float lMin = min(lM, min(min(lNW, lNE), min(lSW, lSE)));
+    float lMax = max(lM, max(max(lNW, lNE), max(lSW, lSE)));
+    if (lMax - lMin < max(FXAA_EDGE_MIN, lMax * FXAA_EDGE)) return hdrM;
+    // Along the edge: perpendicular to the luma gradient.
+    vec2 dir = vec2(-((lNW + lNE) - (lSW + lSE)), (lNW + lSW) - (lNE + lSE));
+    float reduce = max((lNW + lNE + lSW + lSE) * (0.25 * FXAA_REDUCE_MUL), FXAA_REDUCE_MIN);
+    float rcpMin = 1.0 / (min(abs(dir.x), abs(dir.y)) + reduce);
+    dir = clamp(dir * rcpMin, vec2(-FXAA_SPAN_MAX), vec2(FXAA_SPAN_MAX)) * px;
+    vec3 rgbA = 0.5 * (fxaaTap(uv + dir * (1.0 / 3.0 - 0.5)) + fxaaTap(uv + dir * (2.0 / 3.0 - 0.5)));
+    vec3 rgbB = 0.5 * rgbA + 0.25 * (fxaaTap(uv - 0.5 * dir) + fxaaTap(uv + 0.5 * dir));
+    float lB = fxaaLuma(rgbB);
+    // The wide blend crossed another edge: keep the narrow one.
+    vec3 t = (lB < lMin || lB > lMax) ? rgbA : rgbB;
+    return t / max(1.0 - max(t.r, max(t.g, t.b)), 1.0 / 4096.0);
+}
+#endif
+`;
+
+/**
+ * Night vision (uScotopic, set through rc.setVision from photometry.exposureFor's `vision`: sky
+ * view in low light only): as rods take over from cones the dim sky and land lose colour and shift
+ * toward blue (the Purkinje shift), while bright pixels (stars, planets, the Moon) keep theirs. The
+ * rod weighting (0.06, 0.56, 0.38) approximates the scotopic V′(λ) curve on the sRGB primaries, and
+ * the grade is applied before tone mapping. Illustrative and deliberately subtle (≤ 50 %).
+ */
 const FINAL_FRAG = /* glsl */ `
 ${FINITE_CHUNK}
 uniform sampler2D tDiffuse;
 uniform vec2 uResolution;
 uniform float uVignette;
 uniform float uDither;
+uniform float uScotopic;
 varying vec2 vUv;
-
+${FXAA_CHUNK}
 float ign(vec2 p) {
     return fract(52.9829189 * fract(dot(p, vec2(0.06711056, 0.00583715))));
 }
 
 void main() {
     vec3 c = pcFinite(texture2D(tDiffuse, vUv).rgb);
+    #ifdef PC_FXAA
+    if (uFxaa > 0.5) c = pcFxaa(c, vUv, 1.0 / max(uResolution, vec2(1.0)));
+    #endif
+    if (uScotopic > 0.0) {
+        float s = uScotopic * (1.0 - smoothstep(0.03, 0.4, dot(c, vec3(0.2126, 0.7152, 0.0722))));
+        c = mix(c, dot(c, vec3(0.06, 0.56, 0.38)) * vec3(0.86, 1.0, 1.40), s);
+    }
     vec2 q = vUv - 0.5;
     q.x *= uResolution.x / max(uResolution.y, 1.0);
     float r = length(q) / length(vec2(0.5 * uResolution.x / max(uResolution.y, 1.0), 0.5));
@@ -68,14 +160,34 @@ void main() {
 }
 `;
 
-function createFinalPass() {
+/**
+ * Turns the final pass's FXAA on or off (a define: one program per variant, switched only on tier
+ * changes, never per frame).
+ * @param {object|null} pass FinalPass (an OutputPass has no FXAA and is left alone)
+ * @param {boolean} on
+ */
+function setFxaa(pass, on) {
+    const m = pass?.material;
+    if (!m || m.name !== 'FinalPass') return;
+    if (('PC_FXAA' in m.defines) === on) return;
+    if (on) m.defines.PC_FXAA = '';
+    else delete m.defines.PC_FXAA;
+    m.needsUpdate = true;
+}
+
+/** @param {boolean} fxaa */
+function createFinalPass(fxaa) {
     const material = new THREE.ShaderMaterial({
         name: 'FinalPass',
+        defines: fxaa ? { PC_FXAA: '' } : {},
         uniforms: {
             tDiffuse: { value: null },
+            tDepth: { value: null },
+            uFxaa: { value: 1 },
             uResolution: { value: new THREE.Vector2(1, 1) },
             uVignette: { value: 0.12 },
             uDither: { value: 1 / 255 },
+            uScotopic: { value: 0 },
         },
         vertexShader: FINAL_VERT,
         fragmentShader: FINAL_FRAG,
@@ -138,9 +250,38 @@ function sanitizeBloomInput(pass) {
     m.needsUpdate = true;
 }
 
+/** The bloom mips' resolution relative to the drawing buffer (TierCfg bloom.scale, 0.1…1). */
+function bloomScale(b) {
+    return Number.isFinite(b?.scale) ? Math.max(0.1, Math.min(1, b.scale)) : 0.5;
+}
+
 function bloomEquals(a, b) {
     if (!a || !b) return a === b;
     return a.strength === b.strength && a.radius === b.radius && a.threshold === b.threshold && a.scale === b.scale;
+}
+
+/**
+ * A second scene drawn over the first into the scene target (needsSwap false like every pass
+ * here), its depth cleared first; skipped while the overlay scene is hidden.
+ */
+class OverlayPass extends Pass {
+    constructor() {
+        super();
+        this.needsSwap = false;
+        /** @type {{scene:THREE.Scene, camera:THREE.Camera}|null} */
+        this.overlay = null;
+    }
+
+    render(renderer, writeBuffer, readBuffer) {
+        const o = this.overlay;
+        if (!o || !o.scene.visible) return;
+        const ac = renderer.autoClear;
+        renderer.autoClear = false;
+        renderer.setRenderTarget(readBuffer);
+        renderer.clearDepth();
+        renderer.render(o.scene, o.camera);
+        renderer.autoClear = ac;
+    }
 }
 
 /**
@@ -165,41 +306,58 @@ export function createPostFx(renderer, scene, camera, cfg, size) {
     let msaa = 0;
     let bloomCfg = null;
     let useFinal = true;
+    let vision = 0;
 
     /** @type {EffectComposer} */
     let composer = null;
     let renderPass = null;
     let bloomPass = null;
     let finalPass = null;
+    /** @type {AccumPass|null} */
+    let accumPass = null;
+    /** @type {SupersamplePass|null} */
+    let ssPass = null;
+    const overlayPass = new OverlayPass();
 
     function makeTarget(samples) {
-        const rt = new THREE.WebGLRenderTarget(Math.max(1, Math.round(w * dpr)), Math.max(1, Math.round(h * dpr)), {
+        const s = Math.min(samples, maxSamples);
+        const rw = Math.max(1, Math.round(w * dpr)), rh = Math.max(1, Math.round(h * dpr));
+        const rt = new THREE.WebGLRenderTarget(rw, rh, {
             type: hdr ? THREE.HalfFloatType : THREE.UnsignedByteType,
-            samples: Math.min(samples, maxSamples),
+            samples: s,
             depthBuffer: true,
             stencilBuffer: false,
+            // Without MSAA the final pass's FXAA reads depth to find silhouettes.
+            depthTexture: s === 0 ? new THREE.DepthTexture(rw, rh) : null,
         });
         rt.texture.name = 'postfx.scene';
         return rt;
     }
 
     function makeBloom(b) {
-        const scale = Number.isFinite(b.scale) ? Math.max(0.1, Math.min(1, b.scale)) : 0.5;
+        const scale = bloomScale(b);
         const pass = new UnrealBloomPass(new THREE.Vector2(w * dpr * scale, h * dpr * scale), b.strength, b.radius, b.threshold);
+        /** The mips' resolution relative to the drawing buffer (setTier changes it in place). */
+        pass.pcScale = scale;
         // Soft knee above the threshold. The stock 0.01 makes the bright-pass nearly binary,
         // and at half resolution its boundary shows as 2-px stair steps along beam glows.
         if (pass.highPassUniforms?.smoothWidth) pass.highPassUniforms.smoothWidth.value = 0.5;
         sanitizeBloomInput(pass);
         roundBloomKernels(pass);
-        // The composer hands passes full drawing-buffer sizes; run the bloom mips at `scale`.
+        // The composer hands passes full drawing-buffer sizes; run the bloom mips at `pcScale`.
         const baseSetSize = pass.setSize.bind(pass);
-        pass.setSize = (pw, ph) => baseSetSize(Math.max(2, Math.round(pw * scale)), Math.max(2, Math.round(ph * scale)));
+        pass.setSize = (pw, ph) => baseSetSize(Math.max(2, Math.round(pw * pass.pcScale)), Math.max(2, Math.round(ph * pass.pcScale)));
         pass.needsSwap = false;
         return pass;
     }
 
+    /** FXAA stands in for MSAA when the scene target ends up with no samples. */
+    function wantFxaa() {
+        return Math.min(msaa, maxSamples) === 0;
+    }
+
     function makeFinal(final) {
-        if (final) return createFinalPass();
+        if (final) return createFinalPass(wantFxaa());
         const p = new OutputPass();
         p.needsSwap = false;
         return p;
@@ -209,8 +367,16 @@ export function createPostFx(renderer, scene, camera, cfg, size) {
     function rebuildPasses() {
         composer.passes.length = 0;
         composer.addPass(renderPass);
+        // The orrery over the scene, before either history pass (and the bloom) takes the frame in.
+        if (overlayPass.overlay) composer.addPass(overlayPass);
+        // One or the other: a long exposure stacks, otherwise idle frames may supersample.
+        if (accumPass) composer.addPass(accumPass);
+        else if (ssPass) composer.addPass(ssPass);
         if (bloomPass) composer.addPass(bloomPass);
         composer.addPass(finalPass);
+        // The scene renders into readBuffer (needsSwap is false everywhere); its depth, if any.
+        if (finalPass?.uniforms?.tDepth) finalPass.uniforms.tDepth.value = composer.readBuffer.depthTexture ?? null;
+        if (finalPass?.uniforms?.uScotopic) finalPass.uniforms.uScotopic.value = vision;
         applySize();
     }
 
@@ -234,8 +400,18 @@ export function createPostFx(renderer, scene, camera, cfg, size) {
     build(cfg);
 
     return {
-        /** Renders the scene through the chain to the canvas. */
-        render() {
+        /**
+         * Renders the scene through the chain to the canvas. `ss` ({weight}) blends this frame into
+         * the supersampling history; null or absent skips that pass.
+         * @param {{weight:number}|null} [ss]
+         */
+        render(ss) {
+            const fxaa = finalPass?.uniforms?.uFxaa;
+            if (ssPass) {
+                ssPass.enabled = !!ss && !accumPass;
+                if (ssPass.enabled) ssPass.weight = ss.weight;
+            }
+            if (fxaa) fxaa.value = ssPass?.enabled && ssPass.samples + 1 >= SS_NO_FXAA_SAMPLES ? 0 : 1;
             composer.render(0);
         },
         /**
@@ -249,6 +425,75 @@ export function createPostFx(renderer, scene, camera, cfg, size) {
             if (Number.isFinite(ndpr) && ndpr > 0) dpr = ndpr;
             applySize();
         },
+        /**
+         * Night-vision strength for the final pass (0 = none). An OutputPass (finalPass: false)
+         * has no grade. Cheap: called every rendered frame.
+         * @param {number} s 0…1
+         */
+        setVision(s) {
+            vision = Number.isFinite(s) ? Math.min(1, Math.max(0, s)) : 0;
+            if (finalPass?.uniforms?.uScotopic) finalPass.uniforms.uScotopic.value = vision;
+        },
+        /**
+         * Long-exposure stacking on or off: creates the AccumPass (its two targets are allocated
+         * now, at the current size) or disposes it. Called on Expose changes only.
+         * @param {boolean} on
+         */
+        setAccumulation(on) {
+            if (!!on === !!accumPass) return;
+            if (on) accumPass = new AccumPass(hdr ? THREE.HalfFloatType : THREE.UnsignedByteType);
+            else {
+                accumPass.dispose();
+                accumPass = null;
+            }
+            rebuildPasses();
+        },
+        /**
+         * Idle supersampling available or not (the tier's `supersample`): creates the pass (its target
+         * is allocated by the first accumulated frame) or disposes it. Called on tier changes only.
+         * @param {boolean} on
+         */
+        setSupersample(on) {
+            if (!!on === !!ssPass) return;
+            if (on) ssPass = new SupersamplePass(hdr ? THREE.HalfFloatType : THREE.UnsignedByteType);
+            else {
+                ssPass.dispose();
+                ssPass = null;
+            }
+            rebuildPasses();
+        },
+        /** The supersampling pass (`samples` in its history), or null. */
+        get supersample() { return ssPass; },
+        /**
+         * A one-off capture at another size (render/context.js capture): `true` bypasses the stack
+         * and freezes it at its size, `false` brings it back. The caller resizes around it. A video
+         * session's `stack` option keeps the long exposure running at the capture's size instead (a
+         * star-trail time-lapse: it restarts there, and again back on screen).
+         * @param {boolean} on
+         * @param {{stack?:boolean}} [opts]
+         */
+        setCapture(on, opts) {
+            if (ssPass) ssPass.frozen = !!on;
+            if (!accumPass || (on && opts?.stack)) return;
+            if (on) {
+                accumPass.frozen = true;
+                accumPass.enabled = false;
+            } else {
+                accumPass.frozen = false;
+                accumPass.enabled = true;
+            }
+        },
+        /**
+         * The overlay scene drawn after the main one (render/context.js setOverlay), or null.
+         * @param {{scene:THREE.Scene, camera:THREE.Camera}|null} o
+         */
+        setOverlay(o) {
+            const had = !!overlayPass.overlay;
+            overlayPass.overlay = o && o.scene && o.camera ? o : null;
+            if (had !== !!overlayPass.overlay) rebuildPasses();
+        },
+        /** The stacking pass while Expose is on (flags `add`, `frames`, `reset()`), else null. */
+        get accum() { return accumPass; },
         /** Applies a new tier in place: MSAA, bloom and final-pass changes only. */
         setTier(nextCfg) {
             const nextMsaa = Math.max(0, Math.round(nextCfg?.msaa ?? 0));
@@ -259,10 +504,13 @@ export function createPostFx(renderer, scene, camera, cfg, size) {
                 composer.reset(makeTarget(msaa));
             }
             if (!bloomEquals(bloomCfg, nextBloom)) {
-                if (bloomPass && nextBloom && bloomCfg && bloomCfg.scale === nextBloom.scale) {
+                if (bloomPass && nextBloom) {
+                    // In place, the mips re-sized by rebuildPasses(): a new pass would compile its
+                    // eight programs again (the old one's die with it).
                     bloomPass.strength = nextBloom.strength;
                     bloomPass.radius = nextBloom.radius;
                     bloomPass.threshold = nextBloom.threshold;
+                    bloomPass.pcScale = bloomScale(nextBloom);
                 } else {
                     bloomPass?.dispose();
                     bloomPass = nextBloom ? makeBloom(nextBloom) : null;
@@ -273,20 +521,45 @@ export function createPostFx(renderer, scene, camera, cfg, size) {
                 finalPass?.dispose();
                 useFinal = nextFinal;
                 finalPass = makeFinal(useFinal);
+            } else {
+                setFxaa(finalPass, wantFxaa());
             }
             rebuildPasses();
         },
         dispose() {
+            accumPass?.dispose();
+            accumPass = null;
+            ssPass?.dispose();
+            ssPass = null;
             bloomPass?.dispose();
             finalPass?.dispose();
             renderPass?.dispose?.();
             composer?.dispose();
             composer = null;
         },
+        /**
+         * The passes' own materials for render/context.js compile(), as [material, toCanvas, …]:
+         * stacking, supersampling and bloom draw into targets, the final pass into the canvas. An
+         * OutputPass picks its defines at render time and is left out.
+         * @returns {Array<THREE.Material|boolean>}
+         */
+        passMaterials() {
+            const out = [];
+            for (const m of accumPass?.materials ?? []) out.push(m, false);
+            for (const m of ssPass?.materials ?? []) out.push(m, false);
+            if (bloomPass) {
+                for (const m of [bloomPass.materialHighPassFilter, ...bloomPass.separableBlurMaterials,
+                    bloomPass.compositeMaterial, bloomPass.blendMaterial]) if (m) out.push(m, false);
+            }
+            if (useFinal && finalPass?.material) out.push(finalPass.material, true);
+            return out;
+        },
         /** The HDR target the scene is rendered into (used to compile matching shader variants). */
         get inputTarget() { return composer ? composer.readBuffer : null; },
         get bloomPass() { return bloomPass; },
         get finalPass() { return finalPass; },
         get hdr() { return hdr; },
+        /** True when the final pass runs FXAA (no MSAA on the scene target). */
+        get fxaa() { return !!finalPass?.material?.defines && 'PC_FXAA' in finalPass.material.defines; },
     };
 }

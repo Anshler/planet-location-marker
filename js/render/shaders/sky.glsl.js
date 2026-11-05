@@ -5,18 +5,75 @@
  *
  * Every fragment shader ends with the tonemapping/colorspace includes (SPEC R6).
  */
+import { SKYGLOW_CHUNK } from './skyglow.glsl.js';
+import { ZL_S10 } from '../../astro/skyglow.js';
+
+// Leinert's Table 17 (astro/skyglow.js ZL_S10) as ln S10, for MW_FRAG zodiacal().
+const ZL_LN = ZL_S10.map((v) => Math.log(v).toFixed(4)).join(', ');
+
+/**
+ * Atmospheric refraction as the sky view draws it (sky-view-refraction): refractLift(d) raises a
+ * world direction's altitude above the plane normal to uRefrUp by uRefrK · R(altitude), keeping its
+ * azimuth. R is Saemundsson's formula, clamped at −1° and tapered to 0 at the nadir: exactly
+ * js/astro/photometry.js refractionDeg (and astronomy-engine's 'normal' refraction, which the Sky
+ * panel's altitudes and `above` flags use), mirrored in JS by liftByRefraction for picking, labels
+ * and the flare. uRefrK is the view blend, 0 in orbit view; a material that does not set these
+ * uniforms gets 0 (no lift). Low discs come out flattened: the Moon's vertices are lifted one by one
+ * (MOON_VERT) and the Sun's disc is mapped back to true altitude per fragment (DISC_FRAG).
+ * @type {string}
+ */
+export const REFRACT_CHUNK = /* glsl */`
+uniform vec3 uRefrUp;
+uniform float uRefrK;
+float refractionDeg(float h) {
+    float hd = max(h, -1.0);
+    float r = 1.02 / (60.0 * tan(radians(hd + 10.3 / (hd + 5.11))));
+    return h < -1.0 ? r * (h + 90.0) / 89.0 : r;
+}
+vec3 refractLift(vec3 d) {
+    if (uRefrK <= 0.0) return d;
+    float s = clamp(dot(d, uRefrUp), -1.0, 1.0);
+    vec3 hz = d - uRefrUp * s;
+    float l = length(hz);
+    if (l < 1e-6) return d;
+    float h = degrees(asin(s));
+    float a = radians(min(h + uRefrK * refractionDeg(h), 90.0));
+    return hz * (cos(a) / l) + uRefrUp * sin(a);
+}
+`;
 
 /**
  * At-infinity projection (SPEC E.1). Directions are projected with the view rotation only, so the
  * camera's translation is ignored, and the depth is pinned just inside the far plane: anything at a
- * finite distance (Earth, Moon) occludes the sky through the ordinary depth test.
+ * finite distance (Earth, Moon) occludes the sky through the ordinary depth test. The direction is
+ * first lifted by refraction (REFRACT_CHUNK; a no-op unless the material sets uRefrK).
  * Usage in a vertex shader: `gl_Position = infinityClip(normalize(mat3(modelMatrix) * position));`
  * @type {string}
  */
 export const INFINITY_VERT_CHUNK = /* glsl */`
+${REFRACT_CHUNK}
 vec4 infinityClip(vec3 dirW) {
-    vec4 p = projectionMatrix * vec4(mat3(viewMatrix) * dirW, 1.0);
+    vec4 p = projectionMatrix * vec4(mat3(viewMatrix) * refractLift(dirW), 1.0);
     return vec4(p.xy, p.w * 0.999999, p.w);
+}
+`;
+
+/**
+ * Fast-time streaks (render/streaks.js STREAK_UNIFORMS): the screen motion (device px) of a
+ * direction at infinity over the shutter, its current position minus where it was when the shutter
+ * opened (uStreakView: world → view then). (0, 0) when off. Requires INFINITY_VERT_CHUNK.
+ * @type {string}
+ */
+export const STREAK_VERT_CHUNK = /* glsl */`
+uniform mat3 uStreakView;
+uniform float uStreakMax;
+uniform float uStreakPoint;
+uniform vec2 uStreakRes;
+vec2 streakPx(vec3 dirW, vec4 clipNow) {
+    if (uStreakMax <= 0.0 || clipNow.w <= 0.0) return vec2(0.0);
+    vec4 c1 = projectionMatrix * vec4(uStreakView * refractLift(dirW), 1.0);
+    if (c1.w <= 0.0) return vec2(0.0);
+    return (clipNow.xy / clipNow.w - c1.xy / c1.w) * 0.5 * uStreakRes;
 }
 `;
 
@@ -58,11 +115,20 @@ const TONE = /* glsl */`
 /**
  * Stars as Points. A star is a Gaussian PSF: faint stars keep a fixed ~0.6 px sigma (so they never
  * shimmer as they cross pixels) and get dimmer; stars brighter than mag 2.5 grow and exceed 1.0 in
- * HDR so bloom gives them halos. Twilight raises the limiting magnitude (faint stars vanish first),
- * and in sky view low stars are dimmed/reddened by extinction and scintillate (high tier).
+ * HDR so bloom gives them halos. Twilight, the Moon and light pollution raise the limiting magnitude
+ * (faint stars vanish first): uExposure carries the zenith's limit (photometry.exposureFor), and in
+ * sky view each star's own sky (SKYGLOW_CHUNK) moves it, so stars near the Moon and under a city's
+ * light dome go first. Low stars are dimmed/reddened by extinction and scintillate (high tier):
+ * bright ones low down also flash colour (chromatic scintillation). uBoost, the telescope zoom's
+ * aperture gain (render/sky.js scopeGainMag), lifts every limit, the tier's included.
+ * In fast time a star becomes a capsule along its motion (STREAK_VERT_CHUNK): the sprite grows by
+ * the streak and centres on its midpoint, the fragment measures the PSF from the segment, and the
+ * light spreads (softened) along it; past uStreakMax (or the GPU's point-size limit) the streak
+ * stops growing and the star dims instead.
  */
 export const STAR_VERT = /* glsl */`
 uniform float uMagLimit;
+uniform float uBoost;
 uniform float uExposure;
 uniform float uPx;
 uniform float uZoom;
@@ -73,24 +139,36 @@ uniform float uSkyBlend;
 uniform vec3 uUp;
 uniform float uSaturation;
 uniform float uDisplay;
+uniform float uSgLimZen;
 attribute float aMag;
 attribute vec3 aColor;
 varying vec3 vColor;
 varying float vPeak;
 varying float vSigma;
 varying float vHalo;
+varying vec2 vSeg;
+varying float vR;
 ${INFINITY_VERT_CHUNK}
+${STREAK_VERT_CHUNK}
 ${EXTINCTION_CHUNK}
 ${SMOOTH_FALL_CHUNK}
+${SKYGLOW_CHUNK}
 void main() {
     vec3 dir = normalize(mat3(modelMatrix) * position);
     // Twilight: the effective limiting magnitude brightens as exposure falls.
     float e = clamp(uExposure, 0.0, 1.0);
     float lim = mix(-1.0, uMagLimit, sqrt(e));
+    // The sky behind this star, brighter or darker than the zenith's, moves its limit.
+    if (uSkyBlend > 0.0) lim = min(lim + (sgLimitMag(sgSky(dir)) - uSgLimZen) * uSkyBlend, uMagLimit);
+    lim += uBoost;
     float vis = smoothFall(lim + 0.35, lim - 0.45, aMag) * smoothstep(0.0, 0.04, e);
+    // The aperture gain brightens what the eyepiece shows as well as deepening it: a faint star is
+    // drawn uBoost magnitudes brighter, up to the look of a mag-2.5 star (bright stars keep theirs,
+    // so a zoomed field does not fill with bloated discs).
+    float mDrawn = max(aMag - uBoost, min(aMag, 2.5));
     // Flux relative to a mag-2.5 star, the "just saturated" reference. Below it the peak is
     // compressed (F^0.75) so mag-6 stars stay visible on a display; above it stars grow instead.
-    float F = exp2(-1.3287712 * (aMag - 2.5));
+    float F = exp2(-1.3287712 * (mDrawn - 2.5));
     float grow = max(1.0, pow(F, 0.3));
     float sigmaPx = 0.78 * grow * pow(uZoom, 0.6) * uPx;
     float peak = 1.2 * (F < 1.0 ? pow(F, 0.75) : pow(F, 0.3)) * vis;
@@ -108,16 +186,46 @@ void main() {
             float tw = 0.6 * sin(uTime * (6.0 + 5.0 * fract(ph * 1.7)) + ph)
                      + 0.4 * sin(uTime * (11.0 + 7.0 * fract(ph * 3.1)) + ph * 2.3);
             peak *= 1.0 + 0.35 * strength * tw;
+            // Chromatic scintillation: dispersion splits each colour's path through the turbulence
+            // by more the lower the star, so bright low stars (Sirius on the horizon) flash colours.
+            // Per-channel phases grow with airmass; the mean is taken out so brightness holds.
+            float low = 1.0 - clamp(sinAlt, 0.0, 1.0);
+            float chroma = uTwinkle * smoothstep(1.5, 40.0, F) * low * low;
+            if (chroma > 0.002) {
+                vec3 cs = sin(uTime * (17.0 + 6.0 * fract(ph * 5.3)) + ph * 3.7 + vec3(0.0, 0.9, 1.7) * airmassKY(sinAlt));
+                col = max(col * (1.0 + 0.45 * chroma * (cs - dot(cs, vec3(0.2126, 0.7152, 0.0722)))), vec3(0.0));
+            }
         }
     }
     float haloPx = sigmaPx * 3.5 * (1.0 + (0.8 + 1.2 * uHalo) * smoothstep(1.5, 40.0, F));
     float radiusPx = max(3.2 * sigmaPx, haloPx) + 1.0;
-    gl_PointSize = 2.0 * radiusPx;
+    vec4 clip = infinityClip(dir);
+    vec2 seg = vec2(0.0);
+    float spread = 1.0;
+    vec2 d = streakPx(dir, clip);
+    float L = length(d);
+    if (L > 0.05) {
+        float cap = min(uStreakMax, max(0.0, uStreakPoint - 2.0 * radiusPx));
+        if (L > cap) {
+            spread = pow(max(cap / L, 1e-3), 0.6);
+            d *= cap / L;
+            L = cap;
+        }
+        spread *= pow(max(2.5 * sigmaPx / (2.5 * sigmaPx + L), 1e-3), 0.6);
+        seg = 0.5 * d;
+        // Centred on the streak's midpoint: the star is at its leading end.
+        clip.xy -= seg / (0.5 * uStreakRes) * clip.w;
+    }
+    float halfPx = radiusPx + length(seg);
+    gl_PointSize = 2.0 * halfPx;
     vSigma = sigmaPx / radiusPx;
-    vPeak = peak * uDisplay;
-    vHalo = (0.03 + 0.07 * uHalo) * peak * uDisplay * smoothstep(1.5, 12.0, F);
+    vR = radiusPx / halfPx;
+    // gl_PointCoord's y runs down the screen.
+    vSeg = vec2(seg.x, -seg.y) / halfPx;
+    vPeak = peak * uDisplay * spread;
+    vHalo = (0.03 + 0.07 * uHalo) * peak * uDisplay * smoothstep(1.5, 12.0, F) * spread;
     vColor = col;
-    gl_Position = vis * peak > 0.002 ? infinityClip(dir) : vec4(2.0, 2.0, 2.0, 1.0);
+    gl_Position = vis * peak > 0.002 ? clip : vec4(2.0, 2.0, 2.0, 1.0);
 }
 `;
 
@@ -127,9 +235,14 @@ varying vec3 vColor;
 varying float vPeak;
 varying float vSigma;
 varying float vHalo;
+varying vec2 vSeg;
+varying float vR;
 void main() {
     vec2 p = gl_PointCoord * 2.0 - 1.0;
-    float r2 = dot(p, p);
+    // From the nearest point of the streak (the centre without one), in units of the star's radius.
+    float h = clamp(dot(p + vSeg, vSeg) / max(2.0 * dot(vSeg, vSeg), 1e-8), 0.0, 1.0);
+    vec2 q = (p + vSeg - 2.0 * h * vSeg) / max(vR, 1e-3);
+    float r2 = dot(q, q);
     if (r2 >= 1.0) discard;
     float core = vPeak * exp(-0.5 * r2 / (vSigma * vSigma));
     float halo = vHalo * exp(-sqrt(r2) * 5.0) * (1.0 - r2);
@@ -159,6 +272,10 @@ void main() {
  * Rift from Cygnus through Aquila to Ophiuchus/Sagittarius, plus patchy lanes along the plane)
  * that dims and reddens. Noise octaves and star layers fade out once their cells shrink to a few
  * pixels, so wide views stay calm and zoomed views keep their texture. Static: no time input.
+ *
+ * In sky view the band fades with the local sky's excess over the natural sky (SKYGLOW_CHUNK:
+ * moonlight, light pollution), and with uZodi > 0 (medium and up) this pass also draws the
+ * zodiacal light and the gegenschein, gated to dark skies.
  */
 export const MW_FRAG = /* glsl */`
 uniform sampler2D uMW;
@@ -171,9 +288,33 @@ uniform float uSkyBlend;
 uniform vec3 uUp;
 uniform float uDisplay;
 uniform float uDpr;
+uniform mat3 uToEcl;
+uniform vec3 uSunEcl;
+uniform float uZodi;
 varying vec3 vDir;
 const float PI = 3.14159265358979;
 const float MW_GAMMA = 1.85;
+${SKYGLOW_CHUNK}
+// Zodiacal light and gegenschein above the ecliptic poles' level (77 S10, part of the natural sky),
+// in natural-sky units (1 S10 = 27.78 mag/arcsec², so the natural sky is ≈ 205 S10): Leinert et al.
+// (1998, A&AS 127, 1) Table 17 by helio-ecliptic longitude |Δλ| (rows: 5° steps to 45°, then 15°)
+// and latitude |β| (columns: 5° steps to 30°, then 15°), bilinear in ln S10. Mirrors
+// js/astro/skyglow.js zodiacalS10.
+const float ZL_LN[${ZL_S10.length}] = float[${ZL_S10.length}](${ZL_LN});
+float zodiacal(vec3 d) {
+    vec3 e = uToEcl * d;
+    float b = degrees(asin(clamp(abs(e.z), 0.0, 1.0)));
+    float lp = length(e.xy), ls = length(uSunEcl.xy);
+    float cdl = (lp > 1e-5 && ls > 1e-5) ? dot(e.xy, uSunEcl.xy) / (lp * ls) : 0.0;
+    float dl = degrees(acos(clamp(cdl, -1.0, 1.0)));
+    float x = dl < 45.0 ? dl / 5.0 : 9.0 + (dl - 45.0) / 15.0;
+    float y = b < 30.0 ? b / 5.0 : 6.0 + (b - 30.0) / 15.0;
+    int i = min(int(x), 17), j = min(int(y), 9);
+    float fx = clamp(x - float(i), 0.0, 1.0), fy = clamp(y - float(j), 0.0, 1.0);
+    int k = i * 11 + j;
+    float l = mix(mix(ZL_LN[k], ZL_LN[k + 1], fy), mix(ZL_LN[k + 11], ZL_LN[k + 12], fy), fx);
+    return max(exp(l) - 77.0, 0.0) / 205.0;
+}
 vec2 sceneDirToRaDecUv(vec3 d) {
     vec3 e = vec3(d.x, -d.z, d.y);
     // atan(0, 0) is undefined (a pixel exactly on a pole vertex of the sphere): 0 there.
@@ -262,48 +403,60 @@ void main() {
     float px = max(length(dFdx(vDir)), length(dFdy(vDir)));   // radians per pixel
     vec2 uv = sceneDirToRaDecUv(d);
     float v = uDetail > 0.0 ? textureBSpline(uMW, uv, uMWSize) : texture2D(uMW, uv).r;
-    if (v < 0.002) discard;
-    vec3 g = uToGal * d;                       // x → galactic centre, z → north galactic pole
-    float l = (g.x == 0.0 && g.y == 0.0) ? 0.0 : degrees(atan(g.y, g.x));   // atan(0, 0) is undefined
-    float b = degrees(asin(clamp(g.z, -1.0, 1.0)));
-    // The bulge, seen mostly south of the plane where the dust lets its light through.
-    float bulge = gauss(l / 9.0) * gauss((b + 3.0) / 5.5);
-    float I = pow(v, MW_GAMMA) * (1.0 + 0.5 * bulge);
-    vec3 tau = vec3(0.0);
-    float stars = 0.0;
-    float starHue = 0.5;
-    if (uDetail > 0.0 && v > 0.01) {
-        float dens = clamp(1.6 * v, 0.0, 1.0);
-        vec3 q = g * vec3(1.0, 1.0, 1.3);      // features elongated along the plane
-        float clouds = fbm(q * 40.0, 1.0 / (40.0 * px), 3);
-        float mottle = fbm(q * 160.0 + 23.0, 1.0 / (160.0 * px), 3);
-        I *= max(0.0, 1.0 + (0.5 + 0.5 * dens) * clouds + 0.5 * dens * mottle);
-        // Dust: fBm stretched along the plane and gently domain-warped, so lanes come out wispy.
-        vec3 qd = g * vec3(1.0, 1.0, 2.0);
-        vec3 warp = vec3(vnoise(qd * 12.0 + 3.1), vnoise(qd * 12.0 + 9.7), vnoise(qd * 12.0 + 5.3)) - 0.5;
-        float dn = 0.5 + fbm(qd * 30.0 + 41.0 + 2.0 * warp, 1.0 / (30.0 * px), 5);
-        float lane = riftLane(l, b) + 0.2 * gauss(b / 2.2);
-        tau = lane * (0.3 + 0.9 * smoothstep(0.45, 0.7, dn)) * vec3(0.82, 1.0, 1.22);
-        // Field stars cluster in the bright clouds and thin out in the dust lanes (besides being
-        // dimmed by them below), so the lanes read as dark rather than as evenly starry.
-        float sd = clamp((0.2 + 0.75 * dens) * (1.0 + 1.5 * clouds) * exp(-1.6 * tau.y), 0.0, 1.0);
-        vec2 s0 = fieldStars(g, 60.0, 0.0, px, sd);
-        vec2 s1 = fieldStars(g, 150.0, 0.0, px, sd);
-        vec2 s2 = fieldStars(g, 150.0, 0.5, px, sd);
-        vec2 s3 = fieldStars(g, 375.0, 0.0, px, sd);
-        vec2 s4 = fieldStars(g, 375.0, 0.5, px, sd);
-        vec2 s5 = fieldStars(g, 940.0, 0.0, px, sd);
-        vec2 s6 = fieldStars(g, 940.0, 0.5, px, sd);
-        vec4 sw = vec4(1.2 * s0.x, 0.9 * (s1.x + s2.x), 0.7 * (s3.x + s4.x), 0.5 * (s5.x + s6.x));
-        float sum = sw.x + sw.y + sw.z + sw.w;
-        starHue = (sw.x * s0.y + sw.y * max(s1.y, s2.y) + sw.z * max(s3.y, s4.y) + sw.w * max(s5.y, s6.y)) / max(1e-4, sum);
-        stars = sum * (0.7 + 0.3 * uSkyBlend);   // quieter from orbit
+    bool zodi = uZodi > 0.0 && uSkyBlend > 0.0;
+    if (v < 0.002 && !zodi) discard;
+    // Sky view: how much brighter than the natural sky this direction is (Moon, light pollution).
+    float ex = uSkyBlend > 0.0 ? sgExcessMag(d) : 0.0;
+    float zl = zodi ? zodiacal(d) * (1.0 - smoothstep(0.1, 1.5, ex)) : 0.0;
+    if (v < 0.002 && zl < 0.02) discard;
+    vec3 zlCol = vec3(1.0, 0.95, 0.86) * clamp(zl, 0.0, 12.0) * (uZodi * uSkyBlend * uExposure * uDisplay);
+    vec3 mwCol = vec3(0.0);
+    if (v >= 0.002) {
+        vec3 g = uToGal * d;                       // x → galactic centre, z → north galactic pole
+        float l = (g.x == 0.0 && g.y == 0.0) ? 0.0 : degrees(atan(g.y, g.x));   // atan(0, 0) is undefined
+        float b = degrees(asin(clamp(g.z, -1.0, 1.0)));
+        // The bulge, seen mostly south of the plane where the dust lets its light through.
+        float bulge = gauss(l / 9.0) * gauss((b + 3.0) / 5.5);
+        float I = pow(v, MW_GAMMA) * (1.0 + 0.5 * bulge);
+        vec3 tau = vec3(0.0);
+        float stars = 0.0;
+        float starHue = 0.5;
+        if (uDetail > 0.0 && v > 0.01) {
+            float dens = clamp(1.6 * v, 0.0, 1.0);
+            vec3 q = g * vec3(1.0, 1.0, 1.3);      // features elongated along the plane
+            float clouds = fbm(q * 40.0, 1.0 / (40.0 * px), 3);
+            float mottle = fbm(q * 160.0 + 23.0, 1.0 / (160.0 * px), 3);
+            I *= max(0.0, 1.0 + (0.5 + 0.5 * dens) * clouds + 0.5 * dens * mottle);
+            // Dust: fBm stretched along the plane and gently domain-warped, so lanes come out wispy.
+            vec3 qd = g * vec3(1.0, 1.0, 2.0);
+            vec3 warp = vec3(vnoise(qd * 12.0 + 3.1), vnoise(qd * 12.0 + 9.7), vnoise(qd * 12.0 + 5.3)) - 0.5;
+            float dn = 0.5 + fbm(qd * 30.0 + 41.0 + 2.0 * warp, 1.0 / (30.0 * px), 5);
+            float lane = riftLane(l, b) + 0.2 * gauss(b / 2.2);
+            tau = lane * (0.3 + 0.9 * smoothstep(0.45, 0.7, dn)) * vec3(0.82, 1.0, 1.22);
+            // Field stars cluster in the bright clouds and thin out in the dust lanes (besides being
+            // dimmed by them below), so the lanes read as dark rather than as evenly starry.
+            float sd = clamp((0.2 + 0.75 * dens) * (1.0 + 1.5 * clouds) * exp(-1.6 * tau.y), 0.0, 1.0);
+            vec2 s0 = fieldStars(g, 60.0, 0.0, px, sd);
+            vec2 s1 = fieldStars(g, 150.0, 0.0, px, sd);
+            vec2 s2 = fieldStars(g, 150.0, 0.5, px, sd);
+            vec2 s3 = fieldStars(g, 375.0, 0.0, px, sd);
+            vec2 s4 = fieldStars(g, 375.0, 0.5, px, sd);
+            vec2 s5 = fieldStars(g, 940.0, 0.0, px, sd);
+            vec2 s6 = fieldStars(g, 940.0, 0.5, px, sd);
+            vec4 sw = vec4(1.2 * s0.x, 0.9 * (s1.x + s2.x), 0.7 * (s3.x + s4.x), 0.5 * (s5.x + s6.x));
+            float sum = sw.x + sw.y + sw.z + sw.w;
+            starHue = (sw.x * s0.y + sw.y * max(s1.y, s2.y) + sw.z * max(s3.y, s4.y) + sw.w * max(s5.y, s6.y)) / max(1e-4, sum);
+            stars = sum * (0.7 + 0.3 * uSkyBlend);   // quieter from orbit
+        }
+        vec3 tint = mix(vec3(0.84, 0.89, 1.0), vec3(1.0, 0.93, 0.83), smoothstep(0.1, 0.9, bulge));
+        vec3 starCol = mix(vec3(0.78, 0.86, 1.0), vec3(1.0, 0.88, 0.72), starHue);
+        mwCol = (tint * I + starCol * stars) * exp(-tau) * (uGain * uExposure * uDisplay);
+        // A brighter sky swallows the band: gone by about 3.4 mag of excess (Bortle 6–7, a full Moon).
+        mwCol *= mix(1.0, 1.0 - smoothstep(0.1, 3.4, ex), uSkyBlend);
     }
-    vec3 tint = mix(vec3(0.84, 0.89, 1.0), vec3(1.0, 0.93, 0.83), smoothstep(0.1, 0.9, bulge));
-    vec3 starCol = mix(vec3(0.78, 0.86, 1.0), vec3(1.0, 0.88, 0.72), starHue);
-    vec3 col = (tint * I + starCol * stars) * exp(-tau) * (uGain * uExposure * uDisplay);
+    vec3 col = mwCol + zlCol;
     if (uSkyBlend > 0.0) {
-        // Extinction flattens the band toward the horizon in sky view.
+        // Extinction flattens the band (and the zodiacal light) toward the horizon in sky view.
         float s = clamp(dot(d, uUp), 0.0, 1.0);
         col *= mix(1.0, smoothstep(0.0, 0.35, s), uSkyBlend);
     }
@@ -339,9 +492,11 @@ ${INFINITY_VERT_CHUNK}
 void main() {
     vStyle = iStyle.xy;
     vParam = mix(iStyle.z, iStyle.w, position.x);
-    mat3 R = mat3(viewMatrix) * mat3(modelMatrix);
-    vec3 a0 = R * normalize(iA);
-    vec3 b0 = R * normalize(iB);
+    // Endpoints lifted by refraction (sky view; the alt-az grid passes uRefrK = 0: it is drawn in
+    // apparent coordinates already).
+    mat3 M = mat3(modelMatrix);
+    vec3 a0 = mat3(viewMatrix) * refractLift(normalize(M * iA));
+    vec3 b0 = mat3(viewMatrix) * refractLift(normalize(M * iB));
     const float ZC = -1e-3;
     if ((a0.z > ZC && b0.z > ZC) || iStyle.x <= 0.0) {
         gl_Position = vec4(2.0, 2.0, 2.0, 1.0);
@@ -376,13 +531,16 @@ void main() {
 
 /**
  * @see LINE_VERT. Defines: TRAIL (fade/dash by vParam against uNow; vParam is the sample index),
- * HIGHLIGHT (iStyle.y > 0.5 switches to uHighlightColor).
+ * HIGHLIGHT (iStyle.y > 0.5 switches to uHighlightColor and uHighlightAlpha, so the highlighted
+ * figure keeps its strength when the rest recede), METEOR (vParam 0 → 1 from the train to the head;
+ * iStyle.y tints from uColor to uHighlightColor).
  */
 export const LINE_FRAG = /* glsl */`
 uniform vec3 uColor;
 uniform float uAlpha;
 uniform float uHalfWidth;
 uniform vec3 uHighlightColor;
+uniform float uHighlightAlpha;
 uniform float uNow;
 uniform float uSpan;
 uniform float uDpr;
@@ -402,7 +560,7 @@ void main() {
     vec3 col = uColor;
     float a = uAlpha * vStyle.x;
 #ifdef HIGHLIGHT
-    if (vStyle.y > 0.5) { col = uHighlightColor; }
+    if (vStyle.y > 0.5) { col = uHighlightColor; a = uHighlightAlpha * vStyle.x; }
 #endif
 #ifdef TRAIL
     // Past (before uNow) is dimmer and dashed; both ends fade out.
@@ -410,6 +568,13 @@ void main() {
     float dash = mix(1.0, step(0.45, fract(along / (7.0 * uDpr))), past);
     float ends = smoothstep(0.0, 0.12 * uSpan, vParam) * smoothFall(uSpan, 0.88 * uSpan, vParam);
     a *= mix(1.0, 0.45, past) * dash * (0.25 + 0.75 * ends);
+#endif
+#ifdef METEOR
+    // A meteor (render/meteors.js): vParam runs from its fading train (0) to its head (1);
+    // iStyle.y mixes the slow (uColor) and fast (uHighlightColor) meteor tints; the head whitens.
+    float head = vParam * vParam;
+    col = mix(mix(uColor, uHighlightColor, vStyle.y), vec3(1.0), 0.6 * head * head);
+    a = uAlpha * vStyle.x * (0.05 + 0.95 * head);
 #endif
     a *= cov * g;
     if (a <= 0.002) discard;

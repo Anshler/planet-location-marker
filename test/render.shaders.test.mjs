@@ -60,6 +60,9 @@ async function ourGlsl() {
     const finalFrag = postfx.match(/const FINAL_FRAG = \/\* glsl \*\/ `([\s\S]*?)`;/);
     assert.ok(finalFrag, 'postfx.js FINAL_FRAG not found');
     out.push({ where: 'postfx.js FINAL_FRAG', glsl: finalFrag[1] });
+    const fxaa = postfx.match(/const FXAA_CHUNK = \/\* glsl \*\/ `([\s\S]*?)`;/);
+    assert.ok(fxaa, 'postfx.js FXAA_CHUNK not found');
+    out.push({ where: 'postfx.js FXAA_CHUNK', glsl: fxaa[1] });
     return out;
 }
 
@@ -93,6 +96,25 @@ test('the bloom high-pass patch still matches the vendored LuminosityHighPassSha
     assert.match(postfx, /vec4 texel = texture2D\( tDiffuse, vUv \);/);
     assert.match(postfx, /sanitizeBloomInput\(pass\);/);
     assert.match(postfx, /pcFinite\(texture2D\(tDiffuse, vUv\)\.rgb\)/, 'FinalPass scrubs its input');
+});
+
+test('the final pass runs FXAA (behind PC_FXAA) on scrubbed taps, before the vignette and the tone mapping', () => {
+    const postfx = read('js/render/postfx.js');
+    const chunk = postfx.match(/const FXAA_CHUNK = \/\* glsl \*\/ `([\s\S]*?)`;/);
+    assert.ok(chunk, 'FXAA_CHUNK not found');
+    assert.match(chunk[1], /^\s*#ifdef PC_FXAA\b/);
+    assert.match(chunk[1], /pcFinite\(texture2D\(tDiffuse, uv\)\.rgb\)/, 'every tap is scrubbed');
+    assert.match(chunk[1], /c \/ \(1\.0 \+ max\(c\.r, max\(c\.g, c\.b\)\)\)/, 'taps are tone-mapped before the luma');
+    const body = stripComments(chunk[1]).split(/vec3 pcFxaa\([^)]*\)\s*\{/)[1];
+    assert.match(body, /^\s*if \(!fxaaSilhouette\(uv, px\)\) return hdrM;/, 'depth silhouettes only: stars and lines are left alone');
+    assert.match(postfx, /depthTexture: s === 0 \? new THREE\.DepthTexture/, 'the MSAA-free scene target keeps its depth');
+    const main = stripComments(postfx.match(/const FINAL_FRAG = \/\* glsl \*\/ `([\s\S]*?)`;/)[1]).split('void main()')[1];
+    const at = (s) => main.indexOf(s);
+    assert.ok(at('pcFxaa(') > at('pcFinite(texture2D(tDiffuse, vUv)'), 'FXAA after the scrub');
+    assert.ok(at('pcFxaa(') < at('uVignette'), 'FXAA before the vignette');
+    assert.ok(at('uVignette') < at('#include <tonemapping_fragment>'));
+    assert.ok(at('#include <tonemapping_fragment>') < at('#include <colorspace_fragment>'));
+    assert.ok(at('#include <colorspace_fragment>') < at('uDither'), 'dither last');
 });
 
 test('pcFinite tests IEEE bits, not isnan() (FXC on ANGLE/D3D11 compiles isnan and x != x away)', () => {
@@ -145,6 +167,7 @@ const KNOWN_SAFE_LOG_ARGS = new Map([
     ['depth', 'lunar eclipse: depth is clamped to [0, 1]'],
     ['r2', 'star sprite: r2 = dot(p, p)'],
     ['e', 'star limit: e = clamp(uExposure, 0.0, 1.0)'],
+    ['float(textureSize(uNight, 0).x) / 4096.0', 'cloud-deck glow: a texture is at least 1 texel wide'],
 ]);
 
 test('log/log2/sqrt/inversesqrt arguments stay inside their domains', async () => {
@@ -235,4 +258,30 @@ test('smoothstep edges are increasing (no reversed-edge falling ramps)', () => {
     }
     assert.ok(checked > 50, `parsed ${checked} smoothstep calls`);
     assert.deepEqual(bad, []);
+});
+
+// Low Sun (roadmap low-sun-white-disc): the setting Sun read as a cream disc on a beige sky.
+test('low Sun: the Mie lobe takes the Sun\'s extinction tint, the knee drops, and the disc covers its sky', async () => {
+    // The patched dome tints only Preetham's Mie in-scatter, and declares the uniform first.
+    let frag = vendoredFragment('vendor/three/addons/objects/Sky.js');
+    for (const [from, to] of ground.SKY_PATCHES) frag = frag.replace(from, to);
+    assert.match(frag, /vec3 betaMTheta = vBetaM \* mPhase \* uSunTint;/);
+    assert.match(frag, /vec3 betaRTheta = vBetaR \* rPhase;/, 'Rayleigh stays untinted');
+    assert.ok(frag.indexOf('uniform vec3 uSunTint;') >= 0 && frag.indexOf('uniform vec3 uSunTint;') < frag.indexOf('* uSunTint'));
+    // The knee keeps its daytime shape at uLowSun = 0 and drops toward 0.40 at 1.
+    const knee = stripComments(ground.TWILIGHT_CHUNK);
+    assert.match(knee, /uniform float uLowSun;/);
+    assert.match(knee, /float k0 = mix\(0\.6, 0\.25, uLowSun\), kr = mix\(0\.28, 0\.15, uLowSun\);/);
+    // ground.js feeds both, white tint and day knee above 12° (the daytime sky is unchanged).
+    const groundJs = read('js/render/ground.js');
+    assert.match(groundJs, /const low = 1 - smooth\(0, 12, sunAltDeg\);/);
+    assert.match(groundJs, /su\.uSunTint\.value\.set\(1, 1 \+ \(ext\[1\] \/ ext\[0\] - 1\) \* low, 1 \+ \(ext\[2\] \/ ext\[0\] - 1\) \* low\);/);
+    assert.match(groundJs, /su\.uLowSun\.value = low \* smooth\(-3, 0, sunAltDeg\);/);
+    // The Sun billboard: premultiplied, alpha = uOcclude · disc · limb (0 in orbit view = additive).
+    const bodiesGlsl = await import(pathToFileURL(path.join(SHADER_DIR, 'bodies.glsl.js')).href);
+    assert.match(stripComments(bodiesGlsl.DISC_FRAG), /gl_FragColor = vec4\([^;]*, uOcclude \* disc \* limb\);/);
+    const bodiesJs = read('js/render/bodies.js');
+    assert.match(bodiesJs, /blendSrc: THREE\.OneFactor, blendDst: THREE\.OneMinusSrcAlphaFactor/);
+    assert.match(bodiesJs, /sunUniforms\.uOcclude\.value = skyBlend;/);
+    assert.equal((bodiesJs.match(/uOcclude: \{ value: 0 \}/g) || []).length, 2, 'Sun and aureole start additive');
 });

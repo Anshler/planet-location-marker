@@ -1,13 +1,14 @@
 /**
  * Eclipse geometry: how much of one disc a second disc hides. Mirrored
  * exactly by `discVisible` in js/render/shaders/common.glsl.js (SPEC §E.2), so
- * the obscuration printed in the UI matches the shadow drawn on the globe.
+ * the obscuration printed in the UI matches the shadow drawn on the globe (to
+ * the pin-on-a-sphere offset, ≤ 21 km: the UI uses the WGS84 observer).
  * Also the sunlight that reaches the Moon during a lunar eclipse, which dims
  * the Moon's magnitude in the snapshot.
  *
  * @module astro/shadow
  */
-import { MOON_RADIUS_ER, SUN_ANG_RADIUS_RAD, EARTH_RADIUS_KM, BODIES } from './bodies.js';
+import { MOON_RADIUS_ER, SUN_ANG_RADIUS_1AU_RAD, EARTH_RADIUS_KM, BODIES } from './bodies.js';
 
 function clamp(x, lo, hi) {
     return x < lo ? lo : x > hi ? hi : x;
@@ -143,18 +144,21 @@ export function discVisibleFraction(rs, ro, sep) {
 }
 
 /**
- * Fraction of the Sun's disc hidden by the Moon for an observer at `posS`
- * (scene units = Earth radii; the pin sits on the unit sphere). The Sun is
- * treated as infinitely far (its 8.8″ parallax is negligible against its
- * 16′ radius).
- * @param {ArrayLike<number>} posS Observer position, Earth radii.
+ * Fraction of the Sun's disc hidden by the Moon for a point at `posS` on the
+ * globe (scene units = Earth radii), with the geocentric aberrated Sun
+ * direction and the geometric Moon, astronomy-engine's eclipse geometry. The
+ * Sun is treated as infinitely far (its 8.8″ parallax is negligible against
+ * its 16′ radius). This is the CPU mirror of the globe's umbra (`discVisible`
+ * in the Earth, cloud and atmosphere shaders); the observer's own obscuration
+ * in the snapshot uses the WGS84 topocentric discs instead.
+ * @param {ArrayLike<number>} posS Point position, Earth radii.
  * @param {ArrayLike<number>} moonPosS Geocentric Moon centre, Earth radii.
  * @param {ArrayLike<number>} sunDirS Unit vector toward the Sun.
- * @param {number} [sunAngRadiusRad=SUN_ANG_RADIUS_RAD] Apparent solar radius; pass
- *        asin(R☉/d☉) for the true value (it varies ±1.7 % over the year).
+ * @param {number} [sunAngRadiusRad=SUN_ANG_RADIUS_1AU_RAD] Apparent solar radius; pass
+ *        sunAngularRadius(d☉) for the true value (it varies ±1.7 % over the year).
  * @returns {number} Obscuration 0..1 (1 = total).
  */
-export function solarObscurationAt(posS, moonPosS, sunDirS, sunAngRadiusRad = SUN_ANG_RADIUS_RAD) {
+export function solarObscurationAt(posS, moonPosS, sunDirS, sunAngRadiusRad = SUN_ANG_RADIUS_1AU_RAD) {
     const mx = moonPosS[0] - posS[0], my = moonPosS[1] - posS[1], mz = moonPosS[2] - posS[2];
     const dm = Math.hypot(mx, my, mz);
     if (!(dm > MOON_RADIUS_ER)) return 0; // degenerate geometry (observer inside the Moon)

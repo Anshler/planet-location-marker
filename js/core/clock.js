@@ -125,6 +125,14 @@ export function logEase(from, to, e) {
     return to - s * EASE_TAU_MS * Math.expm1(2 * (1 - u) * k);
 }
 
+/** Range progress → fraction of the range's span for its ease (null: linear). */
+function easeRange(ease, p) {
+    if (ease === 'out') return 1 - (1 - p) * (1 - p);
+    if (ease === 'in') return p * p;
+    if (ease === 'inOut') return p < 0.5 ? 2 * p * p : 1 - 2 * (1 - p) * (1 - p);
+    return p;
+}
+
 /**
  * Creates the simulation clock.
  *
@@ -140,7 +148,13 @@ export function logEase(from, to, e) {
  * - setTime/step clamp into range; a clamped jump also pauses and emits 'clamp'. Running into a
  *   bound while playing does the same.
  * - setRange starts a timelapse at `fromMs` and plays it; `once` pauses at the end (play() replays),
- *   `loop` wraps, `pingpong` bounces. While a range runs, `rate` reports the effective signed rate.
+ *   `loop` wraps, `pingpong` bounces. While a range runs, `rate` reports the effective signed rate
+ *   (the mean one for an eased range). `ease: 'in'|'out'|'inOut'` maps progress to time through a
+ *   quadratic ease (`out` decelerates into `toMs`, `in` leaves `fromMs` from rest).
+ * - `strideMs` makes a range stroboscopic (the analemma: the same clock time every day): simulated
+ *   time takes only the values fromMs + k·strideMs (linear, no ease), and each tick() advances at
+ *   most one stride, so the steps are paced by frames: a slow frame rate stretches the timelapse
+ *   instead of skipping steps.
  * - isAnimating() is true while a tween runs or while playing off-Live faster than real time, i.e.
  *   whenever continuous redraw is worthwhile. Live 1× (and paused) report false.
  *
@@ -185,7 +199,7 @@ export function createClock({ now = () => Date.now(), tMs, rate = 1, playing = t
     let lastWall = null;
     /** @type {{from:number, to:number, durMs:number, elapsed:number, toLive:boolean}|null} */
     let tween = null;
-    /** @type {Readonly<{fromMs:number, toMs:number, durationS:number, loop:'once'|'loop'|'pingpong'}>|null} */
+    /** @type {Readonly<{fromMs:number, toMs:number, durationS:number, loop:'once'|'loop'|'pingpong', ease:'in'|'out'|'inOut'|null, strideMs:number|null}>|null} */
     let range = null;
     let rangeP = 0;
     let rangeDir = 1;
@@ -259,7 +273,14 @@ export function createClock({ now = () => Date.now(), tMs, rate = 1, playing = t
     }
 
     function advanceRange(dt) {
-        let p = rangeP + (rangeDir * dt) / (range.durationS * 1000);
+        let dp = (rangeDir * dt) / (range.durationS * 1000);
+        if (range.strideMs) {
+            // At most one stride per tick (frame-paced): a slow frame rate never skips a step.
+            const one = range.strideMs / (range.toMs - range.fromMs);
+            if (dp > one) dp = one;
+            else if (dp < -one) dp = -one;
+        }
+        let p = rangeP + dp;
         if (range.loop === 'loop') {
             p -= Math.floor(p);
         } else if (range.loop === 'pingpong') {
@@ -279,7 +300,17 @@ export function createClock({ now = () => Date.now(), tMs, rate = 1, playing = t
             queue('pause');
         }
         rangeP = p;
-        t = range.fromMs + p * (range.toMs - range.fromMs);
+        t = rangeTime(p);
+    }
+
+    /** Simulated time at range progress p (through the range's ease). */
+    function rangeTime(p) {
+        const span = range.toMs - range.fromMs;
+        if (range.strideMs) {
+            const n = Math.floor(span / range.strideMs + 1e-9);
+            return range.fromMs + Math.min(n, Math.max(0, Math.floor((p * span) / range.strideMs + 1e-9))) * range.strideMs;
+        }
+        return range.fromMs + easeRange(range.ease, p) * span;
     }
 
     function tick(wallMs) {
@@ -463,10 +494,14 @@ export function createClock({ now = () => Date.now(), tMs, rate = 1, playing = t
         }
         dur = Math.max(0.5, Math.min(86400, dur));
         const loop = cfg.loop === 'once' || cfg.loop === 'pingpong' ? cfg.loop : 'loop';
+        // A stride needs at least two steps in the span; it implies a linear range.
+        const st = Number(cfg.strideMs);
+        const strideMs = Number.isFinite(st) && st >= 1 && st * 2 <= e - f ? st : null;
+        const ease = strideMs === null && (cfg.ease === 'in' || cfg.ease === 'out' || cfg.ease === 'inOut') ? cfg.ease : null;
 
         const before = effRate();
         const wasPlaying = isPlaying;
-        range = Object.freeze({ fromMs: f, toMs: e, durationS: dur, loop });
+        range = Object.freeze({ fromMs: f, toMs: e, durationS: dur, loop, ease, strideMs });
         rangeP = 0;
         rangeDir = 1;
         tween = null;
@@ -487,7 +522,7 @@ export function createClock({ now = () => Date.now(), tMs, rate = 1, playing = t
         const x = Number(p);
         if (!Number.isFinite(x)) return false;
         rangeP = clamp01(x);
-        t = range.fromMs + rangeP * (range.toMs - range.fromMs);
+        t = rangeTime(rangeP);
         tween = null;
         queue('jump');
         flush();

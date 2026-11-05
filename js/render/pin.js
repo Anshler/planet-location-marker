@@ -18,13 +18,29 @@
  * distance to the pin (clamped), so it neither vanishes when zoomed out nor
  * fills the view when skimming the surface.
  *
- * Extras: `prime()` hides the pin until `drop()`; `cardinals` exposes live
+ * Extras: `prime()` hides the pin (and the horizon disc, which then grows out with the
+ * drop's ripple: the intro, ROADMAP intro-preroll-matchcut) until `drop()`; `cardinals` exposes live
  * world points at the disc's N/E/S/W rim for optional orbit-view labels.
+ *
+ * Eclipse-aware (ROADMAP eclipse-aware-pin): while the Moon's shadow axis meets the Earth within
+ * ≈ 1 800–2 700 km of the pin (`umbraNear`, per snapshot), the pin steps out of the umbra's way:
+ * the disc keeps only its rim and cardinal ticks (fill × 0.15), the foot glow and the halo fade
+ * and the body shrinks to 40 %, eased over ≈ 300 ms. With the beams' roots (beams.js) cleared the
+ * same way, the umbra reads as a dark spot in its penumbra at the default zoom.
+ *
+ * The flat map (ROADMAP globe-to-map-morph): while fi.mapK > 0 the pin rides the morph from its
+ * place on the globe to its place on the map (geo/mapview.js mapPoint), standing on the plane
+ * toward the camera; the horizon disc fades out (a map has no horizon).
+ *
+ * `createPin(rc, {second: true})` is the second place's pin (ROADMAP two-observers): amber, no
+ * horizon disc, placed from `snap.second` (hidden while there is none).
  *
  * @module render/pin
  */
 import * as THREE from 'three';
 import { latLonToLocal, enuLocal } from '../astro/frames.js';
+import { umbraNear } from '../astro/eclipse-path.js';
+import { mapPoint } from '../geo/mapview.js';
 
 const HEAD_R = 0.012;
 const SPIKE_H = 0.05;
@@ -38,9 +54,15 @@ const RIPPLE_MS = 1150;
 const RIPPLE_STAGGER = 190;
 const REF_DIST = 2.4;      // camera→pin distance at the default view, where the pin is drawn at scale 1
 const HALO_SIZE = 0.07;    // halo quad size (view-space units) at pin scale 1
+// Eclipse clearance (astro/eclipse-path.js umbraNear: the shadow axis within 0.28 rad of the pin
+// clears it fully, beyond 0.42 not at all), eased over about this long.
+const CLEAR_EASE_MS = 300;
 
 const ACCENT = new THREE.Color('#7cc4ff');
+/** The second place's pin (two-observers; the same amber as its label and beams' tint). */
+export const SECOND_ACCENT = '#ffb35c';
 const NORTH = new THREE.Color('#ff5a4a');
+const ONE = new THREE.Vector3(1, 1, 1);
 
 function nowMs() {
     return typeof performance !== 'undefined' ? performance.now() : Date.now();
@@ -70,6 +92,7 @@ void main() {
 const DISC_FRAG = /* glsl */ `
 #define PI 3.14159265359
 uniform float uAlpha;
+uniform float uClear;   // 1: out of the Moon's umbra's way (rim and cardinal ticks only)
 uniform vec3 uColor;
 uniform vec3 uNorth;
 varying vec2 vP;
@@ -99,6 +122,10 @@ void main() {
     float north = ticks(ang, r, 2.0 * PI, 0.011, 0.64, 0.99);   // period 2π: only the north tick
     // Only after every fwidth() above: derivatives are undefined once lanes have been discarded.
     if (r > 1.0 + ar) discard;
+    float inner = 1.0 - 0.85 * uClear;
+    fill *= inner;
+    ring *= inner;
+    minor *= inner;
 
     vec3 col = uColor * (fill * 0.18 + rim * 0.55 + ring * 0.25 + minor * 0.35 + major * 0.75);
     float a = fill * 0.18 + rim * 0.5 + ring * 0.15 + minor * 0.3 + major * 0.7;
@@ -220,12 +247,15 @@ void main() {
 /**
  * Creates the pin module.
  * @param {object} rc RenderContext (SPEC §C.6)
- * @param {{now?:()=>number, reducedMotion?:boolean}} [deps]
+ * @param {{now?:()=>number, reducedMotion?:boolean, second?:boolean}} [deps] `second`: the second
+ *   place's pin (two-observers), placed from snap.second
  * @returns {object} RenderModule & {drop, setObserver, prime, cardinals, setReducedMotion}
  */
 export function createPin(rc, deps = {}) {
     const now = typeof deps.now === 'function' ? deps.now : nowMs;
     let reducedMotion = deps.reducedMotion ?? prefersReducedMotion();
+    const second = !!deps.second;
+    const accent = second ? new THREE.Color(SECOND_ACCENT) : ACCENT;
     const invalidate = () => { try { rc?.invalidate?.(); } catch { /* never throw from a redraw request */ } };
 
     const group = new THREE.Group();
@@ -244,6 +274,7 @@ export function createPin(rc, deps = {}) {
         name: 'pin.disc',
         uniforms: {
             uAlpha: { value: 1 },
+            uClear: { value: 0 },
             uColor: { value: new THREE.Color(0.62, 0.8, 1.0) },
             uNorth: { value: NORTH.clone() },
         },
@@ -273,7 +304,7 @@ export function createPin(rc, deps = {}) {
             uFoot: { value: 1 },
             uFlash: { value: 0 },
             uAlpha: { value: 1 },
-            uColor: { value: ACCENT.clone() },
+            uColor: { value: accent.clone() },
         },
         vertexShader: RIPPLE_VERT,
         fragmentShader: RIPPLE_FRAG,
@@ -299,7 +330,7 @@ export function createPin(rc, deps = {}) {
     const spikeGeo = new THREE.CylinderGeometry(0.0021, 0.0028, SPIKE_H, 10, 1, true);
     const spikeMat = new THREE.ShaderMaterial({
         name: 'pin.spike',
-        uniforms: { uColor: { value: ACCENT.clone() }, uAlpha: { value: 1 } },
+        uniforms: { uColor: { value: accent.clone() }, uAlpha: { value: 1 } },
         vertexShader: SPIKE_VERT,
         fragmentShader: SPIKE_FRAG,
         transparent: true,
@@ -313,7 +344,7 @@ export function createPin(rc, deps = {}) {
     const headGeo = new THREE.SphereGeometry(HEAD_R, 24, 16);
     const headMat = new THREE.ShaderMaterial({
         name: 'pin.head',
-        uniforms: { uRim: { value: ACCENT.clone() }, uAlpha: { value: 1 } },
+        uniforms: { uRim: { value: accent.clone() }, uAlpha: { value: 1 } },
         vertexShader: HEAD_VERT,
         fragmentShader: HEAD_FRAG,
         transparent: true,
@@ -327,7 +358,7 @@ export function createPin(rc, deps = {}) {
     const haloGeo = new THREE.PlaneGeometry(1, 1);
     const haloMat = new THREE.ShaderMaterial({
         name: 'pin.halo',
-        uniforms: { uSize: { value: HALO_SIZE }, uColor: { value: ACCENT.clone() }, uAlpha: { value: 1 } },
+        uniforms: { uSize: { value: HALO_SIZE }, uColor: { value: accent.clone() }, uAlpha: { value: 1 } },
         vertexShader: HALO_VERT,
         fragmentShader: HALO_FRAG,
         transparent: true,
@@ -353,9 +384,23 @@ export function createPin(rc, deps = {}) {
     let skyBlend = 0;
     let pinScale = 1;
     let primed = false;
+    // Eclipse clearance (0 normal … 1 out of the umbra's way): the target from the snapshot, eased.
+    let clearT = 0;
+    let clearK = 0;
+    let bodyK = 1;
     let anim = null; // {t0}
     /** @type {null|((done:boolean)=>void)} */
     let dropResolve = null;
+    // The second pin's place exists (snap.second); the first pin always has one.
+    let present = !second;
+    // The flat map: the morph and the scratch of the pin's placement along it.
+    let mapK = 0;
+    const anchorLocal = new THREE.Matrix4();
+    const mapP = new Float64Array(3);
+    const pS = new THREE.Vector3(), pM = new THREE.Vector3(), sc = new THREE.Vector3();
+    const qS = new THREE.Quaternion(), qM = new THREE.Quaternion();
+    const mW = new THREE.Matrix4(), mBasis = new THREE.Matrix4();
+    const bR = new THREE.Vector3(), bN = new THREE.Vector3(), bS = new THREE.Vector3();
 
     function writeCardinals() {
         const m = earthM.elements;
@@ -378,12 +423,13 @@ export function createPin(rc, deps = {}) {
         latLonToLocal(lat, lon, posL);
         enuLocal(lat, lon, enu);
         // Columns: X = east, Y = up, Z = east × up = south.
-        anchor.matrix.set(
+        anchorLocal.set(
             enu.east[0], enu.up[0], -enu.north[0], posL[0],
             enu.east[1], enu.up[1], -enu.north[1], posL[1],
             enu.east[2], enu.up[2], -enu.north[2], posL[2],
             0, 0, 0, 1,
         );
+        if (mapK === 0) anchor.matrix.copy(anchorLocal);
         anchor.matrixWorldNeedsUpdate = true;
         writeCardinals();
         invalidate();
@@ -393,12 +439,53 @@ export function createPin(rc, deps = {}) {
         if (!snap) return;
         if (snap.earthMatrix) {
             earthM.fromArray(snap.earthMatrix);
-            group.matrix.copy(earthM);
+            if (mapK === 0) group.matrix.copy(earthM);
             group.matrixWorldNeedsUpdate = true;
         }
-        const o = snap.observer;
+        const src = second ? snap.second ?? null : snap;
+        const was = present;
+        present = !!src;
+        if (present !== was) {
+            updateVisibility();
+            invalidate();
+        }
+        if (!src) return;
+        const o = src.observer;
         if (o) setObserver(o.latDeg, o.lonDeg);
         writeCardinals();
+        clearT = umbraNear(src);
+        if (clearT !== clearK) invalidate();
+    }
+
+    /**
+     * The flat map: between its ENU frame on the globe and its place on the map (east right, up
+     * toward the camera), by the morph; back on the globe the Earth group carries it again.
+     */
+    function placeForMap(fi) {
+        const f = fi?.map;
+        const mk = f && Number.isFinite(fi.mapK) ? Math.min(1, Math.max(0, fi.mapK)) : 0;
+        if (mk === 0) {
+            if (mapK !== 0) {
+                mapK = 0;
+                group.matrix.copy(earthM);
+                anchor.matrix.copy(anchorLocal);
+                group.matrixWorldNeedsUpdate = true;
+                anchor.matrixWorldNeedsUpdate = true;
+            }
+            return;
+        }
+        mapK = mk;
+        mW.multiplyMatrices(earthM, anchorLocal).decompose(pS, qS, sc);
+        mapPoint(f, lat, lon, mapP);
+        pM.set(mapP[0], mapP[1], mapP[2]);
+        mBasis.makeBasis(bR.fromArray(f.right), bN.fromArray(f.normal), bS.fromArray(f.up).negate());
+        qM.setFromRotationMatrix(mBasis);
+        pS.lerp(pM, mk);
+        qS.slerp(qM, mk);
+        group.matrix.identity();
+        anchor.matrix.compose(pS, qS, ONE);
+        group.matrixWorldNeedsUpdate = true;
+        anchor.matrixWorldNeedsUpdate = true;
     }
 
     function settleDrop(done) {
@@ -427,7 +514,10 @@ export function createPin(rc, deps = {}) {
         const fl = (e - FALL_MS) / 260;
         rippleMat.uniforms.uFlash.value = fl > 0 && fl < 1 ? (1 - fl) * (1 - fl) * 1.6 : 0;
         rippleMat.uniforms.uFoot.value = e < FALL_MS ? easeOutCubic(e / FALL_MS) * 0.6 : 1;
+        // After a primed drop the horizon disc grows out with the first ring.
+        if (anim.grow) disc.scale.setScalar(Math.max(1e-3, easeOutCubic(Math.min(1, Math.max(0, r1)))));
         if (r2 >= 1) {
+            disc.scale.setScalar(1);
             drop.position.y = 0;
             rippleMat.uniforms.uRings.value.set(0, 0);
             rippleMat.uniforms.uFlash.value = 0;
@@ -438,31 +528,43 @@ export function createPin(rc, deps = {}) {
 
     function updateVisibility() {
         const orbitK = 1 - smoothstep(0.0, 0.4, skyBlend);
-        group.visible = orbitK > 0.001;
+        group.visible = orbitK > 0.001 && present;
         body.visible = !primed;
         ripple.visible = !primed || anim !== null;
-        disc.visible = layers.horizon !== false;
-        const discK = orbitK;
+        disc.visible = layers.horizon !== false && !primed && !second && mapK < 0.999;
+        const discK = orbitK * (1 - mapK);
         discMat.uniforms.uAlpha.value = discK;
-        rippleMat.uniforms.uAlpha.value = orbitK;
+        discMat.uniforms.uClear.value = clearK;
+        rippleMat.uniforms.uAlpha.value = orbitK * (1 - 0.8 * clearK);
         spikeMat.uniforms.uAlpha.value = orbitK;
         headMat.uniforms.uAlpha.value = orbitK;
-        haloMat.uniforms.uAlpha.value = orbitK;
+        haloMat.uniforms.uAlpha.value = orbitK * (1 - 0.75 * clearK);
     }
 
     function update(fi) {
         if (fi && Number.isFinite(fi.skyBlend)) skyBlend = fi.skyBlend;
+        if (Number.isFinite(lat)) placeForMap(fi);
+        if (clearK !== clearT) {
+            const dt = fi && Number.isFinite(fi.dtMs) ? fi.dtMs : 16;
+            const k = reducedMotion ? 1 : 1 - Math.exp(-dt / CLEAR_EASE_MS * 3);
+            clearK += (clearT - clearK) * k;
+            if (Math.abs(clearT - clearK) < 1e-3) clearK = clearT;
+            else invalidate();
+        }
         const cam = (fi && fi.camera) || rc?.camera;
         if (cam && Number.isFinite(lat)) {
-            // Keep a near-constant screen size.
-            pinW.set(posL[0], posL[1], posL[2]).applyMatrix4(earthM);
+            // Keep a near-constant screen size (smaller while clearing the umbra's way).
+            if (mapK > 0) pinW.setFromMatrixPosition(anchor.matrix);
+            else pinW.set(posL[0], posL[1], posL[2]).applyMatrix4(earthM);
             const d = tmp.copy(cam.position).sub(pinW).length();
             const s = Math.min(3, Math.max(0.06, d / REF_DIST));
-            if (Math.abs(s - pinScale) > 1e-4) {
+            const bk = 1 - 0.6 * clearK;
+            if (Math.abs(s - pinScale) > 1e-4 || bk !== bodyK) {
                 pinScale = s;
-                body.scale.setScalar(s);
+                bodyK = bk;
+                body.scale.setScalar(s * bk);
                 ripple.scale.setScalar(s * RIPPLE_R * 2);
-                haloMat.uniforms.uSize.value = HALO_SIZE * s;
+                haloMat.uniforms.uSize.value = HALO_SIZE * s * bk;
             }
         }
         if (anim) {
@@ -478,14 +580,16 @@ export function createPin(rc, deps = {}) {
      */
     function dropPin() {
         if (dropResolve) settleDrop(false);
+        const grow = primed;
         primed = false;
+        disc.scale.setScalar(1);
         if (reducedMotion) {
             drop.position.y = 0;
             updateVisibility();
             invalidate();
             return Promise.resolve(true);
         }
-        anim = { t0: now() };
+        anim = { t0: now(), grow };
         stepAnimation(anim.t0);
         updateVisibility();
         invalidate();
@@ -505,6 +609,7 @@ export function createPin(rc, deps = {}) {
         prime() {
             if (dropResolve) settleDrop(false);
             primed = true;
+            disc.scale.setScalar(1);
             updateVisibility();
             invalidate();
         },

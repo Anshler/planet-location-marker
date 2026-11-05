@@ -6,9 +6,13 @@
  * - `on()` returns an unsubscribe function so every module can tear down cleanly.
  * - `trapFocus()` keeps Tab inside an open dialog or the full-height sheet.
  * - `openPopover()` anchors a floating panel to a trigger, with outside-click / Esc dismissal.
+ * - `menu()` is the one menu-button builder (Tools, Share, ⋯); `rovingKeys()` the arrow-key roving
+ *   of radiogroups and menus; `tpl()` fills a whole-phrase template with text or nodes.
  *
  * @module ui/dom
  */
+
+import { icon } from './icons.js';
 
 let svgNs = '';
 /**
@@ -237,35 +241,40 @@ export function focusables(root) {
 }
 
 /**
- * Keeps keyboard focus inside `el` until released. Tab / Shift+Tab wrap around,
- * and focus that escapes (e.g. a click on the canvas) is pulled back in.
+ * Keeps keyboard focus inside `el` (or several roots, in Tab order: the phone sheet and its tab
+ * bar) until released. Tab / Shift+Tab wrap around, and focus that escapes (e.g. a click on the
+ * canvas) is pulled back in. An open popover (the Time popover from the phone sheet at full)
+ * counts as inside.
  *
- * @param {HTMLElement} el
+ * @param {HTMLElement|HTMLElement[]} roots
  * @param {{initial?: HTMLElement|null, restore?: boolean}} [opts]
- *   `initial`: element to focus now (default: first focusable, else `el` itself);
+ *   `initial`: element to focus now (default: first focusable, else the first root itself);
  *   `restore`: return focus to the previously focused element on release (default true).
  * @returns {() => void} release
  */
-export function trapFocus(el, { initial = null, restore = true } = {}) {
+export function trapFocus(roots, { initial = null, restore = true } = {}) {
     const previous = /** @type {HTMLElement|null} */ (document.activeElement);
+    const all = [roots].flat();
+    const el = all[0];
+    const within = (n) => all.some((r) => r.contains(n));
+    const list = () => all.flatMap(focusables);
+    const inside = (n) => within(n) || !!n?.closest?.('.popover');
     const onKey = (e) => {
         if (e.key !== 'Tab') return;
-        const list = focusables(el);
-        if (!list.length) { e.preventDefault(); el.focus({ preventScroll: true }); return; }
-        const first = list[0], last = list[list.length - 1];
+        const items = list();
+        if (!items.length) { e.preventDefault(); el.focus({ preventScroll: true }); return; }
+        const first = items[0], last = items[items.length - 1];
         const active = document.activeElement;
-        if (e.shiftKey && (active === first || !el.contains(active))) { e.preventDefault(); last.focus(); }
-        else if (!e.shiftKey && (active === last || !el.contains(active))) { e.preventDefault(); first.focus(); }
+        if (!within(active) && inside(active)) return;
+        if (e.shiftKey && (active === first || !inside(active))) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && (active === last || !inside(active))) { e.preventDefault(); first.focus(); }
     };
     const onFocusIn = (e) => {
-        if (!el.contains(/** @type {Node} */ (e.target))) {
-            const list = focusables(el);
-            (list[0] || el).focus({ preventScroll: true });
-        }
+        if (!inside(/** @type {Element} */ (e.target))) (list()[0] || el).focus({ preventScroll: true });
     };
     document.addEventListener('keydown', onKey, true);
     document.addEventListener('focusin', onFocusIn, true);
-    const target = initial || focusables(el)[0] || el;
+    const target = initial || list()[0] || el;
     if (target === el && !el.hasAttribute('tabindex')) el.setAttribute('tabindex', '-1');
     // Defer so the opening click/keypress does not immediately steal focus back.
     requestAnimationFrame(() => { if (el.isConnected) target.focus({ preventScroll: true }); });
@@ -328,9 +337,14 @@ export function openPopover(anchor, panel, { placement = 'top', onClose, gap = 1
     const onKey = (e) => {
         if (e.key === 'Escape') { e.stopPropagation(); e.preventDefault(); close(true); }
     };
+    // Focus moving on closes it (Esc must never act under it).
+    const onOut = ({ relatedTarget: t }) => { if (t && !panel.contains(t) && !anchor.contains(t)) close(); };
     const offs = [
         on(document, 'pointerdown', onDown, true),
         on(panel, 'keydown', onKey),
+        on(anchor, 'keydown', onKey),
+        on(panel, 'focusout', onOut),
+        on(anchor, 'focusout', onOut),
         on(window, 'resize', reposition),
     ];
     if (focus) {
@@ -391,19 +405,10 @@ export function segmented({ label, options, value, onChange, className = '' }) {
         set(b.dataset.value);
         onChange(b.dataset.value);
     });
-    el.addEventListener('keydown', (e) => {
-        const i = btns.findIndex((b) => b.dataset.value === cur);
-        let j = -1;
-        if (e.key === 'ArrowRight' || e.key === 'ArrowDown') j = (i + 1) % btns.length;
-        else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') j = (i - 1 + btns.length) % btns.length;
-        else if (e.key === 'Home') j = 0;
-        else if (e.key === 'End') j = btns.length - 1;
-        if (j < 0) return;
-        e.preventDefault();
-        e.stopPropagation();
-        set(btns[j].dataset.value);
-        btns[j].focus();
-        onChange(btns[j].dataset.value);
+    rovingKeys(el, btns, (b) => {
+        set(b.dataset.value);
+        b.focus();
+        onChange(b.dataset.value);
     });
     set(value);
     return { el, set };
@@ -438,6 +443,9 @@ export function switchRow({ label, desc, keys, checked, onChange, note }) {
     };
 }
 
+/** `s` with no-break spaces, so that it wraps as one unit ('4 ngày 11 giờ nữa'). */
+export const nbsp = (s) => String(s).replace(/ /g, '\u00a0');
+
 /**
  * Formats a key-cap list for display, e.g. kbd('Shift', 'C').
  * @param {...string} keys
@@ -450,4 +458,103 @@ export function kbd(...keys) {
         wrap.appendChild(h('kbd', { class: 'kbd' }, k));
     });
     return wrap;
+}
+
+/**
+ * Fills a whole-phrase template: each `{name}` becomes `parts[name]`, a string or a Node. Copy is
+ * translated whole: tpl(t('Press {key} to search'), { key: kbd('K') }) (core/i18n.js).
+ * @param {string} template
+ * @param {Record<string, string|number|Node>} [parts]
+ * @returns {DocumentFragment}
+ */
+export function tpl(template, parts = {}) {
+    const f = document.createDocumentFragment();
+    String(template).split(/\{(\w+)\}/).forEach((t, i) => {
+        if (i % 2) append(f, [parts[t] ?? `{${t}}`]);
+        else if (t) f.appendChild(document.createTextNode(t));
+    });
+    return f;
+}
+
+/**
+ * Arrow-key roving in a radiogroup or menu: → ↓ next, ← ↑ previous (wrapping), Home, End.
+ * @param {HTMLElement} el
+ * @param {HTMLElement[]|(() => HTMLElement[])} items
+ * @param {(item: HTMLElement, i: number) => void} onMove
+ * @returns {() => void} off
+ */
+export function rovingKeys(el, items, onMove) {
+    return on(el, 'keydown', (e) => {
+        const list = typeof items === 'function' ? items() : items;
+        const n = list.length;
+        let i = list.indexOf(/** @type {any} */ (document.activeElement));
+        if (i < 0) i = list.findIndex((b) => b.tabIndex === 0);
+        const k = e.key;
+        const j = k === 'Home' ? 0 : k === 'End' ? n - 1 : k === 'ArrowRight' || k === 'ArrowDown' ? (i + 1) % n
+            : k === 'ArrowLeft' || k === 'ArrowUp' ? (i - 1 + n) % n : -1;
+        if (j < 0 || !n) return;
+        e.preventDefault();
+        e.stopPropagation();
+        onMove(list[j], j);
+    });
+}
+
+const MENU_ROLE = { radio: 'menuitemradio', check: 'menuitemcheckbox' };
+
+/**
+ * A menu button (§4.3): `button` opens a `role=menu` popover rebuilt from `items` on every open, so
+ * it is always fresh. Items: `{kind?: 'radio'|'check', icon, name, detail?, kbd?, group?, hidden?(),
+ * disabled?(), disabledText?, checked?(), run()}` or `{note, group?}`; name and detail may be
+ * functions. A new `group` starts a section after a separator, titled when it is a string. Opening
+ * focuses the checked radio or the first enabled item; ↑ ↓ Home End move; a choice closes the menu
+ * first (focus back on the button), then runs; Esc returns focus to the button; Tab moves on.
+ * @param {{button: HTMLElement, label: string, items: any[]|(() => any[]), host?: HTMLElement,
+ *          placement?: 'top'|'bottom'|(() => 'top'|'bottom')}} o
+ * @returns {{open(): void, close(): void, destroy(): void}}
+ */
+export function menu({ button, label, items, host = document.body, placement = 'top' }) {
+    const panel = h('div', { class: 'popover vmenu', role: 'menu', 'aria-label': label, hidden: true });
+    host.appendChild(panel);
+    button.setAttribute('aria-haspopup', 'menu');
+    button.setAttribute('aria-expanded', 'false');
+    const val = (v) => (typeof v === 'function' ? v() : v);
+    let ctl = null;
+    let rows = [];
+    function build() {
+        rows = [];
+        panel.textContent = '';
+        let sec = null;
+        let key;
+        for (const it of val(items)) {
+            if (it.hidden?.()) continue;
+            if (!sec || it.group !== key) {
+                if (sec) panel.append(h('div', { class: 'vmenu__sep', role: 'separator' }));
+                key = it.group;
+                sec = typeof key === 'string' ? h('div', { role: 'group', 'aria-label': key }, h('div', { class: 'vmenu__title', 'aria-hidden': 'true' }, key)) : panel;
+                if (sec !== panel) panel.append(sec);
+            }
+            if (it.note) { sec.append(h('p', { class: 'vmenu__note' }, it.note)); continue; }
+            const off = !!it.disabled?.();
+            const detail = off && it.disabledText ? it.disabledText : val(it.detail);
+            const b = h('button', {
+                class: 'vmenu__item', type: 'button', role: MENU_ROLE[it.kind] ?? 'menuitem', tabindex: '-1',
+                'aria-checked': MENU_ROLE[it.kind] ? String(!!it.checked?.()) : null, 'aria-disabled': off ? 'true' : null,
+            }, icon(it.icon, { size: 18 }),
+            h('span', { class: 'vmenu__text' }, h('span', { class: 'vmenu__name' }, val(it.name)), detail ? h('span', { class: 'vmenu__detail' }, detail) : null),
+            it.kbd ? h('kbd', { class: 'kbd vmenu__kbd' }, it.kbd) : null);
+            b.onclick = () => { if (!off) { close(); it.run(); } };
+            sec.append(b);
+            rows.push(b);
+        }
+    }
+    rovingKeys(panel, () => rows, (b) => b.focus());
+    panel.addEventListener('keydown', (e) => { if (e.key === 'Tab') close(); });
+    function open() {
+        build();
+        ctl = openPopover(button, panel, { placement: val(placement), focus: false, onClose: () => { ctl = null; } });
+        (rows.find((b) => b.matches('[role=menuitemradio][aria-checked=true]')) ?? rows.find((b) => !b.hasAttribute('aria-disabled')))?.focus();
+    }
+    function close() { ctl?.close(); }
+    const offClick = on(button, 'click', () => (ctl ? close() : open()));
+    return { open: () => ctl || open(), close, destroy() { offClick(); close(); panel.remove(); } };
 }

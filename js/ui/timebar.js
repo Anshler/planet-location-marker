@@ -1,28 +1,38 @@
 /**
- * Time bar: play / step / rate / reverse, the date-time button (popover with a
- * `datetime-local` input interpreted in the display timezone), the timezone
- * chip (Observer → Device → UTC), the Live pill / "Return to now", the
- * Timelapse (range loop) popover and the scrubber.
+ * Time bar: step buttons (showing the unit), play, the date button (stamp, zone, chevron), the
+ * accuracy badge, the speed and Live / "Return to now", over the scrubber. The date button (and the
+ * loop chip's Edit, through `ui.openTime(section)`) opens the Time popover: Go to (in the display
+ * zone; Julian before 15 Oct 1582, core/tz.js parseCalendarInput), Stepping, Loop between two
+ * moments (a clock range), Show times in and a legend of the scrubber.
  *
  * Scrubber design: a fixed playhead over a timeline that scrolls with time.
  * The visible window depends on |rate| (±12 h, ±3 d, ±30 d, ±1 yr). Its
- * background is the day/night gradient of the Sun's altitude at the observer
- * (worker `sunSeries`, with an analytic low-precision fallback so it is never
- * blank); wide windows show the seasonal day-length instead, because a
- * day/night pattern cannot be resolved there. Event ticks come from the event
- * list. Dragging scrubs relative to the window captured at drag start; release
- * re-centres smoothly. Keyboard: ←/→ = window/48, PageUp/PageDown = window/8.
+ * background is the sky's colour by the Sun's altitude at the observer (ui/sky-palette.js: day
+ * blues, golden-hour amber, rose-violet civil, indigo nautical, near-black night; worker
+ * `sunSeries`, with an analytic low-precision fallback so it is never blank); wide windows show
+ * the seasonal day-length instead, because a day/night pattern cannot be resolved there. Up to
+ * ±3 d, a thin band along the bottom marks when the Moon is up (brighter the fuller it is) and
+ * one along the top when the selected planet is (its colour; worker `altSeries`). Event ticks
+ * come from the event list, with gold bars over an eclipse's span. Dragging scrubs relative to
+ * the window captured at drag start; release re-centres smoothly. Keyboard: ←/→ = window/48,
+ * PageUp/PageDown = window/8.
  *
  * Drawing runs on requestAnimationFrame only while time is animating, the user
  * is dragging, or the re-centre tween runs; otherwise it redraws on demand.
- * The per-frame path reuses preallocated buffers (no typed-array churn).
+ * The per-frame path reuses preallocated buffers (no typed-array churn), never reads layout
+ * (the scrubber is measured when a ResizeObserver flags it), and slides the cached gradient row
+ * instead of recomputing every column.
  *
  * @module ui/timebar
  */
 
 import { BODIES, BODY_INDEX } from '../astro/bodies.js';
-import { h, on, setText, setAttr, clamp, openPopover, uid } from './dom.js';
+import { h, on, setText, setAttr, clamp, openPopover, segmented, switchRow, tpl } from './dom.js';
 import { icon, swapIcon } from './icons.js';
+import { parseCalendarInput, toCalendar, fromCalendar } from '../core/tz.js';
+import { createMarsTime, marsTimeTT, marsClockText, marsSunAltDeg, marsSiteNear } from '../astro/mars-clock.js';
+import { SKY_LUT, skyLutIndex, smooth, hexRgb, C_DAY, C_NIGHT } from './sky-palette.js';
+import { t, N_, dateText, intl, locale } from '../core/i18n.js';
 
 const MIN_MS = Date.UTC(1000, 0, 1);
 const MAX_MS = Date.UTC(3000, 0, 1);
@@ -31,56 +41,42 @@ const DAY = 86400e3;
 const RAD = Math.PI / 180;
 const RATE_MAX = 31557600;
 
-/** Step choices for the step buttons (`clock.step(kind)`). */
-const STEP_UNITS = [
-    { kind: 'minute', label: 'Minute', long: '1 minute' },
-    { kind: 'hour', label: 'Hour', long: '1 hour' },
-    { kind: 'day', label: 'Day', long: '1 day' },
-    { kind: 'siderealDay', label: 'Sid. day', long: '1 sidereal day' },
-    { kind: 'month', label: 'Month', long: '1 lunar month' },
-    { kind: 'year', label: 'Year', long: '1 year' },
+/** Step units (`clock.step(kind)`): the popover's name, the buttons' unit, their names' phrase (English; t() where shown). */
+export const STEP_UNITS = [
+    { kind: 'minute', label: N_('Minute'), unit: N_('1 min'), long: N_('1 minute') },
+    { kind: 'hour', label: N_('Hour'), unit: N_('1 h'), long: N_('1 hour') },
+    { kind: 'day', label: N_('Day'), unit: N_('1 d'), long: N_('1 day') },
+    { kind: 'siderealDay', label: N_('Sidereal day (23 h 56 min)'), unit: N_('1 sid. day'), long: N_('1 sidereal day') },
+    { kind: 'month', label: N_('Lunar month'), unit: N_('1 mo'), long: N_('1 lunar month') },
+    { kind: 'year', label: N_('Year'), unit: N_('1 yr'), long: N_('1 year') },
 ];
 
-/** Day/night palette (SPEC F.2) as RGB. */
-const C_DAY = [0x2d, 0x4a, 0x6b];
-const C_NOON = [0x3a, 0x62, 0x8e];
-const C_CIVIL = [0x24, 0x30, 0x4a];
-const C_NAUT = [0x18, 0x20, 0x3a];
-const C_ASTRO = [0x10, 0x15, 0x2a];
-const C_NIGHT = [0x0a, 0x0d, 0x18];
-
-/** Altitude → colour lookup, −30°..+60° in 0.1° steps (built once). */
-const LUT_MIN = -30, LUT_STEP = 0.1, LUT_N = 901;
-const LUT = buildLut();
-
-function mix(a, b, t) { return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]; }
-function smooth(e0, e1, x) { const t = clamp((x - e0) / (e1 - e0), 0, 1); return t * t * (3 - 2 * t); }
-
-function buildLut() {
-    const lut = new Uint8ClampedArray(LUT_N * 3);
-    // Zone colours with short blends across the twilight boundaries (−18, −12, −6, −0.833°).
-    const zone = (alt) => {
-        if (alt < -18) return C_NIGHT;
-        if (alt < -12) return C_ASTRO;
-        if (alt < -6) return C_NAUT;
-        if (alt < -0.833) return C_CIVIL;
-        return mix(C_DAY, C_NOON, smooth(6, 50, alt));
-    };
-    for (let i = 0; i < LUT_N; i += 1) {
-        const alt = LUT_MIN + i * LUT_STEP;
-        const c = mix(zone(alt - 0.6), zone(alt + 0.6), 0.5);
-        lut[i * 3] = c[0]; lut[i * 3 + 1] = c[1]; lut[i * 3 + 2] = c[2];
-    }
-    return lut;
+/**
+ * The clock's zone as whole-phrase tpl() templates: [long form, short form (narrow bar, phone)].
+ * @param {'observer'|'device'|'utc'} mode
+ * @param {boolean} [approx] the observer's zone is estimated
+ * @returns {[string, string]}
+ */
+export function zoneTemplates(mode, approx = false) {
+    if (mode === 'utc') return ['UTC', 'UTC'];
+    if (mode === 'device') return [t('This device, {offset}'), '{offset}'];
+    return approx ? [t('{place}, {offset} (approx.)'), t('{offset} (approx.)')] : ['{place}, {offset}', '{offset}'];
 }
+
+// The sky palette (SPEC F.2): golden hour, rose-violet civil, indigo nautical, near-black night.
+const LUT = SKY_LUT;
+const MOON_RGB = [0xd8, 0xdd, 0xe6];
+const MOON_UP_DEG = -0.27;          // the Moon's upper limb on the refracted horizon
+const BAND_PX = 3;                  // the Moon and selected-body bands, CSS px
 
 /** Event-kind colours for scrubber ticks. */
 function tickColor(ev) {
     switch (ev.kind) {
-        case 'moon-phase': return '#d8dde6';
+        case 'moon-phase': case 'occultation': case 'lunar-apsis': return '#d8dde6';
         case 'lunar-eclipse': return '#ff8a65';
-        case 'solar-eclipse': case 'local-solar-eclipse': return '#ffcc66';
+        case 'solar-eclipse': case 'local-solar-eclipse': case 'transit': return '#ffcc66';
         case 'equinox': case 'solstice': return '#7cc4ff';
+        case 'meteor-shower': return '#9fd4ff';
         default: return (ev.bodyId && BODIES[BODY_INDEX[ev.bodyId]]?.color) || '#c9d4e3';
     }
 }
@@ -99,6 +95,59 @@ function sunAltApprox(tMs, latDeg, lonDeg) {
     const ha = (280.46061837 + 360.98564736629 * d + lonDeg) * RAD - ra;
     const la = latDeg * RAD;
     return Math.asin(Math.sin(la) * Math.sin(dec) + Math.cos(la) * Math.cos(dec) * Math.cos(ha)) / RAD;
+}
+
+/**
+ * The Moon's illuminated fraction, low precision (Meeus 48.4 with its leading terms, ~1 %): how
+ * bright the scrubber's Moon band is at an instant.
+ * @param {number} tMs
+ * @returns {number} 0 (new) … 1 (full)
+ */
+export function moonLitApprox(tMs) {
+    const T = (tMs - 946728000000) / 3155760000000;
+    const D = (297.8501921 + 445267.1114034 * T) * RAD;
+    const M = (357.5291092 + 35999.0502909 * T) * RAD;
+    const Mp = (134.9633964 + 477198.8675055 * T) * RAD;
+    const i = Math.PI - D - (6.289 * Math.sin(Mp) - 2.1 * Math.sin(M) + 1.274 * Math.sin(2 * D - Mp)
+        + 0.658 * Math.sin(2 * D) + 0.214 * Math.sin(2 * Mp) + 0.11 * Math.sin(D)) * RAD;
+    return (1 + Math.cos(i)) / 2;
+}
+
+/**
+ * The span an eclipse covers on the time axis: a local solar eclipse from first to last contact
+ * here, a lunar eclipse through its umbral phase (else the penumbral one). Writes `out` and
+ * returns true, or false for any other event.
+ * @param {any} ev AstroEvent
+ * @param {{from:number, to:number}} out
+ * @returns {boolean}
+ */
+export function eclipseSpan(ev, out) {
+    let a = NaN, b = NaN;
+    if (ev?.kind === 'local-solar-eclipse') { a = ev.c1Ms; b = ev.c4Ms; }
+    else if (ev?.kind === 'lunar-eclipse') {
+        a = Number.isFinite(ev.u1Ms) ? ev.u1Ms : ev.p1Ms;
+        b = Number.isFinite(ev.u4Ms) ? ev.u4Ms : ev.p4Ms;
+    }
+    if (!(Number.isFinite(a) && Number.isFinite(b) && b > a)) return false;
+    out.from = a; out.to = b;
+    return true;
+}
+
+// Standing on Mars (store.host): the scrubber's day/night strip and the stamp follow the Martian
+// site's Sun and clock (astro/mars-clock.js). TT ≈ UT + 69.2 s is plenty for a colour strip.
+const MT = createMarsTime();
+const ttDaysApprox = (tMs) => (tMs - 946728000000) / 86400000 + 69.2 / 86400;
+function marsSunAlt(tMs, latDeg, lonDeg) {
+    return marsSunAltDeg(marsTimeTT(ttDaysApprox(tMs), lonDeg, MT), latDeg);
+}
+/** Fraction of the sol the Sun is up at a Martian latitude. */
+function marsDayFraction(tMs, latDeg) {
+    const dec = marsTimeTT(ttDaysApprox(tMs), 0, MT).solarDecDeg * RAD;
+    const la = clamp(latDeg, -89.9, 89.9) * RAD;
+    const cosH = (Math.sin(-0.3 * RAD) - Math.sin(la) * Math.sin(dec)) / (Math.cos(la) * Math.cos(dec));
+    if (cosH >= 1) return 0;
+    if (cosH <= -1) return 1;
+    return Math.acos(cosH) / Math.PI;
 }
 
 /** Fraction of the day the Sun is up (0 = polar night, 1 = midnight sun). */
@@ -123,132 +172,195 @@ export function halfWindowFor(rate) {
     return 365.25 * DAY;
 }
 
+/**
+ * Re-aims a cached gradient row (RGBA, a pixel per column) at a window now starting at `start`:
+ * under half a column keeps it, more shifts it by whole columns. Sets `out` to the columns left to
+ * compute, [from, to), and `cache.start` to the start the row now shows. Allocation-free. `data`
+ * may hold several rows (the bands): pixels carried across row ends land only in `out`'s columns.
+ * @param {{start: number}} cache
+ * @param {Uint8ClampedArray} data `rows * width * 4` bytes
+ * @param {number} width columns
+ * @param {number} colMs window span / width
+ * @param {number} start
+ * @param {{from: number, to: number}} out
+ * @returns {{from: number, to: number}} `out`
+ */
+export function slideGradientRow(cache, data, width, colMs, start, out) {
+    const k = Math.round((start - cache.start) / colMs);
+    out.from = 0; out.to = 0;
+    if (k === 0) return out;
+    const end = data.length;
+    if (k > 0 && k < width) {
+        data.copyWithin(0, k * 4, end);
+        out.from = width - k; out.to = width;
+        cache.start += k * colMs;
+    } else if (k < 0 && -k < width) {
+        data.copyWithin(-k * 4, 0, end + k * 4);
+        out.to = -k;
+        cache.start += k * colMs;
+    } else {
+        out.to = width;
+        cache.start = start;
+    }
+    return out;
+}
+
 const pad2 = (n) => (n < 10 ? '0' : '') + n;
 const easeOutCubic = (x) => 1 - (1 - x) ** 3;
 
 /**
- * Mounts the time bar.
+ * Mounts the time bar and its Time popover, which `ui.openTime(section)` opens too.
  * @param {HTMLElement} root `<section class="timebar">`
  * @param {any} ctx UiCtx
- * @returns {{update(snap:any): void, destroy(): void, toolsEl: HTMLElement}}
+ * @returns {{update(snap:any): void, destroy(): void}}
  */
 export function mountTimebar(root, ctx) {
     const { store, clock, ui } = ctx;
     const offs = [];
     let unit = STEP_UNITS[1];
 
-    // ================================================================ controls
-    const btn = (cls, label, iconName, tip, kbdHint) => h('button', {
-        class: `icon-btn ${cls}`, type: 'button', 'aria-label': label, 'data-tip': tip || label,
-        ...(kbdHint ? { 'data-kbd': kbdHint } : {}),
-    }, icon(iconName, { size: 20 }));
-
-    const btnBack = btn('tb-back', 'Step back 1 hour', 'step-back', 'Step back', ',');
-    const btnPlay = btn('tb-play icon-btn--primary', 'Pause', 'pause', 'Pause', 'Space');
-    const btnFwd = btn('tb-fwd', 'Step forward 1 hour', 'step-fwd', 'Step forward', '.');
-    const unitSel = h('select', { class: 'select tb-unit', 'aria-label': 'Step size', 'data-tip': 'Step size' },
-        STEP_UNITS.map((u) => h('option', { value: u.kind }, u.label)));
-    unitSel.value = unit.kind;
-
-    const btnSlower = h('button', { class: 'icon-btn icon-btn--sm', type: 'button', 'aria-label': 'Slower', 'data-tip': 'Slower', 'data-kbd': '[' }, icon('minus', { size: 16 }));
-    const rateOut = h('output', { class: 'tb-rate__value', 'aria-live': 'off' }, 'Real time');
-    const btnFaster = h('button', { class: 'icon-btn icon-btn--sm', type: 'button', 'aria-label': 'Faster', 'data-tip': 'Faster', 'data-kbd': ']' }, icon('plus', { size: 16 }));
-    const rateGroup = h('div', { class: 'tb-rate', role: 'group', 'aria-label': 'Speed' }, btnSlower, rateOut, btnFaster);
-    const btnReverse = btn('tb-reverse', 'Reverse time', 'reverse', 'Reverse', 'R');
-    btnReverse.setAttribute('aria-pressed', 'false');
+    // ================================================================ the bar
+    const iconBtn = (cls, label, name, size, kbdHint) => h('button', {
+        class: `icon-btn ${cls}`, type: 'button', 'aria-label': label, 'data-tip': label, 'data-kbd': kbdHint,
+    }, icon(name, { size }));
+    // The step buttons name their unit; the tooltip's second line gives the modifiers (CSS data-tip2).
+    const unitBack = h('span', { class: 'tb-step__unit' });
+    const unitFwd = h('span', { class: 'tb-step__unit' });
+    const stepBtn = (cls, key, ...kids) => h('button', {
+        class: `icon-btn tb-step ${cls}`, type: 'button', 'data-kbd': key, 'data-tip2': t('Shift: 1 day · Alt: 1 sidereal day'),
+    }, ...kids);
+    const btnBack = stepBtn('tb-back', ',', icon('step-back', { size: 20 }), unitBack);
+    const btnFwd = stepBtn('tb-fwd', '.', unitFwd, icon('step-fwd', { size: 20 }));
+    const btnPlay = iconBtn('tb-play icon-btn--primary', t('Pause'), 'pause', 20, 'Space');
+    const btnSlower = iconBtn('icon-btn--sm', t('Slower'), 'minus', 16, '[');
+    const rateOut = h('output', { class: 'tb-rate__value', 'aria-live': 'off' }, t('Real time'));
+    const btnFaster = iconBtn('icon-btn--sm', t('Faster'), 'plus', 16, ']');
+    const rateGroup = h('div', { class: 'tb-rate', role: 'group', 'aria-label': t('Speed') }, btnSlower, rateOut, btnFaster);
 
     const stampDay = h('span', { class: 'stamp__day' });
-    const stampSep = h('span', { class: 'stamp__sep', 'aria-hidden': 'true' }, '·');
+    // Before 15 Oct 1582 the date is Julian, as records give it; the tag says so (title: the Gregorian date).
+    const stampCal = h('span', { class: 'stamp__cal', hidden: true }, t('Julian'));
     const stampTime = h('span', { class: 'stamp__time' });
+    // The zone the clock shows: the long form, or the short one in a narrow bar and on the phone (CSS).
+    const zoneLong = h('span', { class: 'stamp__zl' });
+    const zoneShort = h('span', { class: 'stamp__zs' });
+    // Standing on Mars: the site's mission sol (or Mars Sol Date) and local mean solar time.
+    const stampMars = h('span', { class: 'tb-sol', hidden: true, title: t('Local mean solar time at the Martian site (Allison & McEwen 2000, as Mars24)') });
     const dateBtn = h('button', {
-        class: 'tb-date', type: 'button', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'data-tip': 'Go to a date and time',
-    }, h('span', { class: 'tb-date__icon' }, icon('calendar', { size: 18 })), h('span', { class: 'stamp' }, stampDay, stampSep, stampTime));
-    const badge = h('span', { class: 'badge badge--warn tb-accuracy', hidden: true, title: 'Planet positions are most accurate between 1800 and 2200' },
-        icon('warning', { size: 14 }), h('span', { class: 'tb-accuracy__text' }, 'Reduced accuracy'));
-    const tzChip = h('button', { class: 'chip tb-tz', type: 'button', 'data-tip': 'Change time zone' });
-    const lapseBtn = h('button', {
-        class: 'btn btn--ghost tb-lapse', type: 'button', 'aria-label': 'Timelapse', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'data-tip': 'Loop between two moments',
-    }, icon('timelapse', { size: 18 }), h('span', { class: 'tb-lapse__label' }, 'Timelapse'));
-    const livePill = h('span', { class: 'live-pill', role: 'status', 'aria-label': 'Live: showing the current time' },
-        h('span', { class: 'live-pill__dot', 'aria-hidden': 'true' }), 'LIVE');
-    const nowBtn = h('button', { class: 'btn btn--now', type: 'button', 'data-tip': 'Back to the current time', 'data-kbd': 'N' },
-        icon('live', { size: 18 }), h('span', { class: 'btn--now__long' }, 'Return to now'), h('span', { class: 'btn--now__short' }, 'Now'));
+        class: 'tb-date', type: 'button', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'aria-controls': 'pop-time',
+        'data-tip': t('Go to a date, step, loop or change the time zone'),
+    }, h('span', { class: 'tb-date__icon' }, icon('calendar', { size: 18 })),
+    h('span', { class: 'stamp' }, stampDay, stampCal, h('span', { class: 'stamp__sep', 'aria-hidden': 'true' }, '·'), stampTime,
+        h('span', { class: 'stamp__zone' }, zoneLong, zoneShort), icon('chevron-down', { size: 16, className: 'tb-date__chev' })), stampMars);
+    const badge = h('span', { class: 'badge badge--warn tb-accuracy', hidden: true, title: t('Planet positions are most accurate between 1800 and 2200') },
+        icon('warning', { size: 14 }), h('span', { class: 'tb-accuracy__text' }, t('Reduced accuracy')));
+    const livePill = h('span', { class: 'badge badge--live', role: 'status', 'aria-label': t('Live: showing the current time') },
+        h('span', { class: 'badge__pulse', 'aria-hidden': 'true' }), t('LIVE'));
+    const nowBtn = h('button', { class: 'btn btn--now', type: 'button', 'data-tip': t('Back to the current time'), 'data-kbd': 'N' },
+        icon('live', { size: 18 }), h('span', { class: 'btn--now__long' }, t('Return to now')), h('span', { class: 'btn--now__short' }, t('Now')));
     const liveWrap = h('div', { class: 'tb-live' }, livePill, nowBtn);
-
     const rowMain = h('div', { class: 'tb-row tb-main' });
-    const zoneL = h('div', { class: 'tb-zone tb-zone--left' });
-    const zoneC = h('div', { class: 'tb-zone tb-zone--center' });
-    const zoneR = h('div', { class: 'tb-zone tb-zone--right' });
-    const toolsEl = h('div', { class: 'tb-row tb-tools' });
 
     // ================================================================ scrubber
     const canvas = h('canvas', { class: 'tb-scrub__canvas', 'aria-hidden': 'true' });
     const thumb = h('span', { class: 'tb-scrub__thumb', 'aria-hidden': 'true' }, h('span', { class: 'tb-scrub__knob' }));
     const tip = h('span', { class: 'tb-scrub__tip', 'aria-hidden': 'true', hidden: true });
-    const scrubId = uid('scrub');
     const scrub = h('div', {
-        class: 'tb-scrub', id: scrubId, role: 'slider', tabindex: '0', 'aria-label': 'Time',
+        class: 'tb-scrub', role: 'slider', tabindex: '0', 'aria-label': t('Time'),
         'aria-valuemin': '0', 'aria-valuemax': '1', 'aria-valuenow': '0',
     }, canvas, thumb, tip);
-    root.append(rowMain, scrub, toolsEl);
+    root.append(rowMain, scrub);
 
-    // ================================================================ popovers
-    const popHost = ui.root || document.body;
-    const dateInput = h('input', {
-        class: 'input', type: 'datetime-local', step: '1', min: '1000-01-01T00:00', max: '3000-01-01T00:00',
-        'data-autofocus': '',
-    });
-    const dateZone = h('span', { class: 'pop__zone' });
-    const quick = h('div', { class: 'pop__quick', role: 'group', 'aria-label': 'Quick jumps' });
-    const goBtn = h('button', { class: 'btn btn--primary', type: 'submit' }, 'Go');
-    const dateForm = h('form', { class: 'pop__form', novalidate: true },
-        h('label', { class: 'field' }, h('span', { class: 'field__label' }, 'Date and time ', dateZone), dateInput),
+    // ================================================================ the Time popover (§4.5)
+    const dtInput = () => h('input', { class: 'input', type: 'datetime-local', step: '1', min: '1000-01-01T00:00', max: '3000-01-01T00:00' });
+    const field = (label, control, cls = 'field') => h('label', { class: cls }, h('span', { class: 'field__label' }, label), control);
+    const title = (text) => h('h3', { class: 'group-title' }, text);
+    const zoneSpan = () => h('span', { class: 'pop__zone' });
+
+    // Go to.
+    const dateInput = dtInput();
+    const zoneGo = zoneSpan();
+    // The native picker is Gregorian: a Julian-only day (29 Feb 1500) needs the text entry.
+    const julBtn = h('button', { class: 'btn btn--ghost btn--sm', type: 'button' }, t('Type a Julian date'));
+    const quick = h('div', { class: 'pop__quick', role: 'group', 'aria-label': t('Quick jumps') });
+    const accuracy = h('p', { class: 'note pt__warn', hidden: true }, icon('warning', { size: 14 }), t('Positions are less accurate before 1800 and after 2200.'));
+    const goForm = h('form', { class: 'pt__sec', novalidate: true }, title(t('Go to')),
+        h('div', { class: 'pt__row' }, field(tpl(t('Date and time ({zone})'), { zone: zoneGo }), dateInput, 'field pt__grow'),
+            h('button', { class: 'btn btn--primary', type: 'submit' }, t('Go'))),
         quick,
-        h('div', { class: 'pop__actions' }, goBtn));
-    const datePop = h('div', { class: 'popover pop-date', role: 'dialog', 'aria-label': 'Go to date and time', hidden: true },
-        h('div', { class: 'pop__title' }, icon('calendar', { size: 16 }), 'Go to date & time'), dateForm);
+        h('p', { class: 'note' }, tpl(t('Dates before 15 October 1582 are Julian. {button}'), { button: julBtn })),
+        accuracy);
 
-    const fromInput = h('input', { class: 'input', type: 'datetime-local', step: '1', min: '1000-01-01T00:00', max: '3000-01-01T00:00', 'data-autofocus': '' });
-    const toInput = h('input', { class: 'input', type: 'datetime-local', step: '1', min: '1000-01-01T00:00', max: '3000-01-01T00:00' });
+    // Stepping.
+    const unitSel = h('select', { class: 'select' }, STEP_UNITS.map((u) => h('option', { value: u.kind }, t(u.label))));
+    const runs = segmented({
+        label: t('Time runs'), options: [{ value: 'fwd', label: t('Forward') }, { value: 'back', label: t('Backward') }], value: 'fwd',
+        onChange: (v) => { if ((v === 'back') !== (clock.rate < 0)) clock.reverse(); syncControls(); },
+    });
+    // Phone only: the bar has no step buttons there, so arrange() moves them in here.
+    const stepRow = h('div', { class: 'pt__row pt__steps', hidden: true });
+    const stepping = h('div', { class: 'pt__sec' }, title(t('Stepping')),
+        field(t('Step buttons move by'), unitSel, 'pt__row'),
+        h('p', { class: 'note for-fine' }, t('Shift-click: 1 day. Alt-click: 1 sidereal day.')),
+        h('div', { class: 'pt__row' }, h('span', { class: 'field__label', 'aria-hidden': 'true' }, t('Time runs')), runs.el, h('kbd', { class: 'kbd' }, 'R')),
+        stepRow);
+
+    // Loop between two moments.
+    const fromInput = dtInput();
+    const toInput = dtInput();
     const durInput = h('input', { class: 'input input--num', type: 'number', min: '1', max: '600', step: '1', value: '10', inputmode: 'numeric' });
-    const modeName = uid('lapse-mode');
-    const modes = [['loop', 'Loop'], ['pingpong', 'Ping-pong'], ['once', 'Once']].map(([v, l], i) =>
-        h('label', { class: 'seg__opt' }, h('input', { type: 'radio', name: modeName, value: v, checked: i === 0 }), h('span', null, l)));
+    let playback = 'loop';
+    const playSeg = segmented({
+        label: t('Playback'), options: [{ value: 'loop', label: t('Loop') }, { value: 'pingpong', label: t('Back and forth') }, { value: 'once', label: t('Once') }],
+        value: playback, onChange: (v) => { playback = v; },
+    });
+    const zoneLoop = zoneSpan();
     const lapseErr = h('p', { class: 'pop__error', role: 'alert', hidden: true });
-    const stopBtn = h('button', { class: 'btn btn--ghost', type: 'button', hidden: true }, 'Stop');
-    const startBtn = h('button', { class: 'btn btn--primary', type: 'submit' }, icon('play', { size: 14 }), 'Start');
-    const lapseZone = h('span', { class: 'pop__zone' });
-    const lapseForm = h('form', { class: 'pop__form', novalidate: true },
-        h('p', { class: 'pop__hint' }, 'Loop the clock between two moments. Times in ', lapseZone, '.'),
-        h('div', { class: 'pop__grid' },
-            h('label', { class: 'field' }, h('span', { class: 'field__label' }, 'From'), fromInput),
-            h('label', { class: 'field' }, h('span', { class: 'field__label' }, 'To'), toInput)),
-        h('div', { class: 'pop__grid pop__grid--2' },
-            h('label', { class: 'field' }, h('span', { class: 'field__label' }, 'Duration (seconds)'), durInput),
-            h('div', { class: 'field' }, h('span', { class: 'field__label', id: `${modeName}-l` }, 'Playback'),
-                h('div', { class: 'seg seg--radio', role: 'radiogroup', 'aria-labelledby': `${modeName}-l` }, modes))),
+    const stopBtn = h('button', { class: 'btn btn--ghost', type: 'button', hidden: true }, t('Stop'));
+    const loopForm = h('form', { class: 'pt__body', novalidate: true },
+        h('p', { class: 'note' }, tpl(t('Times are in {zone}.'), { zone: zoneLoop })),
+        field(t('From'), fromInput), field(t('To'), toInput),
+        h('label', { class: 'field__label pt__row' }, tpl(t('One loop takes {seconds} s'), { seconds: durInput })),
+        playSeg.el,
         lapseErr,
-        h('div', { class: 'pop__actions' }, stopBtn, startBtn));
-    const lapsePop = h('div', { class: 'popover pop-lapse', role: 'dialog', 'aria-label': 'Timelapse', hidden: true },
-        h('div', { class: 'pop__title' }, icon('timelapse', { size: 16 }), 'Timelapse'), lapseForm);
-    popHost.append(datePop, lapsePop);
+        h('div', { class: 'pt__row pt__end' }, stopBtn, h('button', { class: 'btn btn--primary', type: 'submit' }, icon('play', { size: 14 }), t('Start'))));
+    const loopBox = h('details', { class: 'fold' }, h('summary', null, t('Loop between two moments')), loopForm);
+
+    // Show times in.
+    const tzSeg = segmented({
+        label: t('Show times in'), className: 'seg--fit', options: [{ value: 'observer', label: t('Your place') }, { value: 'device', label: t('This device') }, { value: 'utc', label: 'UTC' }],
+        value: 'observer',
+        onChange: (v) => { ui.act('setTzMode', v); ctx.bus.emit('announce', t('Times in {zone}.', { zone: zoneText })); },
+    });
+    const clock24 = switchRow({
+        label: t('24-hour clock'), checked: !store.get().display?.hour12,
+        onChange: (on24) => store.set({ display: { ...store.get().display, hour12: !on24 } }),
+    });
+    const legend = h('details', { class: 'fold' }, h('summary', null, t('What the time bar shows')),
+        h('ul', { class: 'pt__body pt__legend' }, [t('The colour is the Sun’s height: day, twilight, night.'), t('The top edge shows when the selected planet is up.'),
+            t('The bottom edge shows when the Moon is up.'), t('Gold bars are eclipses, and ticks are events.')].map((line) => h('li', null, line))));
+
+    const closeBtn = iconBtn('icon-btn--sm', t('Close'), 'close', 16);
+    const pop = h('div', { class: 'popover pop-time', id: 'pop-time', role: 'dialog', 'aria-labelledby': 'pop-time-title', hidden: true },
+        h('div', { class: 'pt__head' }, h('h2', { class: 'pt__title', id: 'pop-time-title' }, t('Time')), closeBtn),
+        goForm, stepping, loopBox,
+        h('div', { class: 'pt__sec' }, title(t('Show times in')), tzSeg.el, clock24.el),
+        legend);
+    (ui.root || document.body).append(pop);
 
     // ================================================================ arrangement per layout
     function arrange(layout) {
         if (layout === 'mobile') {
-            rowMain.replaceChildren(btnPlay, dateBtn, rateGroup, liveWrap);
-            toolsEl.replaceChildren(btnBack, unitSel, btnFwd, btnReverse, lapseBtn, tzChip, badge);
-            toolsEl.hidden = false;
+            rowMain.replaceChildren(btnPlay, dateBtn, badge, rateGroup, liveWrap);
+            stepRow.replaceChildren(btnBack, btnFwd);
         } else {
-            // Three zones: transport · date & zone · speed, timelapse and live.
-            zoneL.replaceChildren(btnBack, btnPlay, btnFwd, unitSel);
-            zoneC.replaceChildren(dateBtn, badge, tzChip);
-            zoneR.replaceChildren(rateGroup, btnReverse, lapseBtn, liveWrap);
-            rowMain.replaceChildren(zoneL, zoneC, zoneR);
-            toolsEl.replaceChildren();
-            toolsEl.hidden = true;
+            // Three zones: transport · date and zone · speed and live.
+            rowMain.replaceChildren(h('div', { class: 'tb-zone tb-zone--left' }, btnBack, btnPlay, btnFwd),
+                h('div', { class: 'tb-zone tb-zone--center' }, dateBtn, badge), h('div', { class: 'tb-zone tb-zone--right' }, rateGroup, liveWrap));
         }
+        stepRow.hidden = layout !== 'mobile';
         geomDirty = true;
+        syncControls(true); // the rate label is compact and the step buttons spelled out on the phone
         kick();
     }
 
@@ -264,50 +376,40 @@ export function mountTimebar(root, ctx) {
     }));
     offs.push(on(btnSlower, 'click', () => { clock.slower(); syncControls(); }));
     offs.push(on(btnFaster, 'click', () => { clock.faster(); syncControls(); }));
-    offs.push(on(btnReverse, 'click', () => { clock.reverse(); syncControls(); }));
     offs.push(on(nowBtn, 'click', () => { clock.goLive(); syncControls(); }));
-    offs.push(on(tzChip, 'click', () => {
-        const order = ['observer', 'device', 'utc'];
-        const cur = store.get().display?.tzMode || 'observer';
-        const next = order[(order.indexOf(cur) + 1) % order.length];
-        if (ui.act('setTzMode', next) === undefined && typeof ctx.actions?.setTzMode !== 'function') {
-            store.set({ display: { ...store.get().display, tzMode: next } });
-        }
-    }));
 
-    // -- date popover -------------------------------------------------------
-    let datePopCtl = null;
+    // -- the popover ----------------------------------------------------------
+    let popCtl = null;
+    /** The display calendar's date and time (Julian before 15 Oct 1582: ui.zoned). */
     function toInputValue(ms) {
         const z = ui.zoned(clamp(ms, MIN_MS, MAX_MS - 1000));
         return `${String(z.y).padStart(4, '0')}-${pad2(z.mo)}-${pad2(z.d)}T${pad2(z.h)}:${pad2(z.mi)}:${pad2(z.s)}`;
     }
+    /** A typed date: on or before 4 Oct 1582 it is Julian, from 15 Oct Gregorian (tz.parseCalendarInput). */
     function fromInputValue(v) {
-        const m = /^(\d{4,})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2}))?/.exec(v || '');
-        if (!m) return NaN;
-        return ui.toUtc({ y: +m[1], mo: +m[2], d: +m[3], h: +m[4], mi: +m[5], s: +(m[6] || 0) });
+        const p = parseCalendarInput(v || '');
+        return p ? ui.toUtc(p) : NaN;
     }
-    function zoneText() {
-        const st = store.get();
-        const mode = st.display?.tzMode || 'observer';
-        const off = ui.offsetText(clock.tMs);
-        if (mode === 'utc') return '(UTC)';
-        if (mode === 'device') return `(this device · ${off})`;
-        return `(${ui.placeShort(st.observer)} · ${off}${st.observer?.tzApprox ? ', approx.' : ''})`;
+    /**
+     * The native picker is Gregorian and refuses Julian-only days (29 Feb 1500), so an input showing
+     * a Julian date becomes a text field ('1066-04-24T20:00:00' or '24 Apr 1066 20:00').
+     */
+    function inputFor(input, ms) {
+        const jul = ui.zoned(clamp(ms, MIN_MS, MAX_MS - 1000)).cal === 'julian';
+        const type = jul ? 'text' : 'datetime-local';
+        if (input.type !== type) input.type = type;
+        input.placeholder = jul ? t('YYYY-MM-DD HH:MM (Julian)') : '';
+        input.value = toInputValue(ms);
     }
     function quickJumps() {
-        const t = clock.tMs;
-        const items = [];
-        items.push(['Now', null, () => clock.goLive()]);
         const tw = ui.almanac.night?.twilight;
-        if (tw && Number.isFinite(tw.sunsetMs)) items.push(['Sunset', tw.sunsetMs, null]);
-        const z = ui.zoned(t);
-        const midnight = ui.toUtc({ y: z.y, mo: z.mo, d: z.d + 1, h: 0, mi: 0, s: 0 });
-        items.push(['Midnight', midnight, null]);
-        if (tw && Number.isFinite(tw.sunriseMs)) items.push(['Sunrise', tw.sunriseMs, null]);
-        quick.replaceChildren(...items.map(([label, ms, fn]) => h('button', {
-            class: 'chip chip--quick', type: 'button',
-            onClick: () => { if (fn) fn(); else jumpTo(ms); closeDate(); },
-        }, h('span', null, label), ms != null ? h('span', { class: 'chip__meta' }, ui.fmtClock(ms)) : null)));
+        const z = ui.zoned(clock.tMs);
+        const items = [[t('Now'), null], [t('Sunset'), tw?.sunsetMs], [t('Midnight'), ui.toUtc({ y: z.y, mo: z.mo, d: z.d + 1, h: 0, mi: 0, s: 0, cal: z.cal })],
+            [t('Sunrise'), tw?.sunriseMs]].filter(([, ms]) => ms === null || Number.isFinite(ms));
+        quick.replaceChildren(...items.map(([label, ms]) => h('button', {
+            class: 'chip', type: 'button',
+            onClick: () => { if (ms === null) clock.goLive(); else jumpTo(ms); closeTime(); },
+        }, h('span', null, label), ms !== null ? h('span', { class: 'chip__meta' }, ui.fmtClock(ms)) : null)));
     }
     function jumpTo(ms) {
         if (!Number.isFinite(ms)) return;
@@ -316,134 +418,213 @@ export function mountTimebar(root, ctx) {
         clock.setTime(target, { animateMs: reduced() || dist < 60e3 ? 0 : clamp(500 + Math.log10(1 + dist / HOUR) * 450, 500, 1600) });
         kick();
     }
-    function openDate() {
-        if (datePopCtl) { closeDate(); return; }
-        closeLapse();
-        dateInput.value = toInputValue(clock.tMs);
-        dateInput.removeAttribute('aria-invalid');
-        setText(dateZone, zoneText());
-        quickJumps();
-        datePopCtl = openPopover(dateBtn, datePop, { placement: 'top', within: root, onClose: () => { datePopCtl = null; } });
+    /** What each section focuses when `ui.openTime(section)` opens it. */
+    const FIRST = { go: () => dateInput, step: () => unitSel, loop: () => fromInput, zone: () => tzSeg.el.querySelector('[tabindex="0"]') };
+    /** Opens the Time popover at a section ('go' | 'step' | 'loop' | 'zone') and focuses its first control. */
+    function openTime(section = 'go') {
+        if (!popCtl) {
+            inputFor(dateInput, clock.tMs);
+            julBtn.hidden = dateInput.type === 'text';
+            dateInput.removeAttribute('aria-invalid');
+            quickJumps();
+            const r = clock.range;
+            inputFor(fromInput, r ? r.fromMs : clock.tMs);
+            inputFor(toInput, r ? r.toMs : clock.tMs + DAY);
+            durInput.value = String(r ? Math.round(r.durationS) : 10);
+            playback = r?.loop || 'loop';
+            playSeg.set(playback);
+            lapseErr.hidden = true;
+            loopBox.open = !!r;
+            popCtl = openPopover(dateBtn, pop, { placement: 'top', within: root, focus: false, onClose: () => { popCtl = null; } });
+            syncPop();
+        }
+        if (section === 'loop') loopBox.open = true;
+        popCtl.reposition();
+        const el = (FIRST[section] || FIRST.go)();
+        el?.focus({ preventScroll: true });
+        el?.scrollIntoView({ block: 'nearest' });
     }
-    function closeDate() { datePopCtl?.close(); datePopCtl = null; }
-    offs.push(on(dateBtn, 'click', openDate));
-    offs.push(on(dateForm, 'submit', (e) => {
+    function closeTime() { popCtl?.close(); }
+    ui.openTime = openTime;
+    offs.push(on(dateBtn, 'click', () => (popCtl ? closeTime() : openTime())));
+    offs.push(on(closeBtn, 'click', closeTime));
+    for (const d of [loopBox, legend]) offs.push(on(d, 'toggle', () => popCtl?.reposition()));
+    offs.push(on(julBtn, 'click', () => {
+        const v = dateInput.value || toInputValue(clock.tMs);
+        dateInput.type = 'text';
+        dateInput.placeholder = t('YYYY-MM-DD HH:MM (Julian before 15 Oct 1582)');
+        dateInput.value = v;
+        dateInput.removeAttribute('aria-invalid');
+        julBtn.hidden = true;
+        dateInput.focus();
+    }));
+    offs.push(on(goForm, 'submit', (e) => {
         e.preventDefault();
         const ms = fromInputValue(dateInput.value);
         if (!Number.isFinite(ms)) { dateInput.setAttribute('aria-invalid', 'true'); dateInput.focus(); return; }
         jumpTo(ms);
-        closeDate();
+        closeTime();
     }));
-
-    // -- timelapse popover ----------------------------------------------------
-    let lapsePopCtl = null;
-    function openLapse() {
-        if (lapsePopCtl) { closeLapse(); return; }
-        closeDate();
-        const r = clock.range;
-        const t = clock.tMs;
-        fromInput.value = toInputValue(r ? r.fromMs : t);
-        toInput.value = toInputValue(r ? r.toMs : t + DAY);
-        durInput.value = String(r ? Math.round(r.durationS) : 10);
-        const mode = r?.loop || 'loop';
-        for (const m of modes) { const inp = m.querySelector('input'); inp.checked = inp.value === mode; }
-        stopBtn.hidden = !r;
-        lapseErr.hidden = true;
-        setText(lapseZone, zoneText().replace(/^\(|\)$/g, ''));
-        lapsePopCtl = openPopover(lapseBtn, lapsePop, { placement: 'top', within: root, onClose: () => { lapsePopCtl = null; } });
-    }
-    function closeLapse() { lapsePopCtl?.close(); lapsePopCtl = null; }
-    offs.push(on(lapseBtn, 'click', openLapse));
-    offs.push(on(stopBtn, 'click', () => { clock.setRange(null); closeLapse(); syncControls(); }));
-    offs.push(on(lapseForm, 'submit', (e) => {
+    offs.push(on(stopBtn, 'click', () => { clock.setRange(null); closeTime(); syncControls(); }));
+    offs.push(on(loopForm, 'submit', (e) => {
         e.preventDefault();
         let a = fromInputValue(fromInput.value), b = fromInputValue(toInput.value);
         const dur = clamp(Math.round(Number(durInput.value) || 10), 1, 600);
         if (!Number.isFinite(a) || !Number.isFinite(b)) {
-            lapseErr.textContent = 'Enter both a start and an end time.';
+            lapseErr.textContent = t('Enter both a start and an end time.');
             lapseErr.hidden = false;
             return;
         }
         if (b < a) [a, b] = [b, a];
         if (b - a < 60e3) b = a + HOUR;
         a = clamp(a, MIN_MS, MAX_MS); b = clamp(b, MIN_MS, MAX_MS);
-        const loop = modes.map((m) => m.querySelector('input')).find((i) => i.checked)?.value || 'loop';
-        clock.setRange({ fromMs: a, toMs: b, durationS: dur, loop });
+        clock.setRange({ fromMs: a, toMs: b, durationS: dur, loop: playback });
         if (!clock.playing) clock.play();
-        closeLapse();
+        closeTime();
         syncControls();
     }));
 
     // ================================================================ control state
     let lastStampAt = 0;
     let lastYear = NaN;
+    let zoneText = '';               // the zone's long form: accessible names, the popover, announcements
+    let fitZone = () => {};
+    const refit = () => setTimeout(() => fitZone());
     function syncControls(force = false) {
-        const playing = clock.playing;
-        const live = clock.live;
-        const rate = clock.rate;
-        const range = clock.range;
+        const { playing, live, rate, range } = clock;
+        const mobile = ui.layout === 'mobile';
         swapIcon(btnPlay, playing ? 'pause' : 'play', 20);
-        setAttr(btnPlay, 'aria-label', playing ? 'Pause' : 'Play');
-        btnPlay.dataset.tip = playing ? 'Pause' : 'Play';
-        const unitLong = unit.long;
-        setAttr(btnBack, 'aria-label', `Step back ${unitLong}`);
-        setAttr(btnFwd, 'aria-label', `Step forward ${unitLong}`);
-        btnBack.dataset.tip = `Back ${unitLong}`;
-        btnFwd.dataset.tip = `Forward ${unitLong}`;
-        setText(rateOut, range ? 'Timelapse' : ui.fmt('fmtRate', rate));
+        const play = playing ? t('Pause') : t('Play');
+        setAttr(btnPlay, 'aria-label', play);
+        btnPlay.dataset.tip = play;
+        const long = t(unit.long);
+        setAttr(btnBack, 'aria-label', t('Step back {unit}', { unit: long }));
+        setAttr(btnFwd, 'aria-label', t('Step forward {unit}', { unit: long }));
+        btnBack.dataset.tip = t('Back {unit}', { unit: long });
+        btnFwd.dataset.tip = t('Forward {unit}', { unit: long });
+        // In the bar the unit alone ('1 h'); in the phone's popover the whole phrase.
+        setText(unitBack, mobile ? btnBack.dataset.tip : t(unit.unit));
+        setText(unitFwd, mobile ? btnFwd.dataset.tip : t(unit.unit));
+        // The phone row is tight: real time reads '1×' there so the date keeps its year.
+        const rateText = range ? (range.loop === 'once' ? t('Playing') : t('Loop')) : ui.fmt('fmtRate', rate, { compact: mobile });
+        setText(rateOut, rateText);
+        setAttr(rateOut, 'aria-label', playing ? t('Speed: {rate}', { rate: rateText }) : t('Speed: {rate}, paused', { rate: rateText }));
         rateOut.classList.toggle('is-reverse', rate < 0 && !range);
+        rateOut.classList.toggle('is-paused', !playing);
         btnSlower.disabled = !!range || rate <= -RATE_MAX;
         btnFaster.disabled = !!range || rate >= RATE_MAX;
-        setAttr(btnReverse, 'aria-pressed', String(rate < 0));
-        btnReverse.classList.toggle('is-on', rate < 0);
+        // The ladder goes from 1× to −1×: the next Slower turns time around.
+        btnSlower.dataset.tip = rate > 0 && rate <= 1 ? t('Slower (then backward)') : t('Slower');
         livePill.hidden = !live;
         nowBtn.hidden = live;
-        root.classList.toggle('is-live', live);
-        root.classList.toggle('is-paused', !playing);
-        lapseBtn.classList.toggle('is-on', !!range);
-        setAttr(lapseBtn, 'aria-pressed', String(!!range));
+        stampTime.classList.toggle('is-h12', !!store.get().display?.hour12);
         syncStamp(force);
-        syncTz();
+        if (popCtl) syncPop();
+    }
+    /** The popover's state from the clock and the store (while it is open). */
+    function syncPop() {
+        const st = store.get();
+        if (unitSel.value !== unit.kind) unitSel.value = unit.kind;
+        runs.set(clock.rate < 0 ? 'back' : 'fwd');
+        stopBtn.hidden = !clock.range;
+        accuracy.hidden = badge.hidden;
+        tzSeg.set(st.display?.tzMode || 'observer');
+        setText(tzSeg.el.firstChild, ui.placeShort(st.observer) || t('Your place'));
+        clock24.set(!st.display?.hour12);
+    }
+    /** The zone's long and short forms (zoneTemplates) in the date button and the popover, when they change. */
+    function syncZone(tm, mode) {
+        const obs = store.get().observer;
+        const [long, short] = zoneTemplates(mode, !!obs?.tzApprox);
+        const offset = ui.offsetText(tm);
+        const place = ui.placeShort(obs) || t('Your place');
+        const text = tpl(long, { place, offset }).textContent;
+        if (text === zoneText) return;
+        zoneText = text;
+        setText(zoneShort, tpl(short, { offset }).textContent);
+        setText(zoneGo, text);
+        setText(zoneLoop, text);
+        // The place gives way first, cut here (CSS's ellipsis can leave a gap); under six letters, the short form.
+        fitZone = () => {
+            const pl = h('span', { class: 'stamp__place' }, place);
+            zoneLong.replaceChildren(tpl(long, { place: pl, offset }));
+            const w = pl.clientWidth;
+            if (!w || pl.scrollWidth <= w) return;
+            let n = Math.floor(place.length * w / pl.scrollWidth);
+            do pl.textContent = `${place.slice(0, n).trimEnd()}…`; while (pl.scrollWidth >= w && --n > 5);
+            if (n < 6) zoneLong.textContent = zoneShort.textContent;
+        };
+        fitZone();
     }
     function syncStamp(force) {
         const now = performance.now();
         if (!force && now - lastStampAt < 90) return;
         lastStampAt = now;
-        const t = clock.tMs;
-        setText(stampDay, ui.fmtDay(t));
-        setText(stampTime, ui.fmtClock(t, { seconds: true }));
-        setAttr(dateBtn, 'aria-label', `Date and time: ${ui.fmtSpoken(t)}. Change`);
-        const y = new Date(t).getUTCFullYear();
+        const tm = clock.tMs;
+        const z = ui.zoned(tm);
+        // The phone's date sits under the clock in ≈ 116 px: elsewhere than English, Intl's numeric form ('T5, 5/11/2026').
+        setText(stampDay, ui.layout === 'mobile' && locale() !== 'en'
+            ? ui.fmtDate(tm, { weekday: 'narrow', day: 'numeric', month: 'numeric', year: 'numeric' }) : ui.fmtDay(tm));
+        setText(stampTime, ui.fmtClock(tm, { seconds: true }));
+        const jul = z.cal === 'julian';
+        if (stampCal.hidden === jul) stampCal.hidden = !jul;
+        if (jul) {
+            const g = new Date(tm + z.offsetMin * 60e3);
+            const date = dateText({ y: g.getUTCFullYear(), mo: g.getUTCMonth() + 1, d: g.getUTCDate(), wd: g.getUTCDay() }, { day: 'numeric', month: 'short', year: 'numeric' });
+            const tipText = t('Julian calendar, as records of the time give it. Gregorian (proleptic): {date}', { date });
+            if (stampCal.title !== tipText) stampCal.title = tipText;
+        }
+        const st = store.get();
+        syncZone(tm, st.display?.tzMode || 'observer');
+        const stamp = ui.fmtSpoken(tm);
+        const host = st.host;
+        const mars = host?.id === 'mars';
+        if (stampMars.hidden === mars) stampMars.hidden = !mars;
+        let sol = '';
+        if (mars) {
+            const site = marsSiteNear(host.latDeg, host.lonDeg, 0.5);
+            sol = marsClockText(marsTimeTT(ttDaysApprox(tm), host.lonDeg, MT), site ? { ...site, lonDeg: host.lonDeg } : { lonDeg: host.lonDeg }).text;
+            setText(stampMars, sol);
+        }
+        const v = { stamp, zone: zoneText, sol };
+        setAttr(dateBtn, 'aria-label', mars ? t('Earth date and time: {stamp}, {zone}. On Mars: {sol}. Open the time panel', v)
+            : jul ? t('Date and time: {stamp} (Julian calendar), {zone}. Open the time panel', v)
+                : t('Date and time: {stamp}, {zone}. Open the time panel', v));
+        const y = new Date(tm).getUTCFullYear();
         if (y !== lastYear) {
             lastYear = y;
             badge.hidden = !(y < 1800 || y > 2200);
         }
     }
-    function syncTz() {
-        const st = store.get();
-        const mode = st.display?.tzMode || 'observer';
-        const off = ui.offsetText(clock.tMs);
-        let text, place = '', label;
-        if (mode === 'utc') { text = 'UTC'; label = 'Times in UTC. Switch to observer time'; }
-        else if (mode === 'device') { text = off; place = ' · This device'; label = `Times in this device's zone, ${off}. Switch to UTC`; }
-        else if (st.observer?.tzApprox) { text = `${off} (approx.)`; label = `Times at the observer, ${off}, approximate. Switch to this device's time`; }
-        else { const p = ui.placeShort(st.observer); text = off; place = ` · ${p}`; label = `Times in ${p}, ${off}. Switch to this device's time`; }
-        // The place part is its own span so the phone layout can drop it (the top bar already names the place).
-        if (tzChip.textContent !== text + place) tzChip.replaceChildren(text, place ? h('span', { class: 'tb-tz__place' }, place) : '');
-        setAttr(tzChip, 'aria-label', label);
-    }
 
     // ================================================================ scrubber engine
     const g2d = canvas.getContext('2d', { alpha: true });
+    // Three rows: the gradient (0), the Moon band (1) and the selected body's band (2).
     const lineCanvas = document.createElement('canvas');
-    lineCanvas.height = 1;
+    lineCanvas.height = 3;
     const lineCtx = lineCanvas.getContext('2d');
     let lineImg = null;
     let cssW = 0, cssH = 0, dpr = 1;
+    // Set by the ResizeObserver, window resizes and layout switches. Without a ResizeObserver
+    // the scrubber is measured on every draw, as a fallback.
     let geomDirty = true;
+    const observesSize = typeof ResizeObserver === 'function';
+    let scrubLeft = 0;                // viewport x of the scrubber, read with its first size and per gesture
     let geom = { tickY: 0, trackY: 10, trackH: 18, labelY: 34 };
-    const series = { fromMs: 0, toMs: 0, n: 0, values: null, key: '' };
-    let seriesCtl = null, seriesLast = 0, seriesFails = 0;
+    // Altitude series from the worker: the Sun's (the gradient), the Moon's and the selected
+    // planet's (the bands; ROADMAP sky-ribbon-scrubber), each over three windows around the view.
+    const newSeries = (id) => ({ id, fromMs: 0, toMs: 0, n: 0, values: null, key: '', ctl: null, last: 0, fails: 0 });
+    const series = newSeries('sun');
+    const moonSeries = newSeries('moon');
+    const bodySeries = newSeries('');
+    let seriesRev = 0;                // bumped whenever a series gets new values (gradient cache key)
+    let bodyRgb = MOON_RGB;
+    // Gradient cache: `lineImg` holds the gradient of a window that started at `grad.start`.
+    // While the window slides, whole columns are shifted and only the exposed ones computed.
+    const grad = { start: 0, span: 0, width: 0, wide: false, useSeries: false, rev: -1, obsKey: '' };
+    const gradCols = { from: 0, to: 0 };
+    let sheen = null, sheenY = -1, sheenH = -1;
+    const spanScratch = { from: 0, to: 0 };
     const labelCache = new Map();
     const tickX = new Float32Array(512);
     const tickEv = new Array(512);
@@ -454,21 +635,36 @@ export function mountTimebar(root, ctx) {
     let raf = 0;
     let hoverX = -1;
     let lastAria = 0;
-    let win = { start: 0, span: 1, range: false };
+    const win = { start: 0, span: 1, range: false };
 
+    let roW = 0, roH = 0;             // the scrubber's box as the ResizeObserver last reported it
+    /**
+     * Sizes the canvas when flagged, from the ResizeObserver's entry, so draw() never reads layout
+     * (only a first draw before the observer's entry, or a browser without one, reads the box).
+     */
     function resizeCanvas() {
-        const r = scrub.getBoundingClientRect();
-        const w = Math.max(40, Math.round(r.width));
-        const hgt = Math.max(24, Math.round(r.height));
+        if (!geomDirty && observesSize) return;
+        let bw = roW, bh = roH;
+        if (!(bw > 0 && bh > 0)) {
+            const r = scrub.getBoundingClientRect();
+            scrubLeft = r.left;
+            bw = r.width;
+            bh = r.height;
+        }
+        const w = Math.max(40, Math.round(bw));
+        const hgt = Math.max(24, Math.round(bh));
         const d = Math.min(2, window.devicePixelRatio || 1);
         if (w === cssW && hgt === cssH && d === dpr && !geomDirty) return;
-        cssW = w; cssH = hgt; dpr = d;
-        canvas.width = Math.round(w * d);
-        canvas.height = Math.round(hgt * d);
-        canvas.style.width = `${w}px`;
-        canvas.style.height = `${hgt}px`;
-        lineCanvas.width = canvas.width;
-        lineImg = lineCtx.createImageData(canvas.width, 1);
+        if (w !== cssW || hgt !== cssH || d !== dpr || !lineImg) {
+            cssW = w; cssH = hgt; dpr = d;
+            canvas.width = Math.round(w * d);
+            canvas.height = Math.round(hgt * d);
+            canvas.style.width = `${w}px`;
+            canvas.style.height = `${hgt}px`;
+            lineCanvas.width = canvas.width;
+            lineImg = lineCtx.createImageData(canvas.width, 3);
+            grad.width = 0;
+        }
         const compact = ui.layout === 'mobile';
         geom = compact
             ? { tickY: 1, trackY: 8, trackH: Math.max(12, hgt - 22), labelY: hgt - 3 }
@@ -476,98 +672,190 @@ export function mountTimebar(root, ctx) {
         geomDirty = false;
     }
 
+    /** Updates `win` in place (it is read every frame). */
     function computeWindow() {
         const range = clock.range;
         if (range && Number.isFinite(range.fromMs) && range.toMs > range.fromMs) {
-            win = { start: range.fromMs, span: range.toMs - range.fromMs, range: true };
+            win.start = range.fromMs; win.span = range.toMs - range.fromMs; win.range = true;
             return;
         }
         const W = halfWindowFor(clock.rate);
-        const t = clock.tMs;
-        const centre = drag ? drag.centre : t + offsetMs;
-        win = { start: centre - W, span: 2 * W, range: false };
+        const tm = clock.tMs;
+        const centre = drag ? drag.centre : tm + offsetMs;
+        win.start = centre - W; win.span = 2 * W; win.range = false;
+    }
+
+    /** The planet whose band the strip shows: the selection, unless it is the Sun or the Moon. */
+    function bandBody() {
+        const sel = store.get().selection;
+        return sel && sel !== 'sun' && sel !== 'moon' && sel in BODY_INDEX ? sel : '';
     }
 
     function ensureSeries() {
         if (win.span > 6.5 * DAY) return;
         const key = ui.observerKey();
         const s0 = win.start, s1 = win.start + win.span;
-        const margin = win.span * 0.25;
-        const ok = series.values && series.key === key && s0 >= series.fromMs + margin && s1 <= series.toMs - margin;
-        if (ok) return;
         const app = ui.almanac.sun;
         if (app?.values?.length > 1 && app.key === key && s0 >= app.fromMs && s1 <= app.toMs
             && !(series.values && series.key === key && s0 >= series.fromMs && s1 <= series.toMs)) {
             series.fromMs = app.fromMs; series.toMs = app.toMs; series.n = app.values.length; series.values = app.values; series.key = key;
+            seriesRev += 1;
         }
+        ensureOne(series, key);
+        if (store.get().host?.id === 'mars') return;   // the bands are the Earth observer's
+        ensureOne(moonSeries, key);
+        const id = bandBody();
+        if (id !== bodySeries.id) {
+            dropSeries(bodySeries);
+            bodySeries.id = id;
+            bodyRgb = id ? hexRgb(BODIES[BODY_INDEX[id]].color, MOON_RGB) : MOON_RGB;
+            seriesRev += 1;
+        }
+        if (id) ensureOne(bodySeries, key);
+    }
+
+    /** Requests a series for three windows around the view once it no longer covers it (backing off on failures). */
+    function ensureOne(sr, key) {
+        const s0 = win.start, s1 = win.start + win.span;
+        const margin = win.span * 0.25;
+        if (sr.values && sr.key === key && s0 >= sr.fromMs + margin && s1 <= sr.toMs - margin) return;
         const astro = ctx.services?.astro;
-        if (!astro?.call || seriesCtl) return;
-        if (performance.now() - seriesLast < Math.min(30000, 300 * 2 ** seriesFails)) return;
+        if (!astro?.call || sr.ctl) return;
+        if (performance.now() - sr.last < Math.min(30000, 300 * 2 ** sr.fails)) return;
         const c = win.start + win.span / 2;
         const fromMs = c - 1.5 * win.span, toMs = c + 1.5 * win.span, n = 288;
         const ac = new AbortController();
-        seriesCtl = ac;
-        seriesLast = performance.now();
+        const id = sr.id;
+        sr.ctl = ac;
+        sr.last = performance.now();
+        const observer = ui.astroObserver();
         let p;
-        try { p = astro.call('sunSeries', { observer: ui.astroObserver(), fromMs, toMs, n }, { signal: ac.signal }); }
-        catch { seriesCtl = null; seriesFails += 1; return; }
+        try {
+            p = id === 'sun' ? astro.call('sunSeries', { observer, fromMs, toMs, n }, { signal: ac.signal })
+                : astro.call('altSeries', { bodyId: id, observer, fromMs, toMs, n, refraction: 'normal' }, { signal: ac.signal });
+        } catch { sr.ctl = null; sr.fails += 1; return; }
         Promise.resolve(p).then((vals) => {
-            seriesCtl = null;
-            const values = vals?.values || vals;
-            if (!values || !(values.length > 1)) { seriesFails += 1; return; }
-            seriesFails = 0;
-            series.fromMs = fromMs; series.toMs = toMs; series.n = values.length; series.values = values; series.key = key;
+            if (sr.ctl !== ac) return;
+            sr.ctl = null;
+            // A Float32Array, or {values} (a typed array's own .values is its iterator method).
+            const values = ArrayBuffer.isView(vals) ? vals : vals?.values;
+            if (!ArrayBuffer.isView(values) || !(values.length > 1)) { sr.fails += 1; return; }
+            sr.fails = 0;
+            sr.fromMs = fromMs; sr.toMs = toMs; sr.n = values.length; sr.values = values; sr.key = key;
+            seriesRev += 1;
             kick();
-        }, () => { seriesCtl = null; if (!ac.signal.aborted) seriesFails += 1; });
+        }, () => { if (sr.ctl === ac) sr.ctl = null; if (!ac.signal.aborted) sr.fails += 1; });
     }
-    offs.push(store.subscribe((s) => s.observer, () => { seriesCtl?.abort(); seriesCtl = null; seriesLast = 0; series.values = null; kick(); }));
+    function dropSeries(sr) { sr.ctl?.abort(); sr.ctl = null; sr.last = 0; sr.fails = 0; sr.values = null; }
+    offs.push(store.subscribe((s) => s.observer, () => { dropSeries(series); dropSeries(moonSeries); dropSeries(bodySeries); seriesRev += 1; kick(); }));
+    offs.push(store.subscribe((s) => s.selection, kick));
 
-    function drawGradient(obs) {
+    /** A series' value at t (linear), or NaN outside it. */
+    function seriesAt(sr, key, tm) {
+        if (!sr.values || sr.key !== key || tm < sr.fromMs || tm > sr.toMs) return NaN;
+        const f = ((tm - sr.fromMs) / (sr.toMs - sr.fromMs)) * (sr.n - 1);
+        const i = Math.min(sr.n - 2, Math.max(0, Math.floor(f)));
+        const u = f - i;
+        return sr.values[i] * (1 - u) + sr.values[i + 1] * u;
+    }
+
+    /**
+     * Updates the cached gradient row for the window, computing only the columns a slide exposed,
+     * so steady fast time costs a few columns of trig per frame.
+     * @returns {boolean} whether the row changed
+     */
+    function updateGradient(obs) {
         const cw = canvas.width;
-        const data = lineImg.data;
-        const lat = obs.latDeg, lon = obs.lonDeg;
         const wide = win.span > 6.5 * DAY;
         const key = ui.observerKey(obs);
-        const useSeries = !wide && series.values && series.key === key;
-        const sv = series.values, sn = series.n, sf = series.fromMs, sspan = series.toMs - series.fromMs;
-        for (let x = 0; x < cw; x += 1) {
-            const t = win.start + ((x + 0.5) / cw) * win.span;
+        const useSeries = !!(!wide && series.values && series.key === key);
+        if (grad.width === cw && grad.span === win.span && grad.wide === wide && grad.useSeries === useSeries
+            && grad.rev === seriesRev && grad.obsKey === key) {
+            slideGradientRow(grad, lineImg.data, cw, win.span / cw, win.start, gradCols);
+            if (gradCols.to <= gradCols.from) return false;
+        } else {
+            grad.start = win.start; grad.span = win.span; grad.width = cw;
+            grad.wide = wide; grad.useSeries = useSeries; grad.rev = seriesRev; grad.obsKey = key;
+            gradCols.from = 0; gradCols.to = cw;
+        }
+        fillGradient(obs, gradCols.from, gradCols.to, wide, useSeries);
+        lineCtx.putImageData(lineImg, 0, 0);
+        return true;
+    }
+
+    /**
+     * Computes columns [from, to) of the cached rows: the sky's colour by the Sun's altitude, where
+     * the Moon is up (brighter the fuller) and the selected planet (its colour); no bands on wide
+     * windows or on Mars.
+     */
+    function fillGradient(obs, from, to, wide, useSeries) {
+        const cw = canvas.width;
+        const data = lineImg.data;
+        const row = cw * 4;
+        const lat = obs.latDeg, lon = obs.lonDeg;
+        const mars = obs.mars === true;
+        const key = ui.observerKey(obs);
+        const bands = !wide && !mars;
+        const body = bands && bodySeries.id ? bodyRgb : null;
+        for (let x = from; x < to; x += 1) {
+            const tm = grad.start + ((x + 0.5) / cw) * grad.span;
             let r, g, b;
             if (wide) {
-                const k = smooth(0.22, 0.78, dayFraction(t, lat));
+                const k = smooth(0.22, 0.78, mars ? marsDayFraction(tm, lat) : dayFraction(tm, lat));
                 r = C_NIGHT[0] + (C_DAY[0] - C_NIGHT[0]) * k;
                 g = C_NIGHT[1] + (C_DAY[1] - C_NIGHT[1]) * k;
                 b = C_NIGHT[2] + (C_DAY[2] - C_NIGHT[2]) * k;
             } else {
-                let alt;
-                if (useSeries && t >= sf && t <= sf + sspan) {
-                    const f = ((t - sf) / sspan) * (sn - 1);
-                    const i = Math.min(sn - 2, Math.max(0, Math.floor(f)));
-                    const u = f - i;
-                    alt = sv[i] * (1 - u) + sv[i + 1] * u;
-                } else {
-                    alt = sunAltApprox(t, lat, lon);
-                }
-                const li = Math.round((clamp(alt, LUT_MIN, LUT_MIN + (LUT_N - 1) * LUT_STEP) - LUT_MIN) / LUT_STEP) * 3;
+                let alt = useSeries ? seriesAt(series, key, tm) : NaN;
+                if (alt !== alt) alt = mars ? marsSunAlt(tm, lat, lon) : sunAltApprox(tm, lat, lon);
+                const li = skyLutIndex(alt);
                 r = LUT[li]; g = LUT[li + 1]; b = LUT[li + 2];
             }
             const o = x * 4;
             data[o] = r; data[o + 1] = g; data[o + 2] = b; data[o + 3] = 255;
+            const mo = o + row;
+            const moonUp = bands && seriesAt(moonSeries, key, tm) > MOON_UP_DEG;
+            data[mo] = MOON_RGB[0]; data[mo + 1] = MOON_RGB[1]; data[mo + 2] = MOON_RGB[2];
+            data[mo + 3] = moonUp ? 70 + 185 * moonLitApprox(tm) : 0;
+            const bo = mo + row;
+            const bodyUp = body !== null && seriesAt(bodySeries, key, tm) > 0;
+            data[bo] = bodyRgb[0]; data[bo + 1] = bodyRgb[1]; data[bo + 2] = bodyRgb[2];
+            data[bo + 3] = bodyUp ? 235 : 0;
         }
-        lineCtx.putImageData(lineImg, 0, 0);
+    }
+
+    let marsObsCache = null;
+    /** The Martian site as a gradient 'observer' (never matches an Earth series key). */
+    function marsObs(host) {
+        if (!marsObsCache || marsObsCache.latDeg !== host.latDeg || marsObsCache.lonDeg !== host.lonDeg) {
+            marsObsCache = { latDeg: host.latDeg, lonDeg: host.lonDeg, elevM: -999999, mars: true };
+        }
+        return marsObsCache;
+    }
+
+    function drawGradient(obs) {
+        updateGradient(obs);
+        const cw = canvas.width;
         const y = geom.trackY * dpr, th = geom.trackH * dpr;
         g2d.save();
         roundRect(g2d, 0, y, cw, th, Math.min(8, geom.trackH / 2) * dpr);
         g2d.clip();
         g2d.imageSmoothingEnabled = false;
         g2d.drawImage(lineCanvas, 0, 0, cw, 1, 0, y, cw, th);
-        // Soft top sheen for depth.
-        const sheen = g2d.createLinearGradient(0, y, 0, y + th);
-        sheen.addColorStop(0, 'rgba(255,255,255,0.10)');
-        sheen.addColorStop(0.45, 'rgba(255,255,255,0.0)');
-        sheen.addColorStop(1, 'rgba(0,0,0,0.18)');
+        // Soft top sheen for depth (rebuilt only when the track moves).
+        if (!sheen || sheenY !== y || sheenH !== th) {
+            sheen = g2d.createLinearGradient(0, y, 0, y + th);
+            sheen.addColorStop(0, 'rgba(255,255,255,0.10)');
+            sheen.addColorStop(0.45, 'rgba(255,255,255,0.0)');
+            sheen.addColorStop(1, 'rgba(0,0,0,0.18)');
+            sheenY = y; sheenH = th;
+        }
         g2d.fillStyle = sheen;
         g2d.fillRect(0, y, cw, th);
+        // The bands: the selected planet along the top edge, the Moon along the bottom.
+        const bh = Math.round(BAND_PX * dpr);
+        g2d.drawImage(lineCanvas, 0, 2, cw, 1, 0, y, cw, bh);
+        g2d.drawImage(lineCanvas, 0, 1, cw, 1, 0, y + th - bh, cw, bh);
         g2d.restore();
     }
 
@@ -584,7 +872,7 @@ export function mountTimebar(root, ctx) {
     function drawGrid() {
         const span = win.span, start = win.start, end = start + span;
         const cw = canvas.width;
-        const xOf = (t) => ((t - start) / span) * cw;
+        const xOf = (tm) => ((tm - start) / span) * cw;
         const offMs = ui.zoned(start + span / 2).offsetMin * 60e3;
         const y0 = geom.trackY * dpr, y1 = (geom.trackY + geom.trackH) * dpr;
         g2d.font = `${Math.round(10.5 * dpr)}px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
@@ -606,8 +894,8 @@ export function mountTimebar(root, ctx) {
             g2d.strokeStyle = 'rgba(255,255,255,0.16)';
             g2d.beginPath();
             const first = Math.ceil((start + offMs) / minorStep) * minorStep - offMs;
-            for (let t = first; t <= end; t += minorStep) {
-                const x = Math.round(xOf(t)) + 0.5;
+            for (let tm = first; tm <= end; tm += minorStep) {
+                const x = Math.round(xOf(tm)) + 0.5;
                 g2d.moveTo(x, y1 - 4 * dpr); g2d.lineTo(x, y1);
             }
             g2d.stroke();
@@ -615,19 +903,22 @@ export function mountTimebar(root, ctx) {
         const majors = [];
         if (kind === 'h' || kind === 'd') {
             const first = Math.ceil((start + offMs) / majorStep) * majorStep - offMs;
-            for (let t = first; t <= end; t += majorStep) majors.push(t);
+            for (let tm = first; tm <= end; tm += majorStep) majors.push(tm);
         } else if (kind === 'D') {
             const first = Math.ceil((start + offMs) / DAY) * DAY - offMs;
-            for (let t = first; t <= end; t += DAY) {
-                const dom = new Date(t + offMs).getUTCDate();
-                if (dom === 1 || (dom % 5 === 0 && dom < 30)) majors.push(t);
+            for (let tm = first; tm <= end; tm += DAY) {
+                const dom = calOf(tm + offMs).d;
+                if (dom === 1 || (dom % 5 === 0 && dom < 30)) majors.push(tm);
             }
         } else {
+            // Month starts in the display calendar (Julian before 15 Oct 1582).
             const z = ui.zoned(start);
             for (let k = 0; k < 30; k += 1) {
-                const t = Date.UTC(z.y, z.mo - 1 + k, 1) - offMs;
-                if (t > end) break;
-                if (t >= start) majors.push(t);
+                const yy = z.y + Math.floor((z.mo - 1 + k) / 12), mm = ((z.mo - 1 + k) % 12) + 1;
+                const g = fromCalendar(yy, mm, 1);
+                const tm = Date.UTC(g.y, g.mo - 1, g.d) - offMs;
+                if (tm > end) break;
+                if (tm >= start) majors.push(tm);
             }
         }
         g2d.strokeStyle = 'rgba(255,255,255,0.28)';
@@ -635,12 +926,12 @@ export function mountTimebar(root, ctx) {
         let lastLabelX = -1e9;
         // Keep labels clear of the playhead so its line never cuts through the text.
         const thumbX = xOf(drag ? drag.t : clock.tMs);
-        for (const t of majors) {
-            const x = Math.round(xOf(t)) + 0.5;
+        for (const tm of majors) {
+            const x = Math.round(xOf(tm)) + 0.5;
             g2d.moveTo(x, y0); g2d.lineTo(x, y1);
             if (x - lastLabelX < minGap || x < 18 * dpr || x > cw - 18 * dpr || Math.abs(x - thumbX) < 20 * dpr) continue;
             lastLabelX = x;
-            const lab = labelFor(`${kind}${t}`, () => majorLabel(kind, t, offMs));
+            const lab = labelFor(`${kind}${tm}`, () => majorLabel(kind, tm, offMs));
             const isDay = lab.charCodeAt(0) > 64; // weekday / month names start with a letter
             g2d.fillStyle = isDay ? 'rgba(232,237,246,0.92)' : 'rgba(154,166,184,0.95)';
             g2d.fillText(lab, x, ly);
@@ -648,17 +939,33 @@ export function mountTimebar(root, ctx) {
         g2d.stroke();
     }
 
-    function majorLabel(kind, t, offMs) {
-        const d = new Date(t + offMs);
+    /** The display-calendar date of a wall-clock instant (ms with the zone offset added). */
+    const calScratch = {};
+    function calOf(wallMs) {
+        const d = new Date(wallMs);
+        calScratch.y = d.getUTCFullYear(); calScratch.mo = d.getUTCMonth() + 1; calScratch.d = d.getUTCDate();
+        return toCalendar(calScratch, calScratch);
+    }
+
+    /**
+     * Compact tick labels: 'Tue 14', '14 Oct', 'Jan 2026', 'Feb', '3 PM'. Elsewhere than English the
+     * weekday is Intl's narrowest ('T3 14' in Vietnamese) and the month its in-date abbreviation
+     * ('thg 1 2026'), so the labels stay as short.
+     */
+    function majorLabel(kind, tm, offMs) {
+        const d = new Date(tm + offMs);
         const hh = d.getUTCHours();
-        if (kind === 'h') {
-            if (hh === 0) return `${ui.WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()}`;
-            if (store.get().display?.hour12) return `${hh % 12 || 12} ${hh < 12 ? 'AM' : 'PM'}`;
+        const c = calOf(tm + offMs);
+        const f = { y: c.y, mo: c.mo, d: c.d, wd: d.getUTCDay() };
+        if (kind === 'h' && hh !== 0) {
+            if (store.get().display?.hour12) return intl(Intl.DateTimeFormat, { hour: 'numeric', hourCycle: 'h12', timeZone: 'UTC' }).format(Date.UTC(2000, 0, 1, hh));
             return `${pad2(hh)}:00`;
         }
-        if (kind === 'd') return `${ui.WEEKDAYS[d.getUTCDay()]} ${d.getUTCDate()}`;
-        if (kind === 'D') return `${d.getUTCDate()} ${ui.MONTHS[d.getUTCMonth()]}`;
-        return d.getUTCMonth() === 0 ? `${ui.MONTHS[0]} ${d.getUTCFullYear()}` : ui.MONTHS[d.getUTCMonth()];
+        if (kind === 'h' || kind === 'd') return `${dateText(f, { weekday: locale() === 'en' ? 'short' : 'narrow' })} ${c.d}`;
+        if (kind === 'D') return dateText(f, { day: 'numeric', month: 'short' });
+        const mon = intl(Intl.DateTimeFormat, { day: 'numeric', month: 'short', timeZone: 'UTC' }).formatToParts(Date.UTC(2000, c.mo - 1, 15))
+            .find((p) => p.type === 'month').value;
+        return c.mo === 1 ? `${mon} ${c.y}` : mon;
     }
 
     function drawTicks() {
@@ -668,11 +975,23 @@ export function mountTimebar(root, ctx) {
         const start = win.start, end = start + win.span, cw = canvas.width;
         const y = (geom.tickY + 3.5) * dpr;
         const r = 2.6 * dpr;
-        // Binary search the first event in the window (list is sorted).
+        // Binary search the first event in the window (list is sorted), 8 h early for eclipse spans.
         let lo = 0, hi = list.length;
-        while (lo < hi) { const mid = (lo + hi) >> 1; if (list[mid].tMs < start) lo = mid + 1; else hi = mid; }
+        const from = start - 8 * HOUR;
+        while (lo < hi) { const mid = (lo + hi) >> 1; if (list[mid].tMs < from) lo = mid + 1; else hi = mid; }
+        // Eclipses: a gold bar from first to last contact, under their ticks.
+        g2d.fillStyle = 'rgba(255, 204, 102, 0.8)';
+        for (let i = lo; i < list.length; i += 1) {
+            const ev = list[i];
+            if (ev.tMs > end + 8 * HOUR) break;
+            if (!eclipseSpan(ev, spanScratch) || spanScratch.to < start || spanScratch.from > end) continue;
+            const x0 = Math.max(0, ((spanScratch.from - start) / win.span) * cw);
+            const x1 = Math.min(cw, ((spanScratch.to - start) / win.span) * cw);
+            g2d.fillRect(x0, y - dpr, Math.max(2 * dpr, x1 - x0), 2 * dpr);
+        }
         for (let i = lo; i < list.length && tickCount < tickX.length; i += 1) {
             const ev = list[i];
+            if (ev.tMs < start) continue;
             if (ev.tMs > end) break;
             const x = ((ev.tMs - start) / win.span) * cw;
             tickX[tickCount] = x / dpr;
@@ -713,15 +1032,17 @@ export function mountTimebar(root, ctx) {
         }
         computeWindow();
         ensureSeries();
-        const obs = store.get().observer;
+        const host = store.get().host;
+        // On Mars the strip shows the Martian site's day and night (elevM marks its key apart).
+        const obs = host?.id === 'mars' ? marsObs(host) : store.get().observer;
         g2d.clearRect(0, 0, canvas.width, canvas.height);
         if (obs && lineImg) drawGradient(obs);
         drawGrid();
         drawTicks();
         drawNowMarker();
         // Thumb.
-        const t = drag ? drag.t : clock.tMs;
-        const x = clamp(((t - win.start) / win.span) * cssW, 0, cssW);
+        const tm = drag ? drag.t : clock.tMs;
+        const x = clamp(((tm - win.start) / win.span) * cssW, 0, cssW);
         thumb.style.transform = `translate3d(${x.toFixed(1)}px, 0, 0)`;
         syncStamp(false);
         const now = performance.now();
@@ -733,11 +1054,11 @@ export function mountTimebar(root, ctx) {
     }
 
     function syncAria() {
-        const t = clock.tMs;
+        const tm = clock.tMs;
         setAttr(scrub, 'aria-valuemin', String(Math.round(win.start)));
         setAttr(scrub, 'aria-valuemax', String(Math.round(win.start + win.span)));
-        setAttr(scrub, 'aria-valuenow', String(Math.round(t)));
-        setAttr(scrub, 'aria-valuetext', `${ui.fmtDay(t)}, ${ui.fmtClock(t, { seconds: true })}`);
+        setAttr(scrub, 'aria-valuenow', String(Math.round(tm)));
+        setAttr(scrub, 'aria-valuetext', `${ui.fmtDay(tm)}, ${ui.fmtClock(tm, { seconds: true })}`);
     }
 
     function continuous() {
@@ -751,7 +1072,9 @@ export function mountTimebar(root, ctx) {
     function kick() { if (!raf) raf = requestAnimationFrame(frame); }
 
     // -- interaction ---------------------------------------------------------
-    const xFromEvent = (e) => clamp(e.clientX - scrub.getBoundingClientRect().left, 0, cssW);
+    // The scrubber's left edge is read once per gesture (pointerenter / pointerdown), not per move.
+    const readLeft = () => { scrubLeft = scrub.getBoundingClientRect().left; };
+    const xFromEvent = (e) => clamp(e.clientX - scrubLeft, 0, cssW);
     function tickAt(x, maxPx = 6) {
         let best = -1, bd = maxPx;
         for (let i = 0; i < tickCount; i += 1) {
@@ -762,10 +1085,10 @@ export function mountTimebar(root, ctx) {
     }
     function showTip(x) {
         const ev = tickAt(x);
-        const t = win.start + (x / Math.max(1, cssW)) * win.span;
+        const tm = win.start + (x / Math.max(1, cssW)) * win.span;
         let text;
         if (ev) text = `${ev.title} · ${ui.fmtWhen(ev.tMs, clock.tMs)}`;
-        else text = win.span > 8 * DAY ? ui.fmtDay(t) : `${ui.fmtDay(t, { year: false })} · ${ui.fmtClock(t)}`;
+        else text = win.span > 8 * DAY ? ui.fmtDay(tm) : `${ui.fmtDay(tm, { year: false })} · ${ui.fmtClock(tm)}`;
         setText(tip, text);
         tip.hidden = false;
         tip.classList.toggle('is-event', !!ev);
@@ -788,9 +1111,11 @@ export function mountTimebar(root, ctx) {
         }
         if (e.pointerType === 'mouse') { hoverX = xFromEvent(e); showTip(hoverX); }
     }));
+    offs.push(on(scrub, 'pointerenter', readLeft));
     offs.push(on(scrub, 'pointerleave', () => { hoverX = -1; if (!drag) tip.hidden = true; }));
     offs.push(on(scrub, 'pointerdown', (e) => {
         if (e.button > 0) return;
+        readLeft();
         computeWindow();
         try { scrub.setPointerCapture?.(e.pointerId); } catch { /* pointer already gone */ }
         drag = {
@@ -803,10 +1128,10 @@ export function mountTimebar(root, ctx) {
     }));
     function setFromX(x) {
         const p = clamp(x / Math.max(1, cssW), 0, 1);
-        const t = drag.start + p * drag.span;
-        drag.t = t;
+        const tm = drag.start + p * drag.span;
+        drag.t = tm;
         if (drag.range) clock.seek(p);
-        else clock.setTime(clamp(t, MIN_MS, MAX_MS));
+        else clock.setTime(clamp(tm, MIN_MS, MAX_MS));
     }
     const endDrag = (e) => {
         if (!drag || e.pointerId !== drag.id) return;
@@ -836,7 +1161,7 @@ export function mountTimebar(root, ctx) {
             if (d.paused) clock.play();
         }
         ui.scrubbing = false;
-        ctx.bus.emit('announce', `Time: ${ui.fmtSpoken(clock.tMs)}`);
+        ctx.bus.emit('announce', t('Time: {time}', { time: ui.fmtSpoken(clock.tMs) }));
         kick();
     };
     offs.push(on(scrub, 'pointerup', endDrag));
@@ -868,11 +1193,22 @@ export function mountTimebar(root, ctx) {
     if (clock.onChange) offs.push(clock.onChange(() => { syncControls(true); kick(); }));
     offs.push(store.subscribe((s) => s.display, () => { labelCache.clear(); syncControls(true); kick(); }));
     offs.push(store.subscribe((s) => s.observer, () => { labelCache.clear(); syncControls(true); kick(); }));
+    offs.push(store.subscribe((s) => s.host, () => { syncControls(true); kick(); refit(); }));
     offs.push(ui.on('events', kick));
     offs.push(ui.on('almanac', kick));
     offs.push(on(window, 'resize', () => { geomDirty = true; kick(); }));
-    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(() => { geomDirty = true; kick(); }) : null;
+    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver((entries) => {
+        const e = entries[entries.length - 1];
+        const box = e?.borderBoxSize?.[0];
+        roW = box ? box.inlineSize : e?.contentRect?.width ?? 0;
+        roH = box ? box.blockSize : e?.contentRect?.height ?? 0;
+        geomDirty = true;
+        kick();
+    }) : null;
     ro?.observe(scrub);
+    // The zone's room: LIVE or Now, the layout, the window.
+    const zro = ro && new ResizeObserver(refit);
+    zro?.observe(dateBtn);
     // Live 1× does not animate the clock: refresh the seconds on the second boundary.
     let secTimer = 0;
     const secondTick = () => {
@@ -886,16 +1222,17 @@ export function mountTimebar(root, ctx) {
     kick();
 
     return {
-        toolsEl,
         update() { if (!raf) { syncControls(); kick(); } },
         destroy() {
             offs.forEach((off) => off());
             ro?.disconnect();
+            zro?.disconnect();
             clearTimeout(secTimer);
             if (raf) cancelAnimationFrame(raf);
-            seriesCtl?.abort();
-            closeDate(); closeLapse();
-            datePop.remove(); lapsePop.remove();
+            dropSeries(series); dropSeries(moonSeries); dropSeries(bodySeries);
+            closeTime();
+            pop.remove();
+            if (ui.openTime === openTime) delete ui.openTime;
             root.textContent = '';
         },
     };

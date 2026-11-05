@@ -1,27 +1,31 @@
 /**
- * Top bar: the small wordmark, the location chip ("Hanoi, Vietnam · 21.03° N 105.85° E",
- * pin icon) and the search button. Both the chip and the button open the
- * location palette.
+ * Top bar: the small wordmark and the location chip ("Hanoi, Vietnam · 21.03° N 105.85° E", pin
+ * icon), which is the search: it opens the palette for places and the sky (⌕, and `/` on fine
+ * pointers). On Mars, Back to Earth beside it.
  *
  * @module ui/topbar
  */
 
 import { APP_NAME } from '../version.js';
-import { h, s, on, setText } from './dom.js';
+import { h, s, on, setText, uid } from './dom.js';
 import { icon } from './icons.js';
+import { marsSiteNear } from '../astro/mars-clock.js';
+import { t } from '../core/i18n.js';
 
 /**
  * The brand mark: a small Earth with a beam toward a planet.
  * @returns {SVGElement}
  */
 export function brandMark(size = 22) {
+    // A page-unique gradient id: the mark is drawn twice (top bar, About), and a hidden copy's id would not paint.
+    const id = uid('pc-brand');
     return s('svg', { viewBox: '0 0 24 24', width: size, height: size, 'aria-hidden': 'true', class: 'brand__mark' },
         s('defs', null,
-            s('radialGradient', { id: 'pc-brand-earth', cx: '36%', cy: '34%', r: '72%' },
+            s('radialGradient', { id, cx: '36%', cy: '34%', r: '72%' },
                 s('stop', { offset: '0', 'stop-color': '#a8dcff' }),
                 s('stop', { offset: '0.55', 'stop-color': '#3a7fc4' }),
                 s('stop', { offset: '1', 'stop-color': '#0f2a4d' }))),
-        s('circle', { cx: 9.6, cy: 14.4, r: 7.2, fill: 'url(#pc-brand-earth)' }),
+        s('circle', { cx: 9.6, cy: 14.4, r: 7.2, fill: `url(#${id})` }),
         s('path', { d: 'M3 15.2c2.6 1.4 6.8 1.7 10.4.2', stroke: 'rgba(255,255,255,.35)', 'stroke-width': 0.9, fill: 'none', 'stroke-linecap': 'round' }),
         s('path', { d: 'M9.6 14.4L19.6 4.4', stroke: '#ffd36b', 'stroke-width': 1.7, 'stroke-linecap': 'round' }),
         s('circle', { cx: 19.9, cy: 4.1, r: 2, fill: '#ff6a3d' }),
@@ -44,18 +48,33 @@ export function mountTopbar(root, ctx) {
     const chip = h('button', {
         class: 'loc-chip glass', type: 'button', 'aria-haspopup': 'dialog',
     }, h('span', { class: 'loc-chip__icon' }, icon('pin', { size: 18 })), chipName,
-    h('span', { class: 'loc-chip__sep', 'aria-hidden': 'true' }, '·'), chipCoords);
-    const search = h('button', {
-        class: 'icon-btn icon-btn--glass glass', type: 'button', 'aria-label': 'Search places', 'aria-haspopup': 'dialog',
-        'data-tip': 'Search places', 'data-kbd': '/', 'data-tip-side': 'bottom',
-    }, icon('search', { size: 19 }));
+    h('span', { class: 'loc-chip__sep', 'aria-hidden': 'true' }, '·'), chipCoords,
+    h('span', { class: 'loc-chip__find', 'aria-hidden': 'true' }, icon('search', { size: 17 }), h('kbd', { class: 'kbd kbd--ghost for-fine' }, '/')));
 
-    root.append(brand, h('div', { class: 'topbar__loc' }, chip, search));
+    // Standing on Mars: the chip names the Martian site, and a button goes home.
+    const home = h('button', {
+        class: 'btn btn--soft glass topbar__home', type: 'button', hidden: true, 'data-tip': t('Back to the Earth'), 'data-tip-side': 'bottom',
+    }, icon('globe', { size: 16 }), h('span', null, t('Back to Earth')));
+    root.append(brand, h('div', { class: 'topbar__loc' }, chip, home));
+    offs.push(on(home, 'click', () => ui.act('leaveMars')));
 
     offs.push(on(chip, 'click', () => ui.openPalette()));
-    offs.push(on(search, 'click', () => ui.openPalette()));
 
     const render = () => {
+        const host = store.get().host;
+        const mars = host?.id === 'mars';
+        home.hidden = !mars;
+        if (mars) {
+            const site = marsSiteNear(host.latDeg, host.lonDeg, 0.5);
+            const name = host.name || site?.name;
+            const label = t('{site}, Mars', { site: name ? t(name) : t('Mars') });
+            const coords = ui.latLonText(host.latDeg, host.lonDeg, 2);
+            setText(chipName, label);
+            setText(chipCoords, coords);
+            chip.setAttribute('aria-label', t('Standing on Mars: {place}, {coords}. Choose a place on Mars', { place: label, coords }));
+            chip.title = t('{place} · {coords} (planetocentric, east longitude)', { place: label, coords });
+            return;
+        }
         const o = store.get().observer;
         if (!o) return;
         let label = ui.placeLabel(o);
@@ -63,10 +82,11 @@ export function mountTopbar(root, ctx) {
         const coords = ui.latLonText(o.latDeg, o.lonDeg, 2);
         setText(chipName, label);
         setText(chipCoords, coords);
-        chip.setAttribute('aria-label', `Location: ${label}, ${coords}. Change location`);
+        chip.setAttribute('aria-label', t('Location: {place}, {coords}. Search places and the sky', { place: label, coords }));
         chip.title = `${label} · ${coords}`;
     };
     offs.push(store.subscribe((st) => st.observer, render, { immediate: true }));
+    offs.push(store.subscribe((st) => st.host, render));
     // Offline cities load after mount; a nameless observer can then say "near …".
     const retry = setInterval(() => {
         const c = ctx.services?.cities;

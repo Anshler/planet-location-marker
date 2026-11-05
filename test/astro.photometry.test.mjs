@@ -3,6 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { AE } from '../js/astro/ae.js';
 import * as P from '../js/astro/photometry.js';
+import { createSnapshot, computeSnapshot } from '../js/astro/snapshot.js';
 
 const close = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg ?? ''} expected ${b} ± ${tol}, got ${a}`);
 
@@ -52,6 +53,58 @@ test('refractionDeg(0) ≈ 0.48° and the formula is identical to astronomy-engi
     assert.ok(P.refractionDeg(45) < 0.02);
 });
 
+test('refractionFromApparentDeg (Bennett) inverts refractionDeg to 0.1′ from −0.6° up (0.5′ at −0.9°)', () => {
+    for (let h = -0.9; h <= 30; h += 0.05) {
+        const app = h + P.refractionDeg(h);
+        close(app - P.refractionFromApparentDeg(app), h, (h < -0.6 ? 0.5 : 0.1) / 60, `h = ${h.toFixed(2)}`);
+    }
+    close(P.refractionFromApparentDeg(0), 0.574, 0.003, 'about 34.4′ at the apparent horizon');
+    assert.equal(P.refractionFromApparentDeg(NaN), 0);
+    assert.equal(P.refractionFromApparentDeg(-5), P.refractionFromApparentDeg(-1), 'clamped at −1°');
+});
+
+/** Unit vector at (alt, az) in a frame with up = +Y, north = −Z, east = +X (degrees). */
+function altAzDir(altDeg, azDeg) {
+    const h = (altDeg * Math.PI) / 180, A = (azDeg * Math.PI) / 180;
+    return [Math.sin(A) * Math.cos(h), Math.sin(h), -Math.cos(A) * Math.cos(h)];
+}
+const UP = [0, 1, 0];
+
+test('liftByRefraction: altitude + k·refractionDeg(altitude), azimuth kept, k = 0 and the zenith untouched', () => {
+    const out = new Float64Array(3);
+    for (const alt of [-5, -1.2, -0.8, 0, 0.3, 2, 10, 45, 89.9]) {
+        for (const k of [0, 0.5, 1]) {
+            const d = altAzDir(alt, 247);
+            P.liftByRefraction(d, UP, k, out);
+            close(Math.hypot(out[0], out[1], out[2]), 1, 1e-12, 'unit');
+            const altOut = (Math.asin(out[1]) * 180) / Math.PI;
+            close(altOut, Math.min(90, alt + k * P.refractionDeg(alt)), 1e-9, `alt ${alt} k ${k}`);
+            const az = (Math.atan2(out[0], -out[2]) * 180) / Math.PI;
+            close((az + 360) % 360, 247, 1e-9, 'azimuth');
+        }
+    }
+    const z = P.liftByRefraction([0, 1, 0], UP, 1, out);
+    assert.deepEqual([...z], [0, 1, 0]);
+    // In place.
+    const d = Float64Array.from(altAzDir(0, 90));
+    assert.equal(P.liftByRefraction(d, UP, 1, d), d);
+    close((Math.asin(d[1]) * 180) / Math.PI, P.refractionDeg(0), 1e-12);
+});
+
+test('liftByRefraction: at the almanac sunset the drawn upper limb sits on the horizon (Paris 2026-11-03)', () => {
+    const obs = new AE.Observer(48.8566, 2.3522, 0);
+    const t = AE.SearchRiseSet(AE.Body.Sun, obs, -1, AE.MakeTime(new Date('2026-11-03T12:00:00Z')), 1);
+    const snap = createSnapshot();
+    computeSnapshot(t.date.getTime(), { latDeg: 48.8566, lonDeg: 2.3522, elevM: 0 }, snap, { detail: 'frame' });
+    const sun = snap.bodies[0], o = snap.observer;
+    assert.ok(sun.altGeomDeg < -0.7, `geometric centre ${sun.altGeomDeg}° (drawn under the ground before)`);
+    const lifted = P.liftByRefraction(sun.dirS, o.upS, 1, new Float64Array(3));
+    const s = lifted[0] * o.upS[0] + lifted[1] * o.upS[1] + lifted[2] * o.upS[2];
+    const upperLimb = (Math.asin(s) * 180) / Math.PI + sun.angDiamArcsec / 7200;
+    close(upperLimb, 0, 0.1, 'upper limb');
+    assert.equal(sun.above, true, 'and the panel says up');
+});
+
 test('airmass (Kasten–Young): 1 at the zenith, ~2 at 30°, ~38 at the horizon, monotonic, never infinite', () => {
     close(P.airmass(90), 1, 1e-3);
     close(P.airmass(30), 1.994, 0.01);
@@ -74,8 +127,8 @@ test('twilightClass boundaries', () => {
 });
 
 test('exposureFor limits: orbit view is 1; deep night is full; daylight hides stars and the Milky Way; blends linearly', () => {
-    assert.deepEqual(P.exposureFor(30, 0), { stars: 1, planets: 1, milkyWay: 1 });
-    assert.deepEqual(P.exposureFor(-30, 1), { stars: 1, planets: 1, milkyWay: 1 });
+    assert.deepEqual(P.exposureFor(30, 0), { stars: 1, planets: 1, milkyWay: 1, vision: 0 });
+    assert.deepEqual(P.exposureFor(-30, 1), { stars: 1, planets: 1, milkyWay: 1, vision: 1 });
     const day = P.exposureFor(30, 1);
     assert.equal(day.stars, 0);
     assert.equal(day.milkyWay, 0);
@@ -98,7 +151,78 @@ test('exposureFor limits: orbit view is 1; deep night is full; daylight hides st
     // Reuses an output object (per-frame callers) and tolerates bad input.
     const out = { stars: 0, planets: 0, milkyWay: 0 };
     assert.equal(P.exposureFor(-5, 1, out), out);
-    assert.deepEqual(P.exposureFor(NaN, NaN), { stars: 1, planets: 1, milkyWay: 1 });
+    assert.deepEqual(P.exposureFor(NaN, NaN), { stars: 1, planets: 1, milkyWay: 1, vision: 0 });
+});
+
+test('starLimitMag mirrors STAR_VERT (lim = mix(−1, uMagLimit, √e)); starExposureForLimit inverts it', () => {
+    close(P.starLimitMag(1, 6.5), 6.5, 1e-12);
+    close(P.starLimitMag(0, 6.5), -1, 1e-12);
+    // The old totality exposure 0.8 put the limit at 5.7 on high (the Beehive cluster in daylight).
+    close(P.starLimitMag(0.8, 6.5), 5.708, 1e-3);
+    for (const lim of [5, 6, 6.5]) {
+        for (const m of [-0.5, 0, 1.3, 2, 4.4]) close(P.starLimitMag(P.starExposureForLimit(m, lim), lim), m, 1e-12);
+        assert.equal(P.starExposureForLimit(-1, lim), 0);
+        assert.equal(P.starExposureForLimit(-3, lim), 0);
+        assert.equal(P.starExposureForLimit(lim + 1, lim), 1);
+    }
+    assert.equal(P.starLimitMag(NaN, 6), -1);
+});
+
+test('eclipseStarLimitMag: −∞ without an eclipse, about magnitude 2 in totality, brightening only in the last decades of sunlight', () => {
+    for (const o of [0, -1, NaN, undefined]) assert.equal(P.eclipseStarLimitMag(o), -Infinity);
+    assert.equal(P.eclipseStarLimitMag(1), P.TOTALITY_STAR_LIMIT_MAG);
+    assert.ok(P.TOTALITY_STAR_LIMIT_MAG >= 1.5 && P.TOTALITY_STAR_LIMIT_MAG <= 2.5);
+    // Remaining light (1 − o)^1.4 → limit: 1e-3 → no stars, 1e-4 → Sirius class, 1e-5 → first magnitude.
+    const at = (light) => P.eclipseStarLimitMag(1 - Math.pow(light, 1 / 1.4));
+    assert.ok(at(1e-3) < 0, `1e-3: ${at(1e-3)}`);
+    assert.ok(at(1e-4) > 0 && at(1e-4) < 1, `1e-4: ${at(1e-4)}`);
+    assert.ok(at(1e-5) > 1.4 && at(1e-5) < 2, `1e-5: ${at(1e-5)}`);
+    let prev = -Infinity;
+    for (let o = 0.9; o <= 1; o += 0.0005) {
+        const m = P.eclipseStarLimitMag(o);
+        assert.ok(m >= prev - 1e-12, `monotonic at ${o}`);
+        prev = m;
+    }
+});
+
+test('exposureFor: totality shows planets and stars to about magnitude 2 on every tier, never the old 4.4–5.7', () => {
+    for (const lim of [5, 6, 6.5]) {
+        const e = P.exposureFor(40, 1, undefined, 1, lim);
+        const m = P.starLimitMag(e.stars, lim);
+        close(m, P.TOTALITY_STAR_LIMIT_MAG, 1e-9, `tier limit ${lim}`);
+        assert.ok(m <= 2.5);
+        close(e.planets, 0.15, 1e-12, 'planets keep their daylight exposure');
+        assert.equal(e.milkyWay, 0, 'no Milky Way by day, totality or not');
+    }
+    // At night the eclipse term never lowers the dark-sky exposure; orbit view stays 1.
+    assert.deepEqual(P.exposureFor(-30, 1, undefined, 1, 6), { stars: 1, planets: 1, milkyWay: 1, vision: 1 });
+    assert.deepEqual(P.exposureFor(40, 0, undefined, 1, 6), { stars: 1, planets: 1, milkyWay: 1, vision: 0 });
+    // A partial eclipse at 90 % adds nothing; the defaults keep the old three-argument behaviour.
+    assert.equal(P.exposureFor(40, 1, undefined, 0.9, 6).stars, 0);
+    assert.deepEqual(P.exposureFor(40, 1), P.exposureFor(40, 1, undefined, 0, 6));
+    const half = P.exposureFor(40, 0.5, undefined, 1, 6);
+    close(half.stars, 0.5 + 0.5 * P.starExposureForLimit(P.TOTALITY_STAR_LIMIT_MAG, 6), 1e-12, 'blends with the view');
+});
+
+test('Luxor 2027-08-02: star limit ≤ 2.5 at 10:05Z; the stars come out only in the last ~30 s before second contact', () => {
+    const o = { latDeg: 25.7, lonDeg: 32.6, elevM: 0 };
+    const snap = createSnapshot();
+    const limitAt = (tMs, tier) => {
+        computeSnapshot(tMs, o, snap);
+        const e = P.exposureFor(snap.observer.sunAltDeg, 1, undefined, snap.eclipse.obscurationAtObserver, tier);
+        return { e: e.stars, lim: P.starLimitMag(e.stars, tier) };
+    };
+    for (const tier of [5, 6, 6.5]) {
+        const { lim } = limitAt(Date.parse('2027-08-02T10:05:00Z'), tier);
+        assert.ok(lim <= 2.5 && lim >= 1.5, `tier ${tier}: limit ${lim} in totality`);
+    }
+    const ls = AE.SearchLocalSolarEclipse(AE.MakeTime(new Date('2027-07-01')), new AE.Observer(o.latDeg, o.lonDeg, 0));
+    const c2 = ls.total_begin.time.date.getTime();
+    // The old ramp started at 97 % obscuration, 2.8 min before C2.
+    assert.equal(limitAt(c2 - 170e3, 6.5).e, 0, 'C2 − 170 s: no stars');
+    assert.ok(limitAt(c2 - 60e3, 6.5).e < 0.01, 'C2 − 60 s: below the shader\'s visibility ramp');
+    assert.ok(limitAt(c2 - 15e3, 6.5).lim < 1.2, 'C2 − 15 s: only the brightest few');
+    close(limitAt(c2 + 1e3, 6.5).lim, P.TOTALITY_STAR_LIMIT_MAG, 1e-9, 'second contact');
 });
 
 test('smoothstep matches GLSL', () => {
@@ -106,4 +230,32 @@ test('smoothstep matches GLSL', () => {
     assert.equal(P.smoothstep(0, 1, 2), 1);
     assert.equal(P.smoothstep(0, 1, 0.5), 0.5);
     assert.equal(P.smoothstep(1, 0, 0.25), P.smoothstep(0, 1, 0.75));
+});
+
+test('starLimitMag / starVisibility mirror STAR_VERT: lim = mix(−1, magLimit, √e); vis = smoothFall(lim+0.35, lim−0.45, mag)·smoothstep(0, 0.04, e)', () => {
+    assert.equal(P.starLimitMag(1, 6), 6);
+    assert.equal(P.starLimitMag(0, 6), -1);
+    close(P.starLimitMag(0.25, 6), 2.5, 1e-12);
+    assert.equal(P.starVisibility(5.55, 1, 6), 1, 'mag ≤ lim − 0.45 is fully drawn');
+    assert.equal(P.starVisibility(6.35, 1, 6), 0, 'mag ≥ lim + 0.35 is gone');
+    close(P.starVisibility(5.95, 1, 6), 0.5, 1e-12, 'midway');
+    assert.equal(P.starVisibility(-1.46, 0, 6), 0, 'no star at all at zero exposure, even Sirius');
+    assert.ok(P.starVisibility(-1.46, 0.1, 6) > 0.99, 'Sirius early in twilight');
+    assert.equal(P.starVisibility(2.43, 0.1, 6), 0, 'mag 2.4 still invisible at e = 0.1 (lim ≈ 1.2)');
+    let prev = -1;
+    for (let e = 0; e <= 1.0001; e += 0.05) {
+        const v = P.starVisibility(1.5, e, 6);
+        assert.ok(v >= prev - 1e-12, `non-decreasing in e at ${e}`);
+        prev = v;
+    }
+});
+
+test('skyBrightness: 0 from orbit and at night, 1 by day in sky view, dark again in totality', () => {
+    assert.equal(P.skyBrightness(40, 0, 0), 0);
+    assert.equal(P.skyBrightness(40, 0, 1), 1);
+    assert.equal(P.skyBrightness(-10, 0, 1), 0);
+    close(P.skyBrightness(2, 0, 1), 0.5, 1e-12);
+    assert.equal(P.skyBrightness(60, 1, 1), 0);
+    assert.ok(P.skyBrightness(60, 0.8, 1) > 0.99, 'a partial eclipse keeps a bright sky');
+    assert.equal(P.skyBrightness(NaN, NaN, NaN), 0);
 });

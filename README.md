@@ -39,38 +39,111 @@ browser, and nothing needs the network.
 - **The Moon at true scale and distance.** Its phase and libration are right by construction,
   and the Earth's shadow falls on it during a lunar eclipse.
 - **Eclipses happen on their own.** The Moon's shadow crosses the Earth at the right place and
-  time. Jump to an eclipse from the Events panel and fly over the shadow.
+  time. Jump to an eclipse from the Events panel and fly over the shadow. While one is visible
+  from where you are, the Eclipse companion counts down to each contact (Begins, Totality, Peak,
+  Totality ends, Ends) and jumps to just before totality.
 - **Sky view.** Press <kbd>V</kbd> to drop down to the ground. You stand under a daylight sky
   driven by the real Sun, the stars fade in with twilight, and there are cardinal points and an
   alt-az grid.
 - **A time machine.**
   - Live mode, or any speed from −1 year/s to +1 year/s.
-  - Steps of a minute, an hour, a day, a sidereal day, a lunar month or a year.
-  - A scrubber shaded by day and night, a time-lapse loop between two dates, and any year from
-    1000 to 3000.
-- **Sky Now and body details.**
-  - For every body: altitude and azimuth with a compass arrow, rise, transit and set, magnitude,
-    phase, distance, elongation and constellation.
-  - RA and Dec, both J2000 and of date.
-  - "Tonight" verdicts, and a light-time sentence such as "The light you see from Saturn left
-    1 h 21 min ago".
+  - Step buttons that show their step (`1 h`): a minute, an hour, a day, a sidereal day, a lunar
+    month or a year.
+  - A scrubber in the sky's own colours (golden hour, violet twilight, indigo and night), with a
+    thin band for when the Moon is up, one for the selected planet and gold bars over eclipses;
+    a loop between two dates, and any year from 1000 to 3000.
+  - The date button shows the time zone ("Greenwich, UTC+0", "This device, UTC+7" or "UTC") and
+    opens the **Time** panel: go to a date (with quick jumps to sunset, midnight and sunrise),
+    the step size, which way time runs, a loop between two moments, the time zone and the
+    24-hour clock, and what the time bar's colours and marks mean.
+- **Five panels: Up now, Details, Events, Explore and Display.** On a phone they sit in a tab bar
+  at the bottom that is always there, under a sheet you drag up; tapping a world in the view
+  raises the sheet to its details.
+- **Up now.** A short summary first: day, twilight or night, when it is fully dark, sunset and
+  sunrise, the Moon, and the light pollution in plain words ("City sky: stars to magnitude 4.1
+  (Bortle 8)"), with an ⓘ that explains each term and a Change link to the sky conditions. Then
+  every body, above the horizon first: where it stands with a compass arrow, its rise or set,
+  magnitude, a countdown to the next rise and a 24-hour altitude sparkline. Then one **Charts**
+  card with two charts:
+  - **Sky dome:** the whole sky in one round chart (horizon, compass points, bright stars and
+    constellation figures, the ecliptic, the Moon at its phase and every planet where it stands),
+    looking up or mirrored like a map, with a tap to select. In Sky view it also shows the
+    camera's field of view.
+  - **Tonight:** dusk to dawn, when each world is up and how high, its best moment, and a drag to
+    move through the night.
+- **Details for the selected body.** Its name and tonight's verdict ("Excellent tonight, best
+  around 00:34, 54° high in the south"), then at most four buttons: **Look at it**, **Telescope**,
+  **Follow** (Sky view) and **⋯** (turn the globe toward it, view the Earth from it, Earthrise,
+  compare from a second place). Then where it is and how to find it with your hands at arm's
+  length, a light-time sentence such as "The light you see from Saturn left 1 h 21 min ago", the
+  facts (altitude and azimuth, rise, transit and set, distance, magnitude, phase, angular size),
+  More positions (the angle from the Sun, sky coordinates J2000 and of date, the overhead point),
+  What these numbers mean, the Path and "Where it's up on Earth" switches, the eyepiece view and
+  the year ahead.
 - **Events for the next 12 months:**
   - Moon phases;
   - oppositions and conjunctions;
   - greatest elongations;
   - lunar and solar eclipses, including whether one is visible from where you are;
   - equinoxes and solstices.
-- **Put yourself anywhere, offline.**
-  - Search about 1,600 cities, with no network needed.
+  - Each event's icon shows the event itself: the Moon's real phase, both planets of a pairing,
+    the actual overlap of an eclipse.
+  - Add to calendar: any event, or every eclipse of the next 12 months, as an .ics file made
+    offline, with a reminder 30 minutes before and a link back to that sky.
+  - The next 8 weeks first, then the rest of the year; each row jumps to its event.
+- **Explore.** Guided tours, the sky you were born under, Moments in history and Famous comets
+  (each a link to that sky), a second place to compare with, and standing on Mars.
+- **Display.** Every layer, grouped for the view you are in (the other view's layers in a group of
+  their own), Reset layers, quality, the sky's light pollution and aurora, night vision and About
+  this app. Each group folds, and its heading says how it stands ("Stars · 6 of 6 on", "Quality ·
+  Auto (running Low)"), so the whole tab fits on one screen; it remembers which groups you left
+  open.
+- **Put yourself anywhere, offline, and find anything in the sky.**
+  - The place at the top is the search (<kbd>/</kbd>): about 1,600 cities, with no network needed.
+    Each result shows its local time and its sky at that moment ('06:14 · sunrise in 12 min',
+    'night, Moon up').
+  - The same search finds the sky: planets, named stars, deep-sky objects such as M31, comets,
+    guest stars, spacecraft and satellites ("Jupiter", "Sirius", "ISS", "Halley"), each with where
+    it is up now. Choosing one selects it and opens Details.
   - Click the globe (with Undo), type coordinates in decimal or DMS, or use your location.
   - Online place search is an optional extra.
+- **One toolbar, the same in every view.** `Globe | Sky | Map`, then **Tools** (on the globe:
+  where to look from, Turn with the Earth, Reset the view; in Sky view: Follow, Telescope, the
+  angle ruler, pointing the phone and long exposures), **Share** (link, postcard, time-lapse video)
+  and **⋯** (shortcuts and mouse, interface tips, night vision, hide the interface, fullscreen,
+  install, About). Every mode you enter (a viewpoint, the map, the telescope, following, the ruler,
+  an exposure, a loop) shows a chip at the top of the view with its own way out, and
+  <kbd>Esc</kbd> leaves the newest one first.
 - **Deep links.** Every view is a shareable URL: place, time, speed, selection, layers and camera.
+- **Works offline after the first visit.** The deployed site installs as a whole: every module and
+  the star, city and event data are cached in the background on the first visit, so it opens with
+  no network the next time. A new version downloads only what changed, waits, and says "A new
+  version is ready · Reload" instead of mixing old and new files.
 - **Fast everywhere.**
-  - Three quality tiers, with an automatic governor that steps down when frames get slow.
+  - Three automatic quality tiers, with a governor that steps down when frames get slow, plus a
+    manual Max (Display → Quality) with 8K Earth maps and every effect at full detail, for fast GPUs.
   - The scene renders only when something changes.
-  - A text mode with full sky tables on devices without WebGL 2.
-- **Accessible.** Full keyboard control, screen-reader announcements, and support for
-  `prefers-reduced-motion`.
+  - A text mode with full sky tables and the Sky dome on devices without WebGL 2.
+  - If the graphics keep resetting (a phone short of GPU memory), it steps down a quality tier for
+    the session, and after a third reset within a minute it falls back to text mode, with Retry.
+- **Report a problem.** Display → About this app → Copy diagnostics copies one JSON report (version, graphics, quality
+  decisions, recent errors; never your location) to paste into a new issue, which the button next
+  to it opens prefilled.
+- **Accessible.** Full keyboard control, screen-reader announcements, focus rings that show
+  over a bright sky, and the system's display settings: `prefers-reduced-motion`,
+  `prefers-reduced-transparency` (solid panels), `prefers-contrast: more` (brighter text, edged
+  panels and chips) and `forced-colors` (Windows High Contrast).
+- **Night vision for real observing.** Display → Comfort → Night vision, <kbd>Shift</kbd>+<kbd>N</kbd> or
+  the ⋯ menu turns the whole screen dim red, so your eyes stay dark-adapted, and keeps the
+  screen awake (also in Sky view on a phone). It is a setting of the device, never part of a
+  shared link.
+- **Made for the device in your hand.** On a touch screen the tips talk in taps and drags, Help
+  opens on the gestures (⋯ → Gestures and help), and a first visit ends with three short
+  interface tips (⋯ → Interface tips replays them). It installs as an app: ⋯ → Install the
+  app or Display → About this app, or Share → Add to Home Screen on an iPhone, with shortcuts to Sky view and Events.
+- **In English or Vietnamese.** The interface follows the browser's language (Vietnamese for
+  `vi…`, else English); Display → Language · Ngôn ngữ changes it, and `#lang=vi` or `#lang=en`
+  in a link sets it for that visit. Numbers, dates and coordinates follow the language too.
 
 ## Keyboard shortcuts
 
@@ -78,22 +151,31 @@ browser, and nothing needs the network.
 |---|---|
 | <kbd>Space</kbd> | Play / pause |
 | <kbd>[</kbd> / <kbd>]</kbd> | Slower / faster |
-| <kbd>R</kbd> | Reverse time |
+| <kbd>R</kbd> | Reverse time (also Time → Time runs) |
 | <kbd>,</kbd> / <kbd>.</kbd> | Step −/+ 1 hour |
-| <kbd>Shift</kbd>+<kbd>,</kbd> / <kbd>.</kbd> | Step −/+ 1 day |
-| <kbd>Alt</kbd>+<kbd>,</kbd> / <kbd>.</kbd> | Step −/+ 1 sidereal day |
+| <kbd>Shift</kbd>+<kbd>,</kbd> / <kbd>.</kbd> | Step −/+ 1 day (or Shift with a step button) |
+| <kbd>Alt</kbd>+<kbd>,</kbd> / <kbd>.</kbd> | Step −/+ 1 sidereal day (or Alt with a step button) |
 | <kbd>N</kbd> | Now (Live) |
 | <kbd>1</kbd>–<kbd>9</kbd> | Select the Sun, Moon, Mercury … Neptune |
-| <kbd>0</kbd> or <kbd>Esc</kbd> | Deselect / close a dialog |
-| <kbd>V</kbd> | Globe ↔ Sky view |
-| <kbd>L</kbd> | Lock the view to the Earth |
-| <kbd>B</kbd> <kbd>C</kbd> <kbd>Shift</kbd>+<kbd>C</kbd> <kbd>M</kbd> <kbd>E</kbd> <kbd>G</kbd> <kbd>O</kbd> <kbd>T</kbd> | Beams, constellation lines, constellation names, Milky Way, ecliptic, equatorial grid, visibility footprint, path of the selected body |
-| <kbd>/</kbd> or <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>K</kbd> | Search places |
+| <kbd>0</kbd> | Deselect |
+| <kbd>Esc</kbd> | Close a menu or dialog, then leave the newest mode shown at the top of the view, then clear the selection |
+| <kbd>V</kbd> · <kbd>M</kbd> | Globe ↔ Sky view · world map ↔ globe |
+| <kbd>L</kbd> | Turn with the Earth, or hold the view still |
+| <kbd>K</kbd> · <kbd>A</kbd> | Sky view: follow the selection, then the stars, then look freely · the angle ruler |
+| <kbd>B</kbd> <kbd>C</kbd> <kbd>Shift</kbd>+<kbd>C</kbd> <kbd>Shift</kbd>+<kbd>M</kbd> <kbd>E</kbd> <kbd>G</kbd> <kbd>O</kbd> <kbd>T</kbd> | Beams, constellation lines, constellation names, Milky Way, ecliptic, equatorial grid, visibility footprint, path of the selected body |
+| <kbd>/</kbd> or <kbd>Ctrl</kbd>/<kbd>⌘</kbd>+<kbd>K</kbd> | Search places and the sky |
 | <kbd>S</kbd> | Share a link to this view |
 | <kbd>F</kbd> | Fullscreen |
 | <kbd>H</kbd> | Hide the interface |
+| <kbd>Shift</kbd>+<kbd>N</kbd> | Night vision (dim red screen, kept awake) |
 | <kbd>?</kbd> | Help |
-| Arrows · <kbd>+</kbd> / <kbd>−</kbd> · <kbd>Home</kbd> | Rotate or look around · zoom · reset the camera |
+| Arrows · <kbd>+</kbd> / <kbd>−</kbd> · <kbd>Home</kbd> | Rotate or look around · zoom · reset the view (also in Tools) |
+
+With a mouse: click a world, its label or a row to select it, click the Earth to stand there
+(Undo in the message), double-click to fly closer, drag to turn the globe or look around, and
+scroll to zoom from a telescope's field out to the whole solar system. On a touch screen: drag
+to turn the globe or look around, pinch to zoom, tap a world to meet it, tap the Earth to stand
+there, double-tap to fly closer, and drag the time bar to travel in time.
 
 ## Running locally
 
@@ -113,13 +195,33 @@ Maintenance scripts:
 - `npm run vendor` re-fetches the pinned third-party files and verifies their SHA-256.
 - `npm run data` rebuilds `data/sky.json`, `data/milkyway.png` and `data/cities.json` from
   `data/raw/`.
+- `npm run preload` regenerates the boot module preload lists in `index.html` after a module is
+  added or its static imports change (`npm test` says when they are stale).
+- `node scripts/stage-site.mjs _site` stages the site as the deploy does: it writes
+  `sw-manifest.json` and stamps the service worker's content-hashed version into `_site/sw.js`.
+  `node scripts/serve.mjs --root=_site --subpath=/planet-location-marker/` serves that copy, and
+  `node scripts/smoke.mjs --root=_site --subpath=/planet-location-marker/ --offline-reload` checks
+  that it reloads offline.
+- `node scripts/smoke.mjs --offline --perf=high` runs the performance gates: shader programs and
+  draw calls within the tier's budget, no frame drawn while paused, no layout read inside a frame
+  during a time-lapse (counts, not timings).
+- `node scripts/golden.mjs` compares the 3D view of eight fixed scenes with the goldens in
+  `test/golden/`. The goldens are made in CI with its pinned Chrome: run the CI workflow by hand
+  with **Render goldens** ticked and commit its `goldens` artifact to `test/golden/`. With another
+  Chrome, as on most development machines, the check skips with a notice.
 
 Useful URL options (in the hash):
 
 - `#intro=0` skips the first-visit intro.
 - `#debug=1` shows the performance overlay.
-- `#q=low` forces a quality tier.
+- `#q=low` forces a quality tier (`low`, `medium`, `high` or `max`).
+- `#lang=vi` (or `en`) shows the interface in that language for this visit.
 - `#t=2027-02-06T16:00:00Z&p=0` freezes time at a moment.
+- `#tab=events` opens a panel tab (`sky`, `details`, `events`, `explore` or `display`; the old
+  `layers`, `settings` and `about` open Display at their part).
+- `#sw=1` registers the service worker on `localhost` too (it registers by itself only on https
+  hosts); `#sw=0` unregisters it and deletes its caches. Without a staged manifest, the worker
+  fetches everything from the network first, so edits show up on reload.
 
 ## Accuracy
 
@@ -155,9 +257,12 @@ The site is plain static files.
 
 - **GitHub Pages, recommended.** In the repository, open **Settings → Pages → Build and deployment
   → Source: GitHub Actions**. Every push to `main` then runs CI, which covers the tests, the size
-  budgets and the headless smoke tests. If CI passes, `.github/workflows/pages.yml` stages the site
-  files and deploys them.
+  budgets, the headless smoke tests, the performance gates and, once goldens are committed to
+  `test/golden/` (see Running locally), the golden renders. If CI passes, `.github/workflows/pages.yml` stages the site
+  files, stamps the service worker's version and deploys them.
 - **Branch deploy.** "Deploy from a branch: `main` / root" also works. `.nojekyll` is included.
+  The service worker then has no manifest: it still works offline, but fetches everything from
+  the network first instead of installing each version as a whole.
 - **Any static host** works too. All URLs are relative, so a sub-path is fine.
 
 ## Credits and licences
@@ -170,7 +275,9 @@ Planet Location Marker is MIT-licensed (see [LICENSE](LICENSE)). It bundles:
 | Astronomy | [Astronomy Engine](https://github.com/cosinekitty/astronomy) 2.1.19 by Don Cross | MIT |
 | Stars, constellations, Milky Way | ESA Hipparcos, via [d3-celestial](https://github.com/ofrohn/d3-celestial) by Olaf Frohn | BSD-3-Clause |
 | Cities | [GeoNames](https://www.geonames.org/) | CC BY 4.0 |
-| Earth textures | [Solar System Scope](https://www.solarsystemscope.com/textures/) and NASA Visible Earth, via the three.js examples | CC BY 4.0 / public domain |
+| Earth textures (and the 2k maps and 512 px previews made from them) | [Solar System Scope](https://www.solarsystemscope.com/textures/), via the three.js examples | CC BY 4.0 |
+| Max quality: 8K Earth day, night and cloud maps, 4K Moon (made from their 8K map) | [Solar System Scope](https://www.solarsystemscope.com/textures/) | CC BY 4.0 |
+| Moon texture | NASA imagery, via the three.js examples | public domain |
 
 Online place search, which is optional, uses [Open-Meteo](https://open-meteo.com/),
 [Photon](https://photon.komoot.io/) and [Nominatim](https://nominatim.openstreetmap.org/), all

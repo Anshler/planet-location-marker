@@ -1,7 +1,8 @@
 // Degraded-mode surfaces (SPEC §E.8 failure matrix).
 //
 //   showFallback(reason)   the "3D view isn't available" banner for text mode (no WebGL2, no import
-//                          maps, or a renderer that died). The UI keeps running without a canvas.
+//                          maps, a renderer that died, or a GPU context lost again and again). The
+//                          UI keeps running without a canvas.
 //   showContextLost()      a non-blocking overlay while the GPU context is being restored.
 //   hideContextLost()
 //   showFatal(err)         hands an unrecoverable boot error to the inline loader in index.html.
@@ -11,30 +12,39 @@
 // that cannot even resolve the 'three' import-map entry.
 
 import { APP_NAME } from '../version.js';
+import { t, N_ } from '../core/i18n.js';
 
 const STYLE_ID = 'pc-fallback-style';
 const BANNER_ID = 'pc-fallback';
 const LOST_ID = 'pc-context-lost';
 /** After this long without a 'restored' event the overlay offers a reload. */
 const LOST_RELOAD_AFTER_MS = 8000;
+/** Once the context is back, how long the maps may take to come back before Reload is offered. */
+const RESTORING_RELOAD_AFTER_MS = 30000;
 
-/** @typedef {'no-webgl2'|'no-importmap'|'context-failed'} FallbackReason */
+/** @typedef {'no-webgl2'|'no-importmap'|'context-failed'|'context-unstable'} FallbackReason */
 
 const COPY = {
     'no-webgl2': {
-        title: "3D view isn't available on this device — the sky tables below still work.",
-        detail: 'Your browser or graphics driver does not provide WebGL 2, which the globe needs.',
+        title: N_("3D view isn't available on this device — the sky tables below still work."),
+        detail: N_('Your browser or graphics driver does not provide WebGL 2, which the globe needs.'),
         reload: false,
     },
     'no-importmap': {
-        title: "3D view isn't available on this device — the sky tables below still work.",
-        detail: 'This browser is too old to load the 3D engine. Updating it will bring the globe back.',
+        title: N_("3D view isn't available on this device — the sky tables below still work."),
+        detail: N_('This browser is too old to load the 3D engine. Updating it will bring the globe back.'),
         reload: false,
     },
     'context-failed': {
-        title: 'The 3D view stopped working — the sky tables below still work.',
-        detail: 'The graphics context could not be created or kept alive. Reloading the page may restore it.',
+        title: N_('The 3D view stopped working — the sky tables below still work.'),
+        detail: N_('The graphics context could not be created or kept alive. Reloading the page may restore it.'),
         reload: true,
+    },
+    // A third context loss within a minute (core/context-loss.js): Retry comes back at Low detail.
+    'context-unstable': {
+        title: N_('The 3D view was turned off because the graphics kept resetting — the sky tables below still work.'),
+        detail: N_('This device ran short of graphics memory several times in a row. Retry starts the 3D view again at Low detail.'),
+        retry: true,
     },
 };
 
@@ -101,9 +111,10 @@ function el(tag, attrs = {}, text = '') {
  * prominent), the canvas and label layer are hidden, and the loader is dismissed by main.js.
  *
  * @param {FallbackReason} reason
+ * @param {{onRetry?:()=>void}} [opts] the Retry button's action ('context-unstable')
  * @returns {HTMLElement|null} the banner element
  */
-export function showFallback(reason) {
+export function showFallback(reason, opts = {}) {
     if (typeof document === 'undefined' || !document.body) return null;
     const copy = COPY[reason] ?? COPY['no-webgl2'];
     ensureStyle();
@@ -124,15 +135,15 @@ export function showFallback(reason) {
     banner.insertAdjacentHTML('afterbegin', WARN_ICON);
 
     const body = el('div', { class: 'pc-fb__body' });
-    body.append(el('p', { class: 'pc-fb__title' }, copy.title), el('p', { class: 'pc-fb__detail' }, copy.detail));
-    if (copy.reload) {
+    body.append(el('p', { class: 'pc-fb__title' }, t(copy.title)), el('p', { class: 'pc-fb__detail' }, t(copy.detail)));
+    if (copy.reload || copy.retry) {
         const actions = el('div', { class: 'pc-fb__actions' });
-        const reload = el('button', { type: 'button' }, 'Reload');
-        reload.addEventListener('click', () => location.reload());
-        actions.append(reload);
+        const btn = el('button', { type: 'button' }, copy.retry ? t('Retry') : t('Reload'));
+        btn.addEventListener('click', () => (copy.retry && opts.onRetry ? opts.onRetry() : location.reload()));
+        actions.append(btn);
         body.append(actions);
     }
-    const close = el('button', { type: 'button', class: 'pc-fb__close', 'aria-label': 'Dismiss this message' }, '×');
+    const close = el('button', { type: 'button', class: 'pc-fb__close', 'aria-label': t('Dismiss this message') }, '×');
     close.addEventListener('click', () => banner.remove());
     banner.append(body, close);
     return banner;
@@ -152,20 +163,40 @@ export function showContextLost() {
     if (!box) {
         box = el('div', { id: LOST_ID, class: 'pc-cl', role: 'status', 'aria-live': 'polite' });
         const inner = el('div', { class: 'pc-cl__box' });
-        inner.append(el('div', { class: 'pc-cl__spin', 'aria-hidden': 'true' }), el('p', { class: 'pc-cl__msg' }, 'Graphics were reset — restoring…'));
+        inner.append(el('div', { class: 'pc-cl__spin', 'aria-hidden': 'true' }), el('p', { class: 'pc-cl__msg' }, t('Graphics were reset — restoring…')));
         box.append(inner);
         document.body.appendChild(box);
     }
+    armReload(box, t('The graphics context has not come back yet.'), LOST_RELOAD_AFTER_MS);
+}
+
+/** After `ms`, says `text` and offers Reload (once per overlay). */
+function armReload(box, text, ms) {
     clearTimeout(lostTimer);
     lostTimer = setTimeout(() => {
         const inner = box.querySelector('.pc-cl__box');
         if (!inner || inner.querySelector('button')) return;
         const msg = inner.querySelector('.pc-cl__msg');
-        if (msg) msg.textContent = 'The graphics context has not come back yet.';
-        const reload = el('button', { type: 'button' }, 'Reload');
+        if (msg) msg.textContent = text;
+        const reload = el('button', { type: 'button' }, t('Reload'));
         reload.addEventListener('click', () => location.reload());
         inner.append(reload);
-    }, LOST_RELOAD_AFTER_MS);
+    }, ms);
+}
+
+/**
+ * The context is back ('webglcontextrestored') and the maps are being fetched again before
+ * drawing resumes: the overlay says so, drops a Reload offered meanwhile, and offers it again only
+ * if that takes RESTORING_RELOAD_AFTER_MS.
+ */
+export function contextRestoring() {
+    if (typeof document === 'undefined') return;
+    const box = document.getElementById(LOST_ID);
+    if (!box) return;
+    box.querySelector('.pc-cl__box button')?.remove();
+    const msg = box.querySelector('.pc-cl__msg');
+    if (msg) msg.textContent = t('Graphics are back — reloading the imagery…');
+    armReload(box, t('The imagery is taking a while to come back.'), RESTORING_RELOAD_AFTER_MS);
 }
 
 /** Removes the context-lost overlay (after 'webglcontextrestored'). */
@@ -191,6 +222,6 @@ export function showFatal(err) {
     if (typeof document === 'undefined' || !document.body) return;
     ensureStyle();
     const box = el('div', { class: 'pc-fb', role: 'alert' });
-    box.append(el('p', { class: 'pc-fb__title' }, `Something went wrong loading ${APP_NAME}.`), el('pre', { class: 'pc-fb__detail' }, detail));
+    box.append(el('p', { class: 'pc-fb__title' }, t('Something went wrong loading {app}.', { app: APP_NAME })), el('pre', { class: 'pc-fb__detail' }, detail));
     document.body.appendChild(box);
 }

@@ -17,6 +17,14 @@
  *    "labels fade in as each beam lands" falls out of the launch for free.
  *  - `prime()` hides every beam until the next `launch()` (call at intro start).
  *  - `skipLaunch()` completes a running launch at once (intro skipped).
+ *  - `setFootprint(id, halfW, halfH)` reserves a marker centred on a body's label anchor (a planet
+ *    medallion, render/planets.js): the anchor keeps it inside the free area and the label
+ *    de-overlap treats it as part of the label box.
+ *
+ * `createBeams(rc, {second: true})` draws the second place's beams (ROADMAP two-observers) from
+ * `snap.second`: the same nine sightlines in long dashes tinted amber (`#define SECOND`), always
+ * launched, hidden while there is no second place. Its two Moon beams and the first set's meet at
+ * the Moon: the parallax made visible.
  *
  * No per-frame allocation (R5): every buffer and scratch object is created once.
  *
@@ -24,8 +32,10 @@
  */
 import * as THREE from 'three';
 import { BODIES } from '../astro/bodies.js';
+import { umbraNear } from '../astro/eclipse-path.js';
 import { BEAM_VERT, BEAM_FRAG } from './shaders/beam.glsl.js';
 import { labelExtent, uiOccluders } from './labels.js';
+import { SECOND_ACCENT } from './pin.js';
 
 const N = BODIES.length;
 const MOON = BODIES.findIndex((b) => b.id === 'moon');
@@ -38,8 +48,15 @@ const MOON_GAP = 0.30;
 /** Beam origin is lifted slightly off the unit sphere so it never z-fights the surface. */
 const ORIGIN_LIFT = 1.002;
 const LAUNCH_MS = 700;
+// Glow half-width against camera distance: the tier's width at the home view (rig.js HOME_DIST)
+// and closer, ×sqrt(GLOW_REF_DIST / distance) beyond, down to GLOW_MIN_K, so a zoomed-out globe
+// is not crossed by bars as wide as the planet.
+const GLOW_REF_DIST = 3.4;
+const GLOW_MIN_K = 0.45;
 /** Phase speed of the light-time pulses, cycles per second. */
 const PULSE_HZ = 0.6;
+/** The beams' roots clear the umbra when its axis is within these angles (rad) of the observer. */
+const ROOT_CLEAR_RAD = [0.035, 0.07];
 /** Labels start this far along a beam so they never sit on the pin itself. */
 const LABEL_MIN_D = 0.08;
 // Beam label footprint around its anchor, CSS px (ADDENDUM A4: the 6 px dot is centred on
@@ -105,12 +122,16 @@ function buildStrip() {
 /**
  * Creates the beams module.
  * @param {object} rc RenderContext (SPEC §C.6).
- * @param {{now?:()=>number, reducedMotion?:boolean}} [deps] `now` overrides the animation clock (tests).
+ * @param {{now?:()=>number, reducedMotion?:boolean, second?:boolean}} [deps] `now` overrides the animation
+ *   clock (tests); `second`: the second place's set, from snap.second
  * @returns {object} RenderModule & {launch, getTip, labelAnchor, isLanded, prime, skipLaunch, setReducedMotion}
  */
 export function createBeams(rc, deps = {}) {
     const now = typeof deps.now === 'function' ? deps.now : nowMs;
     let reducedMotion = deps.reducedMotion ?? prefersReducedMotion();
+    const second = !!deps.second;
+    // The second set exists only while there is a second place.
+    let present = !second;
 
     const geometry = buildStrip();
     const aOrigin = new THREE.InstancedBufferAttribute(new Float32Array(N * 3), 3);
@@ -142,6 +163,9 @@ export function createBeams(rc, deps = {}) {
     const progress = new Float64Array(N).fill(1);
     const launchStart = new Float64Array(N);
     const anchors = BODIES.map(() => new Float64Array([NaN, NaN, NaN]));
+    // Half-width and half-height (CSS px) of a marker centred on the anchor, e.g. a planet medallion
+    // (render/planets.js setFootprint): label boxes are at least that big, text to its right.
+    const footprint = new Float64Array(N * 2);
     let hasSnap = false;
     for (let i = 0; i < N; i++) dirs[i * 3] = 1;
 
@@ -154,6 +178,8 @@ export function createBeams(rc, deps = {}) {
         uPhase: { value: 0 },
         uFade: { value: 1 },
         uSelActive: { value: 0 },
+        uRootClear: { value: 0 },
+        uTint: { value: new THREE.Color(SECOND_ACCENT) },
     };
     const common = {
         uniforms,
@@ -165,14 +191,15 @@ export function createBeams(rc, deps = {}) {
         blending: THREE.AdditiveBlending,
         side: THREE.DoubleSide,
     };
-    const matA = new THREE.ShaderMaterial({ ...common, name: 'beams.A' });
-    const matB = new THREE.ShaderMaterial({ ...common, name: 'beams.B.xray', defines: { XRAY: '' } });
+    const extra = second ? { SECOND: '' } : {};
+    const matA = new THREE.ShaderMaterial({ ...common, name: second ? 'beams2.A' : 'beams.A', defines: { ...extra } });
+    const matB = new THREE.ShaderMaterial({ ...common, name: second ? 'beams2.B.xray' : 'beams.B.xray', defines: { XRAY: '', ...extra } });
     matB.depthFunc = THREE.GreaterDepth;
 
     const meshA = new THREE.Mesh(geometry, matA);
     const meshB = new THREE.Mesh(geometry, matB);
-    meshA.name = 'beams.A';
-    meshB.name = 'beams.B';
+    meshA.name = matA.name;
+    meshB.name = second ? 'beams2.B' : 'beams.B';
     meshA.renderOrder = 30;
     meshB.renderOrder = 31;
     for (const m of [meshA, meshB]) {
@@ -180,12 +207,15 @@ export function createBeams(rc, deps = {}) {
         m.matrixAutoUpdate = false;
     }
     const group = new THREE.Group();
-    group.name = 'beams';
+    group.name = second ? 'beams2' : 'beams';
     group.add(meshA, meshB);
 
     const layers = { beams: true, ghostBeams: true, sunMoonBeams: true };
     let selected = -1;
     let skyBlend = 0;
+    // The solar-system zoom's crossfade (FrameInfo.systemBlend): the beams give way to the orrery's lines.
+    let systemBlend = 0;
+    const fadeNow = () => (1 - smoothstep(0.2, 0.5, skyBlend)) * (1 - systemBlend);
     let glowPx = 12;
     let pulsesTarget = 0;
     let launching = false;
@@ -216,7 +246,7 @@ export function createBeams(rc, deps = {}) {
     }
 
     function updateVisibility() {
-        group.visible = layers.beams && skyBlend < 0.5;
+        group.visible = layers.beams && skyBlend < 0.5 && systemBlend < 0.999 && present;
         meshB.visible = layers.ghostBeams;
     }
 
@@ -226,6 +256,15 @@ export function createBeams(rc, deps = {}) {
      * @param {object} snap Snapshot (SPEC §C.1).
      */
     function apply(snap) {
+        if (second) {
+            const was = present;
+            present = !!snap?.second;
+            if (present !== was) {
+                updateVisibility();
+                invalidate();
+            }
+            snap = snap?.second ?? null;
+        }
         if (!snap || !snap.observer || !snap.bodies) return;
         const p = snap.observer.posS;
         origin[0] = p[0] * ORIGIN_LIFT;
@@ -249,6 +288,9 @@ export function createBeams(rc, deps = {}) {
         aDir.needsUpdate = true;
         aLen.needsUpdate = true;
         hasSnap = true;
+        // The Moon's umbra on the observer (within ≈ 200–400 km): the beams leave a hole the umbra's
+        // size around their roots, so it reads as a dark spot (eclipse-aware-pin).
+        uniforms.uRootClear.value = umbraNear(snap, ROOT_CLEAR_RAD[0], ROOT_CLEAR_RAD[1]);
         writeStates();
     }
 
@@ -283,7 +325,8 @@ export function createBeams(rc, deps = {}) {
         const dtMs = fi && Number.isFinite(fi.dtMs) ? fi.dtMs : Math.min(100, Math.max(0, t - lastNow));
         lastNow = t;
         if (fi && Number.isFinite(fi.skyBlend)) skyBlend = fi.skyBlend;
-        uniforms.uFade.value = 1 - smoothstep(0.2, 0.5, skyBlend);
+        systemBlend = fi && Number.isFinite(fi.systemBlend) ? fi.systemBlend : 0;
+        uniforms.uFade.value = fadeNow();
         updateVisibility();
 
         const cam = (fi && fi.camera) || rc?.camera;
@@ -294,7 +337,7 @@ export function createBeams(rc, deps = {}) {
             uniforms.uViewport.value.copy(_size);
             const dpr = r.getPixelRatio();
             uniforms.uDpr.value = dpr;
-            uniforms.uGlowPx.value = glowPx * dpr;
+            uniforms.uGlowPx.value = glowPx * dpr * glowScale(cam);
         }
 
         // Pulses ease in and out over ~250 ms; the phase lives on the CPU so it never loses precision.
@@ -313,7 +356,8 @@ export function createBeams(rc, deps = {}) {
             stepLaunch(t);
             invalidate();
         }
-        if (cam) computeAnchors(cam);
+        // The second set carries no labels (the second pin's label is the labels feed's own).
+        if (cam && !second) computeAnchors(cam);
     }
 
     // ---- label anchors ---------------------------------------------------------------------
@@ -350,12 +394,6 @@ export function createBeams(rc, deps = {}) {
         const ins = size?.insets;
         const insL = ins ? ins.left || 0 : 0, insR = ins ? ins.right || 0 : 0;
         const insT = ins ? ins.top || 0 : 0, insB = ins ? ins.bottom || 0 : 0;
-        // Free area for the anchor point (CSS px), before the per-body text extent.
-        const ax0 = insL + LABEL_PAD + LABEL_LEFT;
-        const ay0 = insT + LABEL_PAD + LABEL_HALF_H;
-        const ay1 = h - insB - LABEL_PAD - LABEL_HALF_H;
-        const yTop = 1 - (2 * ay0) / h, yBot = 1 - (2 * ay1) / h;
-        const xa = (2 * ax0) / w - 1;
         const near = cam.near * 1.05;
         const beamsShown = group.visible;
         const st = aState.array;
@@ -365,6 +403,14 @@ export function createBeams(rc, deps = {}) {
             _cand[i] = 0;
             const dx = dirs[i * 3], dy = dirs[i * 3 + 1], dz = dirs[i * 3 + 2];
             if (!hasSnap || progress[i] < 0.98) { out[0] = out[1] = out[2] = NaN; continue; }
+            // Free area for the anchor point (CSS px), before the per-body text extent; a marker
+            // (medallion) centred on the anchor widens the label's left and vertical extent.
+            const halfH = Math.max(LABEL_HALF_H, footprint[i * 2 + 1]);
+            const ax0 = insL + LABEL_PAD + Math.max(LABEL_LEFT, footprint[i * 2]);
+            const ay0 = insT + LABEL_PAD + halfH;
+            const ay1 = h - insB - LABEL_PAD - halfH;
+            const yTop = 1 - (2 * ay0) / h, yBot = 1 - (2 * ay1) / h;
+            const xa = (2 * ax0) / w - 1;
             const instanceShown = beamsShown && st[i * 4 + 2] > 0.5;
             const xb = (2 * (w - insR - LABEL_PAD - rightExtent(i))) / w - 1;
             if (!instanceShown || !(xb > xa) || !(yTop > yBot)) {
@@ -423,7 +469,10 @@ export function createBeams(rc, deps = {}) {
     /** Px a body's label extends right of its anchor: measured when available, else estimated. */
     function rightExtent(i) {
         const e = labelExtent(BODIES[i].id);
-        const r = e ? e[2] : LABEL_RIGHT[i];
+        const fw = footprint[i * 2];
+        // A measured box already holds the marker (the label's dot is sized to it); the estimate
+        // gains the marker's width.
+        const r = e ? Math.max(e[2], fw) : LABEL_RIGHT[i] + (fw > LABEL_LEFT ? 2 * fw - 2 * LABEL_LEFT : 0);
         return i === selected ? r + LABEL_SEL_EXTRA : r;
     }
 
@@ -459,10 +508,11 @@ export function createBeams(rc, deps = {}) {
         const sx = (X / W * 0.5 + 0.5) * w, sy = (0.5 - Y / W * 0.5) * h;
         const b = k * 4;
         const e = labelExtent(BODIES[i].id);
-        _boxes[b] = sx + (e ? e[0] : -LABEL_LEFT) - LABEL_GAP;
-        _boxes[b + 1] = sy + (e ? e[1] : -LABEL_HALF_H) - LABEL_GAP;
+        const fw = footprint[i * 2], fh = footprint[i * 2 + 1];
+        _boxes[b] = sx + Math.min(e ? e[0] : -LABEL_LEFT, -fw) - LABEL_GAP;
+        _boxes[b + 1] = sy + Math.min(e ? e[1] : -LABEL_HALF_H, -fh) - LABEL_GAP;
         _boxes[b + 2] = sx + rightExtent(i) + LABEL_GAP;
-        _boxes[b + 3] = sy + (e ? e[3] : LABEL_HALF_H) + LABEL_GAP;
+        _boxes[b + 3] = sy + Math.max(e ? e[3] : LABEL_HALF_H, fh) + LABEL_GAP;
         return true;
     }
 
@@ -543,7 +593,7 @@ export function createBeams(rc, deps = {}) {
      */
     function launch({ staggerMs = 120 } = {}) {
         if (launchResolve) settleLaunch(false);
-        if (reducedMotion) {
+        if (reducedMotion || second) {
             progress.fill(1);
             writeStates();
             invalidate();
@@ -564,6 +614,7 @@ export function createBeams(rc, deps = {}) {
     /** Hides every beam until the next launch() (e.g. at the start of the intro). */
     function prime() {
         if (launchResolve) settleLaunch(false);
+        if (second) return;
         progress.fill(0);
         writeStates();
         invalidate();
@@ -632,7 +683,7 @@ export function createBeams(rc, deps = {}) {
         },
         setViewMode(mode, sb) {
             skyBlend = Number.isFinite(sb) ? sb : mode === 'sky' ? 1 : 0;
-            uniforms.uFade.value = 1 - smoothstep(0.2, 0.5, skyBlend);
+            uniforms.uFade.value = fadeNow();
             updateVisibility();
             invalidate();
         },
@@ -657,6 +708,17 @@ export function createBeams(rc, deps = {}) {
         getTip,
         labelAnchor,
         isLanded,
+        /**
+         * Reserves a marker of half-size (halfW, halfH) CSS px centred on a body's label anchor
+         * (0, 0 clears it): beam labels then de-overlap with the marker included.
+         * @param {string} id @param {number} halfW @param {number} halfH
+         */
+        setFootprint(id, halfW, halfH) {
+            const i = ID_INDEX[id];
+            if (i === undefined) return;
+            footprint[i * 2] = Math.max(0, Number(halfW) || 0);
+            footprint[i * 2 + 1] = Math.max(0, Number(halfH) || 0);
+        },
         get launching() { return launching; },
         dispose() {
             if (launchResolve) settleLaunch(false);
@@ -685,6 +747,18 @@ function narrow(iv, a, b) {
 function smoothstep(e0, e1, x) {
     const t = Math.min(1, Math.max(0, (x - e0) / (e1 - e0)));
     return t * t * (3 - 2 * t);
+}
+
+/**
+ * Glow-width factor for the camera's distance from the Earth's centre (see GLOW_REF_DIST).
+ * @param {{position?:{x:number,y:number,z:number}}|null|undefined} cam
+ * @returns {number} GLOW_MIN_K … 1
+ */
+function glowScale(cam) {
+    const p = cam && cam.position;
+    const d = p ? Math.hypot(p.x, p.y, p.z) : GLOW_REF_DIST;
+    if (!(d > GLOW_REF_DIST)) return 1;
+    return Math.max(GLOW_MIN_K, Math.sqrt(GLOW_REF_DIST / d));
 }
 
 /**

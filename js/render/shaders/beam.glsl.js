@@ -28,7 +28,11 @@
  *    vanishing point.
  *
  * Both passes share these sources; pass B (x-ray, GreaterDepth) adds
- * `#define XRAY`.
+ * `#define XRAY`. The second place's beams (ROADMAP two-observers) add `#define SECOND`: long
+ * log-spaced dashes along the whole ribbon and a tint toward the second pin's amber (uTint), so
+ * the two places' sightlines stay apart where they converge on the Moon. The spacecraft's radio
+ * links (render/craft.js) add `#define RADIO`: fine log-spaced dashes along the whole ribbon, a thin
+ * faint core and almost no glow, so they read as signals rather than sightlines to something seen.
  *
  * @module render/shaders/beam.glsl
  */
@@ -38,7 +42,7 @@ import { FINITE_CHUNK } from './common.glsl.js';
 export const BEAM_VERT = /* glsl */ `
 uniform float uNear;      // camera near plane (view-space units)
 uniform vec2 uViewport;   // drawing-buffer size in px
-uniform float uGlowPx;    // unselected ribbon half-width in drawing-buffer px
+uniform float uGlowPx;    // ribbon half-width in drawing-buffer px
 
 attribute vec3 iOrigin;
 attribute vec3 iDir;
@@ -47,19 +51,24 @@ attribute float iLen;
 attribute vec4 iState;    // selected, below, visible, launch progress
 
 varying float vDist;      // distance from the origin along the beam (Earth radii)
+flat varying vec3 vRoot;  // the origin on screen (px) and ROOT_HOLE_ER there (px), for uRootClear
 flat varying vec4 vLine;  // ribbon: (a, b, c, 0) with a·x + b·y + c = signed px distance; disc: (cx, cy, 0, 1)
 flat varying vec3 vColor;
 flat varying vec4 vState;
 flat varying vec3 vLen;   // (current length, full length, half-width px)
 
 const float L0 = 0.02;    // length at launch progress 0 (Earth radii)
+const float ROOT_HOLE_ER = 0.03;   // ≈ the umbra's marker ring (1.25 × 129 km) plus its glow
 
 void main() {
     vColor = iColor;
     vState = iState;
     vDist = 0.0;
     vLine = vec4(0.0);
-    float halfW = uGlowPx * (iState.x > 0.5 ? 1.4 : 1.0);
+    vRoot = vec3(-1e4, -1e4, 1.0);
+    // A selected beam keeps the common width: it stands out by its core (BEAM_FRAG), so a zoomed-out
+    // globe is not crossed by a bar wider than the planet.
+    float halfW = uGlowPx;
     float full = max(iLen, L0);
     float len = iState.w >= 1.0 ? full : L0 * pow(full / L0, clamp(iState.w, 0.0, 1.0));
     vLen = vec3(len, full, halfW);
@@ -84,6 +93,7 @@ void main() {
     // Exact projected centre line: through the projected origin and the vanishing point of D.
     vec4 cO = projectionMatrix * vec4(O, 1.0);
     vec4 cD = projectionMatrix * vec4(D, 0.0);
+    if (O.z < 0.0) vRoot = vec3((cO.xy / cO.w * 0.5 + 0.5) * uViewport, ROOT_HOLE_ER * projectionMatrix[1][1] / -O.z * 0.5 * uViewport.y);
     vec3 l = cross(cO.xyw, cD.xyw);
     vec2 ab = 2.0 * l.xy / uViewport;
     float nrm = length(ab);
@@ -127,8 +137,11 @@ uniform float uPulses;    // 0..1, eased toward FrameInfo.pulsesActive
 uniform float uPhase;     // pulse phase, advanced at 0.6 cycles/s on the CPU (no float drift)
 uniform float uFade;      // 1 in orbit, 0 once sky view has taken over
 uniform float uSelActive; // 1 while any body is selected (others dim)
+uniform float uRootClear; // 0..1: the Moon's umbra is at the observer; the roots step out of its way
+uniform vec3 uTint;       // SECOND: the second place's accent
 
 varying float vDist;
+flat varying vec3 vRoot;  // the observer on screen (px) and the umbra's radius there (px)
 flat varying vec4 vLine;
 flat varying vec3 vColor;
 flat varying vec4 vState;
@@ -167,6 +180,17 @@ void main() {
     float phW = fwidth(ph);
     float dashX = d * 12.0;
     float dashW = fwidth(dashX);
+    vec3 baseC = vColor;
+#ifdef SECOND
+    // Long dashes, denser near the pin (log spacing), and the second place's tint.
+    float dash2X = lg * 9.0;
+    float dash2W = fwidth(dash2X);
+    baseC = mix(vColor, uTint, 0.45);
+#endif
+#ifdef RADIO
+    float dashRX = lg * 40.0;
+    float dashRW = fwidth(dashRX);
+#endif
 
     // Cross-section: a thin HDR core inside a soft glow that reaches zero at the ribbon edge.
     float corePx = mix(1.6, 2.6, sel) * uDpr;
@@ -176,6 +200,11 @@ void main() {
 
     float fadeIn = disc ? 1.0 : smoothstep(0.0, 0.03, d);
     float glowIn = disc ? 1.0 : smoothstep(0.0, 0.12, d);
+    // Out of the Moon's umbra's way: a soft hole around the observer on screen, the umbra's size.
+    if (uRootClear > 0.0) {
+        float r = length(gl_FragCoord.xy - vRoot.xy) / max(vRoot.z, 1.0);
+        fadeIn *= 1.0 - uRootClear * (1.0 - smoothstep(0.7, 1.3, r));
+    }
     float u = d / full;
     float fadeOut = full < 500.0
         ? 1.0 - smoothstep(0.985, 1.0, u)                 // finite target (the Moon): touch it
@@ -191,25 +220,37 @@ void main() {
     float head = hd * hd * hd * (1.0 - smoothstep(0.9, 1.0, vState.w));
 
     float dash = disc ? 1.0 : dashFiltered(dashX, dashW);
+#ifdef SECOND
+    float dash2 = disc ? 1.0 : 0.25 + 0.75 * dashFiltered(dash2X, dash2W);
+    core *= dash2;
+    glow *= 0.7;
+#endif
+#ifdef RADIO
+    float dashR = disc ? 1.0 : 0.12 + 0.88 * dashFiltered(dashRX, dashRW);
+    core *= dashR * 0.42;
+    glow *= 0.1;
+#endif
 
 #ifdef XRAY
     // Pass B: only where the beam is hidden (inside or behind the Earth): dashed and faint. The
     // dashes cut the core only: dashing the wide glow too drew each dash as a bar across the
     // ribbon, a barcode wherever a beam is seen at a grazing angle.
     float k = 0.22 * mix(1.0, 1.4, sel) * (1.0 - 0.45 * uSelActive * (1.0 - sel));
-    vec3 c = vColor * (core * 2.2 * dash + glow * 0.3 * glowIn * 0.5) * fadeIn * fadeOut * k;
+    vec3 c = baseC * (core * 2.2 * dash + glow * 0.3 * glowIn * 0.5) * fadeIn * fadeOut * k;
 #else
     // Below the horizon: a thin, dim, dashed core with only a whisper of glow, so the
     // bodies you can actually see keep the visual hierarchy.
-    float k = mix(1.0, 0.3, below) * mix(1.0, 1.6, sel) * (1.0 - 0.45 * uSelActive * (1.0 - sel));
+    float k = mix(1.0, 0.3, below) * (1.0 - 0.45 * uSelActive * (1.0 - sel));
     float dashA = mix(1.0, dash, below);
-    float glowK = mix(1.0, 0.3, below);
+    // The selected beam stands out by its core (wider and brighter) while the soft glow, which
+    // carries the body's colour, only rises a little: "that colour, brighter", not a white bar.
+    float glowK = mix(1.0, 0.3, below) * mix(1.0, 1.2, sel);
     // A travelling pulse is a bead: the core dips slightly between beads and each bead
     // carries its own wider halo, so the motion reads even where the core saturates.
     float bead = pulse * exp(-side / (halfW * 0.5));
-    float coreK = 2.2 * (1.0 - 0.3 * uPulses) + 2.6 * pulse + 3.0 * head;
+    float coreK = (2.2 * (1.0 - 0.3 * uPulses) + 2.6 * pulse + 3.0 * head) * mix(1.0, 1.35, sel);
     // Only the core is dashed (see pass B); the faint glow of a beam below the horizon is continuous.
-    vec3 c = vColor * (core * coreK * dashA + glow * glowIn * glowK * mix(0.6, 0.3, below) + bead * glowIn * 1.6 * dashA)
+    vec3 c = baseC * (core * coreK * dashA + glow * glowIn * glowK * mix(0.6, 0.3, below) + bead * glowIn * 1.6 * dashA)
            * fadeIn * fadeOut * k;
 #endif
 

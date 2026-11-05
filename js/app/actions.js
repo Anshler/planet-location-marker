@@ -11,9 +11,19 @@
 // geolocation errors, Undo for non-click moves, failures).
 
 import { APP_NAME } from '../version.js';
-import { BODY_INDEX, isBodyId } from '../astro/bodies.js';
+import { BODIES, BODY_INDEX, isBodyId } from '../astro/bodies.js';
+import { isSelectionId, isExtraId } from '../core/selection.js';
 import { createSnapshot, computeSnapshot } from '../astro/snapshot.js';
+import { eclipsePath, citiesInPath, nearestCentrePoint, shadowPoint } from '../astro/eclipse-path.js';
+import { createEclipseChase } from './eclipse-chase.js';
+import { localSolarEclipseAt } from '../astro/events.js';
 import { serializeHash } from '../core/url-state.js';
+import { LOCALES, locale, t, N_ } from '../core/i18n.js';
+import { placeName, compassWord } from '../core/format.js';
+import { SKY_DARK_SETTINGS, AURORA_SETTINGS } from '../core/store.js';
+import { EXPOSE_KINDS, TRAILS_RATE, trailsLook, nextDarkMs, analemmaPlan } from './expose.js';
+
+export { shadowPoint };
 
 /** @typedef {import('../core/types.js').Observer} Observer */
 /** @typedef {import('../core/types.js').AstroEvent} AstroEvent */
@@ -24,21 +34,55 @@ export const NEAR_CITY_KM = 300;
 const AT_CITY_KM = 15;
 /** Sources that represent a deliberate user choice (persisted, remembered in recent places). */
 export const USER_SOURCES = Object.freeze(['click', 'city', 'search', 'geo', 'manual']);
-const OBSERVER_SOURCES = new Set(['default', 'url', 'saved', 'tzguess', 'click', 'city', 'search', 'geo', 'manual']);
-const VIEW_MODES = new Set(['orbit', 'sky']);
+/** 'tour': placed by a guided tour (never persisted; the tour restores the user's observer). */
+const OBSERVER_SOURCES = new Set(['default', 'url', 'saved', 'tzguess', 'click', 'city', 'search', 'geo', 'manual', 'tour']);
+const VIEW_MODES = new Set(['orbit', 'sky', 'map']);
+const TRACK_KINDS = new Set(['none', 'body', 'stars']);
+const VANTAGE_KINDS = new Set(['none', 'l1', 'moon']);
+/** Vantage points (globe view, url `vt`): their names in the menu, the caption and announcements. */
+export const VANTAGES = Object.freeze({
+    l1: Object.freeze({ name: N_('View from L1'), detail: N_('The sunlit Earth from 1.5 million km sunward, as NASA’s DSCOVR sees it') }),
+    moon: Object.freeze({ name: N_('Earthrise'), detail: N_('The Earth rising over the Moon’s limb, from a 150 km lunar orbit') }),
+});
+/** The telescope's narrowest framing (the rig's sky-view floor). */
+export const TELESCOPE_FOV_MIN = 0.2;
 const TZ_MODES = new Set(['observer', 'device', 'utc']);
-const QUALITY_SETTINGS = new Set(['auto', 'low', 'medium', 'high']);
+const QUALITY_SETTINGS = new Set(['auto', 'low', 'medium', 'high', 'max']);
 const MAX_UNDO = 12;
 const MAX_RECENT = 8;
 const JUMP_ANIMATE_MS = 1400;
+/** 'Watch this pass' starts the clock this long before the satellite becomes visible. */
+export const PASS_LEAD_MS = 30000;
+/** An event flight lasts the time sweep plus this (the globe ↔ sky transitions take 1.8 s). */
+const EVENT_FLY_EXTRA_MS = 400;
+/** An event link's sky field when the event names none: the rig's default (camera/rig.js SKY_FOV). */
+const LINK_SKY_FOV_DEG = 70;
+const DAY_MS = 864e5;
+/** A total or annular eclipse jump lands this long before second contact, playing at 1×. */
+export const ECLIPSE_LEAD_MS = 20e3;
+/** Sky-view fields of view of eclipse framings: the central phase and lunar eclipses fill 5°. */
+export const ECLIPSE_FOV_DEG = 5;
+export const PARTIAL_ECLIPSE_FOV_DEG = 10;
+/** A transit of Mercury or Venus: the Sun's disc with room around it. */
+export const TRANSIT_FOV_DEG = 2;
+/** AE eclipse altitudes are the refracted centre; the Sun's upper limb is this much higher. */
+const SUN_LIMB_DEG = 0.27;
+const MAX_PATHS = 4;
+const TIERS = Object.freeze({ low: N_('low'), medium: N_('medium'), high: N_('high'), max: N_('max') });
+const AURORA_SAY = Object.freeze({ quiet: N_('Aurora activity: quiet (modelled)'), typical: N_('Aurora activity: typical (modelled)'),
+    storm: N_('Aurora activity: storm (modelled)') });
+/** An observer's name and country, the name in the locale ('gần Lyon, France'), else `fallback`. */
+const placeText = (o, fallback) => (o.name ? placeName(o.name) : fallback) + (o.country ? ', ' + o.country : '');
 
-/** Human names of the layer switches (announcements). */
+/** Human names of the layer switches (announcements; English, shown through t()). */
 export const LAYER_LABELS = Object.freeze({
-    beams: 'Beams', ghostBeams: 'Through-Earth beams', sunMoonBeams: 'Sun and Moon beams', stars: 'Stars',
-    constellations: 'Constellation lines', constellationNames: 'Constellation names', starNames: 'Star names',
-    milkyWay: 'Milky Way', clouds: 'Clouds', atmosphere: 'Atmosphere', ecliptic: 'Ecliptic', eqGrid: 'Equatorial grid',
-    altAzGrid: 'Horizon grid', horizon: 'Horizon disc', footprint: 'Visibility footprint', subpoints: 'Sub-points',
-    trails: 'Path of selected body', labels: 'Labels',
+    beams: N_('Beams'), ghostBeams: N_('Beams through the Earth'), sunMoonBeams: N_('Sun and Moon beams'), stars: N_('Stars'),
+    constellations: N_('Constellation lines'), constellationNames: N_('Constellation names'), starNames: N_('Star names'),
+    milkyWay: N_('Milky Way'), deepSky: N_('Deep-sky objects'), clouds: N_('Clouds'), atmosphere: N_('Atmosphere'), ecliptic: N_('Ecliptic'),
+    eqGrid: N_('Equatorial grid (RA/Dec)'), precession: N_('The pole’s 26,000-year circle (precession)'), altAzGrid: N_('Horizon grid'),
+    horizon: N_('Horizon disc'), footprint: N_('Where it’s up on Earth'), subpoints: N_('Overhead points'), trails: N_('Path ±6 months'),
+    labels: N_('Labels'), landscape: N_('Illustrative landscape'), sunPath: N_('Sun paths and the analemma'), meteors: N_('Meteors'),
+    satellites: N_('Satellites'), spacecraft: N_('Spacecraft'),
 });
 
 const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
@@ -89,7 +133,10 @@ function zoneFor(near, lonDeg, tz) {
     return { zone, approx: true };
 }
 
-/** "Lyon" (within 15 km), "near Lyon" (within 300 km), the poles, or '' (the UI shows coordinates). */
+/**
+ * "Lyon" (within 15 km), "near Lyon" (within 300 km), the poles, or '' (the UI shows coordinates).
+ * English on purpose: names live in links and prefs; core/format.js placeName shows them in the locale.
+ */
 function nameFor(near, latDeg) {
     if (near) return near.km <= AT_CITY_KM ? near.city.name : `near ${near.city.name}`;
     if (latDeg >= 89.5) return 'North Pole';
@@ -107,8 +154,10 @@ function countryFor(cc, near, cities) {
             name = '';
         }
         if (name && name !== cc) return name;
-        if (near?.city?.cc === cc) return near.city.country ?? cc;
-        return name;
+        if (near?.city?.cc === cc) return near.city.country || '';
+        // The city index is not in yet (its proxy answers the code itself): no name rather than
+        // 'VN' kept for good; main.js fills it in once the index loads.
+        return name === cc ? '' : name;
     }
     return near?.city?.country ?? '';
 }
@@ -173,39 +222,200 @@ function sameSpot(a, b) {
 }
 
 /**
- * Where the Moon's shadow axis meets the Earth at a snapshot instant (lat/lon), or the point of
- * closest approach when the axis misses (partial eclipse).
- * @param {import('../core/types.js').Snapshot} snap
- * @returns {{latDeg:number, lonDeg:number}}
+ * How an event jump frames its event (pure; jumpToEvent applies it):
+ * - a local total or annular solar eclipse whose central phase is (partly) above the horizon
+ *   lands 20 s before second contact (before third when only C3 is up: totality at sunrise) and
+ *   plays at 1×, looking at the Sun mid-way through what follows at a 5° field;
+ * - any other local solar eclipse lands paused on its `visibleMs` (maximum, or the visible part
+ *   nearest it) at 10°; a lunar eclipse seen from here on its `visibleMs` at 5° on the Moon;
+ * - a transit seen from here on its `visibleMs` at 2°, a star occultation at 5° on the Moon, and a
+ *   meteor shower on its best hour here (`visibleMs`), facing `ev.look` (the radiant);
+ * - everything else lands paused on its instant with the current field.
+ * `aimMs` is the instant whose sky the look is aimed at (equal to `tMs` unless playing).
+ * @param {AstroEvent & Record<string, any>} ev
+ * @returns {{tMs:number, aimMs:number, play:boolean, fovDeg:number|undefined}|null}
  */
-export function shadowPoint(snap) {
-    const m = snap.moonPosS, s = snap.sunDirS;
-    // Axis: P(t) = m − t·s (from the Moon, away from the Sun). |P|² = 1 → t² − 2t(m·s) + |m|² − 1 = 0.
-    const ms = m[0] * s[0] + m[1] * s[1] + m[2] * s[2];
-    const mm = m[0] * m[0] + m[1] * m[1] + m[2] * m[2];
-    const disc = ms * ms - mm + 1;
-    const t = disc >= 0 ? ms - Math.sqrt(disc) : ms;
-    let x = m[0] - t * s[0], y = m[1] - t * s[1], z = m[2] - t * s[2];
-    const l = Math.hypot(x, y, z) || 1;
-    x /= l; y /= l; z /= l;
-    // Earth-fixed (geometry-local) direction: Eᵀ·P, then localToLatLon (SPEC §D.3).
-    const e = snap.earthMatrix;
-    const lx = e[0] * x + e[1] * y + e[2] * z;
-    const ly = e[4] * x + e[5] * y + e[6] * z;
-    const lz = e[8] * x + e[9] * y + e[10] * z;
-    return { latDeg: Math.asin(clamp(ly, -1, 1)) * 180 / Math.PI, lonDeg: Math.atan2(-lz, lx) * 180 / Math.PI };
+export function eventFraming(ev) {
+    const at = Number(ev?.tMs);
+    if (!Number.isFinite(at)) return null;
+    const vis = Number.isFinite(ev.visibleMs) ? ev.visibleMs : at;
+    if (ev.kind === 'local-solar-eclipse') {
+        const c2 = ev.c2Ms, c3 = ev.c3Ms, alt = ev.sunAltDeg ?? {};
+        const up = (a) => Number.isFinite(a) && a + SUN_LIMB_DEG > 0;
+        if (ev.eclipseKind !== 'partial' && Number.isFinite(c2) && Number.isFinite(c3) && (up(alt.c2) || up(alt.c3))) {
+            const land = (up(alt.c2) ? c2 : c3) - ECLIPSE_LEAD_MS;
+            return { tMs: land, aimMs: (land + c3) / 2, play: true, fovDeg: ECLIPSE_FOV_DEG };
+        }
+        return { tMs: vis, aimMs: vis, play: false, fovDeg: PARTIAL_ECLIPSE_FOV_DEG };
+    }
+    if (ev.kind === 'lunar-eclipse' && ev.view === 'sky') return { tMs: vis, aimMs: vis, play: false, fovDeg: ECLIPSE_FOV_DEG };
+    // A transit seen from here: the Sun at a 2° field when it is up; a star occultation: the Moon at 5°.
+    if (ev.kind === 'transit' && ev.view === 'sky') return { tMs: vis, aimMs: vis, play: false, fovDeg: TRANSIT_FOV_DEG };
+    if (ev.kind === 'occultation') return { tMs: at, aimMs: at, play: false, fovDeg: ECLIPSE_FOV_DEG };
+    // A meteor shower: its best hour here, facing the radiant (ev.look), paused on the composite.
+    if (ev.kind === 'meteor-shower' && Number.isFinite(ev.visibleMs)) return { tMs: vis, aimMs: vis, play: false, fovDeg: undefined };
+    return { tMs: at, aimMs: at, play: false, fovDeg: undefined };
+}
+
+/**
+ * The solar eclipse in focus (store `ui.eclipse`, set by an eclipse jump) lapses once simulated
+ * time is more than a day from its peak, but never during the jump's own time sweep.
+ * @param {{peakMs:number}|null|undefined} focus
+ * @param {number} tMs
+ * @param {boolean} tweening the clock is sweeping (clock.tweening)
+ * @returns {boolean}
+ */
+export function eclipseFocusExpired(focus, tMs, tweening) {
+    return !!focus && !tweening && Number.isFinite(tMs) && Math.abs(tMs - focus.peakMs) > DAY_MS;
+}
+
+/** 'Play the eclipse' runs its timelapse in this many seconds of wall time, once. */
+export const ECLIPSE_PLAY_S = 40;
+/** A central solar eclipse plays from this long before second contact to as long after third. */
+export const ECLIPSE_PLAY_MARGIN_MS = 120e3;
+
+/**
+ * The timelapse 'Play the eclipse' runs (clock.setRange config), or null: a total or annular
+ * solar eclipse whose central phase is (partly) up plays C2 − 2 min … C3 + 2 min; any other local
+ * solar eclipse C1 … C4; a lunar eclipse U1 … U4 (P1 … P4 when only penumbral).
+ * @param {AstroEvent & Record<string, any>} ev
+ * @returns {{fromMs:number, toMs:number, durationS:number, loop:'once'}|null}
+ */
+export function eclipsePlayRange(ev) {
+    const at = (k) => (Number.isFinite(ev?.[k]) ? ev[k] : null);
+    let from = null, to = null;
+    if (ev?.kind === 'local-solar-eclipse') {
+        const central = ev.eclipseKind !== 'partial' && at('c2Ms') !== null && at('c3Ms') !== null && ev.centralUp !== 'none';
+        if (central) {
+            from = ev.c2Ms - ECLIPSE_PLAY_MARGIN_MS;
+            to = ev.c3Ms + ECLIPSE_PLAY_MARGIN_MS;
+        } else {
+            from = at('c1Ms');
+            to = at('c4Ms');
+        }
+    } else if (ev?.kind === 'lunar-eclipse') {
+        from = at('u1Ms') ?? at('p1Ms');
+        to = at('u4Ms') ?? at('p4Ms');
+    }
+    return from !== null && to !== null && to > from ? { fromMs: from, toMs: to, durationS: ECLIPSE_PLAY_S, loop: 'once' } : null;
+}
+
+/**
+ * A sky look centred on the middle of a body's drift (alt/az at the start, middle and end of a
+ * timelapse) with a field of view that keeps the whole drift in frame, at least `minFovDeg`.
+ * @param {Array<{azDeg:number, altDeg:number}>} pts [start, middle, end]
+ * @param {number} [minFovDeg]
+ * @returns {{azDeg:number, altDeg:number, fovDeg:number}}
+ */
+export function lookSpanning(pts, minFovDeg = ECLIPSE_FOV_DEG) {
+    const R = Math.PI / 180;
+    const mid = pts[1];
+    let span = 0;
+    for (const p of pts) {
+        const c = Math.sin(p.altDeg * R) * Math.sin(mid.altDeg * R)
+            + Math.cos(p.altDeg * R) * Math.cos(mid.altDeg * R) * Math.cos((p.azDeg - mid.azDeg) * R);
+        span = Math.max(span, Math.acos(clamp(c, -1, 1)) / R);
+    }
+    return { azDeg: mid.azDeg, altDeg: Math.max(-5, mid.altDeg), fovDeg: clamp(Math.max(minFovDeg, 2.5 * span + 1), 5, 100) };
+}
+
+/**
+ * An extra object's state in a snapshot (astro/extras.js: snap.extras), by id; null when absent or
+ * not present at that instant.
+ * @param {any} snap
+ * @param {string} id
+ * @returns {import('../astro/extras.js').ExtraState|null}
+ */
+export function extraOf(snap, id) {
+    const xs = snap?.extras;
+    if (!xs || !isExtraId(id)) return null;
+    for (let i = 0; i < xs.length; i++) if (xs[i].id === id) return xs[i].present ? xs[i] : null;
+    return null;
+}
+
+/**
+ * The sky look at the selected body when it is above the horizon, else undefined (the rig's
+ * default look). Apparent (refracted) position, as the sky view draws it.
+ * @param {string|null|undefined} selection
+ * @param {import('../core/types.js').Snapshot|null|undefined} snap
+ * @returns {{azDeg:number, altDeg:number}|undefined}
+ */
+export function selectionLook(selection, snap) {
+    if (!selection || !isSelectionId(selection)) return undefined;
+    const b = isBodyId(selection) ? snap?.bodies?.[BODY_INDEX[selection]] : extraOf(snap, selection);
+    return b && b.above && Number.isFinite(b.altDeg) ? { azDeg: b.azDeg, altDeg: b.altDeg } : undefined;
+}
+
+/**
+ * The look a view-mode change asks the rig for (main.js's view.mode subscriber): entering sky view
+ * turns to the selected body. An event jump (store source 'event') has already aimed the rig at the
+ * event's own instant (jumpToEvent); a look from the pre-sweep frame would queue a second move
+ * after it, so it gets none.
+ * @param {string} mode the new view.mode
+ * @param {string|undefined} source the store.set source of the change
+ * @param {string|null|undefined} selection
+ * @param {import('../core/types.js').Snapshot|null|undefined} snap
+ * @returns {{azDeg:number, altDeg:number}|undefined}
+ */
+export function viewModeLook(mode, source, selection, snap) {
+    return mode === 'sky' && source !== 'event' ? selectionLook(selection, snap) : undefined;
+}
+
+/**
+ * The 'Telescope' field of view (degrees, vertical) for a body: Jupiter with all four moons in the
+ * narrower side of the view, Saturn with its rings, the Sun and the Moon with a margin; the small
+ * planets go to the 0.2° floor. `aspect` is the view's width / height (portrait phones fit the
+ * width). Null without the body.
+ * @param {string} id
+ * @param {import('../core/types.js').Snapshot|null|undefined} snap
+ * @param {number} [aspect]
+ * @returns {number|null}
+ */
+export function telescopeFov(id, snap, aspect = 16 / 9) {
+    // An extra object has no disc here: its provider may ask for a field (a deep-sky object's whole
+    // outline, a star's neighbourhood: ExtraState.data.fovDeg), a comet gets room for its tails,
+    // anything else a finder's field.
+    if (isExtraId(id)) {
+        const x = extraOf(snap, id);
+        if (!x) return null;
+        const want = x.data?.fovDeg;
+        if (Number.isFinite(want) && want > 0) return clamp(want / Math.min(1, aspect > 0 ? aspect : 1), TELESCOPE_FOV_MIN, 60);
+        return id.startsWith('comet:') ? 24 : 6;
+    }
+    const b = isBodyId(id) ? snap?.bodies?.[BODY_INDEX[id]] : null;
+    if (!b || !(b.angDiamArcsec > 0)) return null;
+    const r = b.angDiamArcsec / 7200;   // angular radius, degrees
+    let half = r * 6;
+    if (id === 'sun' || id === 'moon') half = r * 1.3;
+    else if (id === 'saturn') half = r * 2.27 * 2;
+    else if (id === 'jupiter' && snap.galilean) {
+        // The widest moon across the line of sight, in Jupiter radii.
+        const d = b.dirS, o = snap.galilean.offS;
+        let m = 1;
+        for (let k = 0; k < 4; k++) {
+            const x = o[k * 3], y = o[k * 3 + 1], z = o[k * 3 + 2];
+            const along = x * d[0] + y * d[1] + z * d[2];
+            m = Math.max(m, Math.sqrt(Math.max(0, x * x + y * y + z * z - along * along)));
+        }
+        half = r * (m * 1.12 + 1.5);
+    }
+    const fit = Math.min(1, aspect > 0 ? aspect : 1);
+    return clamp(2 * half / fit, TELESCOPE_FOV_MIN, 20);
 }
 
 /**
  * Creates the action API.
  *
  * @param {{store:any, bus:any, clock:any, prefs:any, tz?:any,
- *          cities?:any,
+ *          cities?:any, astro?:import('../astro/client.js').AstroClient|null,
  *          render:{rig?:any, beams?:any, pin?:any, earth?:any, governor?:any},
  *          getSnap?:()=>import('../core/types.js').Snapshot|null,
  *          runIntro?:(opts?:{force?:boolean})=>Promise<unknown>,
  *          toggleDebug?:()=>boolean,
+ *          tours?:{start:(id:string)=>Promise<boolean>, stop:()=>void, next:()=>void, resume:()=>void},
+ *          aim?:{start:()=>Promise<boolean>, stop:(reason?:string)=>void, align:()=>string|null},
  *          win?:Window, doc?:Document, nav?:Navigator}} deps
+ *   `aim`: main.js's 'Point at the sky' runner (camera/aim.js, loaded on first use)
  * @returns {object} Actions
  */
 export function createActions(deps) {
@@ -215,11 +425,13 @@ export function createActions(deps) {
     const doc = deps.doc ?? (typeof document !== 'undefined' ? document : null);
     const nav = deps.nav ?? (typeof navigator !== 'undefined' ? navigator : null);
     const getSnap = deps.getSnap ?? (() => null);
+    // The extras registry (astro/extras.js): names of selectable objects beyond the nine.
+    const extras = deps.extras ?? null;
+    const nameOf = (id) => t(isBodyId(id) ? BODIES[BODY_INDEX[id]].name : extras?.meta?.(id)?.name ?? String(id));
 
     /** @type {Observer[]} */
     const undoStack = [];
     let scratchSnap = null;
-    let eventFlyTimer = 0;
 
     const toast = (message, kind = 'info', extra = {}) => bus.emit('toast', { message, kind, ...extra });
     const say = (text) => bus.emit('announce', text);
@@ -272,7 +484,7 @@ export function createActions(deps) {
         try {
             next = normalizeObserver(obs, { cities, tz });
         } catch {
-            toast('Those coordinates are not valid.', 'warn');
+            toast(t('Those coordinates are not valid.'), 'warn');
             return null;
         }
         const prev = store.get().observer;
@@ -286,8 +498,8 @@ export function createActions(deps) {
         if (USER_SOURCES.includes(next.source)) rememberPlace(next);
         // The UI shows its own Undo toast for click placements; other undoable moves get one here.
         if (undoable && next.source !== 'click') {
-            toast(`Observer moved to ${next.name || 'the new location'}${next.country ? ', ' + next.country : ''}`, 'info', {
-                actionLabel: 'Undo', onAction: () => undoObserver(), timeoutMs: 8000,
+            toast(t('Observer moved to {place}', { place: placeText(next, t('the new location')) }), 'info', {
+                actionLabel: t('Undo'), onAction: () => undoObserver(), timeoutMs: 8000,
             });
         }
         const r = rig();
@@ -316,11 +528,11 @@ export function createActions(deps) {
     async function locateMe() {
         const geo = nav?.geolocation;
         if (!geo || typeof geo.getCurrentPosition !== 'function') {
-            toast("Location isn't available in this browser.", 'warn');
+            toast(t("Location isn't available in this browser."), 'warn');
             openPalette();
             return;
         }
-        say('Finding your location…');
+        say(t('Finding your location…'));
         try {
             const pos = await new Promise((resolve, reject) => {
                 geo.getCurrentPosition(resolve, reject, { enableHighAccuracy: false, timeout: 12000, maximumAge: 300000 });
@@ -330,59 +542,363 @@ export function createActions(deps) {
                 { fly: true, undoable: true });
         } catch (err) {
             if (err && err.code === 1) {
-                toast('Location permission denied.', 'warn');
+                toast(t('Location permission denied.'), 'warn');
                 openPalette();
             } else if (err && err.code === 3) {
-                toast('Finding your location took too long. Try again, or search for a place.', 'warn');
+                toast(t('Finding your location took too long. Try again, or search for a place.'), 'warn');
             } else {
-                toast("Couldn't determine your location. Search for a place instead.", 'warn');
+                toast(t("Couldn't determine your location. Search for a place instead."), 'warn');
             }
         }
     }
 
     /**
-     * Selects a body (or clears the selection).
+     * Selects a body or an extra object (core/selection.js: `comet:halley`), or clears the selection.
      * @param {string|null} id
      * @param {{fly?:boolean}} [opts]
      */
     function select(id, { fly = false } = {}) {
         const next = id == null || id === '' ? null : String(id);
-        if (next !== null && !isBodyId(next)) return;
+        if (next !== null && !isSelectionId(next)) return;
         store.set({ selection: next }, 'actions');
         if (next && fly) flyToBody(next);
     }
 
     /**
-     * Brings a body into view: in sky view the camera turns to it; in orbit view the camera flies
-     * to look along its beam.
+     * Brings a body into view ('Center'): in sky view the camera turns to it; in globe view the
+     * camera moves to the far side of the globe, so the body sits just past the limb with the
+     * observer's beam crossing the globe toward it. The Moon is framed where its mesh is drawn,
+     * ~60 R out, so parallax from the camera cannot tuck it behind the limb.
      * @param {string} id
      */
     function flyToBody(id) {
-        if (!isBodyId(id)) return;
-        const r = rig();
-        const snap = getSnap();
-        if (!r || !snap) return;
-        const b = snap.bodies[BODY_INDEX[id]];
+        const b = bodyNow(id);
         if (!b) return;
         const animate = !reducedMotion();
         if (store.get().view.mode === 'sky') {
-            settle(r.setMode?.('sky', { animate, look: { azDeg: b.azGeomDeg, altDeg: Math.max(-5, b.altGeomDeg) } }));
+            settle(rig().setMode?.('sky', { animate, look: { azDeg: b.azGeomDeg, altDeg: Math.max(-5, b.altGeomDeg) } }));
         } else {
-            settle(r.flyToDir?.(b.dirS, { animate }));
+            const point = id === 'moon' ? getSnap()?.moonPosS ?? null : null;
+            settle(rig().frameDir?.(b.dirS, { animate, point }));
         }
     }
 
-    /** @param {'orbit'|'sky'} mode */
+    /**
+     * 'View from <body>': the globe as the body sees it, the camera on the body's direction over
+     * the place where it stands overhead (the body itself is behind the camera). In sky view it
+     * turns to the body, like flyToBody.
+     * @param {string} id
+     */
+    function viewFromBody(id) {
+        const b = bodyNow(id);
+        if (!b) return;
+        if (store.get().view.mode === 'sky') {
+            flyToBody(id);
+            return;
+        }
+        settle(rig().flyToDir?.(b.dirS, { animate: !reducedMotion() }));
+    }
+
+    /** The body's (or extra object's) entry in the current frame snapshot, when the 3D view is there to steer. */
+    function bodyNow(id) {
+        if (!rig()) return null;
+        const snap = getSnap();
+        if (isExtraId(id)) return extraOf(snap, id);
+        if (!isBodyId(id)) return null;
+        return snap?.bodies?.[BODY_INDEX[id]] ?? null;
+    }
+
+    /**
+     * Globe, sky view or the flat world map ('map': the globe unrolled, ROADMAP globe-to-map-morph).
+     * Each also leaves a vantage point: 'Globe' is the way back from it. The map needs the 3D view.
+     * @param {'orbit'|'sky'|'map'} mode
+     */
     function setViewMode(mode) {
         if (!VIEW_MODES.has(mode)) return;
         const view = store.get().view;
-        if (view.mode === mode) return;
-        store.set({ view: { ...view, mode } }, 'actions');
+        const vt = view.vantage ?? 'none';
+        if (view.mode === mode && vt === 'none') return;
+        if (mode === 'map') {
+            if (!has3d()) {
+                toast(t('The world map needs the 3D view.'), 'info');
+                return;
+            }
+            if (store.get().status.introPlaying) return;
+            chase.stop();
+        }
+        store.set({ view: { ...view, mode, vantage: 'none' } }, 'actions');
+        if (vt !== 'none' && mode === 'orbit') say(t('Back to the globe'));
+        else if (mode === 'map') say(t('World map: the night side, twilight bands and where each body is overhead'));
+    }
+
+    /**
+     * Stand on Mars (ROADMAP stand-on-mars, phase 1): the sky view from an areographic site
+     * (planetocentric °N/°E; Jezero Crater by default, else the last site). The globe stays the
+     * Earth's: leaving the sky view or choosing an Earth place returns home (main.js bindHost).
+     * @param {{latDeg?:number, lonDeg?:number, name?:string}} [site]
+     * @returns {boolean} standing on Mars now
+     */
+    function standOnMars(site) {
+        if (!has3d()) {
+            toast(t('Standing on Mars needs the 3D view.'), 'info');
+            return false;
+        }
+        if (store.get().status.introPlaying) return false;
+        const cur = store.get().host;
+        let lat = Number(site?.latDeg ?? cur.latDeg), lon = Number(site?.lonDeg ?? cur.lonDeg);
+        if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90) {
+            toast(t('Those Mars coordinates are not valid.'), 'warn');
+            return false;
+        }
+        lon = ((((lon + 180) % 360) + 360) % 360) - 180 || 0;
+        const name = typeof site?.name === 'string' ? site.name.slice(0, 80) : site ? '' : cur.name ?? '';
+        chase.stop();
+        const view = store.get().view;
+        const wasMars = cur.id === 'mars';
+        store.set({
+            host: { id: 'mars', latDeg: lat, lonDeg: lon, name },
+            view: { ...view, mode: 'sky', vantage: 'none', track: 'none' },
+        }, 'actions');
+        say(wasMars ? t('Moved on Mars to {place}', { place: name ? t(name) : t('the new site') })
+            : name ? t('Standing on Mars in {place}. Leave the sky view to return to the Earth.', { place: t(name) })
+                : t('Standing on Mars. Leave the sky view to return to the Earth.'));
+        return true;
+    }
+
+    /** Back to the Earth (the observer's own place, still in sky view). */
+    function leaveMars() {
+        const h = store.get().host;
+        if (h.id !== 'mars') return;
+        store.set({ host: { ...h, id: 'earth' } }, 'actions');
+        say(t('Back on the Earth'));
+    }
+
+    /** M: the flat map and back to the globe. @returns {boolean} the map is (being) shown */
+    function toggleMap() {
+        setViewMode(store.get().view.mode === 'map' ? 'orbit' : 'map');
+        return store.get().view.mode === 'map';
+    }
+
+    /**
+     * A second place to compare with (ROADMAP two-observers; url `loc2`): its own pin and dashed
+     * beams on the globe, and its altitude and azimuth beside the observer's in Sky now. Named and
+     * zoned like the observer (normalizeObserver); never saved. null removes it.
+     * @param {(Partial<Observer> & {latDeg:number, lonDeg:number})|null} obs
+     * @returns {Observer|null} the second place now set
+     */
+    function setObserver2(obs) {
+        if (obs == null) {
+            if (store.get().observer2) {
+                store.set({ observer2: null }, 'actions');
+                say(t('Comparison removed'));
+            }
+            return null;
+        }
+        let next;
+        try {
+            next = normalizeObserver({ source: 'manual', ...obs }, { cities, tz });
+        } catch {
+            toast(t('Those coordinates are not valid.'), 'warn');
+            return null;
+        }
+        const prev = store.get().observer2;
+        if (prev && sameSpot(prev, next)) return prev;
+        store.set({ observer2: next }, 'actions');
+        say(t('Comparing with {place}', { place: placeText(next, t('the second place')) }));
+        return next;
+    }
+
+    /** 'Compare with…': the place search, choosing the second place. */
+    function compareWith() {
+        const ui = store.get().ui;
+        store.set({ ui: { ...ui, palette: 'compare' } }, 'actions');
+    }
+
+    /**
+     * 'Show both beams': the globe framed square to the Earth–Moon line, far enough out that both
+     * places' Moon beams can be seen converging on the Moon (about 100 Earth radii out).
+     * @returns {boolean} started
+     */
+    function frameObservers() {
+        const snap = getSnap();
+        const r = rig();
+        if (!r || !snap || !store.get().observer2 || !has3d()) return false;
+        const go = () => settle(r.frameSpan?.(snap.bodies[BODY_INDEX.moon].geoDirS, snap.bodies[BODY_INDEX.moon].distER,
+            { animate: !reducedMotion() }));
+        const view = store.get().view;
+        if (view.mode !== 'orbit' || (view.vantage ?? 'none') !== 'none') {
+            store.set({ view: { ...view, mode: 'orbit', vantage: 'none' } }, 'actions');
+        }
+        go();
+        return true;
+    }
+
+    /**
+     * Vantage points (the rig's setVantage; url `vt`): 'l1' looks back at the sunlit Earth from
+     * 1.5 million km sunward, 'moon' watches it rise from a low lunar orbit, 'none' flies back to
+     * the globe. They are globe-view poses, so from sky view this also switches to the globe. Needs
+     * the 3D view; ends a shadow chase.
+     * @param {'none'|'l1'|'moon'} kind
+     * @returns {boolean} applied
+     */
+    function setVantage(kind) {
+        if (!VANTAGE_KINDS.has(kind)) return false;
+        const st = store.get();
+        if ((st.view.vantage ?? 'none') === kind) return true;
+        if (kind !== 'none') {
+            if (!has3d()) {
+                toast(t('Vantage points need the 3D view.'), 'info');
+                return false;
+            }
+            if (st.status.introPlaying) return false;
+            chase.stop();
+        }
+        const mode = kind === 'none' ? st.view.mode : 'orbit';
+        store.set({ view: { ...st.view, mode, vantage: kind } }, 'actions');
+        say(kind === 'none' ? t('Back to the globe') : t('{name}: {detail}', { name: t(VANTAGES[kind].name), detail: t(VANTAGES[kind].detail) }));
+        return true;
+    }
+
+    /**
+     * The solar-system zoom ('powers of ten', the rig's setSystem): true flies out from the globe
+     * (or sky view, or a vantage point) until the beams become lines across the solar system, false
+     * flies back to the globe over the observer. Needs the 3D view; ends a shadow chase. The rig
+     * reports the zoom back through view.system (main.js), so this only starts the flight.
+     * @param {boolean} on
+     * @returns {boolean} started
+     */
+    function setSystem(on) {
+        const r = rig();
+        if (!has3d() || !r || typeof r.setSystem !== 'function') {
+            if (on) toast(t('The solar system view needs the 3D view.'), 'info');
+            return false;
+        }
+        const st = store.get();
+        if (st.status.introPlaying) return false;
+        if (on) {
+            chase.stop();
+            if (st.view.mode !== 'orbit' || (st.view.vantage ?? 'none') !== 'none') {
+                store.set({ view: { ...st.view, mode: 'orbit', vantage: 'none' } }, 'actions');
+            }
+        }
+        settle(r.setSystem(!!on, { animate: !reducedMotion() }));
+        say(on ? t('Solar system: distances to scale, planets enlarged') : t('Back to the globe'));
+        return true;
     }
 
     function cycleView() {
         setViewMode(store.get().view.mode === 'orbit' ? 'sky' : 'orbit');
     }
+
+    /**
+     * Sky-view tracking (the rig's sidereal-tracking modes; url `trk`): 'body' keeps the selected
+     * body centred, 'stars' holds the star field still while the horizon turns, 'none' stops.
+     * 'body' needs a selection.
+     * @param {'none'|'body'|'stars'} kind
+     * @returns {boolean} applied
+     */
+    function setTracking(kind) {
+        if (!TRACK_KINDS.has(kind)) return false;
+        const st = store.get();
+        if (kind === 'body' && !st.selection) {
+            toast(t('Select something first, then follow it.'), 'info');
+            return false;
+        }
+        if ((st.view.track ?? 'none') === kind) return true;
+        store.set({ view: { ...st.view, track: kind } }, 'actions');
+        say(kind === 'body' ? t('Following {body}.', { body: nameOf(st.selection) }) : kind === 'stars' ? t('Following the stars: the Earth turns beneath them.') : t('Not following.'));
+        return true;
+    }
+
+    /** K: none → the selected body (if any) → the stars → none. @returns {'none'|'body'|'stars'} */
+    function cycleTracking() {
+        const st = store.get();
+        const cur = st.view.track ?? 'none';
+        const next = cur === 'none' ? (st.selection ? 'body' : 'stars') : cur === 'body' ? 'stars' : 'none';
+        setTracking(next);
+        return store.get().view.track ?? 'none';
+    }
+
+    /**
+     * 'Telescope': sky view on the body at a field that frames it (telescopeFov), following it.
+     * `ui.scope` {id, fovDeg, prevFovDeg, prevTrack} is its chip and way back (never in links).
+     * @param {string} [id] defaults to the selection
+     * @returns {boolean} started
+     */
+    function telescope(id = store.get().selection) {
+        if (!has3d()) {
+            toast(t('The telescope needs the 3D view.'), 'info');
+            return false;
+        }
+        const b = bodyNow(id);
+        if (!b) return false;
+        if (b.altGeomDeg < -2) {
+            toast(t('{body} is below the horizon now.', { body: nameOf(id) }), 'info');
+            return false;
+        }
+        const fov = telescopeFov(id, getSnap(), rig().camera?.aspect);
+        if (fov === null) return false;
+        // A second telescope keeps the first one's way back.
+        const was = store.get().ui.scope;
+        const prev = was ? { prevFovDeg: was.prevFovDeg, prevTrack: was.prevTrack }
+            : { prevFovDeg: camView()?.fovDeg ?? null, prevTrack: store.get().view.track ?? 'none' };
+        if (store.get().selection !== id) store.set({ selection: id }, 'actions');
+        rig().telescope?.(fov);
+        const view = store.get().view;
+        store.set({ view: { ...view, mode: 'sky', track: 'body', vantage: 'none' } }, 'actions');
+        store.set({ ui: { ...store.get().ui, scope: { id, fovDeg: fov, ...prev } } }, 'actions');
+        say(t('Telescope on {body}.', { body: nameOf(id) }));
+        return true;
+    }
+
+    /** Leaves the telescope for the field (60° from the globe) and following it found; the selection stays. */
+    function leaveTelescope() {
+        const sc = store.get().ui.scope;
+        if (!sc) return false;
+        endScope();
+        const fov = sc.prevFovDeg ?? 60;
+        const trk = sc.prevTrack === 'stars' || (sc.prevTrack === 'body' && store.get().selection) ? sc.prevTrack : 'none';
+        const r = rig();
+        // Following zooms when it engages; a free look glides out.
+        if (trk !== 'none') r?.telescope?.(fov);
+        setTracking(trk);
+        const v = camView();
+        if (trk === 'none' && v?.mode === 'sky') settle(r?.setMode?.('sky', { animate: !reducedMotion(), look: { azDeg: v.azDeg, altDeg: v.altDeg, fovDeg: fov } }));
+        say(t('Telescope off.'));
+        return true;
+    }
+
+    /** A link's telescope (view=sky, a selection, a sky `cam` ≤ 5°; main.js): its chip, back to a 60° free look. */
+    function scopeFromLink(cam) {
+        const st = store.get();
+        if (st.ui.scope || !st.selection || st.view.mode !== 'sky' || cam?.mode !== 'sky' || !(cam.fovDeg <= 5)) return;
+        store.set({ ui: { ...st.ui, scope: { id: st.selection, fovDeg: cam.fovDeg, prevFovDeg: 60, prevTrack: 'none' } } }, 'actions');
+    }
+
+    /** The rig's CamView (no layout read), or null. */
+    function camView() {
+        try {
+            return rig()?.getView?.() ?? null;
+        } catch {
+            return null;
+        }
+    }
+
+    // The chip ends with its premise: another selection, the globe, Follow set free, or a field
+    // zoomed out well past the telescope's (on the 4 Hz readout, once the zoom-in has arrived).
+    function endScope() { store.set({ ui: { ...store.get().ui, scope: null } }, 'actions'); }
+    store.subscribe?.((s) => `${s.selection}|${s.view.mode}|${s.view.track}`, () => {
+        const st = store.get(), sc = st.ui.scope;
+        if (sc && (st.selection !== sc.id || st.view.mode !== 'sky' || (st.view.track ?? 'none') === 'none')) endScope();
+    });
+    let settled = null;
+    bus.on?.('readout', () => {
+        const sc = store.get().ui.scope;
+        const f = sc && camView()?.fovDeg;
+        if (!(f > 0)) return;
+        if (f <= Math.max(10, 3 * sc.fovDeg)) settled = sc;
+        else if (settled === sc) endScope();
+    });
 
     /** @param {boolean} on */
     function setEarthLock(on) {
@@ -390,7 +906,7 @@ export function createActions(deps) {
         const next = on === undefined ? !view.earthLock : !!on;
         if (view.earthLock === next) return;
         store.set({ view: { ...view, earthLock: next } }, 'actions');
-        say(next ? 'View locked to Earth' : 'View unlocked: the Earth turns beneath you');
+        say(next ? t('Turning with the Earth: your place stays in view.') : t('Holding the view still: the Earth turns beneath it.'));
     }
 
     /**
@@ -403,10 +919,11 @@ export function createActions(deps) {
         const next = on === undefined ? !layers[key] : !!on;
         if (layers[key] === next) return;
         store.set({ layers: { ...layers, [key]: next } }, 'actions');
-        say(`${LAYER_LABELS[key] ?? key} ${next ? 'on' : 'off'}`);
+        const layer = LAYER_LABELS[key] ? t(LAYER_LABELS[key]) : key;
+        say(next ? t('{layer} on', { layer }) : t('{layer} off', { layer }));
     }
 
-    /** @param {'auto'|'low'|'medium'|'high'} setting */
+    /** @param {'auto'|'low'|'medium'|'high'|'max'} setting */
     function setQuality(setting) {
         if (!QUALITY_SETTINGS.has(setting)) return;
         const q = store.get().quality;
@@ -422,7 +939,7 @@ export function createActions(deps) {
             active = setting === 'auto' ? q.ceiling : setting;
         }
         store.set({ quality: { ...q, setting, active } }, 'actions');
-        say(setting === 'auto' ? `Quality: automatic (${active})` : `Quality: ${setting}`);
+        say(setting === 'auto' ? t('Quality: automatic ({tier})', { tier: t(TIERS[active] ?? active) }) : t('Quality: {tier}', { tier: t(TIERS[setting]) }));
     }
 
     /** @param {'observer'|'device'|'utc'} m */
@@ -433,15 +950,121 @@ export function createActions(deps) {
         store.set({ display: { ...display, tzMode: m } }, 'actions');
     }
 
-    /** The shareable URL for the current state (camera included). */
-    function shareUrl() {
-        let cam = null;
-        try {
-            cam = render.rig?.getView?.() ?? null;
-        } catch {
-            cam = null;
+    /**
+     * Sky darkness: 'auto' (light pollution estimated from nearby cities), 'pristine' or a Bortle
+     * class '1'…'9' (core/store.js SKY_DARK_SETTINGS).
+     * @param {string} v
+     */
+    function setSkyDark(v) {
+        const s = String(v);
+        if (!SKY_DARK_SETTINGS.includes(s)) return;
+        const display = store.get().display;
+        if (display.skyDark === s) return;
+        store.set({ display: { ...display, skyDark: s } }, 'actions');
+        say(s === 'auto' ? t('Sky darkness: estimated from your location') : s === 'pristine' ? t('Sky darkness: pristine') : t('Sky darkness: Bortle {n}', { n: s }));
+    }
+
+    /**
+     * Night vision (display.red): the whole screen dim red, and kept awake (main.js bindNightVision).
+     * A device preference: saved with the display settings, never put in a link.
+     * @param {boolean} [on] omitted → toggle
+     * @returns {boolean} the new state
+     */
+    function setNightVision(on) {
+        const display = store.get().display;
+        const next = on === undefined ? !display.red : !!on;
+        if (!!display.red !== next) {
+            store.set({ display: { ...display, red: next } }, 'actions');
+            say(next ? t('Night vision on: the screen is dim red and stays awake') : t('Night vision off'));
         }
-        const hash = serializeHash({ state: store.get(), clock, cam });
+        return next;
+    }
+
+    /**
+     * Display's Language: saves the choice and, when it differs, reloads the page in it (the UI
+     * is built in one language; core/i18n.js). The visit's #lang= is dropped so the choice holds.
+     * @param {string} code  a core/i18n.js LOCALES key
+     * @returns {boolean} true when the page reloads
+     */
+    function setLanguage(code) {
+        if (!Object.hasOwn(LOCALES, code)) return false;
+        prefs?.save?.('lang', code);
+        if (code === locale()) return false;
+        try {
+            const url = String(win.location.href).replace(/([#&])lang=[^&]*(&|$)/, (m, a, b) => (b ? a : '')).replace(/#$/, '');
+            win.history.replaceState(win.history.state, '', url);
+            win.location.reload();
+        } catch { /* no page to reload (tests) */ }
+        return true;
+    }
+
+    /**
+     * Aurora activity: the Kp the modelled ovals are drawn for ('quiet' | 'typical' | 'storm';
+     * core/store.js AURORA_SETTINGS). A setting, not live space weather.
+     * @param {string} v
+     */
+    function setAuroraActivity(v) {
+        const s = String(v);
+        if (!AURORA_SETTINGS.includes(s)) return;
+        const display = store.get().display;
+        if (display.aurora === s) return;
+        store.set({ display: { ...display, aurora: s } }, 'actions');
+        say(t(AURORA_SAY[s]));
+    }
+
+    /**
+     * What the camera shows, read-only: rig.getView() (the URL's CamView: sky `{azDeg, altDeg,
+     * fovDeg}` with the vertical field) plus `aspect`, the scene canvas's width over height. Null
+     * without the 3D view. The sky dome draws its field-of-view wedge from it.
+     * @returns {(import('../core/types.js').CamView & {aspect:number})|null}
+     */
+    function getView() {
+        let v = null;
+        try {
+            v = render.rig?.getView?.() ?? null;
+        } catch {
+            v = null;
+        }
+        if (!v) return null;
+        const c = win?.document?.getElementById?.('scene');
+        const aspect = c?.clientWidth > 0 && c.clientHeight > 0 ? c.clientWidth / c.clientHeight : 16 / 9;
+        return { ...v, aspect };
+    }
+
+    /**
+     * The shareable URL for the current state (camera included). With `{event}`, a link to that
+     * event's sky instead (a calendar entry's deep link): paused at the instant a jump lands on
+     * (eventFraming), the event's selection (none when it has none) and view, on the Earth, no
+     * camera (the app turns to the selection) and no intro. A sky event without a body (a meteor
+     * shower) carries the direction a jump faces (ev.look) as its camera instead.
+     * @param {{event?: AstroEvent}} [opts]
+     */
+    function shareUrl(opts) {
+        const ev = opts?.event;
+        let hash;
+        if (ev) {
+            const plan = eventFraming(ev);
+            const st = store.get();
+            const select = ev.select && isSelectionId(ev.select) ? ev.select : null;
+            const mode = ev.view && VIEW_MODES.has(ev.view) ? ev.view : st.view.mode;
+            const state = { ...st, host: null, selection: select, view: { ...st.view, mode, vantage: 'none', track: 'none' } };
+            const at = { live: false, tMs: plan ? plan.tMs : Number(ev.tMs), rate: 1, playing: false };
+            let cam = null;
+            const look = ev.look;
+            if (mode === 'sky' && !select && look && Number.isFinite(look.azDeg) && Number.isFinite(look.altDeg)) {
+                const fovDeg = [plan?.fovDeg, look.fovDeg].find(Number.isFinite) ?? LINK_SKY_FOV_DEG;
+                cam = { mode: 'sky', azDeg: look.azDeg, altDeg: look.altDeg, fovDeg };
+            }
+            hash = serializeHash({ state, clock: at, cam, extra: { intro: false } });
+        } else {
+            let cam = null;
+            try {
+                cam = render.rig?.getView?.() ?? null;
+            } catch {
+                cam = null;
+            }
+            hash = serializeHash({ state: store.get(), clock, cam });
+        }
         const loc = win?.location;
         if (!loc) return hash;
         return `${loc.origin && loc.origin !== 'null' ? loc.origin : ''}${loc.pathname}${loc.search}${hash}`;
@@ -481,8 +1104,9 @@ export function createActions(deps) {
     async function share() {
         const url = shareUrl();
         const o = store.get().observer;
-        const from = o.name ? o.name.replace(/^near /, '') : 'here';
-        const data = { title: APP_NAME, text: `Where the planets are from ${from} — ${APP_NAME}`, url };
+        const name = o.name ? placeName(o.name.replace(/^near /, '')) : '';
+        const text = name ? t('Where the planets are from {place} — {app}', { place: name, app: APP_NAME }) : t('Where the planets are from here — {app}', { app: APP_NAME });
+        const data = { title: APP_NAME, text, url };
         if (typeof nav?.share === 'function') {
             let can = true;
             try {
@@ -503,6 +1127,33 @@ export function createActions(deps) {
         return (await copyText(url)) ? 'copied' : 'failed';
     }
 
+    /**
+     * The diagnostics report (core/diagnostics.js, built by main.js: no location), or null in a host
+     * that provides none.
+     * @returns {object|null}
+     */
+    function diagnostics() {
+        try {
+            return deps.diagnostics?.() ?? null;
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * Copies the diagnostics report, as indented JSON, to the clipboard (About; a Settings
+     * 'Troubleshooting' button may call it too). Resolves {ok, text}: the text either way, so the
+     * caller can show it to select by hand when copying failed. Feedback is the caller's.
+     * @returns {Promise<{ok:boolean, text:string}>}
+     */
+    async function copyDiagnostics() {
+        let text = '{}';
+        try {
+            text = JSON.stringify(diagnostics() ?? {}, null, 2);
+        } catch { /* a cycle or a getter that throws: an empty report */ }
+        return { ok: await copyText(text), text };
+    }
+
     function toggleFullscreen() {
         if (!doc) return;
         const el = doc.documentElement;
@@ -514,13 +1165,13 @@ export function createActions(deps) {
             }
             const req = el.requestFullscreen || el.webkitRequestFullscreen;
             if (typeof req !== 'function') {
-                toast("Fullscreen isn't available on this device.", 'info');
+                toast(t("Fullscreen isn't available on this device."), 'info');
                 return;
             }
             const p = req.call(el, { navigationUI: 'hide' });
-            if (p && typeof p.catch === 'function') p.catch(() => toast("Fullscreen isn't available here.", 'info'));
+            if (p && typeof p.catch === 'function') p.catch(() => toast(t("Fullscreen isn't available here."), 'info'));
         } catch {
-            toast("Fullscreen isn't available here.", 'info');
+            toast(t("Fullscreen isn't available here."), 'info');
         }
     }
 
@@ -528,7 +1179,8 @@ export function createActions(deps) {
         const ui = store.get().ui;
         const cinema = !ui.cinema;
         store.set({ ui: { ...ui, cinema } }, 'actions');
-        say(cinema ? 'Interface hidden. Press H to show it again.' : 'Interface shown');
+        say(!cinema ? t('Interface shown') : store.get().status.coarse ? t('Interface hidden. Tap Show interface to bring it back.')
+            : t('Interface hidden. Press H to show it again.'));
     }
 
     function resetCamera() {
@@ -539,65 +1191,578 @@ export function createActions(deps) {
 
     function replayIntro() {
         if (!has3d() || typeof deps.runIntro !== 'function') {
-            toast('The intro needs the 3D view.', 'info');
+            toast(t('The intro needs the 3D view.'), 'info');
             return;
         }
         settle(deps.runIntro({ force: true }));
     }
 
     /**
-     * Jumps to an event: pauses, sweeps the clock there, applies the event's selection and view,
-     * and for a solar eclipse flies the camera over the Moon's shadow.
+     * Jumps to an event: sweeps the clock there (to the instant eventFraming picks, paused, or
+     * playing at 1× for a central solar eclipse), applies the event's selection and view, and
+     * moves the camera in one shot that overlaps the sweep: over the Moon's shadow for a solar
+     * eclipse in globe view, toward the selected body in sky view (at the framing's field of
+     * view). A solar eclipse becomes the eclipse in focus (`ui.eclipse`); any other event clears it.
      * @param {AstroEvent} ev
      */
     function jumpToEvent(ev) {
-        const tMs = Number(ev?.tMs);
-        if (!Number.isFinite(tMs)) return;
+        const plan = eventFraming(ev);
+        if (!plan) return;
+        chase.stop();
         const animateMs = reducedMotion() ? 0 : JUMP_ANIMATE_MS;
         clock.pause();
-        clock.setTime(tMs, { animateMs });
+        clock.setTime(plan.tMs, { animateMs });
+        if (plan.play) {
+            clock.setRate?.(1);
+            clock.play?.();
+        }
         if (ev.select && isBodyId(ev.select)) select(ev.select);
-        if (ev.view && VIEW_MODES.has(ev.view)) setViewMode(ev.view);
-        clearTimeout(eventFlyTimer);
-        if (!rig()) return;
-        // Aim once the time sweep has landed, from a snapshot at the event's own instant (the
-        // loop's may still be catching up), so the target is right with or without Earth-lock.
-        eventFlyTimer = setTimeout(() => {
+        setEclipseFocus(ev);
+        const view = store.get().view;
+        const mode = ev.view && VIEW_MODES.has(ev.view) ? ev.view : view.mode;
+        // Aim before the view changes: the rig then already heads for the event's mode, and the
+        // view.mode subscriber (main.js) joins that transition instead of queuing a second leg. The
+        // 'event' source tells it not to add a look of its own from the pre-sweep frame.
+        // A vantage point stays put in globe view: L1 watches the eclipse shadow cross the disc.
+        if (rig() && !(mode === 'orbit' && (view.vantage ?? 'none') !== 'none')) {
             try {
-                const mode = store.get().view.mode;
-                const animate = !reducedMotion();
-                scratchSnap ??= createSnapshot();
-                computeSnapshot(tMs, store.get().observer, scratchSnap, { detail: 'frame' });
-                if (mode === 'orbit' && (ev.kind === 'solar-eclipse' || ev.kind === 'local-solar-eclipse')) {
-                    // Over the Moon's shadow: greatest eclipse when known, else where the axis meets the Earth.
-                    const g = ev.geo;
-                    const p = g && Number.isFinite(g.latDeg) && Number.isFinite(g.lonDeg) ? g : shadowPoint(scratchSnap);
-                    settle(rig()?.flyToLatLon?.(p.latDeg, p.lonDeg, { distance: 2.6, animate }));
-                } else if (mode === 'sky' && ev.select && isBodyId(ev.select)) {
-                    // Sky events: turn to the selected body as it stands at the event.
-                    const b = scratchSnap.bodies[BODY_INDEX[ev.select]];
-                    if (b && b.altGeomDeg > -5) {
-                        settle(rig()?.setMode?.('sky', { animate, look: { azDeg: b.azGeomDeg, altDeg: b.altGeomDeg } }));
-                    }
-                }
-            } catch { /* the jump itself already happened */ }
-        }, animateMs + 60);
+                aimAtEvent(ev, plan, mode, animateMs);
+            } catch { /* the jump itself still happens */ }
+        }
+        // The fresh view: the aim may already have ended a vantage point (the rig's onVantageEnd).
+        if (view.mode !== mode) store.set({ view: { ...store.get().view, mode, vantage: 'none' } }, 'event');
     }
+
+    /** ui.eclipse = {peakMs, kind, local, eventId} for a solar eclipse event, else null. */
+    function setEclipseFocus(ev) {
+        const solar = ev.kind === 'solar-eclipse' || ev.kind === 'local-solar-eclipse';
+        const ui = store.get().ui;
+        const eclipse = solar
+            ? { peakMs: Number(ev.tMs), kind: ev.eclipseKind ?? null, local: ev.kind === 'local-solar-eclipse', eventId: ev.id ?? null }
+            : null;
+        if (!eclipse && !ui.eclipse) return;
+        store.set({ ui: { ...ui, eclipse } }, 'actions');
+    }
+
+    /**
+     * The camera move of an event jump, aimed from a snapshot at the framing's aim instant (the
+     * loop's frame still shows the start of the sweep). Rig flights are Earth-fixed and sky looks
+     * are horizon-fixed, so both can run while the clock sweeps. An animated flight outlasts the
+     * sweep, so that with Earth-lock off the turning Earth cannot carry the target away after it.
+     */
+    function aimAtEvent(ev, plan, mode, animateMs) {
+        const r = rig();
+        const animate = animateMs > 0;
+        scratchSnap ??= createSnapshot();
+        computeSnapshot(plan.aimMs, store.get().observer, scratchSnap, { detail: 'frame' });
+        if (mode === 'orbit' && (ev.kind === 'solar-eclipse' || ev.kind === 'local-solar-eclipse')) {
+            // Over the Moon's shadow: greatest eclipse when known, else where the axis meets the Earth.
+            // From sky view this is the sky → globe transition itself, ending over the shadow.
+            const g = ev.geo;
+            const p = g && Number.isFinite(g.latDeg) && Number.isFinite(g.lonDeg) ? g : shadowPoint(scratchSnap);
+            settle(r.flyToLatLon?.(p.latDeg, p.lonDeg, { distance: 2.6, animate, durationMs: animateMs + EVENT_FLY_EXTRA_MS }));
+        } else if (mode === 'sky' && ev.select && isBodyId(ev.select)) {
+            // Sky events: turn to the selected body as it stands at the event.
+            const b = scratchSnap.bodies[BODY_INDEX[ev.select]];
+            if (b && b.altGeomDeg > -5) {
+                const look = { azDeg: b.azGeomDeg, altDeg: b.altGeomDeg };
+                if (Number.isFinite(plan.fovDeg)) look.fovDeg = plan.fovDeg;
+                settle(r.setMode?.('sky', { animate, look }));
+            }
+        } else if (mode === 'sky' && ev.look && Number.isFinite(ev.look.azDeg) && Number.isFinite(ev.look.altDeg)) {
+            // Events without a body (meteor showers): face the direction the event gives.
+            const look = { azDeg: ev.look.azDeg, altDeg: ev.look.altDeg };
+            const fov = Number.isFinite(plan.fovDeg) ? plan.fovDeg : ev.look.fovDeg;
+            if (Number.isFinite(fov)) look.fovDeg = fov;
+            settle(r.setMode?.('sky', { animate, look }));
+        }
+    }
+
+    /**
+     * 'Play the eclipse' (the Eclipse Companion): runs eclipsePlayRange(ev) as a once-through
+     * timelapse, selects the eclipsed body and, in the 3D view, turns to it in the event's view
+     * with a field that holds its whole drift. Returns false when the event has no contacts.
+     * @param {AstroEvent} ev a 'local-solar-eclipse' or 'lunar-eclipse' event
+     * @returns {boolean}
+     */
+    function playEclipse(ev) {
+        const range = eclipsePlayRange(ev);
+        if (!range) return false;
+        clock.setRange(range);
+        if (ev.select && isBodyId(ev.select)) select(ev.select);
+        setEclipseFocus(ev);
+        const view = store.get().view;
+        const mode = ev.view && VIEW_MODES.has(ev.view) ? ev.view : view.mode;
+        const r = rig();
+        if (r && mode === 'sky' && isBodyId(ev.select)) {
+            try {
+                scratchSnap ??= createSnapshot();
+                const at = (ms) => {
+                    computeSnapshot(ms, store.get().observer, scratchSnap, { detail: 'frame' });
+                    const b = scratchSnap.bodies[BODY_INDEX[ev.select]];
+                    return { azDeg: b.azGeomDeg, altDeg: b.altGeomDeg };
+                };
+                const pts = [at(range.fromMs), at((range.fromMs + range.toMs) / 2), at(range.toMs)];
+                const look = lookSpanning(pts, eventFraming(ev)?.fovDeg);
+                settle(r.setMode?.('sky', { animate: !reducedMotion(), look }));
+            } catch { /* the timelapse still runs */ }
+        }
+        if (view.mode !== mode) store.set({ view: { ...store.get().view, mode, vantage: 'none' } }, 'event');
+        return true;
+    }
+
+    /** In-flight or finished eclipse-path requests by minute of peak (small LRU). */
+    const paths = new Map();
+
+    /**
+     * The path of the central solar eclipse near `peakMs` (eclipse-path.js: centre line, limits,
+     * greatest eclipse) with `cities`, the largest offline cities inside the band
+     * ({city: Place, durS, c2Ms, c3Ms, maxMs, sunAltDeg, kind, km, index}), computed in the astro
+     * worker and cached, so the panel and the globe share one request. Resolves null for an
+     * eclipse with no central line.
+     * @param {number} peakMs
+     * @returns {Promise<object|null>}
+     */
+    function eclipsePathFor(peakMs) {
+        const peak = Number(peakMs);
+        if (!Number.isFinite(peak)) return Promise.resolve(null);
+        const list = cities?.list ?? [];
+        const key = `${Math.round(peak / 60000)}:${list.length}`;
+        let p = paths.get(key);
+        if (!p) {
+            const astro = deps.astro;
+            p = astro?.eclipsePath
+                ? Promise.resolve(astro.eclipsePath(peak, { cities: list, n: 12 }))
+                : new Promise((resolve) => {
+                    // No worker client: compute here (≈ 10–40 ms), after the current task.
+                    setTimeout(() => {
+                        try {
+                            const path = eclipsePath(peak);
+                            if (path) path.cities = citiesInPath(path, list, 12).map((c) => ({ ...c, city: list[c.index] ?? null }));
+                            resolve(path);
+                        } catch {
+                            resolve(null);
+                        }
+                    }, 0);
+                });
+            p = p.catch((err) => {
+                paths.delete(key);
+                throw err;
+            });
+            paths.set(key, p);
+            // Also under the eclipse's own peak, which the ribbon and the panels ask for next.
+            const req = p;
+            req.then((path) => {
+                const k = path && Number.isFinite(path.peakMs) ? `${Math.round(path.peakMs / 60000)}:${list.length}` : null;
+                if (k && k !== key && !paths.has(k)) paths.set(k, req);
+                while (paths.size > MAX_PATHS) paths.delete(paths.keys().next().value);
+            }, () => {});
+            if (paths.size > MAX_PATHS) paths.delete(paths.keys().next().value);
+        }
+        return p;
+    }
+
+    /**
+     * 'Stand in the path': moves the observer onto the centre line of a central solar eclipse,
+     * at the point nearest the current observer (or at greatest eclipse, `at: 'greatest'`), with
+     * the usual observer-change semantics (named after the nearest city, saved, Undo toast), then
+     * jumps to the eclipse as seen from there (eventFraming: 20 s before second contact, playing).
+     * Resolves the new observer, or null when the eclipse has no path on Earth.
+     * @param {number|AstroEvent} target an eclipse event or its peak time (ms)
+     * @param {{at?:'nearest'|'greatest'}} [opts]
+     * @returns {Promise<Observer|null>}
+     */
+    async function standInPath(target, { at = 'nearest' } = {}) {
+        const peakMs = typeof target === 'number' ? target : Number(target?.tMs);
+        if (!Number.isFinite(peakMs)) return null;
+        let path = null;
+        try {
+            path = await eclipsePathFor(peakMs);
+        } catch {
+            path = null;
+        }
+        if (!path) {
+            toast(t('This eclipse has no path of totality or annularity on Earth.'), 'info');
+            return null;
+        }
+        const o = store.get().observer;
+        const p = (at !== 'greatest' && nearestCentrePoint(path, o.latDeg, o.lonDeg)) || path.greatest;
+        const next = setObserver({ latDeg: p.latDeg, lonDeg: p.lonDeg, elevM: 0, source: 'manual' }, { fly: false, undoable: true });
+        if (!next) return null;
+        let ev = null;
+        try {
+            ev = localSolarEclipseAt(next, path.peakMs, { tz: next.tz || undefined, hour12: !!store.get().display?.hour12 });
+        } catch {
+            ev = null;
+        }
+        jumpToEvent(ev ?? {
+            kind: 'solar-eclipse', tMs: path.peakMs, select: 'sun', view: 'orbit', eclipseKind: path.kind,
+            geo: { latDeg: path.greatest.latDeg, lonDeg: path.greatest.lonDeg },
+        });
+        return next;
+    }
+
+    /** The shadow chase (eclipse-chase.js): the camera rides the umbra while the clock runs the path. */
+    const chase = createEclipseChase({
+        store, clock,
+        getRig: () => (has3d() ? rig() : null),
+        getRibbon: () => render.eclipsePath ?? null,
+        eclipsePath: eclipsePathFor,
+        reducedMotion,
+        toast: (m, k) => toast(m, k),
+    });
 
     function toggleDebug() {
         if (typeof deps.toggleDebug !== 'function') return false;
         return deps.toggleDebug();
     }
 
+    // The clock a preset found (star trails run fast time from dusk; the analemma, a year's range),
+    // given back when the exposure stops.
+    let exposeClock = null;
+
+    /** The clock as the presets found it (Live, or the rate and play state; the analemma's start). */
+    function restoreExposeClock(saved, preset) {
+        const c = saved.clock;
+        // Trails taken over meanwhile (paused, or another rate): the user's clock stays.
+        if (preset === 'trails' && !(clock.playing && clock.rate === TRAILS_RATE)) return;
+        const animateMs = reducedMotion() ? 0 : JUMP_ANIMATE_MS;
+        if (clock.range) clock.setRange(null);
+        if (c.live) {
+            clock.goLive?.({ animateMs });
+            return;
+        }
+        if (c.range) {
+            clock.setRange(c.range);
+            if (Number.isFinite(c.progress)) clock.seek?.(c.progress);
+            if (!c.playing) clock.pause();
+            return;
+        }
+        clock.pause();
+        // The analemma ran up to a year on: back to the day it started (trails stay in the night).
+        if (preset === 'analemma') clock.setTime(c.tMs, { animateMs });
+        if (Number.isFinite(c.rate)) clock.setRate(c.rate);
+        if (c.playing) clock.play();
+    }
+
+    /**
+     * Long exposure (ROADMAP lighten-stacking-exposure, app/expose.js): 'trails' | 'analemma' |
+     * 'free' starts stacking in sky view (presets also set the clock and the view), null stops it.
+     * Stopping ends the analemma's own timelapse and gives back the clock a preset found (Live, or
+     * its rate and play state; the analemma's start). The stacking itself is render/long-exposure.js.
+     * @param {'trails'|'analemma'|'free'|null} kind
+     * @returns {boolean} started (or stopped)
+     */
+    function expose(kind) {
+        const k = kind == null || kind === 'off' ? null : String(kind);
+        if (k !== null && !EXPOSE_KINDS.includes(k)) return false;
+        const ui = store.get().ui;
+        if (k === null) {
+            const saved = exposeClock;
+            exposeClock = null;
+            if (!ui.expose) return true;
+            if (ui.expose === 'analemma' && clock.range?.strideMs) {
+                clock.setRange(null);
+                clock.pause();
+            }
+            if (saved) restoreExposeClock(saved, saved.preset);
+            store.set({ ui: { ...store.get().ui, expose: null } }, 'actions');
+            say(t('Long exposure stopped'));
+            return true;
+        }
+        if (!has3d()) {
+            toast(t('Long exposures need the 3D view.'), 'info');
+            return false;
+        }
+        const st = store.get();
+        const o = st.observer;
+        let look;
+        scratchSnap ??= createSnapshot();
+        if (k !== 'free' && (st.view.track ?? 'none') !== 'none') setTracking('none');
+        if ((k === 'trails' || k === 'analemma') && !exposeClock) {
+            exposeClock = {
+                preset: k,
+                clock: {
+                    tMs: clock.tMs, rate: clock.baseRate ?? clock.rate, playing: clock.playing, live: !!clock.live,
+                    range: clock.range ? { ...clock.range } : null, progress: clock.progress?.() ?? null,
+                },
+            };
+        } else if (exposeClock && k !== 'free') {
+            exposeClock.preset = k;
+        }
+        if (k === 'trails') {
+            const dark = nextDarkMs(clock.tMs, o, scratchSnap);
+            if (dark === null) toast(t("The Sun doesn't set far enough here: the exposure waits for darkness."), 'info');
+            else if (dark - clock.tMs > 6e4) clock.setTime(dark, { animateMs: reducedMotion() ? 0 : JUMP_ANIMATE_MS });
+            clock.setRate(TRAILS_RATE);
+            if (!clock.playing) clock.play();
+            look = trailsLook(o.latDeg);
+        } else if (k === 'analemma') {
+            const plan = analemmaPlan(clock.tMs, o, scratchSnap);
+            // Held on its first day until the camera has turned: the stack starts with that frame.
+            clock.setRange(plan.range);
+            clock.pause();
+            look = plan.look;
+        } else if (ui.expose === 'analemma' && clock.range?.strideMs) {
+            clock.setRange(null);
+            clock.pause();
+        }
+        const r = rig();
+        if (look) {
+            const turned = Promise.resolve(r?.setMode?.('sky', { animate: !reducedMotion(), look }));
+            if (k === 'analemma') {
+                settle(turned.then(() => {
+                    if (store.get().ui.expose === 'analemma' && clock.range?.strideMs && !clock.playing) clock.play();
+                }));
+            }
+        }
+        const view = store.get().view;
+        if (view.mode !== 'sky') store.set({ view: { ...view, mode: 'sky' } }, look ? 'event' : 'actions');
+        store.set({ ui: { ...store.get().ui, expose: k } }, 'actions');
+        say(k === 'trails' ? t('Exposing star trails') : k === 'analemma' ? t('Exposing the analemma: the Sun at noon, every day for a year')
+            : t('Long exposure: every frame is stacked'));
+        return true;
+    }
+
+    /**
+     * The running exposure: preset, frames stacked and the simulated span they cover, or null when
+     * none runs (render/long-exposure.js stats()).
+     * @returns {{kind:string|null, active:boolean, frames:number, fromMs:number, toMs:number, gated:boolean}|null}
+     */
+    function exposeStatus() {
+        if (!store.get().ui.expose) return null;
+        try {
+            return render.longExposure?.stats?.() ?? null;
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * Renders the scene once into a canvas (app/capture.js): postcards at their own size and aspect,
+     * or (no size) the screen frame itself, a long exposure's stack included. Null in text mode.
+     * @param {{width?:number, height?:number, scale?:number, labels?:boolean}} [opts]
+     * @returns {HTMLCanvasElement|null}
+     */
+    function capture(opts) {
+        if (!has3d()) return null;
+        return render.capture?.frame?.(opts) ?? null;
+    }
+
+    /** The recorder module (loaded on the first recording) and the recording in progress. */
+    let recorderP = null;
+    let recording = null;
+    /**
+     * Records a time-lapse video (app/recorder.js, loaded on the first call): 'day' | 'night' |
+     * 'eclipse' at 'landscape' (1920×1080) or 'vertical' (1080×1920), with labels and the caller's
+     * `paint` (the date stamp) burned in. A shadow chase or a tour on screen ends first. Resolves
+     * {blob, name, mime, …} or {error} ('no-3d', 'unsupported', 'busy', 'no-night', 'no-path',
+     * 'cancelled', 'changed', 'failed').
+     * @param {object} opts see recorder.js recordVideo
+     * @returns {Promise<object>}
+     */
+    function recordVideo(opts = {}) {
+        if (!has3d() || !render.video) return Promise.resolve({ error: 'no-3d' });
+        if (recording) return Promise.resolve({ error: 'busy' });
+        if (chase.active) chase.stop();
+        if (store.get().ui.tour) deps.tours?.stop?.();
+        recorderP ??= import('./recorder.js');
+        recording = recorderP.then((m) => m.recordVideo({ store, clock, render, eclipsePath: eclipsePathFor }, opts))
+            .catch((err) => {
+                recorderP = null;
+                console.error('[actions] the recorder could not run', err);
+                return { error: 'failed' };
+            })
+            .finally(() => { recording = null; });
+        return recording;
+    }
+
+    /**
+     * The angle ruler (sky view, render/ruler.js): on, taps on the sky measure instead of selecting
+     * (two ends: a body, a bright star or any point; a third tap starts again); off clears it.
+     * `ui.ruler` carries the reading (main.js fills it in). Needs the 3D view.
+     * @param {boolean} [on] omitted → toggle
+     * @returns {boolean} the ruler is on
+     */
+    function setRuler(on) {
+        const ui = store.get().ui;
+        const next = on === undefined ? !ui.ruler : !!on;
+        if (!next) {
+            if (ui.ruler) {
+                store.set({ ui: { ...ui, ruler: null } }, 'actions');
+                say(t('Ruler off'));
+            }
+            return false;
+        }
+        if (ui.ruler) return true;
+        if (!has3d()) {
+            toast(t('The ruler needs the 3D view.'), 'info');
+            return false;
+        }
+        if (store.get().view.mode !== 'sky') store.set({ view: { ...store.get().view, mode: 'sky', vantage: 'none' } }, 'actions');
+        store.set({ ui: { ...store.get().ui, ruler: { ends: 0, from: null, to: null, deg: null, text: '', fists: '' } } }, 'actions');
+        say(t('Ruler on: tap two things in the sky to measure the angle between them'));
+        return true;
+    }
+
+    /**
+     * 'Point at the sky' (phones, sky view): the view follows the phone (camera/aim.js, run by
+     * main.js through deps.aim). iOS asks for motion access here, inside the tap, before anything
+     * is awaited. Off stops it. Resolves true once the first reading arrived.
+     * @param {boolean} [on] omitted → toggle
+     * @returns {Promise<boolean>}
+     */
+    function pointAtSky(on) {
+        const ui = store.get().ui;
+        const next = on === undefined ? !ui.aim : !!on;
+        if (!next) {
+            try { deps.aim?.stop?.('user'); } catch { /* already stopped */ }
+            return Promise.resolve(false);
+        }
+        if (ui.aim) return Promise.resolve(true);
+        if (!has3d() || typeof deps.aim?.start !== 'function') {
+            toast(t('Pointing at the sky needs the 3D view.'), 'info');
+            return Promise.resolve(false);
+        }
+        if (store.get().view.mode !== 'sky') {
+            toast(t('Switch to the sky view first.'), 'info');
+            return Promise.resolve(false);
+        }
+        const DOE = win?.DeviceOrientationEvent;
+        let perm = 'granted';
+        if (typeof DOE?.requestPermission === 'function') {
+            try {
+                perm = DOE.requestPermission();
+            } catch {
+                perm = 'denied';
+            }
+        }
+        return Promise.resolve(perm).catch(() => 'denied').then((p) => {
+            if (p !== 'granted') {
+                toast(t('Motion access was declined, so the view cannot follow the phone. Allow it in the browser settings to try again.'), 'warn');
+                return false;
+            }
+            return Promise.resolve(deps.aim.start()).catch(() => false);
+        });
+    }
+
+    /**
+     * 'Align' while pointing: the bright body or star nearest the centre of the view is taken to be
+     * where the phone really points, which corrects the compass (main.js; saved for next time).
+     * @returns {string|null} what it aligned on
+     */
+    function alignAim() {
+        try {
+            return deps.aim?.align?.() ?? null;
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * data/tle.json as the satellites' provider holds it (astro/satellites.js; the worker's
+     * 'satPasses' input), or null until it has loaded.
+     * @returns {any}
+     */
+    function satelliteElements() {
+        try {
+            return extras?.provider?.('sat')?.elements?.() ?? null;
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * 'Watch this pass' (a SatPass from the worker's 'satPasses'): the clock cut to PASS_LEAD_MS
+     * before the visible part begins and playing at 1×, the satellite selected, and in sky view
+     * tracked across the sky. A cut, not a sweep: tracking lets go of a target that is below the
+     * horizon on the way.
+     * @param {{id:string, startMs:number, startAzDeg?:number, startAltDeg?:number}} pass
+     * @returns {boolean} applied
+     */
+    function watchPass(pass) {
+        if (!pass || !isExtraId(pass.id) || !Number.isFinite(pass.startMs)) return false;
+        // The pass is for the Earth place: standing on Mars, go back there first.
+        if (store.get().host?.id === 'mars') leaveMars();
+        chase.stop();
+        clock.pause();
+        clock.setTime(pass.startMs - PASS_LEAD_MS, { animateMs: 0 });
+        clock.setRate?.(1);
+        clock.play?.();
+        setEclipseFocus(pass);
+        const st = store.get();
+        if (!st.layers.satellites) store.set({ layers: { ...st.layers, satellites: true } }, 'actions');
+        if (st.selection !== pass.id) store.set({ selection: pass.id }, 'actions');
+        const az = Number(pass.startAzDeg);
+        if (has3d() && !st.status.introPlaying) {
+            const look = Number.isFinite(az) ? { azDeg: az, altDeg: Math.max(8, Number(pass.startAltDeg) || 10) } : undefined;
+            settle(rig().setMode?.('sky', { animate: !reducedMotion(), look }));
+            store.set({ view: { ...store.get().view, mode: 'sky', track: 'body', vantage: 'none' } }, 'event');
+        }
+        const vars = { body: nameOf(pass.id), dir: compassWord(az), n: Math.round(PASS_LEAD_MS / 1000) };
+        say(Number.isFinite(az) ? t('Watching {body}: it appears low in the {dir} in {n} seconds', vars) : t('Watching {body}: it appears in {n} seconds', vars));
+        return true;
+    }
+
+    /**
+     * Guided tours (js/app/tours.js, which main.js loads on demand; ids in core/tour-catalog.js).
+     * `deps.tours` is {start(id), stop(), next(), resume()}; without it (tests, a failed load) the
+     * calls do nothing. startTour resolves true once the tour runs.
+     */
+    function startTour(id) {
+        const tours = deps.tours;
+        if (typeof tours?.start !== 'function') return Promise.resolve(false);
+        return Promise.resolve(tours.start(id)).catch(() => false);
+    }
+    const tourCall = (name) => () => {
+        try {
+            deps.tours?.[name]?.();
+        } catch { /* the tour ends itself on errors */ }
+    };
+
     return {
         setObserver, undoObserver, locateMe,
-        select, flyToBody, setViewMode, cycleView, setEarthLock,
-        toggleLayer, setQuality, setTzMode, share,
+        select, flyToBody, setViewMode, cycleView, setEarthLock, setTracking, cycleTracking, telescope, leaveTelescope, scopeFromLink,
+        setVantage,
+        // Phase 5: the flat world map, a second place to compare with, the solar-system zoom.
+        toggleMap, setObserver2, compareWith, frameObservers, setSystem,
+        // Phase 6: stand on Mars (the sky view from an areographic site) and back.
+        standOnMars, leaveMars,
+        toggleLayer, setQuality, setTzMode, setSkyDark, setAuroraActivity, setNightVision, setLanguage, share,
         toggleFullscreen, toggleCinema, resetCamera, replayIntro, jumpToEvent,
         // Extensions beyond SPEC §C.9 (used by shortcuts / the shell when present).
-        toggleDebug, openPalette, shareUrl,
+        toggleDebug, openPalette, shareUrl, viewFromBody, getView,
+        // Phase 7: the diagnostics report (About → Copy diagnostics).
+        diagnostics, copyDiagnostics,
+        // Eclipse 2027 (ROADMAP Phase 1): the shared path request and 'Stand in the path'.
+        eclipsePath: eclipsePathFor, standInPath, playEclipse,
+        // Phase 5: long exposures and the capture path (postcards, Save image).
+        expose, exposeStatus, capture, recordVideo,
+        /** True while a time-lapse video records. */
+        get recording() { return recording !== null; },
+        // Phase 5: finding it in the real sky (the angle ruler, pointing the phone).
+        setRuler, pointAtSky, alignAim,
+        // Phase 6: satellites (the worker's pass search input, 'Watch this pass').
+        satelliteElements, watchPass,
+        /**
+         * Rides the Moon's shadow: the camera follows the umbra from low orbit while the clock runs
+         * the path of the central eclipse near `target` (a time or an event) in about 40 s.
+         * Resolves false when the eclipse has no path on Earth or there is no 3D view.
+         * @type {(target:number|AstroEvent)=>Promise<boolean>}
+         */
+        chaseEclipse: (target) => chase.start(target),
+        /** Ends a running shadow chase where it is. */
+        stopChase: () => chase.stop(),
+        /** True while a shadow chase runs. */
+        get chasing() { return chase.active; },
         /** True when an undo is available. */
         get canUndo() { return undoStack.length > 0; },
+        // Guided tours (ROADMAP Phase 5): start one, end it (restoring the state it found), skip to
+        // its next step, or resume it after input paused it. store.ui.tour describes the one on screen.
+        startTour,
+        stopTour: tourCall('stop'),
+        nextTourStep: tourCall('next'),
+        resumeTour: tourCall('resume'),
     };
 }
 

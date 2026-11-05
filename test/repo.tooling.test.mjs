@@ -13,7 +13,7 @@ import { createStaticServer, resolveRequest, mimeFor, download } from '../script
 import { scanJs, findImports } from '../scripts/lib/jsscan.mjs';
 import { parseHtml, resolveSpecifier, resolveDocumentUrl, crawlModules } from '../scripts/lib/modgraph.mjs';
 import { siteFiles } from '../scripts/stage-site.mjs';
-import { tierTextureKeys, TIER_BUDGETS } from '../scripts/check-size.mjs';
+import { tierTextureKeys, TIER_BUDGETS, INFO_TIERS, STAGING_BUDGET } from '../scripts/check-size.mjs';
 import { iconShapes, rasterize, toSvg } from '../scripts/build-icons.mjs';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -259,14 +259,28 @@ test('stage-site ships the site and nothing else', () => {
 });
 
 test('check-size: tier texture selection mirrors keysForTier', () => {
-    assert.deepEqual(tierTextureKeys({ dayTex: 'day2k', oceanMask: 'derived', clouds: 'none', flare: false }), ['day2k', 'night', 'moon', 'milkyway']);
-    assert.deepEqual(tierTextureKeys({ dayTex: 'day4k', oceanMask: 'specular', clouds: 'clouds1k', flare: true }),
-        ['day4k', 'night', 'specular', 'clouds1k', 'moon', 'milkyway', 'flare0', 'flare3']);
+    assert.deepEqual(tierTextureKeys({ dayTex: 'day2k', oceanMask: 'roughness2k', clouds: 'none', flare: false }),
+        ['dayPreview', 'nightPreview', 'day2k', 'night2k', 'roughness2k', 'moon', 'milkyway'], 'low');
+    assert.deepEqual(tierTextureKeys({ dayTex: 'day2k', oceanMask: 'derived', clouds: 'none', flare: false }), ['dayPreview', 'nightPreview', 'day2k', 'night2k', 'moon', 'milkyway'],
+        'a derived mask loads nothing');
+    assert.deepEqual(tierTextureKeys({ dayTex: 'day4k', oceanMask: 'roughness2k', clouds: 'clouds2k', flare: true }),
+        ['dayPreview', 'nightPreview', 'day4k', 'night4k', 'roughness2k', 'clouds2k', 'moon', 'milkyway']);
+    assert.deepEqual(tierTextureKeys({ dayTex: 'day2k', oceanMask: 'roughness2k', clouds: 'clouds2k', flare: true }),
+        ['dayPreview', 'nightPreview', 'day2k', 'night2k', 'roughness2k', 'clouds2k', 'moon', 'milkyway'], 'medium on a small GPU');
     assert.deepEqual(tierTextureKeys({ dayTex: 'day4k', oceanMask: 'roughness', clouds: 'brc4k', flare: true }),
-        ['day4k', 'night', 'brc4k', 'moon', 'milkyway', 'flare0', 'flare3']);
-    assert.deepEqual(TIER_BUDGETS, { low: 3.8e6, medium: 4.3e6, high: 5.4e6 });
-    // SPEC §E.6: every tier stays under 6 MB, and the tiers grow with quality.
-    assert.ok(TIER_BUDGETS.low < TIER_BUDGETS.medium && TIER_BUDGETS.medium < TIER_BUDGETS.high && TIER_BUDGETS.high < 6e6);
+        ['dayPreview', 'nightPreview', 'day4k', 'night4k', 'brc4k', 'moon', 'milkyway']);
+    assert.deepEqual(TIER_BUDGETS, { low: 5.2e6, medium: 5.975e6, high: 8e6 });
+    // SPEC §E.6 as amended: low and medium stay under 6 MB, high under 8 MB (owner, 2026-11-05),
+    // and the tiers grow with quality.
+    assert.ok(TIER_BUDGETS.low < TIER_BUDGETS.medium && TIER_BUDGETS.medium < TIER_BUDGETS.high);
+    assert.ok(TIER_BUDGETS.medium < 6e6 && TIER_BUDGETS.high <= 8e6);
+    // max has no budget: it is reported, never enforced. Its 8192 maps follow their 4096 stand-ins.
+    assert.deepEqual(INFO_TIERS, ['max']);
+    assert.equal(TIER_BUDGETS.max, undefined);
+    assert.deepEqual(tierTextureKeys({ dayTex: 'day8k', oceanMask: 'roughness', clouds: 'clouds8k', moonTex: 'moon4k', flare: true }),
+        ['dayPreview', 'nightPreview', 'day4k', 'night4k', 'brc4k', 'moon', 'milkyway', 'day8k', 'night8k', 'clouds8k', 'moon4k'], 'max');
+    // The staged site carries the max maps (≈ 15 MB) with headroom; GitHub Pages allows 1 GB.
+    assert.equal(STAGING_BUDGET, 32e6);
 });
 
 // ---------------------------------------------------------------- icons

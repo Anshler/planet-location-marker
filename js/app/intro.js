@@ -5,12 +5,18 @@
 //   0–4 s  an eased orbital arc over the terminator into daylight (lights → twilight band → glint),
 //          dollying in to 3.4 Earth radii straight above the observer
 //   2.6 s  the pin drops (ripple)
-//   2.9 s  beams launch one by one (120 ms stagger); each body label appears as its beam lands
+//   2.9 s  beams launch one by one (120 ms stagger); each body label appears as its beam lands, and
+//          bus 'intro' 'launch' tells the UI to fade in its title card (ui/intro-caption.js)
 //   ≈4.6 s done
 //
 // The flight path is interpolated in Earth-fixed coordinates and mapped through the live Earth
 // matrix every frame, so it composes with Earth-lock and with time passing during the intro.
 // Any input (the caller aborts `signal`) jumps straight to the final state.
+//
+// Pre-roll (ROADMAP intro-preroll-matchcut): on a first visit the loader is still fading out
+// (0.7 s) when the intro starts, so `preRollMs` holds the opening pose until it is gone; the
+// timeline above, and the maxMs safety net, start after it. The horizon disc then grows with the
+// pin's ripple (pin.js) instead of sitting there from the first frame.
 //
 // The camera is driven by writing rig.camera.position each frame; OrbitControls re-reads the
 // position on its next update. If the rig turns out to own the position (it moved the camera away
@@ -26,8 +32,10 @@ export const INTRO_TIMING = Object.freeze({
     beamMs: 700,
     startDist: 9,
     endDist: 3.4,
-    /** Safety net: the intro never holds the app longer than this. */
+    /** Safety net: the intro never holds the app longer than this (after the pre-roll). */
     maxMs: 8000,
+    /** The loader's opacity fade (index.html #loader): the first-visit pre-roll. */
+    preRollMs: 700,
 });
 
 /** Smooth start, long graceful settle: the arc should feel like an orbital approach. */
@@ -106,15 +114,18 @@ export function introStartDir(snap) {
  * no rig). Never rejects.
  *
  * @param {{rig:any, beams?:any, pin?:any, snap:import('../core/types.js').Snapshot, reducedMotion?:boolean,
- *          signal?:AbortSignal, labelsFeed?:any, now?:()=>number,
+ *          signal?:AbortSignal, labelsFeed?:any, now?:()=>number, preRollMs?:number, bus?:{emit(t:string, p:any):void},
  *          raf?:(cb:(t:number)=>void)=>number, caf?:(h:number)=>void}} opts
+ *   preRollMs: how long to hold the opening pose first (the loader's fade-out)
+ *   bus: gets 'intro' 'launch' when the beams launch on the timeline (not when a skip jumps there)
  * @returns {Promise<'done'|'skipped'|'unavailable'>}
  */
-export function playIntro({ rig, beams = null, pin = null, snap, reducedMotion = false, signal, labelsFeed = null,
+export function playIntro({ rig, beams = null, pin = null, snap, reducedMotion = false, signal, labelsFeed = null, preRollMs = 0, bus = null,
     now = () => performance.now(), raf = (cb) => requestAnimationFrame(cb), caf = (h) => cancelAnimationFrame(h) }) {
     if (reducedMotion || !rig?.camera || !snap) return Promise.resolve('unavailable');
     if (signal?.aborted) return Promise.resolve('skipped');
     const T = INTRO_TIMING;
+    const preRoll = Number.isFinite(preRollMs) && preRollMs > 0 ? preRollMs : 0;
     const cam = rig.camera;
 
     // Earth-fixed endpoints.
@@ -265,7 +276,10 @@ export function playIntro({ rig, beams = null, pin = null, snap, reducedMotion =
 
         function stepChoreography(elapsed) {
             if (elapsed >= T.pinMs) dropPin();
-            if (elapsed >= T.beamsMs) launch(T.staggerMs);
+            if (elapsed >= T.beamsMs && !launched) {
+                launch(T.staggerMs);
+                bus?.emit?.('intro', 'launch');
+            }
             while (revealIdx < BODIES.length && elapsed >= revealAt[revealIdx]) {
                 labelsFeed?.revealBody?.(BODIES[revealIdx].id);
                 revealIdx++;
@@ -275,7 +289,13 @@ export function playIntro({ rig, beams = null, pin = null, snap, reducedMotion =
         function step() {
             handle = 0;
             if (finished) return;
-            const elapsed = now() - t0;
+            const elapsed = now() - t0 - preRoll;
+            if (elapsed < 0) {
+                // Pre-roll: hold the opening pose while the loader fades.
+                stepCamera(0);
+                handle = raf(step);
+                return;
+            }
             stepCamera(elapsed);
             stepChoreography(elapsed);
             const complete = cameraDone && beamsDone && revealIdx >= BODIES.length;

@@ -1,6 +1,6 @@
 /**
- * Almanac: rise/transit/set, twilight, the Sun-altitude series for the time
- * scrubber, and plain-language "tonight" verdicts. Runs in the astro worker
+ * Almanac: rise/transit/set, twilight, the altitude series for the time
+ * scrubber, and plain-language "tonight" verdicts (with the altitudes behind them). Runs in the astro worker
  * (or on the main thread as a fallback); nothing here is per-frame.
  *
  * Rise and set follow astronomy-engine's definition: the upper limb of the Sun
@@ -12,6 +12,8 @@
 import { AE } from './ae.js';
 import { BODIES, bodyById, AU_KM } from './bodies.js';
 import { SUNRISE_ALT_DEG } from './photometry.js';
+import { t, locale, tag } from '../core/i18n.js';
+import { fmtMag, compass16 as compassText } from '../core/format.js';
 
 const DAY_MS = 86400000;
 const SAMPLE_MIN = 10;                       // tonight() sampling step
@@ -204,6 +206,35 @@ export function twilight(observer, nearMs) {
 }
 
 /**
+ * A body's altitude (degrees) at `n` evenly spaced instants from fromMs to toMs inclusive: the
+ * time scrubber's day/night gradient (the Sun) and its Moon and selected-body bands.
+ * `refraction` as AE.Horizon takes it ('normal' for the apparent altitude; omitted, the
+ * unrefracted centre, as twilight definitions use).
+ * @param {string} bodyId
+ * @param {ObserverLike} observer
+ * @param {number} fromMs
+ * @param {number} toMs
+ * @param {number} n Sample count, 1..100000.
+ * @param {string} [refraction]
+ * @returns {Float32Array}
+ */
+export function altitudeSeries(bodyId, observer, fromMs, toMs, n, refraction) {
+    const b = requireBody(bodyId);
+    const obs = aeObserverOf(observer);
+    requireMs(fromMs, 'fromMs');
+    requireMs(toMs, 'toMs');
+    const count = Math.floor(Number(n));
+    if (!(count >= 1 && count <= 100000)) throw new RangeError('n must be between 1 and 100000');
+    const out = new Float32Array(count);
+    const step = count > 1 ? (toMs - fromMs) / (count - 1) : 0;
+    for (let i = 0; i < count; i++) {
+        const time = AE.MakeTime(new Date(fromMs + i * step));
+        out[i] = horizontal(b.ae, time, obs, refraction).altitude;
+    }
+    return out;
+}
+
+/**
  * Sun-centre altitude (degrees, unrefracted) at `n` evenly spaced instants
  * from fromMs to toMs inclusive — the day/night gradient of the time scrubber.
  * Classify samples with photometry.twilightClass().
@@ -214,45 +245,31 @@ export function twilight(observer, nearMs) {
  * @returns {Float32Array}
  */
 export function sunAltitudeSeries(observer, fromMs, toMs, n) {
-    const obs = aeObserverOf(observer);
-    requireMs(fromMs, 'fromMs');
-    requireMs(toMs, 'toMs');
-    const count = Math.floor(Number(n));
-    if (!(count >= 1 && count <= 100000)) throw new RangeError('n must be between 1 and 100000');
-    const out = new Float32Array(count);
-    const step = count > 1 ? (toMs - fromMs) / (count - 1) : 0;
-    for (let i = 0; i < count; i++) {
-        const time = AE.MakeTime(new Date(fromMs + i * step));
-        out[i] = horizontal('Sun', time, obs, undefined).altitude;
-    }
-    return out;
+    return altitudeSeries('sun', observer, fromMs, toMs, n);
 }
 
 // Cached Intl formatters keyed by zone and clock style. An unknown zone falls
 // back to UTC rather than failing the whole report.
 const timeFormatters = new Map();
 function timeFormatter(tz, hour12) {
-    const key = `${tz}|${hour12 ? 12 : 24}`;
+    const key = `${tz}|${hour12 ? 12 : 24}|${locale()}`;
     let fn = timeFormatters.get(key);
     if (!fn) {
         const opts = hour12
             ? { hour: 'numeric', minute: '2-digit', hour12: true }
             : { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' };
+        // English as designed ('8:14 PM', '20:14'); other locales in their own words ('8:14 CH').
+        const lang = locale() !== 'en' ? tag() : hour12 ? 'en-US' : 'en-GB';
         let dtf;
         try {
-            dtf = new Intl.DateTimeFormat(hour12 ? 'en-US' : 'en-GB', { ...opts, timeZone: tz || 'UTC' });
+            dtf = new Intl.DateTimeFormat(lang, { ...opts, timeZone: tz || 'UTC' });
         } catch {
-            dtf = new Intl.DateTimeFormat(hour12 ? 'en-US' : 'en-GB', { ...opts, timeZone: 'UTC' });
+            dtf = new Intl.DateTimeFormat(lang, { ...opts, timeZone: 'UTC' });
         }
         fn = (ms) => (ms === null ? '—' : dtf.format(new Date(ms)));
         timeFormatters.set(key, fn);
     }
     return fn;
-}
-
-function fmtMag(m) {
-    const s = Math.abs(m).toFixed(1);
-    return m < 0 && s !== '0.0' ? `−${s}` : s;
 }
 
 // Apparent topocentric RA/Dec of date at hourly nodes, RA unwrapped so that
@@ -305,6 +322,7 @@ const DAYTIME_CAPABLE = new Set(['moon', 'venus']);
  *   windowStartMs:number|null, windowEndMs:number|null, mag:number, phaseFrac:number,
  *   constellation:{symbol:string, name:string}, elongDeg:number,
  *   equipment:'naked-eye'|'binoculars'|'telescope', sentence:string}} TonightReport
+ * @typedef {{t0Ms:number, stepMs:number, n:number, ids:string[], alt:Float32Array, sunAlt:Float32Array}} TonightSeries
  */
 
 // 10-minute grid from solar noon to solar noon, plus the Sun's altitude on it.
@@ -361,7 +379,7 @@ function classifySamples(grid, w, darkLimit) {
 
 function decideVerdict(id, elongDeg, c, w) {
     if (elongDeg < (GLARE_LIMIT_DEG[id] ?? DEFAULT_GLARE_LIMIT_DEG)) {
-        return { verdict: 'not-visible', best: -1, flags: null, reason: `too close to the Sun (${Math.round(elongDeg)}°)` };
+        return { verdict: 'not-visible', best: -1, flags: null, reason: 'near' };
     }
     if (c.vis >= 0) {
         let verdict = 'low';
@@ -374,10 +392,9 @@ function decideVerdict(id, elongDeg, c, w) {
     if (c.day >= 0 && daytimeOk && elongDeg >= DAYTIME_MIN_ELONG_DEG) {
         return { verdict: 'daytime', best: c.day, flags: w.daylit, reason: null };
     }
-    let reason = 'below the horizon after dark';
-    if (c.day >= 0) {
-        reason = daytimeOk ? `lost in the Sun’s glare (${Math.round(elongDeg)}° away)` : 'up only in daylight';
-    }
+    // Why not: 'near' the Sun, below the horizon after 'dark', lost in the Sun's 'glare', up only by 'day'.
+    let reason = 'dark';
+    if (c.day >= 0) reason = daytimeOk ? 'glare' : 'day';
     return { verdict: 'not-visible', best: -1, flags: null, reason };
 }
 
@@ -435,10 +452,14 @@ function reportFor(b, obs, mid, grid, w, fmt) {
  * The Sun is not reported (reports follow BODIES order without it). best*
  * fields describe the highest point inside the viewing interval (null when
  * not visible); times in `sentence` use `opts.tz`, else `observer.tz`, else UTC.
+ * `series` holds the sampled altitudes themselves: `alt` packs one row of `n` refracted
+ * altitudes per report (row i is `reports[i]`, `ids[i]`), `sunAlt` the Sun's unrefracted
+ * centre, at `t0Ms + k·stepMs` (10 min, solar noon to solar noon).
  * @param {ObserverLike} observer
  * @param {number} nearMs
  * @param {{tz?:string, hour12?:boolean}} [opts]
- * @returns {{nightStartMs:number|null, nightEndMs:number|null, reports:TonightReport[], twilight:Twilight}}
+ * @returns {{nightStartMs:number|null, nightEndMs:number|null, reports:TonightReport[], twilight:Twilight,
+ *            series:TonightSeries}}
  */
 export function tonight(observer, nearMs, opts = {}) {
     const obs = aeObserverOf(observer);
@@ -457,30 +478,52 @@ export function tonight(observer, nearMs, opts = {}) {
         daylit: new Uint8Array(SAMPLES),
     };
     const reports = [];
+    // The altitudes the verdicts were drawn from, kept for the Tonight chart and the Sky-now
+    // sparklines: one packed row of SAMPLES per report (no extra Astronomy Engine calls).
+    const alt = new Float32Array((BODIES.length - 1) * SAMPLES);
     for (const b of BODIES) {
-        if (b.id !== 'sun') reports.push(reportFor(b, obs, mid, grid, w, fmt));
+        if (b.id === 'sun') continue;
+        reports.push(reportFor(b, obs, mid, grid, w, fmt));
+        alt.set(w.alt, (reports.length - 1) * SAMPLES);
     }
-    return { ...nightBounds(tw, grid), reports, twilight: tw };
+    const series = {
+        t0Ms: msOf(grid.times[0]), stepMs: SAMPLE_MIN * 60000, n: SAMPLES,
+        ids: reports.map((r) => r.id), alt, sunAlt: Float32Array.from(grid.sunAlt),
+    };
+    return { ...nightBounds(tw, grid), reports, twilight: tw, series };
 }
 
 function litText(frac) {
     const pct = frac * 100;
-    if (pct > 0 && pct < 1) return '<1% lit';
-    return `${Math.round(pct)}% lit`;
+    if (pct > 0 && pct < 1) return t('<1% lit');
+    return t('{n}% lit', { n: Math.round(pct) });
 }
 
+/** The report's sentence in the interface's language (the worker has the table): one whole phrase per case. */
 function sentenceFor(r, reason, fmt) {
-    if (r.verdict === 'not-visible') return `${r.name}: not visible tonight — ${reason}`;
-    const light = r.id === 'moon' ? litText(r.phaseFrac) : `mag ${fmtMag(r.mag)}`;
-    const gear = r.equipment === 'naked-eye' ? '' : ` (${r.equipment})`;
-    const where = `${Math.round(r.bestAltDeg)}° ${r.compass}`;
-    const con = r.constellation.name;
+    const v = { body: t(r.name), deg: Math.round(r.elongDeg) };
+    if (r.verdict === 'not-visible') {
+        return reason === 'near' ? t('{body}: not visible tonight — too close to the Sun ({deg}°)', v)
+            : reason === 'glare' ? t('{body}: not visible tonight — lost in the Sun’s glare ({deg}° away)', v)
+                : reason === 'day' ? t('{body}: not visible tonight — up only in daylight', v) : t('{body}: not visible tonight — below the horizon after dark', v);
+    }
+    v.light = r.id === 'moon' ? litText(r.phaseFrac) : t('mag {mag}', { mag: fmtMag(r.mag) });
+    v.alt = Math.round(r.bestAltDeg);
+    v.dir = compassText(r.bestAzDeg);
+    v.con = r.constellation.name;
+    v.time = fmt(r.bestMs);
+    v.gear = r.equipment === 'telescope' ? t('telescope') : t('binoculars');
+    const gear = r.equipment !== 'naked-eye';
     switch (r.verdict) {
         case 'twilight':
-            return `${r.name}: in twilight only, ${where} at ${fmt(r.bestMs)}, ${light} in ${con}${gear}`;
+            return gear ? t('{body}: in twilight only, {alt}° {dir} at {time}, {light} in {con} ({gear})', v) : t('{body}: in twilight only, {alt}° {dir} at {time}, {light} in {con}', v);
         case 'daytime':
-            return `${r.name}: daytime only, ${where} at ${fmt(r.bestMs)}, ${light} in ${con}`;
+            return t('{body}: daytime only, {alt}° {dir} at {time}, {light} in {con}', v);
+        case 'excellent':
+            return gear ? t('{body}: excellent, highest {time} at {alt}° {dir}, {light} in {con} ({gear})', v) : t('{body}: excellent, highest {time} at {alt}° {dir}, {light} in {con}', v);
+        case 'good':
+            return gear ? t('{body}: good, highest {time} at {alt}° {dir}, {light} in {con} ({gear})', v) : t('{body}: good, highest {time} at {alt}° {dir}, {light} in {con}', v);
         default:
-            return `${r.name}: ${r.verdict}, highest ${fmt(r.bestMs)} at ${where}, ${light} in ${con}${gear}`;
+            return gear ? t('{body}: low, highest {time} at {alt}° {dir}, {light} in {con} ({gear})', v) : t('{body}: low, highest {time} at {alt}° {dir}, {light} in {con}', v);
     }
 }

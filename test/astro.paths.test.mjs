@@ -78,3 +78,18 @@ test('input validation', () => {
     assert.deepEqual(stationaryPoints(null), []);
     assert.deepEqual(stationaryPoints({ eclLonDeg: new Float64Array(2) }), []);
 });
+
+test('retrograde time-lapse: a planet path carries an image every 10 days, swelling toward opposition', () => {
+    const opp = Date.parse('2027-02-19T00:00:00Z');   // Mars opposition, 2027
+    const p = apparentPath('mars', opp, 180, 24);
+    const g = p.ghosts;
+    assert.equal(g.index.length, 37, '361 daily samples → 37 images');
+    for (let k = 0; k < g.index.length; k++) assert.equal(g.index[k], k * 10);
+    let best = 0;
+    for (let k = 1; k < g.mag.length; k++) if (g.mag[k] < g.mag[best]) best = k;
+    assert.ok(Math.abs(p.tMs[g.index[best]] - opp) <= 10 * 864e5, 'brightest near opposition');
+    assert.ok(g.mag[best] < -0.9 && g.mag[0] > 0.9, `mag ${g.mag[0].toFixed(2)} → ${g.mag[best].toFixed(2)}`);
+    assert.ok(g.diamArcsec[best] > 13 && g.diamArcsec[best] < 15.5, `diameter at opposition ${g.diamArcsec[best]}`);
+    assert.ok(g.diamArcsec[0] < 7, 'small six months before');
+    assert.equal(apparentPath('moon', opp, 15, 6).ghosts.index.length, 0, 'the Moon has none');
+});

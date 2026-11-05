@@ -7,7 +7,7 @@
  *
  * Protocol: the page posts {id, op, args}; the worker replies
  * {id, ok: true, result} or {id, ok: false, error: {name, message}}, and posts
- * {type: 'ready'} once after loading. Typed arrays in results are transferred.
+ * {type: 'ready'} once after loading. Typed arrays in results are transferred (transferablesOf).
  *
  * The same module is importable on the main thread (client.js falls back to
  * `runOp` when workers are unavailable); it only installs its message handler
@@ -15,10 +15,16 @@
  *
  * @module astro/worker
  */
-import { riseTransitSet, twilight, tonight, sunAltitudeSeries, aeObserverOf } from './almanac.js';
+import { riseTransitSet, twilight, tonight, sunAltitudeSeries, altitudeSeries, aeObserverOf } from './almanac.js';
 import { upcomingEvents } from './events.js';
 import { apparentPath, stationaryPoints } from './paths.js';
+import { eclipsePath, citiesInPath } from './eclipse-path.js';
+import { orbitPolylines, moonOrbitPolyline } from './orrery.js';
+import { visibilityYear } from './planner.js';
+import { sunFigures } from './sunpath.js';
+import { allPasses } from './satellites.js';
 import { BODY_IDS } from './bodies.js';
+import { setLocale } from '../core/i18n.js';
 
 function riseSetAll({ bodyIds, observer, fromMs, toMs }) {
     aeObserverOf(observer); // validate once so a bad observer fails the whole request clearly
@@ -29,16 +35,51 @@ function riseSetAll({ bodyIds, observer, fromMs, toMs }) {
 }
 
 /**
+ * The eclipse path, plus the largest cities in the band when `cities` is given: packed
+ * [lat, lon, pop] triples (Float64Array or number[]), or {lat, lon, pop} objects. Each city
+ * result names its position in that list (`index`).
+ */
+function eclipsePathOp({ peakMs, stepS, cities, nCities }) {
+    const path = eclipsePath(peakMs, { stepS });
+    if (!path || !cities) return path;
+    let list = cities;
+    if (ArrayBuffer.isView(cities) || (Array.isArray(cities) && typeof cities[0] === 'number')) {
+        list = [];
+        for (let i = 0; i + 2 < cities.length; i += 3) list.push({ lat: cities[i], lon: cities[i + 1], pop: cities[i + 2] });
+    }
+    path.cities = citiesInPath(path, list, nCities ?? 12);
+    return path;
+}
+
+/**
  * Operation table. Each op takes one plain-object argument and returns a
  * structured-cloneable result.
  *  - riseSet   {bodyIds?, observer, fromMs, toMs}        → {[id]: RTS} (all bodies when bodyIds is omitted)
  *  - twilight  {observer, nearMs}                        → Twilight
- *  - tonight   {observer, nearMs, tz?, hour12?}          → {nightStartMs, nightEndMs, reports, twilight}
- *  - events    {observer, fromMs, days?}                 → AstroEvent[]
+ *  - tonight   {observer, nearMs, tz?, hour12?}          → {nightStartMs, nightEndMs, reports, twilight, series}
+ *              (series: the 10-min altitudes behind the verdicts, packed Float32Arrays, transferred)
+ *  - events    {observer, fromMs, days?, tz?, hour12?, skyLp?} → AstroEvent[] (skyLp: the site's artificial
+ *              zenith light, natural-sky units, for the meteor rates "under this sky")
+ *  - visibilityYear {observer, firstMidnightMs, nights?, stepMin?, startMin?, spanMin?, bodyIds?}
+ *              → PlannerYear (planner.js: a year of nights for the planets, the Sun and the Moon)
+ *  - sunFigures {observer, tMs, dayStartMs?}             → SunFigures (sunpath.js: today's, the solstices'
+ *              and the March equinox's paths, the noon analemma, the subsolar figure-8)
+ *  - eclipsePath {peakMs, stepS?, cities?, nCities?}     → EclipsePath & {cities?: CityInPath[]} | null
+ *              (eclipse-path.js; samples are transferred)
  *  - path      {bodyId, centerMs, halfSpanDays?, stepHours?} → ApparentPath & {stations: StationaryPoint[]}
  *  - sunSeries {observer, fromMs, toMs, n}               → Float32Array(n)
+ *  - altSeries {bodyId, observer, fromMs, toMs, n, refraction?} → Float32Array(n) (any body's altitude:
+ *              the time bar's Moon and selected-body bands use 'normal', the apparent altitude)
+ *  - orbits    {centerMs, n?, nMoon?}                    → {centerMs, n, nMoon, ids, points, moon} (orrery.js
+ *              orbitPolylines: one period of every planet's orbit and the Moon's; arrays transferred)
+ *  - moonOrbit {centerMs, nMoon?}                        → {centerMs, nMoon, moon} (orrery.js moonOrbitPolyline:
+ *              the Moon's month alone, re-sampled far more often; transferred)
  *  - almanac   {observer, dayStartMs, dayEndMs?, nearMs?, sunFromMs?, sunToMs?, n?, tz?, hour12?}
  *              → {riseSet, twilight, tonight, sunSeries:{fromMs, toMs, values}} in one round trip
+ *  - satPasses {tle, observer, fromMs, days?}            → SatPass[] (satellites.js allPasses: the next visible
+ *              passes of every satellite in data/tle.json, `tle`, over `days` (10), by start time)
+ *  - locale    {code, table}                             → true (core/i18n.js setLocale: the page's
+ *              language, posted by client.js when it creates the worker)
  *  - ping      {}                                        → 'pong'
  * @type {Readonly<Record<string, (args:object) => unknown>>}
  */
@@ -46,12 +87,18 @@ export const OPS = Object.freeze({
     riseSet: riseSetAll,
     twilight: ({ observer, nearMs }) => twilight(observer, nearMs),
     tonight: ({ observer, nearMs, tz, hour12 }) => tonight(observer, nearMs, { tz, hour12 }),
-    events: ({ observer, fromMs, days }) => upcomingEvents(observer, fromMs, days ?? 365),
+    events: ({ observer, fromMs, days, tz, hour12, skyLp }) => upcomingEvents(observer, fromMs, days ?? 365, { tz, hour12, skyLp }),
+    visibilityYear: ({ observer, firstMidnightMs, ...opts }) => visibilityYear(observer, firstMidnightMs, opts),
+    sunFigures: ({ observer, tMs, dayStartMs }) => sunFigures(observer, tMs, { dayStartMs }),
+    eclipsePath: eclipsePathOp,
     path: ({ bodyId, centerMs, halfSpanDays, stepHours }) => {
         const path = apparentPath(bodyId, centerMs, halfSpanDays ?? 180, stepHours ?? 24);
         return { ...path, stations: stationaryPoints(path) };
     },
     sunSeries: ({ observer, fromMs, toMs, n }) => sunAltitudeSeries(observer, fromMs, toMs, n),
+    altSeries: ({ bodyId, observer, fromMs, toMs, n, refraction }) => altitudeSeries(bodyId, observer, fromMs, toMs, n, refraction),
+    orbits: ({ centerMs, n, nMoon }) => orbitPolylines(centerMs, n, nMoon),
+    moonOrbit: ({ centerMs, nMoon }) => moonOrbitPolyline(centerMs, nMoon),
     almanac: (args) => {
         const { observer, dayStartMs } = args;
         const dayEndMs = args.dayEndMs ?? dayStartMs + 86400000;
@@ -65,6 +112,8 @@ export const OPS = Object.freeze({
             sunSeries: { fromMs: sunFromMs, toMs: sunToMs, values: sunAltitudeSeries(observer, sunFromMs, sunToMs, args.n ?? 96) },
         };
     },
+    satPasses: ({ tle, observer, fromMs, days }) => allPasses(tle, observer, fromMs, days ?? 10),
+    locale: ({ code, table }) => { setLocale(code, table); return true; },
     ping: () => 'pong',
 });
 
@@ -83,24 +132,22 @@ export function runOp(op, args) {
 }
 
 /**
- * ArrayBuffers of typed arrays found in a result (top level, one level of
- * object nesting, and the `values` of nested objects), for zero-copy postMessage.
+ * ArrayBuffers of typed arrays found in a result (top level and up to three levels of plain-object
+ * nesting, e.g. almanac → tonight → series → alt; arrays are not searched), for zero-copy
+ * postMessage. A result must therefore never hand out a typed array the worker keeps.
  * @param {unknown} result
  * @returns {ArrayBuffer[]}
  */
 export function transferablesOf(result) {
     const buffers = new Set();
-    const add = (v) => {
-        if (ArrayBuffer.isView(v) && v.buffer instanceof ArrayBuffer) buffers.add(v.buffer);
-    };
-    if (ArrayBuffer.isView(result)) {
-        add(result);
-    } else if (result && typeof result === 'object' && !Array.isArray(result)) {
-        for (const v of Object.values(result)) {
-            add(v);
-            if (v && typeof v === 'object' && !ArrayBuffer.isView(v)) add(v.values);
+    const walk = (v, depth) => {
+        if (ArrayBuffer.isView(v)) {
+            if (v.buffer instanceof ArrayBuffer) buffers.add(v.buffer);
+        } else if (depth > 0 && v && typeof v === 'object' && !Array.isArray(v)) {
+            for (const x of Object.values(v)) walk(x, depth - 1);
         }
-    }
+    };
+    walk(result, 3);
     return [...buffers];
 }
 

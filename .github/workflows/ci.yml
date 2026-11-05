@@ -5,9 +5,21 @@ on:
     branches: ['**']
   pull_request:
   workflow_dispatch:
+    inputs:
+      render_goldens:
+        description: Render the visual-regression goldens with the pinned Chrome (artifact 'goldens', to commit into test/golden/)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
+
+env:
+  # Every browser step runs this one Chrome for Testing build (SwiftShader WebGL is deterministic
+  # per build). test/golden/meta.json records the build its goldens were made with: change this
+  # and the golden step skips with a notice until the goldens are rendered again (the 'goldens'
+  # job below).
+  CHROME_VERSION: '153.0.8010.12'
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -17,7 +29,7 @@ jobs:
   test:
     name: Tests, budgets and headless smoke
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -34,13 +46,25 @@ jobs:
       - name: Vendored files match vendor/VENDOR.json
         run: node scripts/fetch-vendor.mjs --check
 
+      # Hashes only: re-encoding is a deliberate, reviewed step (encoder output varies by Chrome version).
+      - name: Derived textures match vendor/DERIVED.json
+        run: node scripts/build-textures.mjs --check
+
       - name: Generated data is up to date with data/raw
         run: |
           node scripts/build-sky.mjs --check
           node scripts/build-milkyway.mjs --check
 
-      - name: Locate Chrome
-        run: echo "CHROME_PATH=$(which google-chrome || which google-chrome-stable || which chromium)" >> "$GITHUB_ENV"
+      - name: Chrome for Testing (pinned)
+        id: chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: ${{ env.CHROME_VERSION }}
+
+      - name: Use the pinned Chrome
+        run: |
+          echo "CHROME_PATH=${{ steps.chrome.outputs.chrome-path }}" >> "$GITHUB_ENV"
+          "${{ steps.chrome.outputs.chrome-path }}" --version
 
       # Every external host is unresolvable: boot must not need the network (SPEC §H).
       # Served under the Pages sub-path so any absolute URL fails here, not in production.
@@ -63,6 +87,49 @@ jobs:
           node scripts/smoke.mjs --offline --expect-ready --assert --tz=UTC --reduced-motion
           --out=smoke/utc-reduced-motion.png --json=smoke/utc-reduced-motion.json
 
+      # The offline promise, on the site exactly as pages.yml deploys it: the staged sw.js (its
+      # content-hashed version) precaches from sw-manifest.json, then the page reloads offline and
+      # must boot from the worker alone, under the Pages sub-path.
+      - name: Smoke — offline reload through the service worker (staged site, sub-path)
+        if: ${{ !cancelled() }}
+        run: |
+          node scripts/stage-site.mjs _site
+          node scripts/smoke.mjs --root=_site --subpath=/planet-location-marker/ --offline --assert --offline-reload --url='/#intro=0' \
+            --out=smoke/offline-reload.png --json=smoke/offline-reload.json
+
+      # Lose and restore the WebGL context at Medium (composer, MSAA, bloom): drawing must resume
+      # with no WebGL warnings.
+      - name: Smoke — context loss and restore, Medium
+        if: ${{ !cancelled() }}
+        run: >
+          node scripts/smoke.mjs --offline --assert --context-loss --url='/#q=medium&intro=0'
+          --out=smoke/context-loss.png --json=smoke/context-loss.json
+
+      # Counts, not milliseconds (scripts/lib/perf-gates.mjs): shader programs and draw calls per
+      # tier, no frame drawn in 3 s while paused (a twinkling sky: at most 32/s, never faster than
+      # the 30 Hz cap), no getBoundingClientRect inside a frame callback during a time-lapse, then a
+      # context loss with no WebGL warning. High runs at 320×240, where its frames come fast enough
+      # for the twinkle cap to matter (the counts do not depend on the viewport).
+      - name: Performance gates — Low, 1440×900, then a context loss
+        if: ${{ !cancelled() }}
+        run: >
+          node scripts/smoke.mjs --offline --perf=low --context-loss
+          --out=smoke/perf-low.png --json=smoke/perf-low.json
+
+      - name: Performance gates — High, 320×240, then a context loss
+        if: ${{ !cancelled() }}
+        run: >
+          node scripts/smoke.mjs --offline --perf=high --context-loss --width=320 --height=240
+          --out=smoke/perf-high.png --json=smoke/perf-high.json
+
+      # The canvas of eight fixed scenes (scripts/golden.mjs --list) against test/golden/, made by
+      # this same Chrome build: fails when more than 0.5 % of a scene's pixels move by more than
+      # 6/255 in luma (the heat maps are in the 'golden-renders' artifact). Skips with a notice
+      # while there are no goldens for this Chrome yet.
+      - name: Golden renders
+        if: ${{ !cancelled() }}
+        run: node scripts/golden.mjs --out=golden-out
+
       - name: Upload smoke screenshots
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
@@ -71,3 +138,46 @@ jobs:
           path: smoke/
           if-no-files-found: warn
           retention-days: 14
+
+      - name: Upload golden renders and heat maps
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: golden-renders
+          path: golden-out/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # Run the CI workflow by hand with 'Render goldens' ticked, then download the 'goldens' artifact,
+  # unzip it into test/golden/ (replacing what is there) and commit it. The goldens must come from
+  # here: the pinned Chrome on the CI runner, never from a developer machine.
+  goldens:
+    name: Render goldens with the pinned Chrome
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.render_goldens }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Chrome for Testing (pinned)
+        id: chrome
+        uses: browser-actions/setup-chrome@v1
+        with:
+          chrome-version: ${{ env.CHROME_VERSION }}
+
+      - name: Render every scene and write test/golden/
+        env:
+          CHROME_PATH: ${{ steps.chrome.outputs.chrome-path }}
+        run: node scripts/golden.mjs --update --out=golden-out
+
+      - name: Upload the goldens
+        uses: actions/upload-artifact@v4
+        with:
+          name: goldens
+          path: test/golden/
+          if-no-files-found: error
+          retention-days: 30

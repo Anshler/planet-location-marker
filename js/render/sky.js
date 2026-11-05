@@ -3,18 +3,42 @@
  * figures, the Milky Way, the equatorial grid, the ecliptic and the sky-view alt-az grid.
  *
  * Everything here is static in the J2000 scene frame and drawn "at infinity" (SPEC E.1), so the
- * Earth and Moon occlude it through the depth test. Only the alt-az grid moves: it is re-oriented
- * every frame from the observer's ENU basis.
+ * Earth and Moon occlude it through the depth test. Two grids move: the alt-az grid is re-oriented
+ * every snapshot from the observer's ENU basis, and the equatorial grid is turned to the true
+ * equator and equinox of date (S·PN·Sᵀ), so its pole stays on the pole the sky turns around.
+ *
+ * The star field and the Milky Way come and go with the sky's darkness, so they hide through their
+ * materials and stay in the scene graph: three uploads a geometry the first time it projects the
+ * object, and an object hidden until the first dusk of a time-lapse would upload its buffers then.
  */
 import * as THREE from 'three';
 import { AE } from '../astro/ae.js';
 import { STAR_VERT, STAR_FRAG, MW_VERT, MW_FRAG, LINE_VERT, LINE_FRAG } from './shaders/sky.glsl.js';
+import { createSkyglowUniforms, applySkyglow } from './skyglow.js';
+import { STREAK_UNIFORMS, streakState } from './streaks.js';
+import { applyProperMotion, yearsFromJ2000 } from '../data/catalog.js';
 
 const DEG = Math.PI / 180;
 const OBLIQUITY_DEG = 23.4392911;
 /** Milky Way brightness: kept subtle from orbit, fuller from a dark site in sky view. */
 const MW_GAIN_ORBIT = 0.18;
 const MW_GAIN_SKY = 0.27;
+/**
+ * Zodiacal light's display gain per natural-sky unit (MW_FRAG zodiacal()): the band 90° from the
+ * Sun stays at the edge of visibility, the cone 30° from it reaches the Milky Way's brightness, as
+ * at a dark site. Medium tier and up.
+ */
+const ZODI_GAIN = 0.009;
+/** Strength of the night-vision grade at full rod vision (postfx uScotopic): subtle by design. */
+const VISION_GAIN = 0.5;
+// Constellation figures: full strength in sky view; from orbit quieter, behind the beams, and
+// receding as the camera pulls back (×clamp(REF / distance, MIN, 1)). The highlighted figure keeps
+// the sky-view strength. The twilight floor goes with the last stars (e < 0.1).
+const CONS_ALPHA_SKY = 0.28;
+const CONS_ALPHA_ORBIT = 0.17;
+const CONS_ORBIT_REF = 4;
+const CONS_ORBIT_MIN = 0.45;
+const CONS_FLOOR = 0.15;
 
 // EQJ → galactic rotation (IAU 1958), rows of gal = M·eqj; from astronomy-engine's Rotation_EQJ_GAL.
 const EQJ_TO_GAL = [
@@ -104,23 +128,31 @@ function makeLineGeometry(capacity) {
 /**
  * An anti-aliased line layer at infinity: one instance per segment, drawn as a screen-space quad.
  * @param {{capacity?:number, color:number[], alpha:number, halfWidthPx?:number, gapPx?:number,
- *   renderOrder?:number, defines?:object, name?:string, blending?:number}} opts
+ *   renderOrder?:number, defines?:object, name?:string, blending?:number,
+ *   refraction?:{uRefrUp:{value:THREE.Vector3}, uRefrK:{value:number}}|null}} opts `refraction`:
+ *   the owner's shared lift uniforms (REFRACT_CHUNK) for lines on the celestial sphere
  * @returns {{mesh:THREE.Mesh, uniforms:object, ensure(n:number):void, ab:Float32Array, st:Float32Array,
  *   setCount(n:number):void, commit():void, setViewport(w:number,h:number,dpr:number):void, dispose():void}}
  */
 export function createLineLayer(opts) {
     const {
         capacity = 64, color, alpha, halfWidthPx = 0.6, gapPx = 0, renderOrder = -80,
-        defines = {}, name = 'lines', blending = THREE.NormalBlending,
+        defines = {}, name = 'lines', blending = THREE.NormalBlending, refraction = null,
     } = opts;
     let buf = makeLineGeometry(capacity);
+    // Every line material declares its refraction uniforms (shared ones when given, else its own
+    // with strength 0): materials compiled to the same program must not inherit another's lift.
+    const refr = refraction || { uRefrUp: { value: new THREE.Vector3(0, 1, 0) }, uRefrK: { value: 0 } };
     const uniforms = {
+        uRefrUp: refr.uRefrUp,
+        uRefrK: refr.uRefrK,
         uViewport: { value: new THREE.Vector2(1, 1) },
         uHalfWidth: { value: halfWidthPx },
         uGap: { value: gapPx },
         uColor: { value: new THREE.Color().setRGB(color[0], color[1], color[2]) },
         uHighlightColor: { value: new THREE.Color(0.75, 0.85, 1.0) },
         uAlpha: { value: alpha },
+        uHighlightAlpha: { value: alpha },
         uNow: { value: 0 },
         uSpan: { value: 1 },
         uDpr: { value: 1 },
@@ -181,6 +213,18 @@ const LAYER_DEFAULTS = {
 };
 
 /**
+ * The telescope zoom's aperture gain (magnitudes): how much fainter the narrow sky view reaches than
+ * the naked eye, 2·log10(25°/fov), from 0 at 25° to 3.5 at about 0.4°. The star shader adds it to
+ * every limit (twilight, skyglow, the tier); the catalogue's own limit (mag 6.5) still caps what
+ * can appear.
+ * @param {number} fovDeg vertical field of view
+ * @returns {number}
+ */
+export function scopeGainMag(fovDeg) {
+    return fovDeg > 0 ? Math.min(3.5, Math.max(0, 2 * Math.log10(25 / fovDeg))) : 0;
+}
+
+/**
  * Creates the celestial sphere.
  * @param {object} rc RenderContext (SPEC C.6)
  * @param {{catalog?:object|null, textures?:object|null, reducedMotion?:boolean}} [deps]
@@ -206,6 +250,10 @@ export function createSky(rc, deps = {}) {
     const northS = new THREE.Vector3(0, 0, -1);
     const eastS = new THREE.Vector3(1, 0, 0);
     const southS = new THREE.Vector3();
+    const unspin = new THREE.Matrix4();
+    // Refraction lift (REFRACT_CHUNK), shared by stars, the Milky Way and the celestial lines: the
+    // observer's zenith and the view blend (sky view draws apparent positions).
+    const refr = { uRefrUp: { value: upS }, uRefrK: { value: 0 } };
 
     // --- Milky Way ------------------------------------------------------------------------------
     const M = EQJ_TO_GAL;
@@ -215,9 +263,20 @@ export function createSky(rc, deps = {}) {
         M[3], M[5], -M[4],
         M[6], M[8], -M[7],
     );
+    // scene → ecliptic of J2000 (the zodiacal light): eqj = (xs, −zs, ys), then Rx(−ε).
+    const ce = Math.cos(OBLIQUITY_DEG * DEG), se = Math.sin(OBLIQUITY_DEG * DEG);
+    const toEcl = new THREE.Matrix3().set(1, 0, 0, 0, se, -ce, 0, ce, se);
+    const sunEcl = new THREE.Vector3(1, 0, 0);
+    // The night sky's brightness (SKYGLOW_CHUNK), shared by the stars and the Milky Way.
+    const sg = createSkyglowUniforms();
+    let sgMilkyWay = 1;
     const blank = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1, THREE.RGBAFormat);
     blank.needsUpdate = true;
     const mwUniforms = {
+        ...sg,
+        uToEcl: { value: toEcl },
+        uSunEcl: { value: sunEcl },
+        uZodi: { value: 0 },
         uMW: { value: blank },
         uMWSize: { value: new THREE.Vector2(1, 1) },
         uDetail: { value: 0 },
@@ -228,6 +287,7 @@ export function createSky(rc, deps = {}) {
         uUp: { value: upS },
         uDisplay: { value: 1 },
         uDpr: { value: 1 },
+        ...refr,
     };
     const mwMaterial = new THREE.ShaderMaterial({
         name: 'sky.milkyway', uniforms: mwUniforms,
@@ -273,7 +333,10 @@ export function createSky(rc, deps = {}) {
 
     // --- Stars ------------------------------------------------------------------------------------
     const starUniforms = {
+        ...sg,
+        uSgLimZen: { value: 6.6 },
         uMagLimit: { value: magLimit },
+        uBoost: { value: 0 },
         uExposure: { value: 1 },
         uPx: { value: 1 },
         uZoom: { value: 1 },
@@ -284,6 +347,8 @@ export function createSky(rc, deps = {}) {
         uUp: { value: upS },
         uSaturation: { value: 0.85 },
         uDisplay: { value: 1 },
+        ...refr,
+        ...STREAK_UNIFORMS,
     };
     const starMaterial = new THREE.ShaderMaterial({
         name: 'sky.stars', uniforms: starUniforms,
@@ -298,19 +363,31 @@ export function createSky(rc, deps = {}) {
     stars.matrixAutoUpdate = false;
     group.add(stars);
     let starMags = new Float32Array(0);
+    // The drawn arrays (sorted by magnitude) and their link back to the catalogue: HIP per drawn
+    // star, and the drawn slot of each catalogue index (proper motion rewrites those slots).
+    let starPos = new Float32Array(0);
+    let starHip = new Int32Array(0);
+    let drawnOf = new Int32Array(0);
+    let starPosAttr = null;
+    /** @type {any} the installed catalogue (proper motion moves its fast stars in place) */
+    let catalogRef = null;
+    let pmYearsDrawn = Number.NaN;
 
+    let drawnLimit = NaN;
     function applyMagLimit() {
         starUniforms.uMagLimit.value = magLimit;
-        // Stars are sorted brightest first, so the tier limit is just a draw range.
+        // Stars are sorted brightest first, so the tier limit (plus the zoom's gain) is a draw range.
+        const lim = magLimit + starUniforms.uBoost.value;
+        drawnLimit = lim;
         let n = 0;
-        while (n < starMags.length && starMags[n] <= magLimit + 0.001) n++;
+        while (n < starMags.length && starMags[n] <= lim + 0.001) n++;
         starGeometry.setDrawRange(0, n);
     }
 
     // --- Lines ------------------------------------------------------------------------------------
     const cons = createLineLayer({
-        name: 'sky.constellations', capacity: 1024, color: [0.35, 0.50, 0.80], alpha: 0.28,
-        halfWidthPx: 0.55, gapPx: 5.0, renderOrder: -80, defines: { HIGHLIGHT: '' },
+        name: 'sky.constellations', capacity: 1024, color: [0.35, 0.50, 0.80], alpha: CONS_ALPHA_SKY,
+        halfWidthPx: 0.55, gapPx: 5.0, renderOrder: -80, defines: { HIGHLIGHT: '' }, refraction: refr,
     });
     cons.uniforms.uHighlightColor.value.setRGB(0.62, 0.78, 1.0);
     group.add(cons.mesh);
@@ -322,10 +399,12 @@ export function createSky(rc, deps = {}) {
 
     const eqGrid = createLineLayer({
         name: 'sky.eqgrid', capacity: 5200, color: [0.3, 0.4, 0.6], alpha: 0.18, halfWidthPx: 0.5, renderOrder: -80,
+        refraction: refr,
     });
     group.add(eqGrid.mesh);
     const ecliptic = createLineLayer({
         name: 'sky.ecliptic', capacity: 200, color: [0.9, 0.7, 0.3], alpha: 0.35, halfWidthPx: 0.6, renderOrder: -80,
+        refraction: refr,
     });
     group.add(ecliptic.mesh);
     const altAz = createLineLayer({
@@ -390,10 +469,13 @@ export function createSky(rc, deps = {}) {
         for (let k = 0; k < n; k++) order[k] = k;
         if (n) order.sort((a, b) => st.mag[a] - st.mag[b]);
         const pos = new Float32Array(n * 3), mag = new Float32Array(n), col = new Float32Array(n * 3);
+        const hip = new Int32Array(n), slot = new Int32Array(n);
         for (let k = 0; k < n; k++) {
             const j = order[k];
             pos[k * 3] = st.dirS[j * 3]; pos[k * 3 + 1] = st.dirS[j * 3 + 1]; pos[k * 3 + 2] = st.dirS[j * 3 + 2];
             mag[k] = st.mag[j];
+            hip[k] = st.hip ? st.hip[j] : 0;
+            slot[j] = k;
             if (st.color) {
                 col[k * 3] = st.color[j * 3]; col[k * 3 + 1] = st.color[j * 3 + 1]; col[k * 3 + 2] = st.color[j * 3 + 2];
             } else {
@@ -401,7 +483,8 @@ export function createSky(rc, deps = {}) {
             }
         }
         const g = new THREE.BufferGeometry();
-        g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        starPosAttr = new THREE.BufferAttribute(pos, 3);
+        g.setAttribute('position', starPosAttr);
         g.setAttribute('aMag', new THREE.BufferAttribute(mag, 1));
         g.setAttribute('aColor', new THREE.BufferAttribute(col, 3));
         const old = starGeometry;
@@ -409,6 +492,12 @@ export function createSky(rc, deps = {}) {
         stars.geometry = g;
         old.dispose();
         starMags = mag;
+        starPos = pos;
+        starHip = hip;
+        drawnOf = slot;
+        catalogRef = catalog || null;
+        // The copied directions are the catalogue's current ones (proper motion included).
+        pmYearsDrawn = catalog?.stars?.pm ? catalog.stars.pm.years : Number.NaN;
         applyMagLimit();
 
         const c = catalog && catalog.cons;
@@ -461,22 +550,105 @@ export function createSky(rc, deps = {}) {
         try { setCatalog(deps.catalog); } catch { /* stays empty */ }
     }
 
+    // --- Proper motion (time-machine sky) --------------------------------------------------------
+    /**
+     * Moves the fast stars (catalog.js applyProperMotion: the catalogue's own directions, the
+     * constellation endpoints on them and the star names' label points) to the snapshot's epoch,
+     * in whole years, then copies them into the drawn arrays. No allocation.
+     */
+    function syncProperMotion(tMs) {
+        const pm = catalogRef?.stars?.pm;
+        if (!pm || !Number.isFinite(tMs) || !starPosAttr) return;
+        const years = Math.round(yearsFromJ2000(tMs));
+        if (years === pmYearsDrawn) return;
+        applyProperMotion(catalogRef, years);
+        pmYearsDrawn = years;
+        const D = catalogRef.stars.dirS;
+        for (let s = 0; s < pm.idx.length; s++) {
+            const j = pm.idx[s];
+            if (j >= drawnOf.length) continue;
+            const k = drawnOf[j] * 3;
+            starPos[k] = D[3 * j]; starPos[k + 1] = D[3 * j + 1]; starPos[k + 2] = D[3 * j + 2];
+        }
+        starPosAttr.needsUpdate = true;
+        const P = catalogRef.cons.segments, ab = cons.ab;
+        if (P && P.length <= ab.length) {
+            for (let k = 0; k < pm.seg.length; k += 2) {
+                const o = pm.seg[k];
+                ab[o] = P[o]; ab[o + 1] = P[o + 1]; ab[o + 2] = P[o + 2];
+            }
+            cons.commit();
+        }
+        lastHighlightDir[0] = NaN;
+        if (rc && rc.invalidate) rc.invalidate();
+    }
+
+    // --- Star picking -----------------------------------------------------------------------------
+    /**
+     * The drawn star under a tap: the catalogue stars that are visible now (the tier's limit, the
+     * telescope's aperture gain and the twilight limit), within `maxPx` of it, the nearest winning
+     * with a nudge toward brighter ones. `tap` is the true direction under the tap (picking.js
+     * skyTapDir: refraction taken off), so stars are compared on the sphere and none is projected.
+     * Once per tap.
+     * @param {ArrayLike<number>} tap scene unit vector
+     * @param {number} radPerPx radians per CSS pixel at the view centre
+     * @param {number} [maxPx]
+     * @returns {{hip:number, mag:number}|null}
+     */
+    function pickStar(tap, radPerPx, maxPx = 14) {
+        if (!layers.stars || !starMaterial.visible || !tap || !(radPerPx > 0)) return null;
+        const e = Math.max(0, Math.min(1, exposure.stars));
+        if (e < 0.05) return null;
+        const cosMax = Math.cos(maxPx * radPerPx);
+        const lim = -1 + (magLimit + 1) * Math.sqrt(e) + starUniforms.uBoost.value;
+        const n = starGeometry.drawRange.count;
+        let best = -1, bestScore = Infinity;
+        for (let i = 0; i < n && i < starMags.length; i++) {
+            const m = starMags[i];
+            if (m > lim) break;   // sorted brightest first
+            const d = starPos[3 * i] * tap[0] + starPos[3 * i + 1] * tap[1] + starPos[3 * i + 2] * tap[2];
+            if (d < cosMax) continue;
+            const px = Math.acos(Math.min(1, d)) / radPerPx;
+            const score = px + 1.2 * (m - lim);
+            if (score < bestScore) { bestScore = score; best = i; }
+        }
+        return best >= 0 ? { hip: starHip[best], mag: starMags[best] } : null;
+    }
+
     // --- RenderModule API ----------------------------------------------------------------------
     function apply(snap) {
         if (!snap || !snap.observer) return;
+        syncProperMotion(snap.tMs);
         const o = snap.observer;
         sunAltDeg = Number.isFinite(o.sunAltDeg) ? o.sunAltDeg : -90;
         obscuration = snap.eclipse && Number.isFinite(snap.eclipse.obscurationAtObserver)
             ? snap.eclipse.obscurationAtObserver : 0;
         upS.set(o.upS[0], o.upS[1], o.upS[2]);
+        applySkyglow(sg, snap);
+        if (snap.skyglow) {
+            starUniforms.uSgLimZen.value = snap.skyglow.limitMag;
+            sgMilkyWay = snap.skyglow.milkyWayMax;
+        }
+        if (snap.sunDirS) sunEcl.set(snap.sunDirS[0], snap.sunDirS[1], snap.sunDirS[2]).applyMatrix3(toEcl);
         northS.set(o.northS[0], o.northS[1], o.northS[2]);
         eastS.set(o.eastS[0], o.eastS[1], o.eastS[2]);
         southS.copy(northS).negate();
         altAz.mesh.matrix.makeBasis(eastS, upS, southS);
         altAz.mesh.matrixWorldNeedsUpdate = true;
+        // Equatorial grid of date: earthMatrix = S·PN·Rz(GAST)·Sᵀ and S·Rz(θ)·Sᵀ is a turn of θ
+        // about +Y, so S·PN·Sᵀ = earthMatrix · RotY(−GAST). The grid is built in J2000 RA/Dec, so
+        // this puts its pole on earthMatrix·ŷ and its 0h line on the true equinox of date.
+        if (snap.earthMatrix && Number.isFinite(snap.gastDeg)) {
+            unspin.makeRotationY(-snap.gastDeg * DEG);
+            eqGrid.mesh.matrix.fromArray(snap.earthMatrix).multiply(unspin);
+            eqGrid.mesh.matrixWorldNeedsUpdate = true;
+        }
         if (selection && snap.bodies) {
             let b = null;
             for (let k = 0; k < snap.bodies.length; k++) if (snap.bodies[k].id === selection) { b = snap.bodies[k]; break; }
+            // An extra object (astro/extras.js) highlights its constellation too.
+            const xs = b ? null : snap.extras;
+            if (xs) for (let k = 0; k < xs.length; k++) if (xs[k].id === selection && xs[k].present) { b = xs[k]; break; }
             updateHighlight(b ? b.dirS : null);
         } else if (highlighted !== '') {
             setHighlight('');
@@ -490,6 +662,7 @@ export function createSky(rc, deps = {}) {
             exposure.milkyWay = fi.exposure.milkyWay;
         }
         skyBlend = Number.isFinite(fi.skyBlend) ? fi.skyBlend : 0;
+        refr.uRefrK.value = Math.max(0, Math.min(1, skyBlend));
         const cam = fi.camera || (rc && rc.camera);
         const r = rc && rc.renderer;
         let w = 1, h = 1, dpr = 1;
@@ -505,9 +678,16 @@ export function createSky(rc, deps = {}) {
         const fov = cam && cam.fov ? cam.fov : 45;
         starUniforms.uPx.value = dpr;
         starUniforms.uZoom.value = Math.min(2.5, Math.max(1, Math.sqrt(60 / fov)));
-        // Totality brings the brighter stars out even in daytime.
-        const eclipseStars = 0.8 * smooth(0.97, 1.0, obscuration) * skyBlend;
-        const starExp = Math.max(exposure.stars, eclipseStars);
+        // Aperture gain: a narrow sky view reaches fainter stars (to the catalogue's own limit).
+        const boost = scopeGainMag(fov) * Math.max(0, Math.min(1, skyBlend));
+        if (Math.abs(boost - starUniforms.uBoost.value) > 0.01 || (boost === 0 && starUniforms.uBoost.value !== 0)) {
+            starUniforms.uBoost.value = boost;
+            if (Math.abs(magLimit + boost - drawnLimit) > 0.01) applyMagLimit();
+        }
+        // exposure.stars already carries totality's stars (photometry.js exposureFor: the brightest
+        // stars and the planets, rising over the last ~20 s before second contact). The label feed
+        // gates star names with the same value.
+        const starExp = exposure.stars;
         const display = skyViewExposure(sunAltDeg, skyBlend, obscuration);
         starUniforms.uExposure.value = starExp;
         starUniforms.uDisplay.value = display;
@@ -518,13 +698,29 @@ export function createSky(rc, deps = {}) {
         starUniforms.uTime.value = Number.isFinite(fi.timeS) ? fi.timeS % 1000 : 0;
         mwUniforms.uExposure.value = exposure.milkyWay;
         mwUniforms.uDpr.value = Math.max(0.5, dpr);
-        mwUniforms.uGain.value = MW_GAIN_ORBIT + (MW_GAIN_SKY - MW_GAIN_ORBIT) * skyBlend;
+        // Fast time: a band jumping degrees a frame strobes; it fades instead (render/streaks.js).
+        const strobe = streakState.dim;
+        mwUniforms.uGain.value = (MW_GAIN_ORBIT + (MW_GAIN_SKY - MW_GAIN_ORBIT) * skyBlend) * strobe;
         mwUniforms.uSkyBlend.value = skyBlend;
+        // Zodiacal light (sky view, medium and up): only under a dark sky, which MW_FRAG checks per
+        // direction; skipped outright when even the darkest part of this site's sky is too bright.
+        const zodi = wantDetail() && skyBlend > 0 && sg.uSgDark.value > 0.001;
+        mwUniforms.uZodi.value = zodi ? ZODI_GAIN : 0;
+        if (rc && rc.setVision) rc.setVision(VISION_GAIN * (Number.isFinite(fi.exposure?.vision) ? fi.exposure.vision : 0));
 
-        stars.visible = layers.stars && starExp > 0.001 && starGeometry.drawRange.count > 0;
-        milkyWay.visible = layers.milkyWay && mwReady && exposure.milkyWay > 0.001;
+        // Through the materials, not `visible` (see the module notes).
+        starMaterial.visible = layers.stars && starExp > 0.001 && starGeometry.drawRange.count > 0;
+        // In sky view a bright enough sky (a city's) hides the band everywhere.
+        const mwSky = 1 - skyBlend * (1 - sgMilkyWay);
+        mwMaterial.visible = layers.milkyWay && exposure.milkyWay > 0.001
+            && ((mwReady && mwSky > 0.001) || zodi);
         const e = Math.max(0, Math.min(1, starExp));
-        cons.uniforms.uAlpha.value = 0.28 * Math.max(e, 0.15);
+        // No figure floats on a blue daytime sky.
+        const consE = Math.max(e, CONS_FLOOR * smooth(0.02, 0.1, e));
+        const camDist = cam && cam.position ? cam.position.length() : CONS_ORBIT_REF;
+        const orbitA = CONS_ALPHA_ORBIT * Math.min(1, Math.max(CONS_ORBIT_MIN, CONS_ORBIT_REF / Math.max(camDist, 1e-6)));
+        cons.uniforms.uAlpha.value = (orbitA + (CONS_ALPHA_SKY - orbitA) * skyBlend) * consE * strobe;
+        cons.uniforms.uHighlightAlpha.value = CONS_ALPHA_SKY * consE;
         cons.mesh.visible = layers.constellations && consCount > 0;
         eqGrid.uniforms.uAlpha.value = 0.18 * (0.5 + 0.5 * e);
         eqGrid.mesh.visible = layers.eqGrid;
@@ -578,6 +774,10 @@ export function createSky(rc, deps = {}) {
     return {
         object3d: group,
         apply, update, setLayers, setViewMode, setSelection, setQuality, setExposure,
-        setCatalog, setReducedMotion, dispose,
+        setCatalog, setReducedMotion, dispose, pickStar,
+        /** Faintest magnitude drawn right now (the tier's limit plus the telescope's aperture gain). */
+        get drawnLimit() { return drawnLimit; },
+        /** The stars' material: other point sets at infinity (render/extras.js guest stars) share it. */
+        get starMaterial() { return starMaterial; },
     };
 }

@@ -6,32 +6,42 @@
  * tick crosses the path at the start of every month, and ring markers sit on the stationary points
  * where retrograde motion begins and ends. `anchors()` gives the label pool those stations and the
  * month ticks (kind 'trail').
+ *
+ * Retrograde time-lapse: for a planet the path also carries `ghosts` (astro/paths.js, every 10
+ * days), drawn as the composite astrophotographers make: one planet image per sample, sized from
+ * its angular diameter (log-scaled) and its magnitude, so Mars swells from a dot to a blazing disc
+ * at opposition; past images are dimmer and paler. Samples closer on screen than 1.5 images are
+ * skipped (the pile-up at the stations), and so is the one where the planet itself is now.
  */
 import * as THREE from 'three';
-import { createLineLayer } from './sky.js';
+import { createLineLayer, skyViewExposure } from './sky.js';
 import { bodyById } from '../astro/bodies.js';
+import { GLYPH_VERT, GLYPH_FRAG } from './shaders/bodies.glsl.js';
+import { glyphSizePx, glyphIntensity } from './bodies.js';
+import { dateText, t } from '../core/i18n.js';
 
 const DEG = Math.PI / 180;
 const TICK_HALF_RAD = 0.55 * DEG;
 const RING_RAD = 0.75 * DEG;
 const RING_SEGS = 16;
 const MAX_POINTS = 4096;
+const MAX_GHOSTS = 64;
 
-let dateFmt = null;
-let monthFmt = null;
+/** UTC calendar fields of `ms` for core/i18n.js dateText (the interface's locale). */
+function utcFields(ms) {
+    const d = new Date(ms);
+    return { y: d.getUTCFullYear(), mo: d.getUTCMonth() + 1, d: d.getUTCDate(), wd: d.getUTCDay() };
+}
 function fmtDate(ms) {
     try {
-        dateFmt ??= new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
-        return dateFmt.format(ms);
+        return dateText(utcFields(ms), { day: 'numeric', month: 'short', year: 'numeric' });
     } catch {
         return new Date(ms).toISOString().slice(0, 10);
     }
 }
 function fmtMonth(ms, withYear) {
     try {
-        monthFmt ??= new Intl.DateTimeFormat('en-GB', { month: 'short', timeZone: 'UTC' });
-        const m = monthFmt.format(ms);
-        return withYear ? `${m} ${new Date(ms).getUTCFullYear()}` : m;
+        return dateText(utcFields(ms), { month: 'short', year: withYear && 'numeric' });
     } catch {
         return new Date(ms).toISOString().slice(0, 7);
     }
@@ -51,14 +61,49 @@ function normalize3(v) {
 export function createTrails(rc) {
     const group = new THREE.Group();
     group.name = 'trails';
+    // Sky view draws the path at apparent (refracted) positions, like the bodies on it.
+    const refr = { uRefrUp: { value: new THREE.Vector3(0, 1, 0) }, uRefrK: { value: 0 } };
     const path = createLineLayer({
         name: 'trails.path', capacity: 400, color: [1, 1, 1], alpha: 0.85, halfWidthPx: 0.9,
-        renderOrder: -60, defines: { TRAIL: '' },
+        renderOrder: -60, defines: { TRAIL: '' }, refraction: refr,
     });
     const marks = createLineLayer({
         name: 'trails.marks', capacity: 512, color: [1, 1, 1], alpha: 0.75, halfWidthPx: 0.75, renderOrder: -60,
+        refraction: refr,
     });
     group.add(path.mesh, marks.mesh);
+
+    // Time-lapse images: instanced glyphs (bodies.glsl.js), buffers fixed at MAX_GHOSTS.
+    const quad = new THREE.PlaneGeometry(2, 2);
+    const gGeo = new THREE.InstancedBufferGeometry();
+    gGeo.setAttribute('position', quad.getAttribute('position'));
+    gGeo.setIndex(quad.getIndex());
+    const gAttr = (name, n) => {
+        const a = new THREE.InstancedBufferAttribute(new Float32Array(MAX_GHOSTS * n), n);
+        a.setUsage(THREE.DynamicDrawUsage);
+        gGeo.setAttribute(name, a);
+        return a;
+    };
+    const gDir = gAttr('iDir', 3), gColor = gAttr('iColor', 3), gParams = gAttr('iParams', 4);
+    gGeo.instanceCount = 0;
+    const gUniforms = { uViewport: { value: new THREE.Vector2(1, 1) }, uDpr: { value: 1 }, uExposure: { value: 1 }, ...refr };
+    const gMat = new THREE.ShaderMaterial({
+        name: 'trails.ghosts', uniforms: gUniforms, vertexShader: GLYPH_VERT, fragmentShader: GLYPH_FRAG,
+        transparent: true, depthWrite: false, depthTest: true, blending: THREE.AdditiveBlending,
+    });
+    const ghosts = new THREE.Mesh(gGeo, gMat);
+    ghosts.name = 'trails.ghosts';
+    ghosts.frustumCulled = false;
+    ghosts.renderOrder = -61;   // under the live glyph (-60)
+    group.add(ghosts);
+    const gT = new Float64Array(MAX_GHOSTS);
+    const gSize = new Float32Array(MAX_GHOSTS);
+    const gInt = new Float32Array(MAX_GHOSTS);
+    const gBase = new THREE.Color();
+    let nGhosts = 0;
+    let nowMs = NaN;
+    let sunAltDeg = -90;
+    let obscuration = 0;
 
     let enabled = true;
     let has = false;
@@ -68,26 +113,26 @@ export function createTrails(rc) {
     const tmpSize = new THREE.Vector2();
 
     /** Unit direction at time t (linear in the samples, renormalised), into out. */
-    function dirAt(dirS, t, out) {
+    function dirAt(dirS, ms, out) {
         let lo = 0, hi = count - 1;
-        if (t <= tMs[0]) lo = hi = 0;
-        else if (t >= tMs[count - 1]) lo = hi = count - 1;
+        if (ms <= tMs[0]) lo = hi = 0;
+        else if (ms >= tMs[count - 1]) lo = hi = count - 1;
         else {
-            while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (tMs[mid] <= t) lo = mid; else hi = mid; }
+            while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (tMs[mid] <= ms) lo = mid; else hi = mid; }
         }
-        const f = hi === lo ? 0 : (t - tMs[lo]) / (tMs[hi] - tMs[lo]);
+        const f = hi === lo ? 0 : (ms - tMs[lo]) / (tMs[hi] - tMs[lo]);
         for (let k = 0; k < 3; k++) out[k] = dirS[lo * 3 + k] + (dirS[hi * 3 + k] - dirS[lo * 3 + k]) * f;
         return normalize3(out);
     }
 
     /** Fractional sample index of time t (−1 before the path, count−1+ after it). */
-    function indexAt(t) {
+    function indexAt(ms) {
         if (!count) return -1;
-        if (t < tMs[0]) return -1;
-        if (t >= tMs[count - 1]) return count - 1 + (t - tMs[count - 1]) / 864e5;
+        if (ms < tMs[0]) return -1;
+        if (ms >= tMs[count - 1]) return count - 1 + (ms - tMs[count - 1]) / 864e5;
         let lo = 0, hi = count - 1;
-        while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (tMs[mid] <= t) lo = mid; else hi = mid; }
-        return lo + (t - tMs[lo]) / (tMs[hi] - tMs[lo]);
+        while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (tMs[mid] <= ms) lo = mid; else hi = mid; }
+        return lo + (ms - tMs[lo]) / (tMs[hi] - tMs[lo]);
     }
 
     /**
@@ -163,7 +208,7 @@ export function createTrails(rc) {
                 color: typeof colorHex === 'string' ? colorHex : `#${color.getHexString()}`,
                 dirS: Float64Array.from(d),
                 offsetPx: [6, 10],
-                ariaLabel: `${fmtMonth(tm, true)} on the path`,
+                ariaLabel: t('{month} on the path', { month: fmtMonth(tm, true) }),
                 interactive: false,
             });
         }
@@ -187,13 +232,15 @@ export function createTrails(rc) {
             const when = Number.isFinite(st.tMs) ? fmtDate(st.tMs) : '';
             anchorsOut.push({
                 id: `trail:station:${si++}`,
-                text: `${begins ? 'Retrograde begins' : 'Retrograde ends'}${when ? ` · ${when}` : ''}`,
+                text: begins ? (when ? t('Retrograde begins · {date}', { date: when }) : t('Retrograde begins'))
+                    : when ? t('Retrograde ends · {date}', { date: when }) : t('Retrograde ends'),
                 kind: 'trail',
                 priority: 55,
                 color: typeof colorHex === 'string' ? colorHex : `#${color.getHexString()}`,
                 dirS: Float64Array.from(c),
                 offsetPx: [10, -10],
-                ariaLabel: `${begins ? 'Retrograde motion begins' : 'Retrograde motion ends'}${when ? ` on ${when}` : ''}`,
+                ariaLabel: begins ? (when ? t('Retrograde motion begins on {date}', { date: when }) : t('Retrograde motion begins'))
+                    : when ? t('Retrograde motion ends on {date}', { date: when }) : t('Retrograde motion ends'),
                 interactive: false,
                 tMs: st.tMs,
                 station: st.kind,
@@ -207,6 +254,36 @@ export function createTrails(rc) {
         }
         marks.setCount(nMarks);
         marks.commit();
+
+        // Time-lapse images: size from the log of the angular diameter and from the magnitude.
+        const g = p.ghosts;
+        nGhosts = g && g.index ? Math.min(MAX_GHOSTS, g.index.length) : 0;
+        let dMin = Infinity, brightest = -1;
+        for (let k = 0; k < nGhosts; k++) {
+            dMin = Math.min(dMin, g.diamArcsec[k]);
+            if (brightest < 0 || g.mag[k] < g.mag[brightest]) brightest = k;
+        }
+        for (let k = 0; k < nGhosts; k++) {
+            const j = Math.min(g.index[k], n0 - 1);
+            const l = Math.hypot(p.dirS[j * 3], p.dirS[j * 3 + 1], p.dirS[j * 3 + 2]) || 1;
+            for (let c = 0; c < 3; c++) gDir.array[k * 3 + c] = p.dirS[j * 3 + c] / l;
+            gT[k] = p.tMs[j];
+            const grow = 0.7 + 0.45 * Math.log2(Math.max(1, g.diamArcsec[k] / dMin));
+            gSize[k] = Math.min(14, Math.max(3, glyphSizePx(g.mag[k]) * grow));
+            gInt[k] = Math.min(1.5, glyphIntensity(g.mag[k]));
+        }
+        gBase.copy(color);
+        gDir.needsUpdate = true;
+        gGeo.instanceCount = nGhosts;
+        if (brightest >= 0 && nGhosts > 2) {
+            const j = Math.min(g.index[brightest], n0 - 1);
+            anchorsOut.push({
+                id: 'trail:brightest', text: t('Brightest · {date}', { date: fmtDate(p.tMs[j]) }), kind: 'trail', priority: 50,
+                color: typeof colorHex === 'string' ? colorHex : `#${color.getHexString()}`,
+                dirS: Float64Array.from(gDir.array.subarray(brightest * 3, brightest * 3 + 3)),
+                offsetPx: [12, 14], ariaLabel: t('Brightest on {date}', { date: fmtDate(p.tMs[j]) }), interactive: false,
+            });
+        }
         list = anchorsOut;
         has = true;
         if (rc && rc.invalidate) rc.invalidate();
@@ -218,26 +295,75 @@ export function createTrails(rc) {
         list = [];
         path.setCount(0);
         marks.setCount(0);
+        nGhosts = 0;
+        gGeo.instanceCount = 0;
         if (rc && rc.invalidate) rc.invalidate();
+    }
+
+    /**
+     * Ghost params for this frame: past images dimmer and paler, the one at the planet's own place
+     * now hidden, and any image closer than 1.5 image sizes to the last one kept skipped.
+     */
+    function writeGhosts(pxPerRad) {
+        const d = gDir.array, pr = gParams.array, col = gColor.array;
+        let last = -1;
+        for (let k = 0; k < nGhosts; k++) {
+            const past = gT[k] < nowMs;
+            let on = Math.abs(gT[k] - nowMs) > 5 * 864e5;
+            if (on && last >= 0) {
+                const dot = d[k * 3] * d[last * 3] + d[k * 3 + 1] * d[last * 3 + 1] + d[k * 3 + 2] * d[last * 3 + 2];
+                const sepPx = Math.acos(Math.min(1, dot)) * pxPerRad;
+                if (sepPx < 0.75 * (gSize[k] + gSize[last]) * gUniforms.uDpr.value) on = false;
+            }
+            if (on) last = k;
+            pr[k * 4] = gSize[k];
+            pr[k * 4 + 1] = gInt[k] * (past ? 0.45 : 0.8);
+            pr[k * 4 + 2] = 0;
+            pr[k * 4 + 3] = on ? 1 : 0;
+            const pale = past ? 0.45 : 0.15;
+            col[k * 3] = gBase.r + (1 - gBase.r) * pale;
+            col[k * 3 + 1] = gBase.g + (1 - gBase.g) * pale;
+            col[k * 3 + 2] = gBase.b + (1 - gBase.b) * pale;
+        }
+        gParams.needsUpdate = gColor.needsUpdate = true;
     }
 
     /** @returns {object[]} LabelAnchor list (kind 'trail'): stations and month ticks. */
     function anchors() { return has && enabled ? list : []; }
 
     function apply(snap) {
-        if (!snap || !has) return;
+        if (!snap) return;
+        const up = snap.observer && snap.observer.upS;
+        if (up) refr.uRefrUp.value.set(up[0], up[1], up[2]);
+        sunAltDeg = snap.observer && Number.isFinite(snap.observer.sunAltDeg) ? snap.observer.sunAltDeg : -90;
+        obscuration = snap.eclipse && Number.isFinite(snap.eclipse.obscurationAtObserver)
+            ? snap.eclipse.obscurationAtObserver : 0;
+        nowMs = snap.tMs;
+        if (!has) return;
         path.uniforms.uNow.value = indexAt(snap.tMs);
     }
 
     function update(fi) {
         const visible = enabled && has;
         path.mesh.visible = marks.mesh.visible = visible;
+        ghosts.visible = visible && nGhosts > 0;
         if (!visible || !fi) return;
+        refr.uRefrK.value = Number.isFinite(fi.skyBlend) ? Math.min(1, Math.max(0, fi.skyBlend)) : 0;
         const r = rc && rc.renderer;
         let w = 1, h = 1, dpr = 1;
         if (r) { r.getDrawingBufferSize(tmpSize); w = tmpSize.x; h = tmpSize.y; dpr = r.getPixelRatio(); }
         path.setViewport(w, h, dpr);
         marks.setViewport(w, h, dpr);
+        if (ghosts.visible) {
+            gUniforms.uViewport.value.set(w, h);
+            gUniforms.uDpr.value = dpr;
+            // The live glyph's exposure, daytime display factor included (render/bodies.js), so the
+            // ghosts stay fainter than the planet they trace by day too.
+            const planetsExp = fi.exposure && Number.isFinite(fi.exposure.planets) ? fi.exposure.planets : 1;
+            gUniforms.uExposure.value = planetsExp * skyViewExposure(sunAltDeg, refr.uRefrK.value, obscuration);
+            const cam = fi.camera;
+            writeGhosts(cam ? 0.5 * h * cam.projectionMatrix.elements[5] : 1000);
+        }
         // Slightly dimmer against a bright sky.
         const e = fi.exposure && Number.isFinite(fi.exposure.stars) ? fi.exposure.stars : 1;
         path.uniforms.uAlpha.value = 0.85 * (0.6 + 0.4 * e);
@@ -251,6 +377,9 @@ export function createTrails(rc) {
     function dispose() {
         path.dispose();
         marks.dispose();
+        gGeo.dispose();
+        quad.dispose();
+        gMat.dispose();
     }
 
     return { object3d: group, show, clear, anchors, apply, update, setLayers, dispose };

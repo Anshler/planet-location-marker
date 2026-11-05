@@ -431,7 +431,7 @@ test('range loop: progress, wrap, effective rate, seek', () => {
     const from = Date.UTC(2026, 0, 1), to = Date.UTC(2026, 0, 11);
     assert.equal(c.setRange({ fromMs: from, toMs: to, durationS: 1, loop: 'loop' }), true);
     assert.deepEqual(ev.types, ['range', 'rate', 'jump']);
-    assert.deepEqual(c.range, { fromMs: from, toMs: to, durationS: 1, loop: 'loop' });
+    assert.deepEqual(c.range, { fromMs: from, toMs: to, durationS: 1, loop: 'loop', ease: null, strideMs: null });
     assert.equal(c.tMs, from);
     assert.equal(c.progress(), 0);
     assert.equal(c.rate, 10 * 86400, 'effective rate: 10 days per second');
@@ -471,6 +471,69 @@ test('range pingpong bounces between the endpoints and flips the effective rate'
     assert.ok(c.rate < 0, 'now playing backwards');
     assert.ok(ev.types.includes('rate'));
     assert.equal(c.playing, true);
+});
+
+test('range ease: out decelerates into the end, in leaves the start from rest, seek follows the ease', () => {
+    const near = (a, b, tol, msg) => assert.ok(Math.abs(a - b) <= tol, `${msg}: ${a} vs ${b}`);
+    const from = T0, to = T0 + 10 * DAY;
+    const run = (ease) => {
+        const c = createClock({ now: fakeNow() });
+        assert.equal(c.setRange({ fromMs: from, toMs: to, durationS: 1, loop: 'once', ease }), true);
+        assert.equal(c.range.ease, ease ?? null);
+        assert.equal(c.rate, 10 * 86400, 'rate reports the mean rate');
+        const d = driver(c, 10);
+        d.run(500);
+        return c;
+    };
+    near(run('out').tMs, from + 7.5 * DAY, 1, 'out: 3/4 of the span at half time');
+    near(run('in').tMs, from + 2.5 * DAY, 1, 'in: 1/4 at half time');
+    near(run('inOut').tMs, from + 5 * DAY, 1, 'inOut: half at half time');
+    near(run(undefined).tMs, from + 5 * DAY, 1, 'linear by default');
+    const c = run('out');
+    c.seek(0.5);
+    near(c.tMs, from + 7.5 * DAY, 1, 'seek maps through the ease');
+    const e = run('out');
+    driver(e, 10).run(1000);
+    assert.equal(e.tMs, to, 'ends exactly at toMs');
+    assert.equal(e.playing, false);
+    const bad = createClock({ now: fakeNow() });
+    bad.setRange({ fromMs: from, toMs: to, ease: 'bounce' });
+    assert.equal(bad.range.ease, null, 'unknown eases are linear');
+});
+
+test('range stride: whole steps only, at most one per tick (frame-paced), linear', () => {
+    const from = T0, to = T0 + 364 * DAY;
+    // 20 s for 364 days needs ≥ 18.2 fps: at 60 fps the wall clock leads, every value is a whole day.
+    const fast = createClock({ now: fakeNow() });
+    assert.equal(fast.setRange({ fromMs: from, toMs: to, durationS: 20, loop: 'once', strideMs: DAY, ease: 'out' }), true);
+    assert.equal(fast.range.strideMs, DAY);
+    assert.equal(fast.range.ease, null, 'a stride implies a linear range');
+    const seen = new Set();
+    let prev = fast.tMs;
+    const d = driver(fast, 1000 / 60);
+    for (let i = 0; i < 1300 && fast.playing; i++) {
+        d.run(1000 / 60);
+        const k = (fast.tMs - from) / DAY;
+        assert.equal(k, Math.round(k), `whole days only (${k})`);
+        assert.ok(fast.tMs - prev <= DAY, 'never more than one step per tick');
+        prev = fast.tMs;
+        seen.add(k);
+    }
+    assert.equal(fast.tMs, to, 'ends on the last step');
+    assert.equal(seen.size, 365, 'every day 0…364 was shown');
+    // At 5 fps (200 ms ticks) the wall clock would skip ~3 days per tick: the stride holds it to one.
+    const slow = createClock({ now: fakeNow() });
+    slow.setRange({ fromMs: from, toMs: to, durationS: 20, loop: 'once', strideMs: DAY });
+    const ds = driver(slow, 200);
+    ds.run(2000);
+    assert.equal(slow.tMs, from + 10 * DAY, 'ten ticks, ten days');
+    assert.equal(slow.rate, 364 * DAY / 20000, 'the effective rate is still the nominal one');
+    slow.seek(0.5);
+    assert.equal(slow.tMs, from + 182 * DAY, 'seek lands on a step');
+    // A stride that does not fit twice in the span is ignored.
+    const odd = createClock({ now: fakeNow() });
+    odd.setRange({ fromMs: from, toMs: from + DAY, strideMs: DAY });
+    assert.equal(odd.range.strideMs, null);
 });
 
 test('range once pauses at the end; play() replays from the start', () => {

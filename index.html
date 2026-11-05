@@ -9,6 +9,18 @@
 <meta name="apple-mobile-web-app-title" content="Planet Marker">
 <meta name="theme-color" content="#03060d">
 <meta name="color-scheme" content="dark">
+<script>
+/* Night vision (display.red, saved by js/core/prefs.js as 'pc2.display'): red and a black bar from
+   the first paint, so opening the app outdoors never flashes. main.js bindNightVision takes over. */
+(function () {
+  try {
+    if (JSON.parse(localStorage.getItem('pc2.display') || '{}').red !== true) return;
+    document.documentElement.classList.add('is-red');
+    var m = document.querySelector('meta[name="theme-color"]');
+    if (m) { m.setAttribute('data-base', m.content); m.content = '#000'; }
+  } catch (e) { /* storage blocked: the app applies it once it loads */ }
+})();
+</script>
 <link rel="canonical" href="https://anshler.github.io/planet-location-marker/">
 <link rel="icon" href="assets/icons/favicon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="assets/icons/icon-192.png">
@@ -37,10 +49,128 @@
   }
 }
 </script>
-<link rel="modulepreload" href="vendor/three/three.module.min.js">
-<link rel="modulepreload" href="vendor/astronomy-engine/astronomy.js">
+<!-- Every module a boot runs downloads at once instead of one import level at a time. These run in
+     text mode too; three.js and the render stack are preloaded by the feature detection below, only
+     when the 3D view can run. -->
+<!-- boot modules (node scripts/lib/modgraph.mjs --write) -->
 <link rel="modulepreload" href="js/main.js">
-<link rel="preload" href="data/cities.json" as="fetch" type="application/json" crossorigin>
+<link rel="modulepreload" href="js/ui/index.js">
+<link rel="modulepreload" href="js/version.js">
+<link rel="modulepreload" href="js/core/store.js">
+<link rel="modulepreload" href="js/core/bus.js">
+<link rel="modulepreload" href="js/core/clock.js">
+<link rel="modulepreload" href="js/core/url-state.js">
+<link rel="modulepreload" href="js/core/tour-catalog.js">
+<link rel="modulepreload" href="js/core/quality.js">
+<link rel="modulepreload" href="js/core/texture-plan.js">
+<link rel="modulepreload" href="js/core/prefs.js">
+<link rel="modulepreload" href="js/core/tz.js">
+<link rel="modulepreload" href="js/core/format.js">
+<link rel="modulepreload" href="js/core/i18n.js">
+<link rel="modulepreload" href="js/geo/cities.js">
+<link rel="modulepreload" href="js/geo/geocode.js">
+<link rel="modulepreload" href="js/geo/horizon.js">
+<link rel="modulepreload" href="js/geo/mapview.js">
+<link rel="modulepreload" href="js/astro/bodies.js">
+<link rel="modulepreload" href="js/astro/snapshot.js">
+<link rel="modulepreload" href="js/astro/extras.js">
+<link rel="modulepreload" href="js/core/selection.js">
+<link rel="modulepreload" href="js/app/extras-setup.js">
+<link rel="modulepreload" href="js/astro/client.js">
+<link rel="modulepreload" href="js/astro/skyglow.js">
+<link rel="modulepreload" href="js/astro/photometry.js">
+<link rel="modulepreload" href="js/astro/sky-guide.js">
+<link rel="modulepreload" href="js/data/catalog.js">
+<link rel="modulepreload" href="js/app/actions.js">
+<link rel="modulepreload" href="js/app/eclipse-chase.js">
+<link rel="modulepreload" href="js/app/loop.js">
+<link rel="modulepreload" href="js/app/tier-switch.js">
+<link rel="modulepreload" href="js/app/labels-feed.js">
+<link rel="modulepreload" href="js/app/capture.js">
+<link rel="modulepreload" href="js/app/expose.js">
+<link rel="modulepreload" href="js/app/intro.js">
+<link rel="modulepreload" href="js/app/fallback.js">
+<link rel="modulepreload" href="js/core/context-loss.js">
+<link rel="modulepreload" href="js/core/diagnostics.js">
+<link rel="modulepreload" href="js/app/session.js">
+<link rel="modulepreload" href="js/app/wake-lock.js">
+<link rel="modulepreload" href="js/ui/dom.js">
+<link rel="modulepreload" href="js/ui/shell.js">
+<link rel="modulepreload" href="js/ui/toast.js">
+<link rel="modulepreload" href="js/ui/announcer.js">
+<link rel="modulepreload" href="js/ui/shortcuts.js">
+<link rel="modulepreload" href="js/ui/install.js">
+<link rel="modulepreload" href="js/ui/intro-caption.js">
+<link rel="modulepreload" href="js/ui/coach.js">
+<link rel="modulepreload" href="js/geo/coords.js">
+<link rel="modulepreload" href="js/astro/ae.js">
+<link rel="modulepreload" href="js/astro/frames.js">
+<link rel="modulepreload" href="js/astro/shadow.js">
+<link rel="modulepreload" href="js/astro/totality.js">
+<link rel="modulepreload" href="js/astro/moons.js">
+<link rel="modulepreload" href="js/astro/geomag.js">
+<link rel="modulepreload" href="js/astro/guest-stars.js">
+<link rel="modulepreload" href="js/astro/comets.js">
+<link rel="modulepreload" href="js/astro/craft.js">
+<link rel="modulepreload" href="js/astro/dso.js">
+<link rel="modulepreload" href="js/astro/stars.js">
+<link rel="modulepreload" href="js/data/starinfo.js">
+<link rel="modulepreload" href="js/astro/eclipse-path.js">
+<link rel="modulepreload" href="js/astro/events.js">
+<link rel="modulepreload" href="js/core/sampling.js">
+<link rel="modulepreload" href="js/astro/disc.js">
+<link rel="modulepreload" href="js/astro/parallax.js">
+<link rel="modulepreload" href="js/ui/icons.js">
+<link rel="modulepreload" href="js/ui/topbar.js">
+<link rel="modulepreload" href="js/ui/timebar.js">
+<link rel="modulepreload" href="js/ui/view-switch.js">
+<link rel="modulepreload" href="js/ui/sky-now.js">
+<link rel="modulepreload" href="js/ui/body-card.js">
+<link rel="modulepreload" href="js/ui/events-panel.js">
+<link rel="modulepreload" href="js/ui/explore.js">
+<link rel="modulepreload" href="js/ui/layers.js">
+<link rel="modulepreload" href="js/ui/location.js">
+<link rel="modulepreload" href="js/ui/help.js">
+<link rel="modulepreload" href="js/ui/eclipse-hud.js">
+<link rel="modulepreload" href="js/ui/tour-bar.js">
+<link rel="modulepreload" href="js/ui/modes.js">
+<link rel="modulepreload" href="vendor/astronomy-engine/astronomy.js">
+<link rel="modulepreload" href="js/astro/lighttime.js">
+<link rel="modulepreload" href="js/astro/almanac.js">
+<link rel="modulepreload" href="js/astro/meteors.js">
+<link rel="modulepreload" href="js/astro/mars-clock.js">
+<link rel="modulepreload" href="js/ui/sky-palette.js">
+<link rel="modulepreload" href="js/ui/postcard.js">
+<link rel="modulepreload" href="js/ui/video.js">
+<link rel="modulepreload" href="js/ui/expose.js">
+<link rel="modulepreload" href="js/ui/sky-tools.js">
+<link rel="modulepreload" href="js/ui/tonight.js">
+<link rel="modulepreload" href="js/ui/sky-dome.js">
+<link rel="modulepreload" href="js/ui/eyepiece.js">
+<link rel="modulepreload" href="js/ui/year-planner.js">
+<link rel="modulepreload" href="js/ui/sat-passes.js">
+<link rel="modulepreload" href="js/ui/event-glyphs.js">
+<link rel="modulepreload" href="js/ui/ics.js">
+<link rel="modulepreload" href="js/core/moments.js">
+<link rel="modulepreload" href="js/astro/sky-caption.js">
+<link rel="modulepreload" href="js/ui/about.js">
+<link rel="modulepreload" href="js/astro/planner.js">
+<link rel="modulepreload" href="js/ui/report.js">
+<!-- /boot modules -->
+<script>
+/* data/cities.json (main.js fetches it at boot): preloaded unless a service worker controls the
+   page, which serves it from its cache at once; there the preload would be a second request the
+   browser warns about ("cross-world service worker resource mismatch"). */
+(function (d) {
+  try {
+    if (navigator.serviceWorker && navigator.serviceWorker.controller) return;
+    var l = d.createElement('link');
+    l.rel = 'preload'; l.as = 'fetch'; l.type = 'application/json'; l.crossOrigin = 'anonymous';
+    l.href = 'data/cities.json';
+    d.head.appendChild(l);
+  } catch (e) { /* main.js fetches it anyway */ }
+})(document);
+</script>
 
 <link rel="stylesheet" href="css/app.css">
 
@@ -115,6 +245,56 @@ body.is-intro-out #ui-root{animation:pc-ui-in .9s cubic-bezier(.2,.7,.2,1) both}
   var errors = [];
   w.__pcErrors = errors;
 
+  // The loader's own words in Vietnamese, before any module: #lang=, the saved choice
+  // ('pc2.lang', core/prefs.js), then the browser's language, as core/i18n.js pickLocale. The
+  // table is keyed by the English text; test/repo.i18n.test.mjs checks main.js's stage labels.
+  var VI = null, lang = 'en';
+  try {
+    var hl = /[#&]lang=([a-z]{2})/i.exec(location.hash), saved = null;
+    try { saved = JSON.parse(localStorage.getItem('pc2.lang') || 'null'); } catch (e) { /* no storage */ }
+    var wants = [hl && hl[1], saved, navigator.language];
+    for (var k = 0; k < wants.length; k++) {
+      var c = String(wants[k] || '').slice(0, 2).toLowerCase();
+      if (c === 'en' || c === 'vi') { lang = c; break; }
+    }
+  } catch (e) { /* English */ }
+  if (lang === 'vi') {
+    VI = {
+      'Planet Location Marker — where every planet is, right now': 'Planet Location Marker — mọi hành tinh đang ở đâu, ngay lúc này',
+      'Where every world is, right now': 'Mọi thiên thể đang ở đâu, ngay lúc này',
+      'Loading': 'Đang tải', 'Computing the sky': 'Đang tính bầu trời', 'Preparing the interface': 'Đang chuẩn bị giao diện',
+      'Building the globe': 'Đang dựng địa cầu', 'Loading imagery': 'Đang tải hình ảnh', 'Warming up the shaders': 'Đang chuẩn bị hiệu ứng đồ họa',
+      'Ready': 'Sẵn sàng', 'Reload': 'Tải lại', 'Details': 'Chi tiết', '3D view of Earth and the sky': 'Khung nhìn 3D của Trái Đất và bầu trời',
+      'Slow connection — continue with low detail': 'Mạng chậm — tiếp tục với mức chi tiết thấp',
+      'Continuing with low detail…': 'Đang tiếp tục với mức chi tiết thấp…',
+      'Still loading — this is taking much longer than usual.': 'Vẫn đang tải — lần này lâu hơn bình thường nhiều.',
+      'Something went wrong loading {app}.': 'Đã xảy ra lỗi khi tải {app}.',
+      'Reloading usually fixes it. If it keeps happening, the details below help us find the cause.': 'Tải lại trang thường sẽ khắc phục được. Nếu lỗi vẫn lặp lại, phần chi tiết bên dưới giúp chúng tôi tìm nguyên nhân.',
+      '{app} needs a newer browser.': '{app} cần trình duyệt mới hơn.',
+      'This browser cannot run modern JavaScript modules. Please update it, or open the page in a current version of Chrome, Edge, Firefox or Safari.': 'Trình duyệt này không chạy được các mô-đun JavaScript hiện đại. Hãy cập nhật nó, hoặc mở trang bằng phiên bản mới của Chrome, Edge, Firefox hay Safari.',
+      'Drag to turn the globe · pinch to zoom': 'Kéo để xoay địa cầu · chụm hai ngón để thu phóng',
+      'Tap a world at the end of its beam to meet it': 'Chạm vào thiên thể ở đầu tia để làm quen với nó',
+      'Tap anywhere on Earth to stand there instead': 'Chạm vào bất kỳ đâu trên Trái Đất để đứng ở đó',
+      'Drag the time bar to travel through time': 'Kéo thanh thời gian để du hành thời gian',
+      'Switch to Sky view to stand on the ground and look up': 'Chuyển sang chế độ Bầu trời để đứng trên mặt đất và nhìn lên',
+      'Drag to orbit the globe · scroll or pinch to zoom': 'Kéo để xoay quanh địa cầu · cuộn hoặc chụm hai ngón để thu phóng',
+      'Press <kbd>V</kbd> to stand on the ground and look up': 'Nhấn <kbd>V</kbd> để đứng trên mặt đất và nhìn lên',
+      'Press <kbd>1</kbd>–<kbd>9</kbd> for the Sun, the Moon and each planet': 'Nhấn <kbd>1</kbd>–<kbd>9</kbd> để chọn Mặt Trời, Mặt Trăng và từng hành tinh',
+      'Click anywhere on Earth to stand there instead': 'Nhấp vào bất kỳ đâu trên Trái Đất để đứng ở đó',
+      '<kbd>Space</kbd> pauses time · <kbd>[</kbd> and <kbd>]</kbd> change its speed': '<kbd>Space</kbd> tạm dừng thời gian · <kbd>[</kbd> và <kbd>]</kbd> đổi tốc độ',
+      'Every position is computed in your browser — no network needed': 'Mọi vị trí đều được tính ngay trong trình duyệt — không cần mạng',
+      'A beam that dives into the Earth points at a world below your horizon': 'Tia nào cắm xuống lòng Trái Đất là đang chỉ tới một thiên thể dưới đường chân trời của bạn'
+    };
+    d.documentElement.lang = 'vi';
+    d.title = VI[d.title] || d.title;
+  }
+  /** The loader's text in the visit's language ({app} filled). */
+  function tr(s, app) {
+    var x = (VI && VI[s]) || s;
+    return app ? x.replace('{app}', app) : x;
+  }
+  w.__pcT = tr;
+
   function $(id) { return d.getElementById(id); }
   function appName() {
     var m = d.querySelector('meta[name="application-name"]');
@@ -143,8 +323,8 @@ body.is-intro-out #ui-root{animation:pc-ui-in .9s cubic-bezier(.2,.7,.2,1) both}
   function fatal(detail) {
     if (fatalShown || ready()) return;
     fatalShown = true;
-    showPanel('Something went wrong loading ' + appName() + '.',
-      'Reloading usually fixes it. If it keeps happening, the details below help us find the cause.', detail);
+    showPanel(tr('Something went wrong loading {app}.', appName()),
+      tr('Reloading usually fixes it. If it keeps happening, the details below help us find the cause.'), detail);
   }
 
   w.__pcLoader = {
@@ -152,7 +332,7 @@ body.is-intro-out #ui-root{animation:pc-ui-in .9s cubic-bezier(.2,.7,.2,1) both}
     progress: function (f, label) {
       var fill = $('pc-ld-fill');
       if (fill && Number.isFinite(f)) fill.style.width = Math.max(4, Math.min(100, f * 100)).toFixed(1) + '%';
-      if (label) { var s = $('pc-ld-status'); if (s) s.textContent = label + '…'; }
+      if (label) { var s = $('pc-ld-status'); if (s) s.textContent = tr(label) + '…'; }
     },
     /** Fades the loader out and removes it. */
     done: function () {
@@ -167,7 +347,7 @@ body.is-intro-out #ui-root{animation:pc-ui-in .9s cubic-bezier(.2,.7,.2,1) both}
     /** Old browsers: a calm explanation instead of an error dump. */
     unsupported: function (text) {
       fatalShown = true;
-      showPanel(appName() + ' needs a newer browser.', text, '');
+      showPanel(tr('{app} needs a newer browser.', appName()), tr(text), '');
     }
   };
 
@@ -193,8 +373,8 @@ body.is-intro-out #ui-root{animation:pc-ui-in .9s cubic-bezier(.2,.7,.2,1) both}
 </head>
 <body>
 <canvas id="scene" role="img" aria-label="3D view of Earth and the sky"></canvas>
-<div id="labels-root"></div>
 <div id="ui-root"></div>
+<div id="labels-root"></div>
 
 <div id="loader" role="status" aria-live="polite" aria-busy="true">
   <div class="pc-ld">
@@ -270,6 +450,7 @@ body.is-intro-out #ui-root{animation:pc-ui-in .9s cubic-bezier(.2,.7,.2,1) both}
 (function () {
   'use strict';
   var d = document, w = window, b = d.body;
+  var T = w.__pcT || function (s) { return s; };
   function $(id) { return d.getElementById(id); }
   function mq(q) { try { return !!(w.matchMedia && w.matchMedia(q).matches); } catch (e) { return false; } }
 
@@ -291,30 +472,107 @@ body.is-intro-out #ui-root{animation:pc-ui-in .9s cubic-bezier(.2,.7,.2,1) both}
     }
   } catch (e) { /* no WebGL2: text mode */ }
   w.__pcEnv = env;
+  // The browser's install offer can come before the UI loads: keep it for About's 'Install app' (ui/install.js).
+  w.addEventListener('beforeinstallprompt', function (e) { w.__pcInstall = e; });
+  w.addEventListener('appinstalled', function () { w.__pcInstall = null; });
+
+  // The 3D view: its 512 px Earth previews (main.js fetches them with the same mode and credentials,
+  // which reuses these requests) and its modules, three.js and the render stack, start now, in
+  // parallel with main.js. Text mode downloads none of them, nor does a tab whose 3D view gave up
+  // after repeated GPU context losses (main.js, js/core/context-loss.js: it boots in text mode).
+  var unstable = false;
+  try { unstable = JSON.parse(w.sessionStorage.getItem('pc2.contextLoss') || '{}').text === true; } catch (e) { /* no storage */ }
+  if (env.webgl2 && env.importmap && !unstable) {
+    var preload = function (rel, href, as) {
+      var l = d.createElement('link');
+      l.rel = rel;
+      if (as) { l.as = as; l.crossOrigin = 'anonymous'; l.setAttribute('fetchpriority', 'high'); }
+      l.href = href;
+      d.head.appendChild(l);
+    };
+    preload('preload', 'assets/textures/earth_day_preview.webp', 'fetch');
+    preload('preload', 'assets/textures/earth_night_preview.webp', 'fetch');
+    var mods = [/* 3d modules (node scripts/lib/modgraph.mjs --write) */
+      'vendor/three/three.module.min.js', 'js/render/context.js', 'js/render/textures.js', 'js/render/streaks.js',
+      'js/render/earth.js', 'js/render/atmosphere.js', 'js/render/aurora.js', 'js/render/sky.js', 'js/render/bodies.js',
+      'js/render/totality.js', 'js/render/ground.js', 'js/render/trails.js', 'js/render/meteors.js',
+      'js/render/sunpath.js', 'js/render/eclipse-path.js', 'js/render/beams.js', 'js/render/planets.js',
+      'js/render/pin.js', 'js/render/flare.js', 'js/render/extras.js', 'js/render/dso.js', 'js/render/precession.js',
+      'js/render/comets.js', 'js/render/craft.js', 'js/render/satellites.js', 'js/render/orrery.js',
+      'js/render/long-exposure.js', 'js/render/ruler.js', 'js/render/edge-chips.js', 'js/render/labels.js',
+      'js/camera/rig.js', 'js/camera/picking.js', 'js/render/postfx.js', 'js/render/shaders/earth.glsl.js',
+      'js/render/shaders/clouds.glsl.js', 'js/render/shaders/atmosphere.glsl.js', 'js/render/shaders/aurora.glsl.js',
+      'js/render/shaders/sky.glsl.js', 'js/render/skyglow.js', 'js/render/shaders/bodies.glsl.js', 'js/astro/orrery.js',
+      'js/render/shaders/totality.glsl.js', 'vendor/three/addons/objects/Sky.js', 'js/render/shaders/ground.glsl.js',
+      'js/render/shaders/beam.glsl.js', 'js/render/shaders/planets.glsl.js', 'js/render/shaders/skyglow.glsl.js',
+      'js/astro/precession.js', 'js/astro/satellites.js', 'js/render/shaders/orrery.glsl.js',
+      'vendor/three/addons/controls/OrbitControls.js', 'vendor/three/addons/postprocessing/EffectComposer.js',
+      'vendor/three/addons/postprocessing/RenderPass.js', 'vendor/three/addons/postprocessing/UnrealBloomPass.js',
+      'vendor/three/addons/postprocessing/OutputPass.js', 'vendor/three/addons/postprocessing/ShaderPass.js',
+      'vendor/three/addons/postprocessing/Pass.js', 'js/render/shaders/common.glsl.js', 'js/render/accum.js',
+      'js/render/supersample.js', 'js/astro/sgp4.js', 'vendor/three/addons/shaders/CopyShader.js',
+      'vendor/three/addons/postprocessing/MaskPass.js', 'vendor/three/addons/shaders/LuminosityHighPassShader.js',
+      'vendor/three/addons/shaders/OutputShader.js'
+    /* /3d modules */];
+    for (var i = 0; i < mods.length; i++) preload('modulepreload', mods[i]);
+  }
 
   var reduced = mq('(prefers-reduced-motion: reduce)');
+  var coarse = mq('(pointer: coarse)');
   if (!env.webgl2 || !env.importmap) b.classList.add('no-webgl');
-  if (mq('(pointer: coarse)')) b.classList.add('is-coarse');
+  if (coarse) b.classList.add('is-coarse');
   if (reduced) b.classList.add('is-reduced-motion');
 
   var nameMeta = d.querySelector('meta[name="application-name"]');
   $('pc-ld-name').textContent = nameMeta ? nameMeta.content : '';
+  // The static words in the visit's language (the head script's table; English as written).
+  if (T('Loading') !== 'Loading') {
+    var tag = d.querySelector('.pc-ld__tag');
+    if (tag) tag.textContent = T(tag.textContent);
+    $('pc-ld-status').textContent = T('Loading') + '…';
+    $('pc-ld-slow').textContent = T($('pc-ld-slow').textContent);
+    $('pc-ld-reload').textContent = T('Reload');
+    var sum = d.querySelector('#pc-ld-details-wrap summary');
+    if (sum) sum.textContent = T('Details');
+    var scene = $('scene');
+    if (scene) scene.setAttribute('aria-label', T(scene.getAttribute('aria-label')));
+  }
   if (reduced) {
     var art = d.querySelector('.pc-ld__art');
     if (art && art.pauseAnimations) art.pauseAnimations();
   }
-  $('pc-ld-reload').addEventListener('click', function () { w.location.reload(); });
+  // A version that fails to load must not stay: a newer one waiting in the service worker (sw.js)
+  // takes over first, then the page reloads (a plain reload would keep the failing one).
+  $('pc-ld-reload').addEventListener('click', function () {
+    var go = function () { w.location.reload(); };
+    var sw = navigator.serviceWorker;
+    if (!sw || !sw.getRegistration) return go();
+    sw.getRegistration().then(function (reg) {
+      if (!reg || !reg.waiting) return go();
+      sw.addEventListener('controllerchange', go);
+      reg.waiting.postMessage({ type: 'skip-waiting' });
+      setTimeout(go, 3000);
+    }, go);
+  });
 
-  // Rotating tips.
-  var tips = [
+  // Rotating tips: gestures on a touch-first device, keys elsewhere.
+  var tips = (coarse ? [
+    'Drag to turn the globe · pinch to zoom',
+    'Tap a world at the end of its beam to meet it',
+    'Tap anywhere on Earth to stand there instead',
+    'Drag the time bar to travel through time',
+    'Switch to Sky view to stand on the ground and look up'
+  ] : [
     'Drag to orbit the globe · scroll or pinch to zoom',
     'Press <kbd>V</kbd> to stand on the ground and look up',
     'Press <kbd>1</kbd>–<kbd>9</kbd> for the Sun, the Moon and each planet',
     'Click anywhere on Earth to stand there instead',
-    '<kbd>Space</kbd> pauses time · <kbd>[</kbd> and <kbd>]</kbd> change its speed',
+    '<kbd>Space</kbd> pauses time · <kbd>[</kbd> and <kbd>]</kbd> change its speed'
+  ]).concat([
     'Every position is computed in your browser — no network needed',
     'A beam that dives into the Earth points at a world below your horizon'
-  ];
+  ]);
+  for (var ti = 0; ti < tips.length; ti++) tips[ti] = T(tips[ti]);
   var tipEl = $('pc-ld-tip');
   var tipIndex = Math.floor(Math.random() * tips.length);
   function showTip() {
@@ -336,7 +594,7 @@ body.is-intro-out #ui-root{animation:pc-ui-in .9s cubic-bezier(.2,.7,.2,1) both}
     $('pc-ld-slow').addEventListener('click', function () {
       w.__pcSlow = true;
       this.disabled = true;
-      this.textContent = 'Continuing with low detail…';
+      this.textContent = T('Continuing with low detail…');
       try { w.dispatchEvent(new Event('pc:slow')); } catch (e) { /* very old browser */ }
     }, { once: true });
   }, 8000);
@@ -345,7 +603,7 @@ body.is-intro-out #ui-root{animation:pc-ui-in .9s cubic-bezier(.2,.7,.2,1) both}
   w.setTimeout(function () {
     if (w.__pcBooted) return;
     var s = $('pc-ld-status');
-    if (s) s.textContent = 'Still loading — this is taking much longer than usual.';
+    if (s) s.textContent = T('Still loading — this is taking much longer than usual.');
     $('pc-ld-actions').hidden = false;
   }, 40000);
 })();

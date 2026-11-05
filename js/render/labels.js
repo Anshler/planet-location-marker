@@ -21,24 +21,41 @@
  * `viewport.insets`, CSS px per edge, e.g. rc.size.insets) by at most NUDGE_MAX
  * px is nudged inside, otherwise it is hidden; a label that touches a floating
  * UI element (OCCLUDER_SELECTOR: top bar items, view bar items, time bar,
- * panel, sheet) is hidden. Those rects are re-measured at most every 500 ms
- * while rendering, on resize, and once after rendering goes idle, never per
- * frame; `uiOccluders()` shares them with beams.js so beam labels steer clear.
- * Every 100 ms a greedy rectangle declutter
+ * panel, sheet, the phone's tab bar, the mode chips, the Eclipse Companion) is hidden. Those rects
+ * are re-measured at most every 500 ms while rendering, on resize, and once
+ * after rendering goes idle, never per frame; `uiOccluders()` shares them with
+ * beams.js so beam labels steer clear. Every 100 ms a greedy rectangle declutter
  * places labels in priority order up to `cap`. Label sizes are measured once
  * per text change (batched reads, never per frame). When rendering goes idle a
  * single timer finishes any pending declutter or `is-new` removal.
  *
- * Optional anchor fields beyond the spec: `selected` (boolean; otherwise
- * priority ≥ 100 means selected), `below` (boolean), `gate` (() => boolean,
- * evaluated per frame; false hides the label). `update` also accepts
- * `opts.upS` (live observer zenith): body anchors with a `dirS` then get
- * `is-below` from the live direction, so it never goes stale between
- * setAnchors calls. A non-finite anchor position simply hides the label
- * (e.g. beams.labelAnchor before the beam has landed).
+ * Optional anchor fields beyond the spec, all read per frame so a feed can
+ * flip them without a setAnchors call: `selected` (boolean; otherwise
+ * priority ≥ 100 means selected), `below` (boolean → `is-below`), `hidden`
+ * (true hides the label), `faint` (boolean → `is-faint`), `gate`
+ * (() => boolean; false hides the label). Read when the anchor set changes: `med`
+ * ([width, height, ring] CSS px → `has-med` and `--med-w/-h/-ring`: the dot becomes the eyepiece
+ * ring of a planet medallion drawn under it, and is measured with the label) and `title` (a
+ * tooltip). `update` also accepts `opts.upS`
+ * (live observer zenith): a body anchor with a `dirS` and no `below` flag
+ * then gets `is-below` from the live direction. A non-finite anchor position
+ * simply hides the label (e.g. beams.labelAnchor before the beam has landed).
+ *
+ * Sky view: `opts.refrK` (the view blend) lifts every direction anchor except the cardinals by
+ * refraction, as the sky shaders draw it (REFRACT_CHUNK, astro/photometry.js liftByRefraction), and
+ * with `opts.horizon` star and constellation names under the horizon are hidden — under the
+ * illustrative landscape's silhouette when `opts.landscape` (the shared geo/horizon.js profile) is
+ * enabled, with `opts.northS`/`opts.eastS` giving its azimuths.
+ *
+ * `opts.skyLum` (0…1, the brightness of the sky behind the labels) is written,
+ * quantised to 0.05 and only when it changes, as `--sky-lum` on the root, which
+ * also gets `is-daysky` on a bright sky; G7's CSS swaps the dark text halo for
+ * a light one there.
  *
  * @module render/labels
  */
+import { liftByRefraction } from '../astro/photometry.js';
+import { azimuthDeg, horizonAltDeg } from '../geo/horizon.js';
 
 const DECLUTTER_MS = 100;
 const NEW_MS = 600;
@@ -46,7 +63,7 @@ const PAD = 3;            // px of breathing room between labels
 const EDGE = 4;           // label boxes keep this far inside the free area
 const NUDGE_MAX = 12;     // px a label may be shifted to stay inside it; beyond that it hides
 /** Floating UI chrome that hides labels beneath it (G7's DOM, read-only). */
-const OCCLUDER_SELECTOR = '.ui .topbar > *, .ui .viewbar > *, .ui .timebar, .ui .panel, .ui .sheet';
+const OCCLUDER_SELECTOR = '.ui .topbar > *, .ui .viewbar > *, .ui .timebar, .ui .panel, .ui .sheet, .ui .navbar, .ui .status-stack > *, .ui .ecl';
 const OCCLUDER_MS = 500;
 const OCCLUDER_MAX = 32;
 
@@ -83,23 +100,31 @@ export function labelExtent(id) {
 
 // sin(−0.3°): a name whose anchor is just under the horizon line is already behind the ground.
 const HORIZON_SIN = -0.005;
-const KIND_RANK = { body: 0, observer: 1, cardinal: 2, trail: 3, star: 4, constellation: 5 };
+/** `--sky-lum` steps, and the level from which the root carries `is-daysky`. */
+const SKY_LUM_STEPS = 20;
+const DAYSKY_LUM = 0.6;
+const KIND_RANK = { body: 0, ruler: 1, observer: 1, cardinal: 2, trail: 3, star: 4, constellation: 5 };
+const DEG = Math.PI / 180;
+/** A world point this far from the camera (Earth radii) stands for a direction at infinity. */
+const FAR_POINT = 200;
 
 function nowMs() {
     return typeof performance !== 'undefined' ? performance.now() : Date.now();
 }
 
 /**
- * @typedef {{ id:string, text:string, kind:'body'|'observer'|'star'|'constellation'|'cardinal'|'trail',
- *   priority:number, color?:string, dirS?:ArrayLike<number>, posS?:ArrayLike<number>, offsetPx?:[number,number],
- *   ariaLabel?:string, interactive:boolean, selected?:boolean, below?:boolean, gate?:()=>boolean }} LabelAnchor
+ * @typedef {{ id:string, text:string, kind:'body'|'observer'|'star'|'constellation'|'cardinal'|'trail'|'ruler',
+ *   priority:number, color?:string, dirS?:ArrayLike<number>, posS?:ArrayLike<number>, offsetPx?:ArrayLike<number>,
+ *   ariaLabel?:string, interactive:boolean, selected?:boolean, below?:boolean, hidden?:boolean, faint?:boolean,
+ *   gate?:()=>boolean }} LabelAnchor
  */
 
 /**
  * Creates the label pool inside `rootEl` (#labels-root).
  * @param {HTMLElement} rootEl
  * @param {{cap?:number, now?:()=>number}} [opts]
- * @returns {{setAnchors(list:LabelAnchor[]):void, update(camera:object, viewport:{w:number,h:number}, opts?:{cap?:number, upS?:ArrayLike<number>}):number,
+ * @returns {{setAnchors(list:LabelAnchor[]):void, update(camera:object, viewport:{w:number,h:number}, opts?:{cap?:number, upS?:ArrayLike<number>, horizon?:boolean, skyLum?:number,
+ *     refrK?:number, landscape?:object|null, northS?:ArrayLike<number>, eastS?:ArrayLike<number>}):number,
  *   onActivate(cb:(id:string)=>void):()=>void, relayout():void, dispose():void, readonly visibleCount:number}}
  */
 export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
@@ -122,6 +147,11 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
     const lastVp = { w: 0, h: 0, insets: null };
     let lastOpts = null;
     let horizonOn = false;   // sky view: hide star/constellation names below the horizon
+    let refrK = 0;           // sky view: refraction lift of direction anchors (the view blend)
+    let landscape = null;    // the shared horizon profile (geo/horizon.js), or null
+    let northS = null, eastS = null;
+    const LIFT = new Float64Array(3);
+    let skyLum = -1;         // last --sky-lum written (quantised)
     // Placed rectangles for the greedy declutter (x0, y0, x1, y1 per label).
     let rects = new Float64Array(4 * 64);
     const M = new Float64Array(16);
@@ -132,6 +162,7 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
     let occAt = -Infinity;
     let occDirty = true;
     let lastFrameT = -Infinity;
+    let readTimer = 0;
 
     // ---- DOM helpers ---------------------------------------------------------------------------
 
@@ -169,6 +200,7 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
         it.isNew = false;
         it.sel = false;
         it.below = false;
+        it.faint = false;
         // A pooled element keeps its last transform; park it at the origin so the first
         // measurement (relative to wx, wy) is right.
         el.style.transform = 'translate3d(0px, 0px, 0)';
@@ -198,6 +230,31 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
             it.color = color;
             if (color) el.style.setProperty('--c', color);
             else el.style.removeProperty('--c');
+        }
+        // A marker drawn under the label's dot (a planet medallion): the dot takes its size, so the
+        // measured box — and the declutter and beams.js — cover it.
+        const m = a.med;
+        const med = m && m[0] > 0 && m[1] > 0 ? `${m[0]}|${m[1]}|${m[2] || m[1]}` : '';
+        if (force || med !== it.med) {
+            it.med = med;
+            el.classList.toggle('has-med', !!med);
+            if (med) {
+                el.style.setProperty('--med-w', `${m[0]}px`);
+                el.style.setProperty('--med-h', `${m[1]}px`);
+                el.style.setProperty('--med-ring', `${m[2] || m[1]}px`);
+            } else {
+                el.style.removeProperty('--med-w');
+                el.style.removeProperty('--med-h');
+                el.style.removeProperty('--med-ring');
+            }
+            it.measured = false;
+            measureDirty = true;
+        }
+        const title = a.title ? String(a.title) : '';
+        if (force || title !== it.title) {
+            it.title = title;
+            if (title) el.setAttribute('title', title);
+            else el.removeAttribute('title');
         }
     }
 
@@ -230,10 +287,10 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
                 if (!it) {
                     it = {
                         id, kind, tag, node: acquire(tag), anchor: a, seq: k,
-                        text: null, aria: null, color: null,
-                        rx0: -4, ry0: -9, rx1: 40, ry1: 9, measured: false,
+                        text: null, aria: null, color: null, med: null, title: null,
+                        rx0: -4, ry0: -9, rx1: 40, ry1: 9, measured: false, tried: false,
                         sx: 0, sy: 0, ok: false, placed: false,
-                        shown: false, isNew: false, newUntil: 0, sel: false, below: false, wx: NaN, wy: NaN,
+                        shown: false, isNew: false, newUntil: 0, sel: false, below: false, faint: false, wx: NaN, wy: NaN,
                     };
                     items.set(id, it);
                     applyAnchorToEl(it, a);
@@ -261,10 +318,13 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
 
     // ---- measurement -------------------------------------------------------------------------------
 
-    /** Reads label boxes relative to their anchor point (batched; only for changed text). */
+    /**
+     * Reads label boxes relative to their anchor point (batched; only for changed text).
+     * @returns {number} labels measured
+     */
     function measure() {
         measureDirty = false;
-        let rootRect = null;
+        let rootRect = null, measured = 0;
         for (let i = 0; i < order.length; i++) {
             const it = order[i];
             if (it.measured) continue;
@@ -287,11 +347,13 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
                 it.rx1 = x1 - ax;
                 it.ry1 = y1 - ay;
                 it.measured = true;
+                measured++;
                 let ext = EXTENTS.get(it.id);
                 if (!ext) EXTENTS.set(it.id, ext = new Float64Array(4));
                 ext[0] = it.rx0; ext[1] = it.ry0; ext[2] = it.rx1; ext[3] = it.ry1;
             } else {
                 // Not laid out yet (stylesheet still loading): estimate and retry later.
+                it.tried = true;
                 const len = it.text ? it.text.length : 4;
                 it.rx0 = -4;
                 it.ry0 = -9;
@@ -300,11 +362,13 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
                 measureDirty = true;
             }
         }
+        return measured;
     }
 
     /**
      * Re-reads the floating UI elements' rects into OCCLUDERS (layout read; at most every
-     * OCCLUDER_MS while rendering, never per frame). Hidden chrome (cinema mode) is skipped.
+     * OCCLUDER_MS while rendering, after a frame rather than inside it). Hidden chrome (cinema
+     * mode) is skipped.
      */
     function refreshOccluders(t) {
         occAt = t;
@@ -351,6 +415,7 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
     function project(it, cx, cy, cz, w, h, upS) {
         const a = it.anchor;
         it.ok = false;
+        if (a.hidden === true) return false;
         if (typeof a.gate === 'function') {
             let pass = true;
             try { pass = a.gate() !== false; } catch { pass = false; }
@@ -358,8 +423,19 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
         }
         let X, Y, W;
         if (a.posS) {
-            const px = a.posS[0], py = a.posS[1], pz = a.posS[2];
+            let px = a.posS[0], py = a.posS[1], pz = a.posS[2];
             if (!(Number.isFinite(px) && Number.isFinite(py) && Number.isFinite(pz))) return false;
+            // A body point at infinity (beams.labelAnchor in sky view: far along the direction from
+            // the camera) is lifted by refraction like the body it labels.
+            if (refrK > 0 && upS && it.kind === 'body') {
+                const rx = px - cx, ry = py - cy, rz = pz - cz;
+                const L = Math.hypot(rx, ry, rz);
+                if (L > FAR_POINT) {
+                    LIFT[0] = rx / L; LIFT[1] = ry / L; LIFT[2] = rz / L;
+                    liftByRefraction(LIFT, upS, refrK, LIFT);
+                    px = cx + LIFT[0] * L; py = cy + LIFT[1] * L; pz = cz + LIFT[2] * L;
+                }
+            }
             const vx = M[0] * px + M[4] * py + M[8] * pz + M[12];
             const vy = M[1] * px + M[5] * py + M[9] * pz + M[13];
             const vz = M[2] * px + M[6] * py + M[10] * pz + M[14];
@@ -369,9 +445,11 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
             if (!(W > 1e-6)) return false;
             if (segmentHitsSphere(cx, cy, cz, px, py, pz)) return false;
         } else {
-            const d = a.dirS;
+            let d = a.dirS;
+            if (!(Number.isFinite(d[0]) && Number.isFinite(d[1]) && Number.isFinite(d[2]))) return false;
+            // Where the sky view draws it: lifted by refraction (the cardinals mark the horizon itself).
+            if (refrK > 0 && upS && it.kind !== 'cardinal') d = liftByRefraction(d, upS, refrK, LIFT);
             const dx = d[0], dy = d[1], dz = d[2];
-            if (!(Number.isFinite(dx) && Number.isFinite(dy) && Number.isFinite(dz))) return false;
             const vx = M[0] * dx + M[4] * dy + M[8] * dz;
             const vy = M[1] * dx + M[5] * dy + M[9] * dz;
             const vz = M[2] * dx + M[6] * dy + M[10] * dz;
@@ -382,8 +460,13 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
             if (rayHitsSphere(cx, cy, cz, dx, dy, dz)) return false;
             // Sky view: the ground hides everything below the horizon, so do the names of stars
             // and constellations there (bodies keep theirs, marked is-below).
-            if (horizonOn && upS && (it.kind === 'star' || it.kind === 'constellation')
-                && dx * upS[0] + dy * upS[1] + dz * upS[2] < HORIZON_SIN) return false;
+            if (horizonOn && upS && (it.kind === 'star' || it.kind === 'constellation')) {
+                let lim = HORIZON_SIN;
+                if (landscape && landscape.enabled && northS && eastS) {
+                    lim += Math.sin(horizonAltDeg(landscape, azimuthDeg(d, northS, eastS)) * DEG);
+                }
+                if (dx * upS[0] + dy * upS[1] + dz * upS[2] < lim) return false;
+            }
         }
         const off = a.offsetPx;
         const sx = (X / W * 0.5 + 0.5) * w + (off ? off[0] || 0 : 0);
@@ -406,12 +489,15 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
         }
         it.sx = qx;
         it.sy = qy;
-        // Live below-horizon state for bodies (opts.upS), else the anchor's static flag.
-        if (upS && a.dirS && it.kind === 'body') {
-            it.belowNow = a.dirS[0] * upS[0] + a.dirS[1] * upS[1] + a.dirS[2] * upS[2] < 0;
+        // The anchor's below flag (a feed keeps it live); without one, a body with a direction
+        // takes it from the live zenith (opts.upS).
+        if (typeof a.below === 'boolean') {
+            it.belowNow = a.below;
         } else {
-            it.belowNow = a.below === true;
+            it.belowNow = !!(upS && a.dirS && it.kind === 'body'
+                && a.dirS[0] * upS[0] + a.dirS[1] * upS[1] + a.dirS[2] * upS[2] < 0);
         }
+        it.faintNow = a.faint === true;
         it.ok = true;
         return true;
     }
@@ -423,7 +509,8 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
         for (let i = 0; i < order.length; i++) {
             const it = order[i];
             it.placed = false;
-            if (!it.ok || n >= capNow) continue;
+            // A label never shown waits (hidden, laid out) for its first measurement after the frame.
+            if (!it.ok || n >= capNow || (!it.measured && !it.tried && !it.shown)) continue;
             const x0 = it.sx + it.rx0 - PAD, y0 = it.sy + it.ry0 - PAD;
             const x1 = it.sx + it.rx1 + PAD, y1 = it.sy + it.ry1 + PAD;
             let free = true;
@@ -447,16 +534,39 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
      * @param {object} camera THREE.PerspectiveCamera (matrices current)
      * @param {{w:number, h:number, insets?:{left?:number, right?:number, top?:number, bottom?:number}}} viewport
      *   CSS px of #labels-root / the canvas; `insets` is the UI-covered band on each edge
-     * @param {{cap?:number, upS?:ArrayLike<number>, horizon?:boolean}} [opts] `horizon`: sky view, hide
-     *   star and constellation names below the horizon
+     * @param {{cap?:number, upS?:ArrayLike<number>, horizon?:boolean, skyLum?:number}} [opts] `horizon`: sky
+     *   view, hide star and constellation names below the horizon; `skyLum`: sky brightness behind the
+     *   labels, 0…1 (see module docs)
      * @returns {number} labels visible after this update
      */
     function update(camera, viewport, opts) {
-        return run(camera, viewport, opts, false);
+        return run(camera, viewport, opts, false, true);
     }
 
-    /** One pass; `idle` is true for the trailing timer pass after frames stopped. */
-    function run(camera, viewport, opts, idle) {
+    /**
+     * The layout reads a frame asked for (UI chrome rects, new label boxes), in a task queued from
+     * the frame: the browser has just laid the page out for it, so the reads force nothing.
+     */
+    function readAfterFrame() {
+        readTimer = 0;
+        if (disposed) return;
+        const t = now();
+        let read = false;
+        if (occDirty || t - occAt >= OCCLUDER_MS) { refreshOccluders(t); read = true; }
+        const measured = measureDirty ? measure() : 0;
+        if (!read && !measured) return;
+        declutterDue = true;
+        // New boxes: place them now (the labels held back for them appear with this frame's camera).
+        if (measured && lastCam) run(lastCam, lastVp, lastOpts || undefined, false);
+        else schedule();
+    }
+
+    /**
+     * One pass; `idle` is true for the trailing timer pass after frames stopped. A frame
+     * (`inFrame`) never reads layout: it places with the last rects and boxes (new labels with an
+     * estimate) and leaves the reads to readAfterFrame; the timer pass reads inline.
+     */
+    function run(camera, viewport, opts, idle, inFrame = false) {
         if (disposed || !camera || !doc) return 0;
         lastCam = camera;
         const w = Number(viewport?.w ?? viewport?.width) || rootEl.clientWidth || 1;
@@ -473,10 +583,20 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
         const capNow = Number.isFinite(opts?.cap) ? opts.cap : defaultCap;
         const upS = opts?.upS || null;
         horizonOn = opts?.horizon === true;
+        refrK = Number.isFinite(opts?.refrK) ? Math.min(1, Math.max(0, opts.refrK)) : 0;
+        landscape = opts?.landscape || null;
+        northS = opts?.northS || null;
+        eastS = opts?.eastS || null;
+        writeSkyLum(opts?.skyLum);
         const t = now();
         if (!idle) lastFrameT = t;
         // UI chrome rects: on demand, every OCCLUDER_MS, and once more after a burst of frames.
-        if (occDirty || t - occAt >= OCCLUDER_MS || (idle && occAt < lastFrameT)) refreshOccluders(t);
+        const occDue = occDirty || t - occAt >= OCCLUDER_MS || (idle && occAt < lastFrameT);
+        if (inFrame) {
+            if ((occDue || measureDirty) && !readTimer && typeof setTimeout === 'function') readTimer = setTimeout(readAfterFrame, 0);
+        } else if (occDue) {
+            refreshOccluders(t);
+        }
 
         const mw = camera.matrixWorldInverse.elements;
         const pm = camera.projectionMatrix.elements;
@@ -490,7 +610,7 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
             project(it, cx, cy, cz, w, h, upS);
             if (it.ok && !was) becameOk = true;
         }
-        if (measureDirty) measure();
+        if (measureDirty && !inFrame) measure();
         if (becameOk) declutterDue = true;
         // A frame between declutters reuses the last placement; the idle timer then runs a
         // trailing declutter, so the layout a moving camera comes to rest on is never stale.
@@ -535,6 +655,10 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
                     el.classList.toggle('is-below', !!it.belowNow);
                     it.below = !!it.belowNow;
                 }
+                if (it.faintNow !== it.faint) {
+                    el.classList.toggle('is-faint', !!it.faintNow);
+                    it.faint = !!it.faintNow;
+                }
             } else if (it.shown) {
                 el.classList.add('is-hidden');
                 it.shown = false;
@@ -551,6 +675,16 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
         visibleCount = count;
         if (pendingNew || measureDirty || stale || (!idle && occAt < t)) schedule();
         return count;
+    }
+
+    /** Writes `--sky-lum` and `is-daysky` on the root when the quantised level changes. */
+    function writeSkyLum(v) {
+        const x = Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0;
+        const q = Math.round(x * SKY_LUM_STEPS) / SKY_LUM_STEPS;
+        if (q === skyLum) return;
+        skyLum = q;
+        rootEl.style.setProperty('--sky-lum', String(q));
+        rootEl.classList.toggle('is-daysky', q >= DAYSKY_LUM);
     }
 
     /** One idle timer finishes a pending declutter / is-new removal when frames stop. */
@@ -600,9 +734,19 @@ export function createLabels(rootEl, { cap = 24, now = nowMs } = {}) {
             declutterDue = true;
         },
         get visibleCount() { return visibleCount; },
+        /**
+         * Whether a label is on screen after the last update (a medallion hides with its label).
+         * @param {string} id
+         * @returns {boolean|null} null when there is no such label
+         */
+        isShown(id) {
+            const it = items.get(id);
+            return it ? it.shown === true : null;
+        },
         dispose() {
             disposed = true;
             if (timer) clearTimeout(timer);
+            if (readTimer) clearTimeout(readTimer);
             rootEl?.removeEventListener('click', onClick);
             if (typeof window !== 'undefined') window.removeEventListener('resize', onResize);
             for (const it of items.values()) {

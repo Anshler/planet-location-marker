@@ -11,84 +11,29 @@
  * progress, then decoded with createImageBitmap (flipped at decode time, since
  * WebGL ignores UNPACK_FLIP_Y for bitmaps) or, where bitmap options are not
  * honoured (Safari, Firefox < 98), with an <img> element.
+ *
+ * Memory: a decoded ImageBitmap is closed once its map is on the GPU (4096 × 2048 is 33.5 MB of
+ * RAM, 8192 × 4096 134 MB), except a map marked ASSETS `keep` (the ocean masks, whose pixels
+ * render/ground.js reads, and the two 512 px previews). The GPU copy is the only one then: a context restore or a new
+ * anisotropy fetches the file again (from the HTTP or service-worker cache) and decodes it into the
+ * same Texture before it is uploaded. An <img> (Safari) cannot be closed and stays.
  */
 import * as THREE from 'three';
+import {
+    ASSETS, INTERIM, PREVIEW, interimKeyFor, previewKeyFor, setMaxTextureSize, dayKeyFor, nightKeyFor, moonKeyFor,
+    maskKeyFor, cloudsKeyFor, keysForTier, download,
+} from '../core/texture-plan.js';
 
-/**
- * Every image the app loads. `bytes` are the on-disk sizes used to weight
- * loader progress; `cs` is the colour space ('srgb' for colour, 'linear' for data).
- */
-export const ASSETS = {
-    day4k: { url: 'assets/textures/earth_day_4096.jpg', bytes: 473e3, cs: 'srgb' },
-    day2k: { url: 'assets/textures/earth_atmos_2048.jpg', bytes: 513e3, cs: 'srgb' },
-    night: { url: 'assets/textures/earth_night_4096.jpg', bytes: 267e3, cs: 'srgb' },
-    specular: { url: 'assets/textures/earth_specular_2048.jpg', bytes: 223e3, cs: 'linear' },
-    clouds1k: { url: 'assets/textures/earth_clouds_1024.png', bytes: 226e3, cs: 'linear' },
-    brc4k: { url: 'assets/textures/earth_bump_roughness_clouds_4096.jpg', bytes: 1434e3, cs: 'linear' },
-    moon: { url: 'assets/textures/moon_1024.jpg', bytes: 238e3, cs: 'srgb' },
-    flare0: { url: 'assets/textures/lensflare0.png', bytes: 65e3, cs: 'srgb' },
-    flare3: { url: 'assets/textures/lensflare3.png', bytes: 3e3, cs: 'srgb' },
-    milkyway: { url: 'data/milkyway.png', bytes: 200e3, cs: 'linear', mipmaps: false },
+// The plan (which keys each tier loads, and their URLs) is pure: js/core/texture-plan.js.
+export {
+    ASSETS, INTERIM, PREVIEW, interimKeyFor, previewKeyFor, dayKeyFor, nightKeyFor, moonKeyFor, maskKeyFor, cloudsKeyFor,
+    keysForTier,
 };
 
 /** Placeholder colours (sRGB hex) shown until a key loads; everything else is black. */
 const PLACEHOLDER_HEX = {
-    day4k: 0x1b3a5c, day2k: 0x1b3a5c, night: 0x000000, specular: 0xffffff, moon: 0x888888,
+    day8k: 0x1b3a5c, day4k: 0x1b3a5c, day2k: 0x1b3a5c, dayPreview: 0x1b3a5c, moon: 0x888888, moon4k: 0x888888,
 };
-
-/** Learned from the renderer by createTextureStore; drives the day-map choice on medium. */
-let maxTextureSize = 16384;
-
-/**
- * Day-map key for a tier. SPEC risk 4: on medium, devices whose max texture
- * size is under 8192 (older iOS) keep the 2k map to save memory.
- * @param {{name?:string, dayTex?:'day2k'|'day4k'}} cfg TierCfg
- * @returns {'day2k'|'day4k'}
- */
-export function dayKeyFor(cfg) {
-    const want = cfg?.dayTex === 'day2k' ? 'day2k' : 'day4k';
-    if (want === 'day4k' && cfg?.name === 'medium' && maxTextureSize < 8192) return 'day2k';
-    return want;
-}
-
-/**
- * Ocean-mask key for a tier, or null when the mask is derived from the day map.
- * @param {{oceanMask?:'derived'|'specular'|'roughness'}} cfg
- * @returns {'specular'|'brc4k'|null}
- */
-export function maskKeyFor(cfg) {
-    if (cfg?.oceanMask === 'specular') return 'specular';
-    if (cfg?.oceanMask === 'roughness') return 'brc4k';
-    return null;
-}
-
-/**
- * Cloud-map key for a tier, or null when the tier has no clouds.
- * @param {{clouds?:'none'|'clouds1k'|'brc4k'}} cfg
- * @returns {'clouds1k'|'brc4k'|null}
- */
-export function cloudsKeyFor(cfg) {
-    if (cfg?.clouds === 'clouds1k') return 'clouds1k';
-    if (cfg?.clouds === 'brc4k') return 'brc4k';
-    return null;
-}
-
-/**
- * Which keys a tier needs: the day and night maps gate the loader (critical);
- * everything else streams in during idle time (deferred), most visible first.
- * @param {object} cfg TierCfg
- * @returns {{critical:string[], deferred:string[]}}
- */
-export function keysForTier(cfg) {
-    const deferred = [];
-    const mask = maskKeyFor(cfg);
-    const clouds = cloudsKeyFor(cfg);
-    if (mask) deferred.push(mask);
-    if (clouds && clouds !== mask) deferred.push(clouds);
-    deferred.push('moon', 'milkyway');
-    if (cfg?.flare) deferred.push('flare0', 'flare3');
-    return { critical: [dayKeyFor(cfg), 'night'], deferred };
-}
 
 /**
  * True where createImageBitmap honours {imageOrientation:'flipY'}. Safari and
@@ -104,35 +49,225 @@ function bitmapDecodeUsable() {
     return true;
 }
 
+/** How long a restore waits for one closed map's file before it takes the 1 × 1 stand-in (ms). */
+const RESTORE_WAIT_MS = 15000;
+
+/** A closed ImageBitmap (its width and height read 0): its pixels are on the GPU only. */
+const isClosed = (img) => !!img && typeof img.close === 'function' && !(img.width > 0);
+
+/** The next task after the next animation frame (the frame is submitted by then); a task in Node. */
+function afterFrame() {
+    return new Promise((resolve) => {
+        if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => setTimeout(resolve, 0));
+        else setTimeout(resolve, 0);
+    });
+}
+
 /**
  * Creates the texture store.
+ *
+ * `prefetched` (core/texture-plan.js prefetchTextures) holds downloads main.js started before the
+ * render stack existed; a key whose URL is there takes that download over (once) instead of
+ * fetching again, and its progress counts the bytes already in.
+ *
+ * Eager upload: a decoded map is uploaded at once (renderer.initTexture), out of the render frame,
+ * except while `holdUploads(p)` holds them: from the start of rc.compile() until it settles and
+ * one frame is out. An upload issued while the GPU process links the boot shaders waits for that
+ * work on the main thread (≈ 360 ms measured on a desktop GPU); afterwards it takes a few ms. A
+ * held map is still ready and bound: a frame drawn meanwhile uploads it itself. A tier switch
+ * holds with `{bind: false}` instead: a map decoded meanwhile becomes ready (onReady) only once it
+ * is on the GPU, so the first frame of the new tier never uploads one. The held uploads then go
+ * out one per task, each after a frame, the re-uploads of maps already bound (setAnisotropy)
+ * first: holdUploads' promise resolves once those are out, and the new maps follow.
+ *
+ * Previews: get(key) of a day or night map returns its 512 px preview (PREVIEW) while the map
+ * loads, once the preview is in (state 'preview'); onReady(key) still fires for the map itself.
  * @param {THREE.WebGLRenderer|null} renderer used for anisotropy, max size and eager upload
- * @param {{onProgress?:(p:{loaded:number,total:number,key?:string,done?:boolean,error?:Error})=>void}} [opts]
+ * @param {{onProgress?:(p:{loaded:number,total:number,key?:string,done?:boolean,error?:Error})=>void,
+ *   prefetched?:Map<string, ReturnType<typeof download>>|null}} [opts]
  * @returns {{
  *   get:(key:string)=>THREE.Texture,
  *   onReady:(key:string, cb:(tex:THREE.Texture)=>void)=>(()=>void),
  *   load:(keys:string[])=>Promise<void>,
  *   progress:()=>{loaded:number,total:number},
  *   isReady:(key:string)=>boolean,
- *   restore:()=>void,
+ *   state:(key:string)=>'idle'|'loading'|'preview'|'ready'|'failed',
+ *   holdUploads:(until:Promise<unknown>, opts?:{bind?:boolean})=>Promise<void>,
+ *   setAnisotropy:(n?:number, keys?:string[])=>void,
+ *   restore:(keep?:Iterable<string>)=>Promise<void>,
  *   dispose:()=>void }}
  */
-export function createTextureStore(renderer, { onProgress } = {}) {
+export function createTextureStore(renderer, { onProgress, prefetched = null } = {}) {
     const caps = renderer?.capabilities;
-    if (caps?.maxTextureSize) maxTextureSize = caps.maxTextureSize;
-    const anisotropy = Math.max(1, Math.min(8, caps?.getMaxAnisotropy?.() ?? 1));
+    if (caps?.maxTextureSize) setMaxTextureSize(caps.maxTextureSize);
+    const maxAnisotropy = Math.max(1, caps?.getMaxAnisotropy?.() ?? 1);
+    // 8x unless the tier asks for more (max: 16x, or whatever the GPU tops out at).
+    let anisotropy = Math.min(8, maxAnisotropy);
     const useBitmap = bitmapDecodeUsable();
 
-    /** @type {Map<string, {state:'idle'|'loading'|'ready'|'failed', tex:THREE.Texture|null,
-     *   promise:Promise<void>|null, listeners:Set<Function>, received:number, bytes:number}>} */
+    /**
+     * Every key asked for; `standIn`: a restore's preview or 1 × 1 image is in the map's place.
+     * @type {Map<string, {key:string, state:'idle'|'loading'|'ready'|'failed', tex:THREE.Texture|null,
+     *   promise:Promise<void>|null, listeners:Set<Function>, received:number, bytes:number,
+     *   reloading:Promise<void>|null, standIn:boolean}>}
+     */
     const entries = new Map();
     const placeholders = new Map();
     let disposed = false;
+    /** While uploads are held (holdUploads): the textures decoded or changed meanwhile, uploaded afterwards. */
+    let gate = null;
+    /** The gate's `bind` option: false keeps a map decoded meanwhile unready until its upload. */
+    let gateBinds = true;
+    /** @type {{tex:THREE.Texture, done:(()=>void)|null, bound?:boolean, bump?:boolean}[]} */
+    const held = [];
+    /** @type {Promise<void>|null} */
+    let flushing = null;
+
+    const glLost = () => {
+        try { return !!renderer?.getContext?.()?.isContextLost?.(); } catch { return false; }
+    };
+
+    /**
+     * Uploads one map now (renderer.initTexture; `bump`: as a new version, for an image just put
+     * back), then closes its decoded bitmap in a later task, once its onReady listeners have read
+     * it: not a map the CPU reads, nor one uploaded into a lost context (nothing reached a GPU).
+     */
+    function initTexture(tex, bump = false) {
+        if (bump) tex.needsUpdate = true;
+        try { renderer?.initTexture?.(tex); } catch { return; /* upload lazily on first use instead */ }
+        if (!renderer || ASSETS[tex.name]?.keep || glLost()) return;
+        setTimeout(() => {
+            const img = tex.image;
+            if (!disposed && !isClosed(img) && typeof img?.close === 'function' && !glLost()) img.close();
+        }, 0);
+    }
+
+    /** Uploads now, or after the gate; `done` runs once the texture is on the GPU. */
+    function upload(tex, done = null, bump = false) {
+        if (gate) { held.push({ tex, done, bump }); return; }
+        initTexture(tex, bump);
+        done?.();
+    }
+
+    /**
+     * Puts a closed map's pixels back: the file again (HTTP or service-worker cache), decoded into
+     * the same Texture (same size, so the GPU storage fits) and uploaded. `restore`: after a context
+     * loss, when the next frame would upload the closed image itself (and throw); if the file cannot
+     * be had within RESTORE_WAIT_MS, its preview's image (day and night maps) or a 1 × 1 pixel of its
+     * placeholder colour takes its place: the restored context allocates the GPU storage afresh, at
+     * the stand-in's size, so it uploads cleanly.
+     * @returns {Promise<void>} never rejects
+     */
+    function reload(e, restore = false) {
+        if (e.reloading) return e.reloading;
+        const p = (async () => {
+            let got = null;
+            try {
+                got = download(ASSETS[e.key].url, fetch).promise.then(decode);
+                let timer = 0;
+                const decoded = !restore ? await got : await Promise.race([got, new Promise((_, reject) => {
+                    timer = setTimeout(() => reject(new Error(`${ASSETS[e.key].url} timed out`)), RESTORE_WAIT_MS);
+                })]).finally(() => clearTimeout(timer));
+                if (disposed || !e.tex) { decoded.image.close?.(); return; }
+                e.tex.image = decoded.image;
+                e.tex.flipY = decoded.flipY;
+                await new Promise((resolve) => upload(e.tex, resolve, true));
+            } catch (err) {
+                if (!restore || !e.tex || !isClosed(e.tex.image)) return;
+                // A late arrival is no use any more: the stand-in sets the GPU storage's size.
+                got?.then((d) => d.image.close?.(), () => {});
+                const pv = entries.get(previewKeyFor(e.key))?.tex;
+                if (pv?.image && !isClosed(pv.image)) {
+                    e.tex.image = pv.image;
+                    e.tex.flipY = pv.flipY;
+                } else {
+                    e.tex.image = standInPixel(e.key);
+                }
+                e.tex.needsUpdate = true;
+                e.state = 'failed';
+                e.standIn = true;
+                emit({ key: e.key, error: err instanceof Error ? err : new Error(String(err)) });
+            }
+        })();
+        e.reloading = p;
+        return p.finally(() => { if (e.reloading === p) e.reloading = null; });
+    }
+
+    /**
+     * Tries again for a map whose restore fell back to a stand-in (the next load() of its key: a
+     * tier change, or main.js when the browser is back online). The stand-in's GPU storage is in
+     * this context at its own size, so the Texture is disposed first and the map put back into
+     * the same object at full size: every material holding it shows it, and onReady fires.
+     * @returns {Promise<void>} never rejects
+     */
+    function retryStandIn(e) {
+        if (e.reloading) return e.reloading;
+        if (glLost()) return Promise.resolve();
+        const p = (async () => {
+            try {
+                const decoded = await download(ASSETS[e.key].url, fetch).promise.then(decode);
+                if (disposed || !e.tex || !e.standIn || glLost()) { decoded.image.close?.(); return; }
+                e.tex.dispose();
+                e.tex.image = decoded.image;
+                e.tex.flipY = decoded.flipY;
+                await new Promise((resolve) => upload(e.tex, resolve, true));
+                if (disposed || !e.tex) return;
+                e.standIn = false;
+                e.state = 'ready';
+                emit({ key: e.key, done: true });
+                for (const cb of [...e.listeners]) {
+                    try { cb(e.tex); } catch { /* one bad listener must not starve the others */ }
+                }
+                e.listeners.clear();
+            } catch {
+                // Still unreachable: the stand-in stays, and the next load() tries again.
+            }
+        })();
+        e.reloading = p;
+        return p.finally(() => { if (e.reloading === p) e.reloading = null; });
+    }
+
+    /** A 1 × 1 image of the key's placeholder colour, for a Texture whose decoded image is closed. */
+    function standInPixel(key) {
+        const hex = PLACEHOLDER_HEX[key] ?? 0;
+        const px = [(hex >> 16) & 255, (hex >> 8) & 255, hex & 255, 255];
+        return typeof ImageData === 'function' ? new ImageData(new Uint8ClampedArray(px), 1, 1) : { width: 1, height: 1 };
+    }
+
+    /**
+     * Forgets a closed map that a context restore does not bring back (another tier's): its GPU copy
+     * died with the context, so there is nothing to dispose. Its Texture takes the 1 × 1 stand-in, so
+     * a material that still holds it draws the placeholder colour, never a closed image; a later
+     * load() fetches the file afresh and fires onReady with a new Texture.
+     */
+    function drop(e) {
+        e.tex.image = standInPixel(e.key);
+        e.tex.flipY = false;
+        e.tex.needsUpdate = true;
+        e.tex = null;
+        e.state = 'idle';
+        e.promise = null;
+        e.received = 0;
+        e.standIn = false;
+    }
+
+    /** One held upload per task, each after a frame, so two large maps never share a long task. */
+    function flushHeld() {
+        flushing ??= (async () => {
+            while (held.length && !gate && !disposed) {
+                const h = held.shift();
+                initTexture(h.tex, h.bump);
+                h.done?.();
+                if (held.length) await afterFrame();
+            }
+        })().finally(() => { flushing = null; });
+        return flushing;
+    }
 
     function entryOf(key) {
         let e = entries.get(key);
         if (!e) {
-            e = { state: 'idle', tex: null, promise: null, listeners: new Set(), received: 0, bytes: ASSETS[key]?.bytes ?? 0 };
+            e = { key, state: 'idle', tex: null, promise: null, listeners: new Set(), received: 0, bytes: ASSETS[key]?.bytes ?? 0, reloading: null, standIn: false };
             entries.set(key, e);
         }
         return e;
@@ -170,26 +305,16 @@ export function createTextureStore(renderer, { onProgress } = {}) {
         try { onProgress({ ...progress(), ...extra }); } catch { /* a UI callback must not break loading */ }
     }
 
-    async function fetchBlob(url, e, key) {
-        const res = await fetch(url, { credentials: 'same-origin' });
-        if (!res.ok) throw new Error(`HTTP ${res.status} for ${url}`);
-        if (!res.body || typeof res.body.getReader !== 'function') {
-            const blob = await res.blob();
-            e.received = blob.size;
-            return blob;
-        }
-        const reader = res.body.getReader();
-        const chunks = [];
-        let n = 0;
-        for (;;) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            chunks.push(value);
-            n += value.byteLength;
+    /** The key's image as a Blob: the prefetched download of its URL, or a new one. */
+    function fetchBlob(url, e, key) {
+        const dl = prefetched?.get(url) ?? download(url, fetch);
+        prefetched?.delete(url);
+        e.received = dl.received;
+        dl.onChunk = (n) => {
             e.received = n;
             emit({ key });
-        }
-        return new Blob(chunks, { type: res.headers.get('Content-Type') || '' });
+        };
+        return dl.promise;
     }
 
     async function decode(blob) {
@@ -227,7 +352,7 @@ export function createTextureStore(renderer, { onProgress } = {}) {
         tex.generateMipmaps = asset.mipmaps !== false;
         tex.minFilter = tex.generateMipmaps ? THREE.LinearMipmapLinearFilter : THREE.LinearFilter;
         tex.magFilter = THREE.LinearFilter;
-        tex.anisotropy = anisotropy;
+        if (tex.generateMipmaps) tex.anisotropy = anisotropy;
         tex.needsUpdate = true;
         return tex;
     }
@@ -235,6 +360,9 @@ export function createTextureStore(renderer, { onProgress } = {}) {
     function startLoad(key) {
         const asset = ASSETS[key];
         const e = entryOf(key);
+        if (e.standIn) return retryStandIn(e);
+        // A download that failed (offline, a timeout) is tried again by the next load().
+        if (e.state === 'failed' && !e.tex && asset) e.promise = null;
         if (e.promise) return e.promise;
         if (!asset) {
             e.state = 'failed';
@@ -249,7 +377,10 @@ export function createTextureStore(renderer, { onProgress } = {}) {
                 const decoded = await decode(blob);
                 if (disposed) { decoded.image.close?.(); return; }
                 const tex = makeTexture(key, decoded);
-                try { renderer?.initTexture?.(tex); } catch { /* upload lazily on first use instead */ }
+                // A tier switch's hold: bound once on the GPU, so no frame uploads it.
+                if (gate && !gateBinds) await new Promise((resolve) => upload(tex, resolve));
+                else upload(tex);
+                if (disposed) return;
                 e.tex = tex;
                 e.state = 'ready';
                 emit({ key, done: true });
@@ -267,10 +398,12 @@ export function createTextureStore(renderer, { onProgress } = {}) {
     }
 
     return {
-        /** The loaded texture, or the key's placeholder until it is ready. */
+        /** The loaded texture, else its preview once that is in (day and night maps), else the key's placeholder. */
         get(key) {
             const e = entries.get(key);
-            return e?.state === 'ready' ? e.tex : placeholderFor(key);
+            if (e?.state === 'ready') return e.tex;
+            const p = entries.get(previewKeyFor(key));
+            return p?.state === 'ready' ? p.tex : placeholderFor(key);
         },
         /** Calls cb(tex) when the key is ready (synchronously if it already is). Returns off(). */
         onReady(key, cb) {
@@ -293,14 +426,91 @@ export function createTextureStore(renderer, { onProgress } = {}) {
         isReady(key) {
             return entries.get(key)?.state === 'ready';
         },
-        /** After a WebGL context restore: re-upload every loaded texture from its retained image. */
-        restore() {
-            for (const e of entries.values()) if (e.tex) e.tex.needsUpdate = true;
+        /** 'preview' while a day or night map loads (or failed) and get() returns its preview. */
+        state(key) {
+            const st = entries.get(key)?.state ?? 'idle';
+            return st !== 'ready' && entries.get(previewKeyFor(key))?.state === 'ready' ? 'preview' : st;
+        },
+        /**
+         * Holds eager uploads until `until` settles and one more frame is out (rc.compile() at boot,
+         * a tier switch's compile). `bind: false` (tier switches): a map decoded meanwhile stays
+         * unready until its upload. Resolves once the held uploads of maps already bound are out
+         * (they go first: a frame would upload one itself), or at once when a newer hold takes
+         * over (that one uploads them). The new maps follow, one per task.
+         * @param {Promise<unknown>} until
+         * @param {{bind?:boolean}} [opts]
+         * @returns {Promise<void>}
+         */
+        holdUploads(until, { bind = true } = {}) {
+            const g = Promise.resolve(until).then(() => {}, () => {}).then(afterFrame).then(() => {
+                if (gate !== g) return undefined;
+                gate = null;
+                const bound = [];
+                for (const h of held) {
+                    if (h.done) continue;
+                    h.bound = true;
+                    bound.push(new Promise((resolve) => { h.done = resolve; }));
+                }
+                held.sort((a, b) => (b.bound ? 1 : 0) - (a.bound ? 1 : 0));
+                flushHeld();
+                return Promise.all(bound).then(() => {});
+            });
+            gate = g;
+            gateBinds = bind !== false;
+            return g;
+        },
+        /**
+         * Sets the anisotropic filtering of the mipmapped maps (TierCfg.anisotropy; absent = 8x),
+         * clamped to the GPU's limit: every loaded map, or only `keys` (the new tier's). A change
+         * re-uploads the map (three sets sampler state on upload), through the hold if one is on:
+         * tier changes only. A map left out keeps its filtering until a tier that uses it sets it.
+         * @param {number} [n]
+         * @param {string[]} [keys]
+         */
+        setAnisotropy(n, keys) {
+            const next = Math.max(1, Math.min(maxAnisotropy, Number.isFinite(n) && n > 0 ? n : 8));
+            anisotropy = next;
+            const list = Array.isArray(keys) ? keys.map((k) => entries.get(k)) : entries.values();
+            for (const e of list) {
+                if (!e?.tex || !e.tex.generateMipmaps || e.tex.anisotropy === next) continue;
+                e.tex.anisotropy = next;
+                // A closed map is fetched and decoded again first; it keeps its filtering meanwhile.
+                if (isClosed(e.tex.image)) { reload(e); continue; }
+                e.tex.needsUpdate = true;
+                upload(e.tex);
+            }
+            // Maps held unready (decoded during a hold) are uploaded anyway: just the new value.
+            for (const h of held) {
+                if (h.done && h.tex.generateMipmaps && (!Array.isArray(keys) || keys.includes(h.tex.name))) h.tex.anisotropy = next;
+            }
+        },
+        /**
+         * After a WebGL context restore: every loaded map goes back on the GPU, a kept image at its
+         * first draw, a closed one fetched and decoded again first, one at a time (the loss was
+         * likely memory pressure). Resolves once those are uploaded; nothing may draw before (a
+         * frame would upload a closed image), so main.js holds the restore on it. `keep`: the keys
+         * the current tier draws (keysForTier); a closed map outside it (a tier left behind, such
+         * as max's 8192 px maps after a step down) is dropped instead of fetched and uploaded.
+         * @param {Iterable<string>} [keep] every key when absent
+         * @returns {Promise<void>} never rejects
+         */
+        restore(keep) {
             for (const t of placeholders.values()) t.needsUpdate = true;
+            const wanted = keep ? new Set(keep) : null;
+            let chain = Promise.resolve();
+            for (const e of entries.values()) {
+                if (!e.tex) continue;
+                if (!isClosed(e.tex.image)) e.tex.needsUpdate = true;
+                else if (wanted && !wanted.has(e.key)) drop(e);
+                else chain = chain.then(() => reload(e, true));
+            }
+            return chain;
         },
         /** Frees GPU and decoded-image memory. The store is unusable afterwards. */
         dispose() {
             disposed = true;
+            for (const h of held) h.done?.();
+            held.length = 0;
             for (const e of entries.values()) {
                 if (e.tex) {
                     e.tex.dispose();

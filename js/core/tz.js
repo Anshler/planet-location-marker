@@ -380,3 +380,147 @@ export function fromDatetimeLocal(str, tz) {
     const ms = zonedToUtc({ y, mo, d, h, mi, s }, tz);
     return Number.isFinite(ms) ? ms : null;
 }
+
+// ───────────────────────── Julian calendar (dates before 15 October 1582) ─────────────────────────
+//
+// Instants are always UTC ms and `t=` in the URL is a Gregorian ISO instant. Only the *display* of
+// a calendar date changes: a wall date before Friday 15 October 1582 (Gregorian) is shown in the
+// Julian calendar, as historical records give it (Thursday 4 October 1582 Julian was followed by
+// Friday 15 October). Weekdays are the same in both calendars. One cut-over for the whole world is
+// a simplification (Britain switched in 1752, Russia in 1918): docs/ASTRONOMY.md §1.
+
+/** The first Gregorian wall date, as y·10000 + mo·100 + d. */
+const GREGORIAN_FIRST = 15821015;
+/** The last Julian wall date (4 Oct 1582), as y·10000 + mo·100 + d. */
+const JULIAN_LAST = 15821004;
+
+/** Julian Day Number (the integer day starting at noon) of a proleptic Gregorian date; months and days may overflow. */
+export function jdnFromGregorian(y, mo, d) {
+    const yy = y + Math.floor((mo - 1) / 12);
+    const mm = ((((mo - 1) % 12) + 12) % 12) + 1;
+    const a = Math.floor((14 - mm) / 12);
+    const Y = yy + 4800 - a, M = mm + 12 * a - 3;
+    return d + Math.floor((153 * M + 2) / 5) + 365 * Y + Math.floor(Y / 4) - Math.floor(Y / 100) + Math.floor(Y / 400) - 32045;
+}
+
+/** Julian Day Number of a Julian-calendar date; months and days may overflow. */
+export function jdnFromJulian(y, mo, d) {
+    const yy = y + Math.floor((mo - 1) / 12);
+    const mm = ((((mo - 1) % 12) + 12) % 12) + 1;
+    const a = Math.floor((14 - mm) / 12);
+    const Y = yy + 4800 - a, M = mm + 12 * a - 3;
+    return d + Math.floor((153 * M + 2) / 5) + 365 * Y + Math.floor(Y / 4) - 32083;
+}
+
+/** Proleptic Gregorian {y, mo, d} of a Julian Day Number (into `out`). */
+export function gregorianFromJdn(jdn, out = {}) {
+    const a = jdn + 32044;
+    const b = Math.floor((4 * a + 3) / 146097);
+    const c = a - Math.floor(146097 * b / 4);
+    const d = Math.floor((4 * c + 3) / 1461);
+    const e = c - Math.floor(1461 * d / 4);
+    const m = Math.floor((5 * e + 2) / 153);
+    out.d = e - Math.floor((153 * m + 2) / 5) + 1;
+    out.mo = m + 3 - 12 * Math.floor(m / 10);
+    out.y = 100 * b + d - 4800 + Math.floor(m / 10);
+    return out;
+}
+
+/** Julian-calendar {y, mo, d} of a Julian Day Number (into `out`). */
+export function julianFromJdn(jdn, out = {}) {
+    const c = jdn + 32082;
+    const d = Math.floor((4 * c + 3) / 1461);
+    const e = c - Math.floor(1461 * d / 4);
+    const m = Math.floor((5 * e + 2) / 153);
+    out.d = e - Math.floor((153 * m + 2) / 5) + 1;
+    out.mo = m + 3 - 12 * Math.floor(m / 10);
+    out.y = d - 4800 + Math.floor(m / 10);
+    return out;
+}
+
+/** True when a (proleptic Gregorian) wall date is before 15 Oct 1582, i.e. shown as Julian. */
+export function isJulianEra(y, mo, d) {
+    return y * 10000 + mo * 100 + d < GREGORIAN_FIRST;
+}
+
+/**
+ * The date as the app shows it: `z` holds proleptic Gregorian wall fields (utcToZoned); before
+ * 15 Oct 1582 `out` gets the Julian y/mo/d and `cal: 'julian'`, otherwise a copy and 'gregorian'.
+ * Time-of-day fields are copied unchanged. `out` may be `z`.
+ * @param {{y:number, mo:number, d:number}} z
+ * @param {Record<string, any>} [out]
+ * @returns {{y:number, mo:number, d:number, cal:'julian'|'gregorian'}}
+ */
+export function toCalendar(z, out = {}) {
+    if (out !== z) Object.assign(out, z);
+    if (Number.isFinite(z.y) && isJulianEra(z.y, z.mo, z.d)) {
+        julianFromJdn(jdnFromGregorian(z.y, z.mo, z.d), out);
+        out.cal = 'julian';
+    } else {
+        out.cal = 'gregorian';
+    }
+    return /** @type {any} */ (out);
+}
+
+/**
+ * The proleptic Gregorian {y, mo, d} of a calendar date (months and days may overflow, so `d + 1`
+ * on 4 Oct 1582 Julian is 15 Oct). `cal` 'julian' or 'gregorian'; omitted, the date is read as
+ * Julian when it is on or before 4 Oct 1582, else Gregorian.
+ * @param {number} y
+ * @param {number} mo 1-based
+ * @param {number} d
+ * @param {'julian'|'gregorian'} [cal]
+ * @returns {{y:number, mo:number, d:number}}
+ */
+export function fromCalendar(y, mo, d, cal) {
+    const c = cal ?? (y * 10000 + mo * 100 + d <= JULIAN_LAST ? 'julian' : 'gregorian');
+    return gregorianFromJdn(c === 'julian' ? jdnFromJulian(y, mo, d) : jdnFromGregorian(y, mo, d));
+}
+
+/**
+ * Days in a month of a calendar: the Julian calendar has a leap day every fourth year (1500 had a
+ * 29 February); the Gregorian one skips it in century years not divisible by 400.
+ * @param {number} y
+ * @param {number} mo 1-based
+ * @param {'julian'|'gregorian'} cal
+ * @returns {number}
+ */
+export function daysInMonthCal(y, mo, cal) {
+    if (cal === 'julian' && mo === 2) return y % 4 === 0 ? 29 : 28;
+    return daysInMonth(y, mo);
+}
+
+const MONTH_NAMES = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+/**
+ * Parses a typed date and time in the display calendar: 'YYYY-MM-DD[ T]HH:MM[:SS]' or
+ * '24 Apr 1066 [20:00[:00]]'. A date on or before 4 Oct 1582 is read as Julian (records from that
+ * era use it), from 15 Oct 1582 as Gregorian; the ten days in between never existed and give null,
+ * as do impossible dates (29 Feb 1700; but 29 Feb 1500 was a Julian leap day).
+ * @param {unknown} str
+ * @returns {{y:number, mo:number, d:number, h:number, mi:number, s:number, cal:'julian'|'gregorian'}|null}
+ */
+export function parseCalendarInput(str) {
+    if (typeof str !== 'string') return null;
+    const t = str.trim().toLowerCase();
+    let y, mo, d, rest;
+    let m = /^(\d{3,4})-(\d{1,2})-(\d{1,2})(?:[t ,]+(.*))?$/.exec(t);
+    if (m) {
+        y = Number(m[1]); mo = Number(m[2]); d = Number(m[3]); rest = m[4] ?? '';
+    } else {
+        m = /^(\d{1,2})\s+([a-z]{3})[a-z]*\.?,?\s+(\d{3,4})(?:[,\s]+(.*))?$/.exec(t);
+        if (!m || !MONTH_NAMES.includes(m[2])) return null;
+        d = Number(m[1]); mo = MONTH_NAMES.indexOf(m[2]) + 1; y = Number(m[3]); rest = m[4] ?? '';
+    }
+    let h = 0, mi = 0, s = 0;
+    if (rest) {
+        const tm = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(rest.trim());
+        if (!tm) return null;
+        h = Number(tm[1]); mi = Number(tm[2]); s = Number(tm[3] ?? 0);
+    }
+    const key = y * 10000 + mo * 100 + d;
+    if (key > JULIAN_LAST && key < GREGORIAN_FIRST) return null;
+    const cal = key <= JULIAN_LAST ? 'julian' : 'gregorian';
+    if (mo < 1 || mo > 12 || d < 1 || d > daysInMonthCal(y, mo, cal) || h > 23 || mi > 59 || s > 59) return null;
+    return { y, mo, d, h, mi, s, cal };
+}

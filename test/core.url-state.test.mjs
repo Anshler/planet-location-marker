@@ -450,6 +450,26 @@ test('bindUrl: hashchange reports the parsed link; debug=1 is preserved; history
     off();
 });
 
+test('bindUrl: a lang= edited into the address bar is reported and kept by later writes (never the launch one)', (t) => {
+    t.mock.timers.enable({ apis: ['setTimeout', 'setInterval', 'Date'], now: 9_500_000 });
+    const win = fakeWin('#lang=en');
+    const store = createStore();
+    const seen = [];
+    const off = bindUrl({ win, store, clock: null, onExternalChange: (p) => seen.push(p) });
+    win.location.hash = '#sel=mars&lang=vi';
+    win.fire('hashchange');
+    assert.equal(seen[0].lang, 'vi', 'main.js reloads in that language');
+    store.set({ selection: 'venus' });
+    t.mock.timers.tick(600);
+    assert.match(win.calls.at(-1), /lang=vi$/, 'not lang=en written back');
+    win.location.hash = '#sel=jupiter';
+    win.fire('hashchange');
+    store.set({ selection: 'saturn' });
+    t.mock.timers.tick(600);
+    assert.doesNotMatch(win.calls.at(-1), /lang=/, 'a link without lang= drops it');
+    off();
+});
+
 test('bindUrl: missing pieces are tolerated', () => {
     assert.equal(typeof bindUrl(), 'function');
     assert.equal(typeof bindUrl({ win: {} }), 'function');

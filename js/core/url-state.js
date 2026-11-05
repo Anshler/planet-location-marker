@@ -683,9 +683,13 @@ export function bindUrl({ win, store, clock, getCam, onExternalChange, minInterv
         const h = readLocationHash(loc);
         if (h === last) return;
         last = h;
+        const parsed = parseHash(h);
+        // The address bar's language from now on: a later write must not put the old one back.
+        if (parsed.lang) extra.lang = parsed.lang;
+        else delete extra.lang;
         if (typeof onExternalChange !== 'function') return;
         try {
-            onExternalChange(parseHash(h));
+            onExternalChange(parsed);
         } catch (err) {
             console.error('[url-state] onExternalChange failed:', err);
         }

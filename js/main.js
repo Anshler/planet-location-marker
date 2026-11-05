@@ -2315,6 +2315,12 @@ function toggleDebug() {
 function applyHash(p) {
     const { store, clock, actions } = R;
     if (!p || !store) return;
+    // Another language (the hash's own, this visit only, §12 'Choosing'): the page is built in
+    // one, so it reloads with the address bar's hash; nothing is saved.
+    if (p.lang && Object.hasOwn(LOCALES, p.lang) && p.lang !== locale()) {
+        location.reload();
+        return;
+    }
     // A link opened during a tour ends it first (restoring the state it found), then applies.
     R.tours?.stop('link');
     const rm = store.get().status.reducedMotion;
@@ -2376,7 +2382,12 @@ function bindLaunchQueue(bootHref) {
             first = false;
             let hash = '';
             try { hash = url && !own ? new URL(url).hash : ''; } catch { hash = ''; }
-            if (hash.length > 1) applyHash(parseHash(hash));
+            if (hash.length <= 1) return;
+            const p = parseHash(hash);
+            // Another language reloads (applyHash): the link's hash goes to the address bar first,
+            // and its hashchange applies it.
+            if (p.lang && p.lang !== locale()) location.hash = hash;
+            else applyHash(p);
         });
     } catch { /* launch handling is a courtesy */ }
 }

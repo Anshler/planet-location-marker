@@ -1690,7 +1690,8 @@ The interface speaks English and Vietnamese. gettext style: **the English source
   nhìn for the camera and khung nhìn for the 3D view, lượt bay qua, các lần tiếp xúc, khách tinh,
   phần tử quỹ đạo, 'nhật, nguyệt thực' as the short generic; tab and button names are quoted in
   running text (“Trên trời”, “Bây giờ”), and 'của bạn' only where it disambiguates.
-- **Choosing.** `#lang=vi|en` (this visit only; the address bar keeps it), then the saved choice
+- **Choosing.** `#lang=vi|en` (this visit only; the address bar keeps it, and a `lang=` edited
+  or pasted into an open tab's hash, or in a launched link, reloads the page in that language), then the saved choice
   (pref `lang`, Display → Language · Ngôn ngữ), then `navigator.language` ('vi…' → Vietnamese),
   else English. At boot `main.js` fetches `data/i18n/<code>.json` alongside the UI module and
   `setLocale`s it before `mountUI`; if it fails within 3 s the interface mounts in English with a

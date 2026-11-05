@@ -1981,7 +1981,7 @@ delegated the call. This replaces §4.11's layout:
   loop error and no layout read in rAF) and on leaving Mars. The zone is rebuilt only when its
   text changes, no longer on every second's stamp. Checked with the 12-hour clock, This device,
   UTC, Tokyo, a long name, Mars and back, LIVE and Now, at 360 and 390 px and at 1400–1440 px.
-- **Bytes.** +2,047 B raw against `4aef6de`: `layers.js` +1,142, `timebar.js` +668, CSS +179,
+- **Bytes.** +2,036 B raw against `4aef6de`: `layers.js` +1,142, `timebar.js` +657, CSS +179,
   `shell.js` +43, `prefs.js` +15. The redesign stands at +16.9 KB against `40131ce` (low
-  5,089,386 B, medium 5,846,286 B). That is 1.9 KB over §14.10's +15 KB ceiling, which the owner's
+  5,089,375 B, medium 5,846,275 B). That is 1.9 KB over §14.10's +15 KB ceiling, which the owner's
   +2 KB allowance for this change covers.

@@ -53,6 +53,31 @@ test('the other ways people paste coordinates', () => {
     assert.ok(Object.is(parseLatLon('0 -0').lon, 0), 'no negative zero');
 });
 
+test('the Vietnamese interface\'s own coordinates paste back (B Bắc, N Nam = south, Đ Đông, T Tây)', async () => {
+    const fs = await import('node:fs');
+    const i18n = await import('../js/core/i18n.js');
+    const { fmtLatLon } = await import('../js/core/format.js');
+    const vi = JSON.parse(fs.readFileSync(new URL('../data/i18n/vi.json', import.meta.url), 'utf8'));
+    const places = [[48.8566, 2.3522], [-33.8688, 151.2093], [-22.9068, -43.1729], [21.0245, 105.8412], [64.1466, -21.9426]];
+    i18n.setLocale('vi', vi);
+    try {
+        for (const [lat, lon] of places) {
+            for (const [mode, opts, tol] of [['dec', { digits: 4, sep: ', ' }, 1e-9], ['dec', undefined, 0.006], ['dms', undefined, 1 / 3600]]) {
+                const text = fmtLatLon(lat, lon, mode, opts);
+                const got = parseLatLon(text);
+                assert.ok(got, `${text}: parsed`);
+                assert.ok(Math.abs(got.lat - lat) < tol && Math.abs(got.lon - lon) < tol, `${text}: got ${JSON.stringify(got)}`);
+            }
+        }
+    } finally {
+        i18n.setLocale('en', null);
+    }
+    near(parseLatLon('33,9 N 151,2 Đ'), { lat: -33.9, lon: 151.2 }, 'N is Nam next to a Vietnamese letter');
+    near(parseLatLon('48.85 B, 2.35 T'), { lat: 48.85, lon: -2.35 }, 'B and T');
+    near(parseLatLon('33.9 N 151.2 E'), { lat: 33.9, lon: 151.2 }, 'English letters: N stays north');
+    assert.equal(parseLatLon('48,85 B 2,35 B'), null, 'two latitudes');
+});
+
 test('rejections', () => {
     const bad = [
         'Paris', 'Hanoi, Vietnam', '', '   ', '48.8566', '91 0', '-90.1 0', '0 181', '0 -180.5',

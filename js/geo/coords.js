@@ -4,12 +4,16 @@
 //   48.8566, 2.3522        48.8566 2.3522        -33.9 151.2        48,8566 2,3522 (decimal commas)
 //   48°51′24″N 2°21′8″E    48 51 24 N, 2 21 8 E   21.03N 105.85E     N 48°51.4′ E 2°21.1′
 //   48:51:24N 2:21:08E     2.35E 48.85N (hemisphere letters make the order free)
+//   48,8566° B; 2,3522° Đ  33°52′08″ N 151°12′33″ Đ (the Vietnamese interface's own output: B Bắc,
+//   N Nam = south, Đ Đông, T Tây; any of B, Đ or T makes every letter Vietnamese)
 // Rejects anything else (city names, single numbers, out-of-range values, minutes ≥ 60,
 // conflicting signs such as "-33.9S").
 
-/** @typedef {{k:'n', v:number, neg:boolean, unit:string|null}|{k:'h', v:'N'|'S'|'E'|'W'}|{k:'sep'}} Token */
+/** @typedef {{k:'n', v:number, neg:boolean, unit:string|null}|{k:'h', v:string}|{k:'sep'}} Token */
 
-const TOKEN_RE = /\s*(?:([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*([°'"])?|([NSEW])(?![A-Z])|([,;]))/y;
+const TOKEN_RE = /\s*(?:([+-]?(?:\d+(?:\.\d*)?|\.\d+))\s*([°'"])?|([NSEWBĐT])(?![A-ZĐ])|([,;]))/y;
+/** Vietnamese hemisphere letters (Bắc, Nam, Đông, Tây) in English ones: 'N' is south there. */
+const VI_HEMI = { B: 'N', N: 'S', Đ: 'E', T: 'W' };
 const UNIT_ORDER = ['°', "'", '"'];
 
 /** Folds the many look-alike symbols into ASCII ° ' " and '-'. */
@@ -41,8 +45,12 @@ function tokenize(s) {
         if (!m || m[0].length === 0) return s.slice(i).trim() === '' ? out : null;
         i = TOKEN_RE.lastIndex;
         if (m[1] !== undefined) out.push({ k: 'n', v: Math.abs(Number(m[1])), neg: m[1].startsWith('-'), unit: m[2] ?? null });
-        else if (m[3] !== undefined) out.push({ k: 'h', v: /** @type {'N'|'S'|'E'|'W'} */ (m[3]) });
+        else if (m[3] !== undefined) out.push({ k: 'h', v: m[3] });
         else out.push({ k: 'sep' });
+    }
+    // Vietnamese letters: every N, B, Đ and T is read that way (E, S and W are English-only).
+    if (out.some((t) => t.k === 'h' && (t.v === 'B' || t.v === 'Đ' || t.v === 'T'))) {
+        for (const t of out) if (t.k === 'h' && VI_HEMI[t.v]) t.v = VI_HEMI[t.v];
     }
     return out;
 }
@@ -144,10 +152,15 @@ function fromHemisphereGroups(groups) {
     return out;
 }
 
-/** "48,8566 2,3522" / "48,8566; 2,3522" → "48.8566 2.3522"; anything else unchanged. */
+/**
+ * "48,8566 2,3522" / "48,8566; 2,3522" → "48.8566 2.3522", and a decimal comma right before a
+ * degree, minute or second mark or a hemisphere letter ("48,86° B; 2,35° Đ", "21,02 B") → a
+ * point; anything else unchanged.
+ */
 function decimalCommas(s) {
-    const parts = s.replace(/;/g, ' ').split(/\s+/);
-    if (parts.length !== 2 || !parts.every((p) => /^[+-]?\d+,\d+$/.test(p))) return s;
+    const marked = s.replace(/(\d),(\d+)(?=\s*(?:[°º˚′'″"]|[NSEWBĐT](?![A-ZĐ])))/gi, '$1.$2');
+    const parts = marked.replace(/;/g, ' ').trim().split(/\s+/);
+    if (parts.length !== 2 || !parts.every((p) => /^[+-]?\d+,\d+$/.test(p))) return marked;
     return parts.map((p) => p.replace(',', '.')).join(' ');
 }
 

@@ -55,6 +55,8 @@ const JUMP_ANIMATE_MS = 1400;
 export const PASS_LEAD_MS = 30000;
 /** An event flight lasts the time sweep plus this (the globe ↔ sky transitions take 1.8 s). */
 const EVENT_FLY_EXTRA_MS = 400;
+/** An event link's sky field when the event names none: the rig's default (camera/rig.js SKY_FOV). */
+const LINK_SKY_FOV_DEG = 70;
 const DAY_MS = 864e5;
 /** A total or annular eclipse jump lands this long before second contact, playing at 1×. */
 export const ECLIPSE_LEAD_MS = 20e3;
@@ -1031,7 +1033,8 @@ export function createActions(deps) {
      * The shareable URL for the current state (camera included). With `{event}`, a link to that
      * event's sky instead (a calendar entry's deep link): paused at the instant a jump lands on
      * (eventFraming), the event's selection (none when it has none) and view, on the Earth, no
-     * camera (the app turns to the selection) and no intro.
+     * camera (the app turns to the selection) and no intro. A sky event without a body (a meteor
+     * shower) carries the direction a jump faces (ev.look) as its camera instead.
      * @param {{event?: AstroEvent}} [opts]
      */
     function shareUrl(opts) {
@@ -1044,7 +1047,13 @@ export function createActions(deps) {
             const mode = ev.view && VIEW_MODES.has(ev.view) ? ev.view : st.view.mode;
             const state = { ...st, host: null, selection: select, view: { ...st.view, mode, vantage: 'none', track: 'none' } };
             const at = { live: false, tMs: plan ? plan.tMs : Number(ev.tMs), rate: 1, playing: false };
-            hash = serializeHash({ state, clock: at, cam: null, extra: { intro: false } });
+            let cam = null;
+            const look = ev.look;
+            if (mode === 'sky' && !select && look && Number.isFinite(look.azDeg) && Number.isFinite(look.altDeg)) {
+                const fovDeg = [plan?.fovDeg, look.fovDeg].find(Number.isFinite) ?? LINK_SKY_FOV_DEG;
+                cam = { mode: 'sky', azDeg: look.azDeg, altDeg: look.altDeg, fovDeg };
+            }
+            hash = serializeHash({ state, clock: at, cam, extra: { intro: false } });
         } else {
             let cam = null;
             try {

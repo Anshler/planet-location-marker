@@ -336,6 +336,15 @@ test('shareUrl({event}): a link to the event\'s sky, paused where a jump lands, 
     assert.equal(h2.selection ?? null, null);
     assert.equal(h2.tMs, season.tMs);
     assert.equal(store.get().selection, 'mars');
+    // A meteor shower (no body): the link faces the radiant, as the in-app jump does.
+    const shower = { id: 'meteor-shower:leo:2027', kind: 'meteor-shower', tMs: Date.parse('2027-11-17T12:00:00Z'), title: 'Leonids', detail: '',
+        select: null, view: 'sky', visibleMs: Date.parse('2027-11-18T02:00:00Z'), look: { azDeg: 101.234, altDeg: 55 } };
+    const h3 = parseHash(actions.shareUrl({ event: shower }).split('#')[1]);
+    assert.equal(h3.view, 'sky');
+    assert.equal(h3.tMs, shower.visibleMs);
+    assert.match(actions.shareUrl({ event: shower }), /cam=s:101\.23,55,70(&|$)/);
+    // A body's sky event still turns to the selection: no camera.
+    assert.ok(!actions.shareUrl({ event: { ...shower, select: 'moon' } }).includes('cam='));
 });
 
 test('setNightVision: toggles display.red, announces, and stays out of shared links', async () => {

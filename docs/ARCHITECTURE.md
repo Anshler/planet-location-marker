@@ -392,7 +392,8 @@ critical CSS read them.
   link; URL; a display VALARM 30 min before), escapes TEXT and folds lines at 75 UTF-8 octets.
   The link is `actions.shareUrl({event})`: the place, the instant a jump lands on
   (`eventFraming`), paused, the event's selection (none if it has none) and view, never Mars, no
-  camera (the app turns to the selection), `intro=0`. `saveIcs` shares the file
+  camera (the app turns to the selection; a sky event without one, a meteor shower, carries
+  `cam=s:` facing `ev.look`, the radiant, as the jump does), `intro=0`. `saveIcs` shares the file
   (`navigator.share({files})`) on a coarse pointer when `canShare` allows, since an iOS home-screen
   app opens no blob download, and otherwise downloads a Blob through `<a download>`; desktops
   always download. All offline, text mode included.

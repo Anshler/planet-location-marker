@@ -177,8 +177,13 @@ export function mountViewSwitch(root, ctx) {
         const trk = v.track ?? 'none';
         const busy = k !== 'none' || trk !== 'none' || !!(s.ui.scope || s.ui.ruler || s.ui.aim || s.ui.expose);
         toolsBtn.classList.toggle('is-on', busy);
-        if (!gl()) return;
         const m = ui.modes;
+        if (!gl()) {
+            // Text mode (from the start, or a fall mid-session): no 3D view, so no view chips, and
+            // Esc goes on to clear the selection.
+            for (const id of ['view', 'map', 'scope', 'follow']) m.clear(id);
+            return;
+        }
         const back = { label: t('Back to the globe'), done: t('Back to the globe'), run: () => (v.system ? leaveSystem() : ui.act('setViewMode', 'orbit')) };
         if (mode === 'orbit' && VANTAGE_CHIP[k]) m.set('view', { icon: VANTAGE_CHIP[k][2], title: t(VANTAGE_CHIP[k][0]), detail: t(VANTAGE_CHIP[k][1]), exit: back });
         else m.clear('view');

@@ -22,12 +22,13 @@
 import { APP_NAME } from '../version.js';
 import { h, on, setText, trapFocus, segmented, clamp } from './dom.js';
 import { icon } from './icons.js';
+import { t, N_ } from '../core/i18n.js';
 
-/** Card presets: device px. */
+/** Card presets: device px (labels and notes shown with t()). */
 export const POSTCARD_PRESETS = Object.freeze([
-    Object.freeze({ id: 'portrait', label: 'Portrait', w: 1080, h: 1350, note: '4:5 · feeds' }),
-    Object.freeze({ id: 'wide', label: 'Link', w: 1200, h: 630, note: '1.91:1 · link previews' }),
-    Object.freeze({ id: 'story', label: 'Story', w: 1080, h: 1920, note: '9:16 · stories' }),
+    Object.freeze({ id: 'portrait', label: N_('Portrait'), w: 1080, h: 1350, note: N_('4:5 · feeds') }),
+    Object.freeze({ id: 'wide', label: N_('Link'), w: 1200, h: 630, note: N_('1.91:1 · link previews') }),
+    Object.freeze({ id: 'story', label: N_('Story'), w: 1080, h: 1920, note: N_('9:16 · stories') }),
 ]);
 const FONT = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 const ACCENT = '#7cc4ff';
@@ -85,8 +86,8 @@ export function wrapLines(text, maxW, measure, maxLines = 2) {
  * @param {{name:string, alt:number, dir:string}[]} up
  */
 export function upNowText(up) {
-    if (!up.length) return 'Nothing is above the horizon.';
-    return `Up now: ${up.map((u) => `${u.name} ${Math.round(u.alt)}° ${u.dir}`).join(', ')}`;
+    if (!up.length) return t('Nothing is above the horizon.');
+    return t('Up now: {list}', { list: up.map((u) => `${u.name} ${Math.round(u.alt)}° ${u.dir}`).join(', ') });
 }
 
 /**
@@ -98,8 +99,8 @@ export function cardWords(ctx) {
     const { ui, store } = ctx;
     const snap = ui.snap;
     const st = store.get();
-    const t = Number.isFinite(snap?.tMs) ? snap.tMs : ctx.clock?.tMs;
-    const stamp = `${ui.fmtDay(t)} · ${ui.fmtClock(t)} ${ui.offsetText(t)}`;
+    const at = Number.isFinite(snap?.tMs) ? snap.tMs : ctx.clock?.tMs;
+    const stamp = `${ui.fmtDay(at)} · ${ui.fmtClock(at)} ${ui.offsetText(at)}`;
     const place = ui.placeLabel(st.observer);
     const up = [];
     for (const b of snap?.bodies ?? []) {
@@ -115,11 +116,11 @@ export function cardWords(ctx) {
         const con = b.constellation?.name || '';
         const subject = ui.bodySubject(id);
         if (Number.isFinite(alt)) {
-            const where = ui.compassWords(az);
-            if (alt >= 80) sentence = `${subject} is nearly overhead (${Math.round(alt)}°)`;
-            else if (alt > 0) sentence = `${subject} is ${Math.round(alt)}° above the ${where} horizon`;
-            else sentence = `${subject} is ${Math.abs(Math.round(alt))}° below the ${where} horizon`;
-            sentence += con ? `, in ${con}.` : '.';
+            // The Details card's sentence (ui/body-card.js positionText), the same phrases.
+            const v = { body: subject, deg: Math.abs(Math.round(alt)), dir: ui.compassWords(az), con };
+            if (alt >= 80) sentence = con ? t('{body} is nearly overhead ({deg}°), in {con}.', v) : t('{body} is nearly overhead ({deg}°).', v);
+            else if (alt > 0) sentence = con ? t('{body} is {deg}° above the {dir} horizon, in {con}.', v) : t('{body} is {deg}° above the {dir} horizon.', v);
+            else sentence = con ? t('{body} is {deg}° below the {dir} horizon, in {con}.', v) : t('{body} is {deg}° below the {dir} horizon.', v);
         }
     }
     return { stamp, place, up: upNowText(up), sentence };
@@ -190,7 +191,7 @@ export function layoutBand(ctx, W, H, words, { site = '', story = false } = {}) 
     // Stories keep clear of the apps' own bottom UI.
     const bottom = H - Math.round((story ? 230 : wide ? 36 : 54) * s);
     const sz = { eye: 25 * s, place: 62 * s, up: 30 * s, sent: 28 * s, foot: 24 * s };
-    const measureWith = (weight, px, track, italic) => (t) => { setFont(ctx, weight, px, track, italic); return ctx.measureText(t).width; };
+    const measureWith = (weight, px, track, italic) => (s) => { setFont(ctx, weight, px, track, italic); return ctx.measureText(s).width; };
     const placeLines = wrapLines(words.place, maxW, measureWith(780, sz.place, -0.01), 2);
     const upLines = wrapLines(words.up, maxW, measureWith(520, sz.up, 0), wide ? 1 : 2);
     const sentLines = words.sentence ? wrapLines(words.sentence, maxW, measureWith(500, sz.sent, 0, true), wide ? 1 : 2) : [];
@@ -296,7 +297,7 @@ export function drawCaption(ctx, W, H, caption) {
     setFont(ctx, 560, fs, 0.01);
     ctx.fillStyle = '#d5dde9';
     const room = W - 2 * pad - nameW - mark - 40 * s;
-    ctx.fillText(wrapLines(caption, room, (t) => ctx.measureText(t).width, 1)[0] ?? '', pad, y);
+    ctx.fillText(wrapLines(caption, room, (s) => ctx.measureText(s).width, 1)[0] ?? '', pad, y);
     ctx.restore();
 }
 
@@ -312,8 +313,8 @@ function toBlob(canvas) {
 }
 
 /** "paranal-2026-11-10-0100" from the place and the local time (also the video's file name). */
-export function fileStem(ctx, t) {
-    const z = ctx.ui.zoned(t);
+export function fileStem(ctx, ms) {
+    const z = ctx.ui.zoned(ms);
     const pad2 = (n) => String(n).padStart(2, '0');
     const place = ctx.ui.placeShort(ctx.store.get().observer).toLowerCase().normalize('NFKD')
         .replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 32) || 'sky';
@@ -336,11 +337,11 @@ export function mountPostcard(host, ctx) {
     let url = '';
     let seq = 0;
 
-    const titleText = h('span', null, 'Postcard');
-    const closeBtn = h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Close' }, icon('close', { size: 18 }));
+    const titleText = h('span', null, t('Postcard'));
+    const closeBtn = h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Close') }, icon('close', { size: 18 }));
     const seg = segmented({
-        label: 'Card size',
-        options: POSTCARD_PRESETS.map((p) => ({ value: p.id, label: p.label })),
+        label: t('Card size'),
+        options: POSTCARD_PRESETS.map((p) => ({ value: p.id, label: t(p.label) })),
         value: preset.id,
         onChange: (v) => {
             preset = POSTCARD_PRESETS.find((p) => p.id === v) ?? POSTCARD_PRESETS[0];
@@ -349,11 +350,11 @@ export function mountPostcard(host, ctx) {
         className: 'pc__presets',
     });
     const img = h('img', { class: 'pc__img', alt: '' });
-    const busy = h('div', { class: 'pc__busy', role: 'status' }, 'Rendering…');
+    const busy = h('div', { class: 'pc__busy', role: 'status' }, t('Rendering…'));
     const frame = h('div', { class: 'pc__frame' }, img, busy);
     const note = h('p', { class: 'pc__note' });
-    const dlBtn = h('button', { class: 'btn btn--ghost', type: 'button', disabled: true }, icon('download', { size: 16 }), 'Download');
-    const shareBtn = h('button', { class: 'btn btn--primary', type: 'button', disabled: true, hidden: true }, icon('share', { size: 16 }), 'Share');
+    const dlBtn = h('button', { class: 'btn btn--ghost', type: 'button', disabled: true }, icon('download', { size: 16 }), t('Download'));
+    const shareBtn = h('button', { class: 'btn btn--primary', type: 'button', disabled: true, hidden: true }, icon('share', { size: 16 }), t('Share'));
     const dialog = h('div', { class: 'dialog pc glass', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'pc-title' },
         h('header', { class: 'dialog__head' }, h('h2', { class: 'dialog__title', id: 'pc-title' }, icon('postcard', { size: 20 }), titleText), closeBtn),
         seg.el, frame, note,
@@ -385,7 +386,7 @@ export function mountPostcard(host, ctx) {
         // Let the dialog and the spinner paint before the (synchronous) render.
         await new Promise((r) => setTimeout(r, 30));
         if (my !== seq || layer.hidden) return;
-        const t = Number.isFinite(ui.snap?.tMs) ? ui.snap.tMs : ctx.clock.tMs;
+        const at = Number.isFinite(ui.snap?.tMs) ? ui.snap.tMs : ctx.clock.tMs;
         let canvas = null;
         let W, H;
         if (mode === 'photo') {
@@ -407,13 +408,13 @@ export function mountPostcard(host, ctx) {
                 // Text mode (or a lost context): the band on a drawn night sky.
                 canvas = document.createElement('canvas');
                 canvas.width = W; canvas.height = H;
-                drawNight(canvas.getContext('2d'), W, H, Math.floor(t / 864e5));
+                drawNight(canvas.getContext('2d'), W, H, Math.floor(at / 864e5));
             }
             paintBand(canvas.getContext('2d'), band);
         }
         if (!canvas) {
             busy.hidden = true;
-            setText(note, "The image couldn't be rendered. Try again in a moment.");
+            setText(note, t('The image couldn’t be rendered. Try again in a moment.'));
             return;
         }
         const blob = await toBlob(canvas);
@@ -421,10 +422,10 @@ export function mountPostcard(host, ctx) {
         busy.hidden = true;
         layer.classList.remove('is-busy');
         if (!blob) {
-            setText(note, "The image couldn't be saved on this device.");
+            setText(note, t('The image couldn’t be saved on this device.'));
             return;
         }
-        const name = `${fileStem(ctx, t)}${mode === 'photo' ? '-exposure' : `-${preset.id}`}.jpg`;
+        const name = `${fileStem(ctx, at)}${mode === 'photo' ? '-exposure' : `-${preset.id}`}.jpg`;
         try {
             file = new File([blob], name, { type: 'image/jpeg', lastModified: Date.now() });
         } catch {
@@ -434,8 +435,8 @@ export function mountPostcard(host, ctx) {
         revoke();
         url = URL.createObjectURL(blob);
         img.src = url;
-        img.alt = mode === 'photo' ? 'The long exposure as it will be saved' : `Postcard preview, ${preset.w} × ${preset.h}`;
-        setText(note, `${W} × ${H} px · JPEG · ${Math.max(1, Math.round(blob.size / 1024))} KB${mode === 'photo' ? '' : ` · ${preset.note}`}`);
+        img.alt = mode === 'photo' ? t('The long exposure as it will be saved') : t('Postcard preview, {w} × {h}', { w: preset.w, h: preset.h });
+        setText(note, `${W} × ${H} px · JPEG · ${Math.max(1, Math.round(blob.size / 1024))} KB${mode === 'photo' ? '' : ` · ${t(preset.note)}`}`);
         dlBtn.disabled = false;
         shareBtn.hidden = !canShareFiles(file);
         shareBtn.disabled = shareBtn.hidden;
@@ -447,7 +448,7 @@ export function mountPostcard(host, ctx) {
         document.body.appendChild(a);
         a.click();
         a.remove();
-        bus.emit('toast', { message: 'Image saved', kind: 'info', timeoutMs: 2500 });
+        bus.emit('toast', { message: t('Image saved'), kind: 'info', timeoutMs: 2500 });
     }
 
     function share() {
@@ -475,7 +476,7 @@ export function mountPostcard(host, ctx) {
     function open({ mode: m = 'postcard', caption: c = '' } = {}) {
         mode = m === 'photo' ? 'photo' : 'postcard';
         caption = c;
-        setText(titleText, mode === 'photo' ? 'Save the exposure' : 'Postcard');
+        setText(titleText, mode === 'photo' ? t('Save the exposure') : t('Postcard'));
         seg.el.hidden = mode === 'photo';
         layer.classList.toggle('is-photo', mode === 'photo');
         setText(note, '');

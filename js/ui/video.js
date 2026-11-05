@@ -17,31 +17,32 @@ import { APP_NAME } from '../version.js';
 import { h, on, setText, trapFocus, segmented } from './dom.js';
 import { icon } from './icons.js';
 import { drawMark, fileStem } from './postcard.js';
+import { t, N_, dec } from '../core/i18n.js';
 
-/** Mirrors app/recorder.js VIDEO_PRESETS / VIDEO_SIZES (the recorder loads on the first Record). */
+/** Mirrors app/recorder.js VIDEO_PRESETS / VIDEO_SIZES (the recorder loads on the first Record). Words shown with t(). */
 export const VIDEO_UI_PRESETS = Object.freeze([
-    Object.freeze({ id: 'day', label: 'A day', detail: 'The next 24 hours from here, in this view · 12 s' }),
-    Object.freeze({ id: 'night', label: 'A night of turning stars', detail: 'Dusk to dawn as a growing long exposure · 15 s' }),
-    Object.freeze({ id: 'eclipse', label: '2027 eclipse', detail: 'Ride the Moon’s shadow across the Earth, 2 August 2027 · 24 s' }),
+    Object.freeze({ id: 'day', label: N_('A day'), detail: N_('The next 24 hours from here, in this view · 12 s') }),
+    Object.freeze({ id: 'night', label: N_('A night of turning stars'), detail: N_('Dusk to dawn as a growing long exposure · 15 s') }),
+    Object.freeze({ id: 'eclipse', label: N_('2027 eclipse'), detail: N_('Ride the Moon’s shadow across the Earth, 2 August 2027 · 24 s') }),
 ]);
 const SIZES = Object.freeze([
     Object.freeze({ id: 'landscape', label: '1920 × 1080' }),
     Object.freeze({ id: 'vertical', label: '1080 × 1920' }),
 ]);
 /** Which browsers record, for the dialog. */
-const BROWSERS = 'Frame-exact MP4 needs WebCodecs: Chrome, Edge and Opera 94+, Safari 16.4+, Firefox 130+ (desktop). Other browsers with MediaRecorder record in real time.';
+const BROWSERS = N_('Frame-exact MP4 needs WebCodecs: Chrome, Edge and Opera 94+, Safari 16.4+, Firefox 130+ (desktop). Other browsers with MediaRecorder record in real time.');
 const FONT = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 const ACCENT = '#7cc4ff';
 
 const ERRORS = Object.freeze({
-    unsupported: "This browser can't record video. Chrome, Edge, Firefox 130+ and Safari 16.4+ can.",
-    'no-3d': 'Videos need the 3D view.',
-    busy: 'A recording is already running.',
-    'no-night': "The Sun doesn't set far enough here for star trails.",
-    'no-path': 'The eclipse path could not be computed.',
-    cancelled: 'Recording cancelled.',
-    changed: 'Recording stopped: the time was changed.',
-    failed: 'The recording failed. Try again, or try a smaller size.',
+    unsupported: N_('This browser can’t record video. Chrome, Edge, Firefox 130+ and Safari 16.4+ can.'),
+    'no-3d': N_('Videos need the 3D view.'),
+    busy: N_('A recording is already running.'),
+    'no-night': N_('The Sun doesn’t set far enough here for star trails.'),
+    'no-path': N_('The eclipse path could not be computed.'),
+    cancelled: N_('Recording cancelled.'),
+    changed: N_('Recording stopped: the time was changed.'),
+    failed: N_('The recording failed. Try again, or try a smaller size.'),
 });
 
 /**
@@ -51,12 +52,12 @@ const ERRORS = Object.freeze({
  */
 export function videoSupport(env = globalThis) {
     if (typeof env.VideoEncoder === 'function' && typeof env.VideoFrame === 'function') {
-        return { kind: 'webcodecs', text: 'Encoded on this device as MP4 (WebCodecs), frame by frame: the time step is exact.' };
+        return { kind: 'webcodecs', text: t('Encoded on this device as MP4 (WebCodecs), frame by frame: the time step is exact.') };
     }
     if (typeof env.MediaRecorder === 'function' && typeof env.HTMLCanvasElement?.prototype?.captureStream === 'function') {
-        return { kind: 'mediarecorder', text: 'Recorded in real time (MediaRecorder): keep this tab in front. MP4 or WebM, as the browser records it.' };
+        return { kind: 'mediarecorder', text: t('Recorded in real time (MediaRecorder): keep this tab in front. MP4 or WebM, as the browser records it.') };
     }
-    return { kind: null, text: ERRORS.unsupported };
+    return { kind: null, text: t(ERRORS.unsupported) };
 }
 
 /** The stamp's band at the bottom of a frame, as a share of its shorter side (recorder stampBand). */
@@ -121,13 +122,13 @@ export function mountVideo(host, ctx) {
     let file = null;
     let url = '';
 
-    const closeBtn = h('button', { class: 'icon-btn', type: 'button', 'aria-label': 'Close' }, icon('close', { size: 18 }));
+    const closeBtn = h('button', { class: 'icon-btn', type: 'button', 'aria-label': t('Close') }, icon('close', { size: 18 }));
     const presetSeg = segmented({
-        label: 'Time-lapse', options: VIDEO_UI_PRESETS.map((p) => ({ value: p.id, label: p.label })), value: preset,
+        label: t('Time-lapse'), options: VIDEO_UI_PRESETS.map((p) => ({ value: p.id, label: t(p.label) })), value: preset,
         onChange: (v) => { preset = v; syncDetail(); }, className: 'vid__presets',
     });
     const sizeSeg = segmented({
-        label: 'Frame', options: SIZES.map((p) => ({ value: p.id, label: p.label })), value: size,
+        label: t('Frame'), options: SIZES.map((p) => ({ value: p.id, label: p.label })), value: size,
         onChange: (v) => { size = v; }, className: 'vid__sizes',
     });
     const detail = h('p', { class: 'vid__detail' });
@@ -135,16 +136,16 @@ export function mountVideo(host, ctx) {
     const preview = h('canvas', { class: 'vid__preview', width: 320, height: 180, 'aria-hidden': 'true' });
     const player = h('video', { class: 'vid__player', controls: true, loop: true, muted: true, playsinline: true, hidden: true });
     const frameBox = h('div', { class: 'pc__frame vid__frame' }, preview, player);
-    const bar = h('div', { class: 'vid__bar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': '0', 'aria-label': 'Recording progress' },
+    const bar = h('div', { class: 'vid__bar', role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': '0', 'aria-label': t('Recording progress') },
         h('span', { class: 'vid__fill' }));
     const status = h('p', { class: 'pc__note vid__status', role: 'status' });
-    const recordBtn = h('button', { class: 'btn btn--primary', type: 'button' }, icon('video', { size: 16 }), 'Record');
-    const cancelBtn = h('button', { class: 'btn btn--ghost', type: 'button', hidden: true }, 'Cancel');
-    const dlBtn = h('button', { class: 'btn btn--ghost', type: 'button', hidden: true }, icon('download', { size: 16 }), 'Download');
-    const shareBtn = h('button', { class: 'btn btn--primary', type: 'button', hidden: true }, icon('share', { size: 16 }), 'Share');
+    const recordBtn = h('button', { class: 'btn btn--primary', type: 'button' }, icon('video', { size: 16 }), t('Record'));
+    const cancelBtn = h('button', { class: 'btn btn--ghost', type: 'button', hidden: true }, t('Cancel'));
+    const dlBtn = h('button', { class: 'btn btn--ghost', type: 'button', hidden: true }, icon('download', { size: 16 }), t('Download'));
+    const shareBtn = h('button', { class: 'btn btn--primary', type: 'button', hidden: true }, icon('share', { size: 16 }), t('Share'));
     const setup = h('div', { class: 'vid__setup' }, presetSeg.el, detail, sizeSeg.el, support);
     const dialog = h('div', { class: 'dialog pc vid glass', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'vid-title' },
-        h('header', { class: 'dialog__head' }, h('h2', { class: 'dialog__title', id: 'vid-title' }, icon('video', { size: 20 }), 'Time-lapse video'), closeBtn),
+        h('header', { class: 'dialog__head' }, h('h2', { class: 'dialog__title', id: 'vid-title' }, icon('video', { size: 20 }), t('Time-lapse video')), closeBtn),
         setup, frameBox, bar, status,
         h('div', { class: 'pc__actions' }, cancelBtn, dlBtn, shareBtn, recordBtn));
     const layer = h('div', { class: 'modal-layer vid-layer', hidden: true }, h('div', { class: 'modal-backdrop' }), dialog);
@@ -154,7 +155,8 @@ export function mountVideo(host, ctx) {
     player.muted = true;
 
     function syncDetail() {
-        setText(detail, VIDEO_UI_PRESETS.find((p) => p.id === preset)?.detail ?? '');
+        const p = VIDEO_UI_PRESETS.find((x) => x.id === preset);
+        setText(detail, p ? t(p.detail) : '');
     }
 
     function revoke() {
@@ -168,7 +170,7 @@ export function mountVideo(host, ctx) {
         document.documentElement.classList.toggle('is-recording', rec);
         setup.hidden = rec || phase === 'done';
         recordBtn.hidden = rec;
-        setText(recordBtn.lastChild, phase === 'done' ? 'Record another' : 'Record');
+        setText(recordBtn.lastChild, phase === 'done' ? t('Record another') : t('Record'));
         cancelBtn.hidden = !rec;
         bar.hidden = !rec;
         frameBox.hidden = phase === 'setup';
@@ -179,19 +181,18 @@ export function mountVideo(host, ctx) {
     }
 
     /** The stamp's words: the observer's local date and place, or the eclipse in UTC. */
-    function wordsAt(t) {
+    function wordsAt(ms) {
         if (preset === 'eclipse') {
-            const d = new Date(t);
-            const pad2 = (n) => String(n).padStart(2, '0');
-            return { stamp: `${d.getUTCDate()} August ${d.getUTCFullYear()} · ${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())} UTC`, place: 'Total solar eclipse' };
+            const day = ui.fmtDate(ms, { day: 'numeric', month: 'long', year: 'numeric' }, 'UTC');
+            return { stamp: `${day} · ${ui.fmtClock(ms, { tzName: 'UTC' })} UTC`, place: t('Total solar eclipse') };
         }
-        return { stamp: `${ui.fmtDay(t)} · ${ui.fmtClock(t)} ${ui.offsetText(t)}`, place: ui.placeLabel(store.get().observer) };
+        return { stamp: `${ui.fmtDay(ms)} · ${ui.fmtClock(ms)} ${ui.offsetText(ms)}`, place: ui.placeLabel(store.get().observer) };
     }
 
     async function record() {
         if (abort) return;
         const sup = videoSupport();
-        if (!sup.kind) { setText(status, ERRORS.unsupported); return; }
+        if (!sup.kind) { setText(status, t(ERRORS.unsupported)); return; }
         revoke();
         file = null;
         player.removeAttribute('src');
@@ -202,26 +203,26 @@ export function mountVideo(host, ctx) {
         pctx.fillRect(0, 0, preview.width, preview.height);
         abort = new AbortController();
         setPhase('recording');
-        setText(status, 'Preparing…');
+        setText(status, t('Preparing…'));
         const t0 = performance.now();
         const stem = fileStem(ctx, ctx.clock.tMs);
         const res = await ui.act('recordVideo', {
             preset, size, signal: abort.signal, name: stem,
-            paint: (c2d, W, H, t) => paintStamp(c2d, W, H, wordsAt(t)), stampBand: STAMP_BAND,
+            paint: (c2d, W, H, ms) => paintStamp(c2d, W, H, wordsAt(ms)), stampBand: STAMP_BAND,
             onProgress: ({ done, total, preview: frame }) => {
                 const pct = Math.round((100 * done) / total);
                 bar.firstChild.style.width = `${pct}%`;
                 bar.setAttribute('aria-valuenow', String(pct));
                 const el = (performance.now() - t0) / 1000;
                 const left = done > 3 ? Math.max(0, Math.round((el / done) * (total - done))) : null;
-                setText(status, `Frame ${done} of ${total}${left !== null ? ` · about ${left} s left` : ''}`);
+                setText(status, left !== null ? t('Frame {done} of {total} · about {left} s left', { done, total, left }) : t('Frame {done} of {total}', { done, total }));
                 if (frame) pctx.drawImage(frame, 0, 0, preview.width, preview.height);
             },
         });
         abort = null;
         if (!res || res.error) {
             setPhase('setup');
-            setText(status, ERRORS[res?.error] ?? ERRORS.failed);
+            setText(status, t(ERRORS[res?.error] ?? ERRORS.failed));
             return;
         }
         try {
@@ -233,11 +234,12 @@ export function mountVideo(host, ctx) {
         url = URL.createObjectURL(res.blob);
         player.src = url;
         setPhase('done');
-        const secs = (res.frames / res.fps).toFixed(1);
-        setText(status, `${res.width} × ${res.height} · ${secs} s at ${res.fps} fps · ${Math.max(1, Math.round(res.blob.size / 1024))} KB · ${res.method}`);
+        setText(status, t('{w} × {h} · {secs} s at {fps} fps · {kb} KB · {method}', {
+            w: res.width, h: res.height, secs: dec(res.frames / res.fps, 1), fps: res.fps, kb: Math.max(1, Math.round(res.blob.size / 1024)), method: res.method,
+        }));
         shareBtn.hidden = !canShareFiles(file);
         player.play?.()?.catch?.(() => {});
-        bus.emit('toast', { message: 'Video ready', kind: 'info', timeoutMs: 2500 });
+        bus.emit('toast', { message: t('Video ready'), kind: 'info', timeoutMs: 2500 });
     }
 
     function canShareFiles(f) {
@@ -278,7 +280,7 @@ export function mountVideo(host, ctx) {
         setPhase('setup');
         syncDetail();
         const sup = videoSupport();
-        setText(support, `${sup.text} ${BROWSERS}`);
+        setText(support, `${sup.text} ${t(BROWSERS)}`);
         recordBtn.disabled = !sup.kind;
         setText(status, '');
         layer.hidden = false;

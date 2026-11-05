@@ -20,6 +20,8 @@ import { passEvent, isBrightPass } from './sat-passes.js';
 import { t, tn, N_ } from '../core/i18n.js';
 
 const DAY = 86400e3;
+/** `s` with no-break spaces, so that it wraps as one unit. */
+const nbsp = (s) => s.replace(/ /g, ' ');
 /** Under All: the next 8 weeks, or at least this many events, before 'Show the rest'. */
 const WINDOW_DAYS = 56, WINDOW_MIN = 12;
 
@@ -267,8 +269,9 @@ export function mountEventsPanel(root, ctx) {
         if (!force && now - lastRel < 1000) return;
         lastRel = now;
         for (const { ev, meta, hero } of metaEls) {
-            const when = `${ui.fmtDay(ev.tMs, { year: false })} · ${ui.fmtClock(ev.tMs)}`;
-            const rel = ui.fmt('fmtRelative', ev.tMs, at);
+            // The date and the countdown each wrap as one unit ('4 ngày 11 giờ nữa' never leaves 'nữa' alone).
+            const when = `${nbsp(ui.fmtDay(ev.tMs, { year: false }))} · ${ui.fmtClock(ev.tMs)}`;
+            const rel = nbsp(ui.fmt('fmtRelative', ev.tMs, at));
             setText(meta, hero ? `${rel === '—' ? '' : rel + ' · '}${when}` : `${when}${rel === '—' ? '' : ' · ' + rel}`);
         }
     }

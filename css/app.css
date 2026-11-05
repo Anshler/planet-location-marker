@@ -1448,6 +1448,10 @@ body.is-coarse .ev__cal { width: 44px; height: 44px; }
 .help__row dt { flex: none; order: 2; }
 .help__row dd { flex: 1 1 auto; min-width: 0; order: 1; margin: 0; color: var(--text-2); font-size: var(--fs-3); }
 .help__keys { display: inline-flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: 4px; }
+.help__keys > * { white-space: nowrap; }
+/* Two modifier combos ('Shift+, Shift+.') stack, leaving the description room to breathe. */
+.help__row dt:has(.kbd + .kbd) .help__keys { flex-direction: column; align-items: flex-end; }
+.help__row dt:has(.kbd + .kbd) .help__or { display: none; }
 .help__or { width: 2px; }
 .help__row .help__gesture { flex: 0 0 38%; order: 0; color: var(--text); font-size: var(--fs-3); font-weight: var(--fw-2); }
 .help__foot { margin-top: 12px; }

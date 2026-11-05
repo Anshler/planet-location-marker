@@ -157,7 +157,20 @@
 <link rel="modulepreload" href="js/astro/planner.js">
 <link rel="modulepreload" href="js/ui/report.js">
 <!-- /boot modules -->
-<link rel="preload" href="data/cities.json" as="fetch" type="application/json" crossorigin>
+<script>
+/* data/cities.json (main.js fetches it at boot): preloaded unless a service worker controls the
+   page, which serves it from its cache at once; there the preload would be a second request the
+   browser warns about ("cross-world service worker resource mismatch"). */
+(function (d) {
+  try {
+    if (navigator.serviceWorker && navigator.serviceWorker.controller) return;
+    var l = d.createElement('link');
+    l.rel = 'preload'; l.as = 'fetch'; l.type = 'application/json'; l.crossOrigin = 'anonymous';
+    l.href = 'data/cities.json';
+    d.head.appendChild(l);
+  } catch (e) { /* main.js fetches it anyway */ }
+})(document);
+</script>
 
 <link rel="stylesheet" href="css/app.css">
 

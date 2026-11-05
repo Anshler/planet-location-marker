@@ -92,3 +92,14 @@ test('three.js and the previews are preloaded only when the 3D view can run (tex
     // crossorigin (anonymous) + same-origin credentials = the mode fetch() uses, so the request is reused.
     assert.match(block, /l\.as = as; l\.crossOrigin = 'anonymous';/);
 });
+
+test('data/cities.json is preloaded only on a page no service worker controls (no cross-world preload warning)', () => {
+    const norm = (h) => String(h ?? '').replace(/^\.\//, '');
+    assert.ok(!DOC.links.some((l) => norm(l.href) === 'data/cities.json'), 'no static preload link');
+    const s = DOC.scripts.find((x) => x.inline.includes("'data/cities.json'"))?.inline ?? '';
+    const guard = s.indexOf('navigator.serviceWorker.controller) return;');
+    assert.ok(guard > 0, 'skipped under a controlling worker');
+    assert.ok(s.indexOf("l.rel = 'preload'") > guard);
+    // The same mode and credentials as main.js's fetch, so the request is reused.
+    assert.match(s, /l\.as = 'fetch';.*l\.crossOrigin = 'anonymous';/);
+});

@@ -30,6 +30,8 @@ export function setLocale(c, tbl = null) {
 
 /** The active locale's code ('en', 'vi'). */
 export const locale = () => code;
+/** The active locale's Intl tag ('en-US', 'vi-VN'). */
+export const tag = () => TAGS[code];
 /** The active table (posted to the astro worker), or null for English. */
 export const strings = () => table;
 

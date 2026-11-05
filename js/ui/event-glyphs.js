@@ -114,7 +114,7 @@ function quarterOf(ev) {
 
 function moonPhase(ev, south) {
     const q = quarterOf(ev);
-    const big = q === 2 && /supermoon/i.test(String(ev.detail || ''));
+    const big = q === 2 && (ev.supermoon ?? /supermoon/i.test(String(ev.detail || '')));
     const r = big ? 9.2 : 8.4;
     const out = [circle(12, 12, r, fill(MOON, { opacity: 0.16 }))];
     if (q === 0) out.push(circle(12, 12, r, line(MOON, 1.1, { opacity: 0.6 })));
@@ -156,7 +156,7 @@ function conjunction(ev) {
     }
     // A planet and the Sun: in front of it (inferior conjunction) or behind its limb.
     const id = ev.bodyId || ev.select;
-    if (/inferior/i.test(String(ev.title || ''))) {
+    if (ev.conj ? ev.conj === 'inferior' : /inferior/i.test(String(ev.title || ''))) {
         return [circle(12, 12, 7, fill(SUN)), circle(14.6, 10.4, 2.2, fill(body(id), { stroke: BG, 'stroke-width': 1 }))];
     }
     return [circle(18.6, 9.6, 2.3, fill(body(id))), circle(11, 12.4, 7, fill(SUN))];
@@ -167,7 +167,7 @@ function elongation(ev) {
     // further from it the wider the elongation: 5 units plus 10.5 at 50°.
     const id = ev.bodyId || ev.select;
     const e = Math.max(14, Math.min(50, Number(ev.elongDeg) || 30));
-    const east = /east/i.test(String(ev.title || ''));
+    const east = ev.side ? ev.side === 'east' : /east/i.test(String(ev.title || ''));
     const sx = east ? 16.6 : 7.4, ux = east ? -0.6 : 0.6, uy = -0.8;
     const d = 5 + (e / 50) * 10.5;
     const px = sx + ux * d, py = 18 + uy * d;
@@ -286,7 +286,7 @@ function meteors() {
 
 function season(ev, south) {
     const t = String(ev.title || '');
-    const june = /^June/.test(t), dec = /^December/.test(t);
+    const june = ev.season ? ev.season === 'jun' : /^June/.test(t), dec = ev.season ? ev.season === 'dec' : /^December/.test(t);
     // The Sun's day arc in this hemisphere: high and long in summer, low and short in winter.
     let apex = 8.6, x0 = 4.2;
     if (june || dec) {

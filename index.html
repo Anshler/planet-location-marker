@@ -232,6 +232,56 @@ body.is-intro-out #ui-root{animation:pc-ui-in .9s cubic-bezier(.2,.7,.2,1) both}
   var errors = [];
   w.__pcErrors = errors;
 
+  // The loader's own words in Vietnamese, before any module: #lang=, the saved choice
+  // ('pc2.lang', core/prefs.js), then the browser's language, as core/i18n.js pickLocale. The
+  // table is keyed by the English text; test/repo.i18n.test.mjs checks main.js's stage labels.
+  var VI = null, lang = 'en';
+  try {
+    var hl = /[#&]lang=([a-z]{2})/i.exec(location.hash), saved = null;
+    try { saved = JSON.parse(localStorage.getItem('pc2.lang') || 'null'); } catch (e) { /* no storage */ }
+    var wants = [hl && hl[1], saved, navigator.language];
+    for (var k = 0; k < wants.length; k++) {
+      var c = String(wants[k] || '').slice(0, 2).toLowerCase();
+      if (c === 'en' || c === 'vi') { lang = c; break; }
+    }
+  } catch (e) { /* English */ }
+  if (lang === 'vi') {
+    VI = {
+      'Planet Location Marker — where every planet is, right now': 'Planet Location Marker — mọi hành tinh đang ở đâu, ngay lúc này',
+      'Where every world is, right now': 'Mọi thiên thể đang ở đâu, ngay lúc này',
+      'Loading': 'Đang tải', 'Computing the sky': 'Đang tính bầu trời', 'Preparing the interface': 'Đang chuẩn bị giao diện',
+      'Building the globe': 'Đang dựng địa cầu', 'Loading imagery': 'Đang tải hình ảnh', 'Warming up the shaders': 'Đang khởi động bộ đổ bóng',
+      'Ready': 'Sẵn sàng', 'Reload': 'Tải lại', 'Details': 'Chi tiết', '3D view of Earth and the sky': 'Khung nhìn 3D của Trái Đất và bầu trời',
+      'Slow connection — continue with low detail': 'Mạng chậm — tiếp tục với mức chi tiết thấp',
+      'Continuing with low detail…': 'Đang tiếp tục với mức chi tiết thấp…',
+      'Still loading — this is taking much longer than usual.': 'Vẫn đang tải — lần này lâu hơn bình thường nhiều.',
+      'Something went wrong loading {app}.': 'Đã xảy ra lỗi khi tải {app}.',
+      'Reloading usually fixes it. If it keeps happening, the details below help us find the cause.': 'Tải lại trang thường sẽ khắc phục được. Nếu lỗi vẫn lặp lại, phần chi tiết bên dưới giúp chúng tôi tìm nguyên nhân.',
+      '{app} needs a newer browser.': '{app} cần trình duyệt mới hơn.',
+      'This browser cannot run modern JavaScript modules. Please update it, or open the page in a current version of Chrome, Edge, Firefox or Safari.': 'Trình duyệt này không chạy được các mô-đun JavaScript hiện đại. Hãy cập nhật nó, hoặc mở trang bằng phiên bản mới của Chrome, Edge, Firefox hay Safari.',
+      'Drag to turn the globe · pinch to zoom': 'Kéo để xoay địa cầu · chụm hai ngón để thu phóng',
+      'Tap a world at the end of its beam to meet it': 'Chạm vào thiên thể ở cuối mỗi tia để xem nó',
+      'Tap anywhere on Earth to stand there instead': 'Chạm vào bất cứ đâu trên Trái Đất để đứng ở đó',
+      'Drag the time bar to travel through time': 'Kéo thanh thời gian để du hành qua thời gian',
+      'Switch to Sky view to stand on the ground and look up': 'Chuyển sang chế độ Bầu trời để đứng trên mặt đất và nhìn lên',
+      'Drag to orbit the globe · scroll or pinch to zoom': 'Kéo để xoay quanh địa cầu · cuộn hoặc chụm hai ngón để thu phóng',
+      'Press <kbd>V</kbd> to stand on the ground and look up': 'Nhấn <kbd>V</kbd> để đứng trên mặt đất và nhìn lên',
+      'Press <kbd>1</kbd>–<kbd>9</kbd> for the Sun, the Moon and each planet': 'Nhấn <kbd>1</kbd>–<kbd>9</kbd> để chọn Mặt Trời, Mặt Trăng và từng hành tinh',
+      'Click anywhere on Earth to stand there instead': 'Nhấp vào bất cứ đâu trên Trái Đất để đứng ở đó',
+      '<kbd>Space</kbd> pauses time · <kbd>[</kbd> and <kbd>]</kbd> change its speed': '<kbd>Space</kbd> tạm dừng thời gian · <kbd>[</kbd> và <kbd>]</kbd> đổi tốc độ',
+      'Every position is computed in your browser — no network needed': 'Mọi vị trí đều được tính ngay trong trình duyệt — không cần mạng',
+      'A beam that dives into the Earth points at a world below your horizon': 'Tia nào cắm xuống lòng Trái Đất là đang chỉ tới một thiên thể dưới đường chân trời của bạn'
+    };
+    d.documentElement.lang = 'vi';
+    d.title = VI[d.title] || d.title;
+  }
+  /** The loader's text in the visit's language ({app} filled). */
+  function tr(s, app) {
+    var x = (VI && VI[s]) || s;
+    return app ? x.replace('{app}', app) : x;
+  }
+  w.__pcT = tr;
+
   function $(id) { return d.getElementById(id); }
   function appName() {
     var m = d.querySelector('meta[name="application-name"]');
@@ -260,8 +310,8 @@ body.is-intro-out #ui-root{animation:pc-ui-in .9s cubic-bezier(.2,.7,.2,1) both}
   function fatal(detail) {
     if (fatalShown || ready()) return;
     fatalShown = true;
-    showPanel('Something went wrong loading ' + appName() + '.',
-      'Reloading usually fixes it. If it keeps happening, the details below help us find the cause.', detail);
+    showPanel(tr('Something went wrong loading {app}.', appName()),
+      tr('Reloading usually fixes it. If it keeps happening, the details below help us find the cause.'), detail);
   }
 
   w.__pcLoader = {
@@ -269,7 +319,7 @@ body.is-intro-out #ui-root{animation:pc-ui-in .9s cubic-bezier(.2,.7,.2,1) both}
     progress: function (f, label) {
       var fill = $('pc-ld-fill');
       if (fill && Number.isFinite(f)) fill.style.width = Math.max(4, Math.min(100, f * 100)).toFixed(1) + '%';
-      if (label) { var s = $('pc-ld-status'); if (s) s.textContent = label + '…'; }
+      if (label) { var s = $('pc-ld-status'); if (s) s.textContent = tr(label) + '…'; }
     },
     /** Fades the loader out and removes it. */
     done: function () {
@@ -284,7 +334,7 @@ body.is-intro-out #ui-root{animation:pc-ui-in .9s cubic-bezier(.2,.7,.2,1) both}
     /** Old browsers: a calm explanation instead of an error dump. */
     unsupported: function (text) {
       fatalShown = true;
-      showPanel(appName() + ' needs a newer browser.', text, '');
+      showPanel(tr('{app} needs a newer browser.', appName()), tr(text), '');
     }
   };
 
@@ -387,6 +437,7 @@ body.is-intro-out #ui-root{animation:pc-ui-in .9s cubic-bezier(.2,.7,.2,1) both}
 (function () {
   'use strict';
   var d = document, w = window, b = d.body;
+  var T = w.__pcT || function (s) { return s; };
   function $(id) { return d.getElementById(id); }
   function mq(q) { try { return !!(w.matchMedia && w.matchMedia(q).matches); } catch (e) { return false; } }
 
@@ -461,6 +512,18 @@ body.is-intro-out #ui-root{animation:pc-ui-in .9s cubic-bezier(.2,.7,.2,1) both}
 
   var nameMeta = d.querySelector('meta[name="application-name"]');
   $('pc-ld-name').textContent = nameMeta ? nameMeta.content : '';
+  // The static words in the visit's language (the head script's table; English as written).
+  if (T('Loading') !== 'Loading') {
+    var tag = d.querySelector('.pc-ld__tag');
+    if (tag) tag.textContent = T(tag.textContent);
+    $('pc-ld-status').textContent = T('Loading') + '…';
+    $('pc-ld-slow').textContent = T($('pc-ld-slow').textContent);
+    $('pc-ld-reload').textContent = T('Reload');
+    var sum = d.querySelector('#pc-ld-details-wrap summary');
+    if (sum) sum.textContent = T('Details');
+    var scene = $('scene');
+    if (scene) scene.setAttribute('aria-label', T(scene.getAttribute('aria-label')));
+  }
   if (reduced) {
     var art = d.querySelector('.pc-ld__art');
     if (art && art.pauseAnimations) art.pauseAnimations();
@@ -496,6 +559,7 @@ body.is-intro-out #ui-root{animation:pc-ui-in .9s cubic-bezier(.2,.7,.2,1) both}
     'Every position is computed in your browser — no network needed',
     'A beam that dives into the Earth points at a world below your horizon'
   ]);
+  for (var ti = 0; ti < tips.length; ti++) tips[ti] = T(tips[ti]);
   var tipEl = $('pc-ld-tip');
   var tipIndex = Math.floor(Math.random() * tips.length);
   function showTip() {
@@ -517,7 +581,7 @@ body.is-intro-out #ui-root{animation:pc-ui-in .9s cubic-bezier(.2,.7,.2,1) both}
     $('pc-ld-slow').addEventListener('click', function () {
       w.__pcSlow = true;
       this.disabled = true;
-      this.textContent = 'Continuing with low detail…';
+      this.textContent = T('Continuing with low detail…');
       try { w.dispatchEvent(new Event('pc:slow')); } catch (e) { /* very old browser */ }
     }, { once: true });
   }, 8000);
@@ -526,7 +590,7 @@ body.is-intro-out #ui-root{animation:pc-ui-in .9s cubic-bezier(.2,.7,.2,1) both}
   w.setTimeout(function () {
     if (w.__pcBooted) return;
     var s = $('pc-ld-status');
-    if (s) s.textContent = 'Still loading — this is taking much longer than usual.';
+    if (s) s.textContent = T('Still loading — this is taking much longer than usual.');
     $('pc-ld-actions').hidden = false;
   }, 40000);
 })();

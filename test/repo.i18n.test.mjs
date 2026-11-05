@@ -123,3 +123,18 @@ for (const rel of TABLES) {
         assert.deepEqual(Object.keys(table).filter((k) => !used.has(k)), []);
     });
 }
+
+test('index.html: the inline loader has Vietnamese for every stage label, tip and message it shows', () => {
+    const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+    const block = html.slice(html.indexOf('VI = {'), html.indexOf('};', html.indexOf('VI = {')));
+    const vi = new Map([...block.matchAll(/'((?:[^'\\]|\\.)*)': '((?:[^'\\]|\\.)*)'/g)].map((m) => [m[1], m[2]]));
+    assert.ok(vi.size >= 20, `found ${vi.size} loader strings`);
+    const main = fs.readFileSync(path.join(ROOT, 'js/main.js'), 'utf8');
+    const labels = [...main.matchAll(/loader\.progress\(([^;]*)\);/g)].flatMap((m) => [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]));
+    const tipsSrc = html.slice(html.indexOf('var tips = '), html.indexOf('var tipEl'));
+    const tips = [...tipsSrc.matchAll(/'((?:[^'\\]|\\.)*)'/g)].map((m) => m[1]);
+    assert.ok(labels.length >= 5 && tips.length >= 10);
+    const missing = [...labels, ...tips, 'Loading', 'Reload', 'Details'].filter((s) => !vi.has(s));
+    assert.deepEqual(missing, []);
+    for (const [en, tr] of vi) assert.deepEqual(placeholders(tr), placeholders(en), en);
+});

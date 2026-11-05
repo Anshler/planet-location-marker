@@ -1388,9 +1388,11 @@ change.
     satellites) and the two Earth previews: 184 files, ≈ 4.5 MB. Textures and `data/stars8.json`
     stay lazy.
   - **Install** reads the manifest (its version must be the worker's), copies every file an
-    older version's cache holds with the same hash, then fetches the rest (`cache: 'no-cache'`,
-    so Pages answers 304 for what the HTTP cache has; once more with `reload` on a mismatch) and
-    checks each hash. A missing file or another deploy's bytes fail the install. There is no
+    older version's cache holds with the same hash, then fetches the rest of `precache` plus every
+    file an older version's cache holds whose hash changed (a lazily cached `data/i18n/vi.json`
+    or texture, so what worked offline before an update still does; files nobody loaded stay
+    lazy) with `cache: 'no-cache'`, so Pages answers 304 for what the HTTP cache has (once more
+    with `reload` on a mismatch), and checks each hash. A missing file or another deploy's bytes fail the install. There is no
     `skipWaiting`: an update waits, and the worker posts `{type: 'update-ready'}` to open pages.
   - **Activate** deletes every other version's cache, then claims the pages.
   - **Fetch.** Every file in the manifest is cache-first within the version, `index.html`, `js/`
@@ -1691,7 +1693,8 @@ The interface speaks English and Vietnamese. gettext style: **the English source
   toast (in English). `<html lang>` follows. Changing the language in Display saves the pref,
   drops `#lang=` and **reloads**: the page is built in one language, and the state survives in the
   hash. English costs no table; vi.json is fetched only when Vietnamese is active (it is not in
-  the service worker's precache: the warm-up message caches it on a Vietnamese visit).
+  the service worker's precache: the warm-up message or the first request caches it on a
+  Vietnamese visit, and an update's install refreshes it when its hash changed).
 - **Names.** Constellations keep their IAU Latin names and stars their proper names (Sirius,
   Vega); the Sun, Moon and planets are translated (Mặt Trời, Mặt Trăng, Sao Thủy…). The panels
   show `astro/bodies.js` names through `t()` (`ui.bodyName`, or `t(b.name)`), and the search

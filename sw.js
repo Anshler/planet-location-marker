@@ -9,11 +9,13 @@
 //   install   reads the manifest (its version must be VERSION), copies the files an older
 //             version's cache holds with the same hash, then fetches the rest of `precache` (the
 //             shell, the whole module graph with the astro worker's, sky.json, cities.json and the
-//             other boot data, the Earth previews), each checked against its hash. Anything
-//             missing or from another deploy fails the install; the browser tries again on a later
-//             visit, and a retry keeps what already arrived. There is no skipWaiting: an update
-//             waits, and open pages get {type:'update-ready'}; the page's toast posts
-//             {type:'skip-waiting'} and reloads once the new version controls it.
+//             other boot data, the Earth previews) and every other file an older version's cache
+//             holds whose hash changed (data/i18n/vi.json, a texture: what worked offline still
+//             does), each checked against its hash. Anything missing or from another deploy fails
+//             the install; the browser tries again on a later visit, and a retry keeps what
+//             already arrived. There is no skipWaiting: an update waits, and open pages get
+//             {type:'update-ready'}; the page's toast posts {type:'skip-waiting'} and reloads
+//             once the new version controls it.
 //   activate  deletes every other version's cache (only now: until then the old version serves
 //             its pages) and claims open pages.
 //   fetch     every file in the manifest is cache-first within the version, the shell and js/ and
@@ -143,8 +145,13 @@ async function fetchInto(cache, rel, sha) {
     throw new Error(`${rel} does not match version ${VERSION}`);
 }
 
-/** Copies what older versions cached with an unchanged hash: an update downloads only what changed. */
+/**
+ * Copies what older versions cached with an unchanged hash: an update downloads only what changed.
+ * Returns the files an older version held whose hash changed (a lazily cached data/i18n/vi.json or
+ * texture): the install fetches them too, so what worked offline before the update still does.
+ */
 async function carryOver(cache, m) {
+    const changed = new Set();
     for (const name of await caches.keys()) {
         if (!name.startsWith(PREFIX) || name === CACHE) continue;
         const old = await caches.open(name);
@@ -155,11 +162,14 @@ async function carryOver(cache, m) {
             continue;   // a dev cache, or no manifest: nothing is known about its bytes
         }
         for (const [rel, sha] of m.files) {
-            if (files.get(rel) !== sha || await cache.match(keyOf(rel), { ignoreVary: true })) continue;
+            if (await cache.match(keyOf(rel), { ignoreVary: true })) continue;
             const hit = await old.match(keyOf(rel), { ignoreVary: true });
-            if (hit) await cache.put(keyOf(rel), hit);
+            if (!hit) continue;
+            if (files.get(rel) === sha) await cache.put(keyOf(rel), hit);
+            else changed.add(rel);
         }
     }
+    return changed;
 }
 
 // ------------------------------------------------------------------ lifecycle ---------------
@@ -167,9 +177,9 @@ async function carryOver(cache, m) {
 async function installVersion() {
     const { m, json } = await fetchManifest();
     const cache = await caches.open(CACHE);
-    await carryOver(cache, m);
+    const changed = await carryOver(cache, m);
     const todo = [];
-    for (const rel of m.precache) if (!(await cache.match(keyOf(rel), { ignoreVary: true }))) todo.push(rel);
+    for (const rel of new Set([...m.precache, ...changed])) if (!(await cache.match(keyOf(rel), { ignoreVary: true }))) todo.push(rel);
     await pool(todo, async (rel) => {
         if (!m.fresh.has(rel)) return fetchInto(cache, rel, m.files.get(rel) ?? null);
         // A fresh file is not part of the version: a failure leaves it to the first request.

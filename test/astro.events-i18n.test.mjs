@@ -40,7 +40,7 @@ test('Vietnamese: a local solar eclipse in the locale, with its times as numbers
     const ev = localSolarEclipseAt(luxor, Date.parse('2027-08-02T10:07:00Z'), { tz: 'Africa/Cairo' });
     assert.match(ev.title, /^Nhật thực toàn phần thấy được ở đây \(6 phút \d+ giây\)$/);
     assert.match(ev.detail, /^Pha toàn phần \d\d:\d\d:\d\d–\d\d:\d\d:\d\d \(6 phút \d+ giây\), Mặt Trời cao \d+°\. Các pha một phần \d\d:\d\d–\d\d:\d\d\./);
-    assert.match(ev.detail, /Đừng bao giờ nhìn Mặt Trời/);
+    assert.match(ev.detail, /Tuyệt đối không nhìn Mặt Trời/);
 });
 
 test('English is unchanged by the locale machinery', () => {

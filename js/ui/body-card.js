@@ -26,32 +26,49 @@ import { isExtraId } from '../core/selection.js';
 import { extraSky } from '../astro/extras.js';
 import { createPassBox } from './sat-passes.js';
 import { LAYER_GROUPS } from './layers.js';
+import { t, N_, dec } from '../core/i18n.js';
 
 const SYNODIC_DAYS = 29.530589;
 
 const VERDICT = {
-    excellent: ['Excellent tonight', 'ok'],
-    good: ['Good tonight', 'accent'],
-    low: ['Low tonight', 'warn'],
-    twilight: ['Only in twilight', 'warn'],
-    daytime: ['Daytime only', 'muted'],
-    'not-visible': ['Not visible tonight', 'muted'],
+    excellent: [N_('Excellent tonight'), 'ok'],
+    good: [N_('Good tonight'), 'accent'],
+    low: [N_('Low tonight'), 'warn'],
+    twilight: [N_('Only in twilight'), 'warn'],
+    daytime: [N_('Daytime only'), 'muted'],
+    'not-visible': [N_('Not visible tonight'), 'muted'],
 };
-const KIND_LABEL = { star: 'Star', moon: 'Moon', planet: 'Planet' };
+/** The kind under the name (a 'Moon' kind would read as the Moon's own name in Vietnamese). */
+const KIND_LABEL = { star: N_('Star'), moon: N_('Natural satellite'), planet: N_('Planet') };
 /** "What these numbers mean": every term the card uses, as whole sentences (R6; no title= hints). */
 const MEANINGS = [
-    ['Altitude', 'How high it stands above the horizon, as seen: atmospheric refraction lifts it a little.'],
-    ['Azimuth', 'Its compass direction, measured from north through east.'],
-    ['Rise · Transit · Set', 'Times for your local day. Transit is when it stands highest, due south or due north.'],
-    ['Magnitude', 'Brightness: lower is brighter. The faintest stars the eye can see are about 6.'],
-    ['Angle from the Sun (elongation)', 'How far from the Sun it appears in the sky; close to the Sun it is lost in the glare.'],
-    ['Sky coordinates (J2000)', 'Right ascension and declination (RA/Dec), astrometric, on the mean equator and equinox of J2000.'],
-    ['Sky coordinates (of date)', 'RA/Dec, apparent, on the true equator and equinox of the date.'],
-    ['Overhead point', 'The place on the Earth where it is straight overhead (the sub-point).'],
-    ['Find it', 'Held at arm’s length, a fist covers about 10° of sky and a finger about 1°. Hands differ, so this is approximate.'],
+    [N_('Altitude'), N_('How high it stands above the horizon, as seen: atmospheric refraction lifts it a little.')],
+    [N_('Azimuth'), N_('Its compass direction, measured from north through east.')],
+    [N_('Rise · Transit · Set'), N_('Times for your local day. Transit is when it stands highest, due south or due north.')],
+    [N_('Magnitude'), N_('Brightness: lower is brighter. The faintest stars the eye can see are about 6.')],
+    [N_('Angle from the Sun (elongation)'), N_('How far from the Sun it appears in the sky; close to the Sun it is lost in the glare.')],
+    [N_('Sky coordinates (J2000)'), N_('Right ascension and declination (RA/Dec), astrometric, on the mean equator and equinox of J2000.')],
+    [N_('Sky coordinates (of date)'), N_('RA/Dec, apparent, on the true equator and equinox of the date.')],
+    [N_('Overhead point'), N_('The place on the Earth where it is straight overhead (the sub-point).')],
+    [N_('Find it'), N_('Held at arm’s length, a fist covers about 10° of sky and a finger about 1°. Hands differ, so this is approximate.')],
 ];
-const layerLabel = (key) => LAYER_GROUPS.flatMap((g) => g.items).find((it) => it[0] === key)?.[1] ?? key;
-const EQUIPMENT = { 'naked-eye': 'naked eye', binoculars: 'binoculars', telescope: 'telescope' };
+const layerLabel = (key) => t(LAYER_GROUPS.flatMap((g) => g.items).find((it) => it[0] === key)?.[1] ?? key);
+const EQUIPMENT = { 'naked-eye': N_('naked eye'), binoculars: N_('binoculars'), telescope: N_('telescope') };
+
+/**
+ * Where it stands, one sentence: 'Mars is 34° above the south-east horizon, in Leo.'
+ * @param {string} name the subject ('The Moon', 'Sirius')
+ * @param {boolean} up
+ * @param {number} alt
+ * @param {string} dir compass words
+ * @param {string} con constellation (IAU Latin) or ''
+ */
+function positionText(name, up, alt, dir, con) {
+    const v = { body: name, deg: up ? Math.max(0, Math.round(alt)) : Math.abs(Math.round(alt)), dir, con };
+    if (up && alt >= 80) return con ? t('{body} is nearly overhead ({deg}°), in {con}.', v) : t('{body} is nearly overhead ({deg}°).', v);
+    if (up) return con ? t('{body} is {deg}° above the {dir} horizon, in {con}.', v) : t('{body} is {deg}° above the {dir} horizon.', v);
+    return con ? t('{body} is {deg}° below the {dir} horizon, in {con}.', v) : t('{body} is {deg}° below the {dir} horizon.', v);
+}
 
 /**
  * Mounts the Details tab.
@@ -64,18 +81,18 @@ export function mountBodyCard(root, ctx) {
     const offs = [];
 
     // ---------------------------------------------------------------- empty state
-    const pickGrid = h('div', { class: 'pick-grid', role: 'group', 'aria-label': 'Choose a body' },
+    const pickGrid = h('div', { class: 'pick-grid', role: 'group', 'aria-label': t('Choose a body') },
         BODIES.map((b) => h('button', {
             class: 'bchip bchip--pick', type: 'button', 'data-id': b.id, style: { '--c': `var(--body-${b.id})` },
-        }, h('span', { class: 'dot', 'aria-hidden': 'true' }), h('span', { class: 'bchip__name' }, b.name),
+        }, h('span', { class: 'dot', 'aria-hidden': 'true' }), h('span', { class: 'bchip__name' }, t(b.name)),
         h('kbd', { class: 'kbd kbd--ghost', 'aria-hidden': 'true' }, b.key))));
-    const findBtn = h('button', { class: 'btn btn--soft', type: 'button' }, icon('search', { size: 16 }), 'Search for a star, comet or spacecraft');
+    const findBtn = h('button', { class: 'btn btn--soft', type: 'button' }, icon('search', { size: 16 }), t('Search for a star, comet or spacecraft'));
     const empty = h('div', { class: 'card-empty' },
         h('div', { class: 'card-empty__icon', 'aria-hidden': 'true' }, icon('target', { size: 28 })),
-        h('h3', { class: 'card-empty__title' }, 'Pick a body'),
-        h('p', { class: 'card-empty__text for-fine for-3d' }, 'Click a planet in the sky, a row in Up now, or press 1–9.'),
-        h('p', { class: 'card-empty__text for-coarse for-3d' }, 'Tap a world at the end of its beam, a row in Up now, or a name below.'),
-        h('p', { class: 'card-empty__text for-text' }, 'Choose a row in Up now or a name below.'),
+        h('h3', { class: 'card-empty__title' }, t('Pick a body')),
+        h('p', { class: 'card-empty__text for-fine for-3d' }, t('Click a planet in the sky, a row in Up now, or press 1–9.')),
+        h('p', { class: 'card-empty__text for-coarse for-3d' }, t('Tap a world at the end of its beam, a row in Up now, or a name below.')),
+        h('p', { class: 'card-empty__text for-text' }, t('Choose a row in Up now or a name below.')),
         pickGrid, findBtn);
     offs.push(on(pickGrid, 'click', (e) => {
         const b = /** @type {HTMLElement} */ (e.target).closest('[data-id]');
@@ -97,20 +114,20 @@ export function mountBodyCard(root, ctx) {
     const moonLine = h('p', { class: 'card__moon', hidden: true });
     const findText = h('span');
     const findLine = h('p', { class: 'card__find', hidden: true }, icon('ruler', { size: 14 }),
-        h('span', null, h('span', { class: 'card__find-label' }, 'Find it: '), findText));
+        h('span', null, h('span', { class: 'card__find-label' }, `${t('Find it')}: `), findText));
     const eyepiece = createEyepiece();
-    const scopeGroup = h('div', { class: 'group' }, h('h4', { class: 'group-title' }, 'Through a small telescope'), eyepiece.el);
+    const scopeGroup = h('div', { class: 'group' }, h('h4', { class: 'group-title' }, t('Through a small telescope')), eyepiece.el);
     const planner = createYearPlanner(ctx);
     const passBox = createPassBox(ctx);
 
-    const actLook = h('button', { class: 'btn btn--soft btn--accent', type: 'button' }, 'Look at it');
+    const actLook = h('button', { class: 'btn btn--soft btn--accent', type: 'button' }, t('Look at it'));
     const toggleBtn = (name, label, tip) => h('button', { class: 'btn btn--soft btn--toggle', type: 'button', 'aria-pressed': 'false', 'data-tip': tip },
         icon(name, { size: 16 }), icon('check', { size: 16 }), label);
-    const actScope = toggleBtn('eye', 'Telescope', 'Its true size and orientation, followed');
-    const actTrack = toggleBtn('crosshair', 'Follow', 'Keep it centred as time runs (K)');
-    const actMore = h('button', { class: 'btn btn--soft card__more', type: 'button', 'aria-label': 'More actions', 'data-tip': 'More actions' }, icon('more', { size: 16 }));
+    const actScope = toggleBtn('eye', t('Telescope'), t('Its true size and orientation, followed'));
+    const actTrack = toggleBtn('crosshair', t('Follow'), t('Keep it centred as time runs (K)'));
+    const actMore = h('button', { class: 'btn btn--soft card__more', type: 'button', 'aria-label': t('More actions'), 'data-tip': t('More actions') }, icon('more', { size: 16 }));
     // Text mode: no camera, so Compare alone, as a button.
-    const actCompare = h('button', { class: 'btn btn--soft', type: 'button' }, icon('compare', { size: 16 }), 'Compare from a second place…');
+    const actCompare = h('button', { class: 'btn btn--soft', type: 'button' }, icon('compare', { size: 16 }), t('Compare from a second place…'));
     const actions = h('div', { class: 'card__actions' }, actLook, actScope, actTrack, actMore, actCompare);
 
     const sel = () => store.get().selection;
@@ -121,21 +138,21 @@ export function mountBodyCard(root, ctx) {
     /** Who the "Earth from" item names: "the Sun", "the Moon", "Mars". */
     const fromName = () => { const id = sel(); return id === 'sun' || id === 'moon' ? ui.bodySubject(id, false) : ui.bodyName(id); };
     const moreItems = [
-        { icon: 'target', name: 'Turn the globe toward it', detail: 'Bring the side where it is overhead to the front', hidden: () => mode() !== 'globe', run: () => ui.act('flyToBody', sel()) },
-        { icon: 'globe', name: () => `View the Earth from ${fromName()}`, detail: 'The side of the Earth that faces it',
+        { icon: 'target', name: t('Turn the globe toward it'), detail: t('Bring the side where it is overhead to the front'), hidden: () => mode() !== 'globe', run: () => ui.act('flyToBody', sel()) },
+        { icon: 'globe', name: () => t('View the Earth from {body}', { body: fromName() }), detail: t('The side of the Earth that faces it'),
             hidden: () => mode() !== 'globe' || isExtraId(sel()) || ui.onMars?.(), run: () => ui.act('viewFromBody', sel()) },
-        { kind: 'check', icon: 'vantage', name: 'Earthrise', detail: 'The Earth rising over the Moon’s limb, from lunar orbit', checked: () => store.get().view?.vantage === 'moon',
+        { kind: 'check', icon: 'vantage', name: t('Earthrise'), detail: t('The Earth rising over the Moon’s limb, from lunar orbit'), checked: () => store.get().view?.vantage === 'moon',
             hidden: () => mode() !== 'globe' || sel() !== 'moon' || ui.onMars?.(), run: () => ui.act('setVantage', store.get().view?.vantage === 'moon' ? 'none' : 'moon') },
-        { icon: 'compare', name: 'Compare from a second place…', detail: 'Its own pin and beams, side by side in Up now',
+        { icon: 'compare', name: t('Compare from a second place…'), detail: t('Its own pin and beams, side by side in Up now'),
             hidden: () => isExtraId(sel()) || ui.onMars?.(), run: () => ui.act('compareWith') },
     ];
-    const moreMenu = menu({ button: actMore, label: 'More actions', items: moreItems, host: ui.root, placement: 'bottom' });
+    const moreMenu = menu({ button: actMore, label: t('More actions'), items: moreItems, host: ui.root, placement: 'bottom' });
 
     // The Display switches themselves (R1's documented exception).
     const swPath = switchRow({ label: layerLabel('trails'), keys: ['T'], checked: false, onChange: (v) => ui.act('toggleLayer', 'trails', v) });
     const swFoot = switchRow({ label: layerLabel('footprint'), keys: ['O'], checked: false, onChange: (v) => ui.act('toggleLayer', 'footprint', v) });
     const swSun = switchRow({ label: layerLabel('sunPath'), checked: false, onChange: (v) => ui.act('toggleLayer', 'sunPath', v) });
-    const showGroup = h('div', { class: 'group' }, h('h4', { class: 'group-title' }, 'Show on the view'), swPath.el, swFoot.el, swSun.el);
+    const showGroup = h('div', { class: 'group' }, h('h4', { class: 'group-title' }, t('Show on the view')), swPath.el, swFoot.el, swSun.el);
 
     const facts = {};
     const fact = (key, label, wide = false) => {
@@ -145,20 +162,20 @@ export function mountBodyCard(root, ctx) {
         return el;
     };
     const grid = h('dl', { class: 'facts' },
-        fact('alt', 'Altitude'), fact('az', 'Azimuth'), fact('rts', 'Rise · Transit · Set', true), fact('dist', 'Distance', true),
-        fact('mag', 'Magnitude'), fact('phase', 'Phase'), fact('size', 'Angular size'));
-    const morePos = h('details', { class: 'fold' }, h('summary', null, 'More positions'), h('dl', { class: 'facts' },
-        fact('elong', 'Angle from the Sun (elongation)', true), fact('j2000', 'Sky coordinates (J2000)', true),
-        fact('date', 'Sky coordinates (of date)', true), fact('sub', 'Overhead point', true)));
-    const meaning = h('details', { class: 'fold' }, h('summary', null, 'What these numbers mean'), h('dl', { class: 'meanings note' },
-        ...MEANINGS.flatMap(([k, v]) => [h('dt', null, k), h('dd', null, v)])));
+        fact('alt', t('Altitude')), fact('az', t('Azimuth')), fact('rts', t('Rise · Transit · Set'), true), fact('dist', t('Distance'), true),
+        fact('mag', t('Magnitude')), fact('phase', t('Phase')), fact('size', t('Angular size')));
+    const morePos = h('details', { class: 'fold' }, h('summary', null, t('More positions')), h('dl', { class: 'facts' },
+        fact('elong', t('Angle from the Sun (elongation)'), true), fact('j2000', t('Sky coordinates (J2000)'), true),
+        fact('date', t('Sky coordinates (of date)'), true), fact('sub', t('Overhead point'), true)));
+    const meaning = h('details', { class: 'fold' }, h('summary', null, t('What these numbers mean')), h('dl', { class: 'meanings note' },
+        ...MEANINGS.flatMap(([k, v]) => [h('dt', null, t(k)), h('dd', null, t(v))])));
     // Extra objects: the provider's sentences, extra facts, honesty note and sources.
     const xLines = h('div', { class: 'card__xlines', hidden: true });
     const xFacts = h('dl', { class: 'facts facts--extra' });
     const xCaveat = h('p', { class: 'note card__caveat' });
     const xSources = h('p', { class: 'note card__sources' });
     const xBox = h('div', { class: 'card__extra', hidden: true }, xFacts, xCaveat, xSources);
-    const tableNote = h('p', { class: 'note' }, 'Tables show apparent, refracted values; the 3D view draws astrometric J2000 directions.');
+    const tableNote = h('p', { class: 'note' }, t('Tables show apparent, refracted values; the 3D view draws astrometric J2000 directions.'));
 
     // Rise · Transit · Set as three labelled cells (a day's set can come before its rise).
     const rtsCell = (iconName, label) => {
@@ -167,9 +184,9 @@ export function mountBodyCard(root, ctx) {
         const el = h('span', { class: 'rts__cell' }, h('span', { class: 'rts__label' }, icon(iconName, { size: 14 }), label), time, extra);
         return { el, time, extra };
     };
-    const rtsRise = rtsCell('rise', 'Rise');
-    const rtsTransit = rtsCell('arrow', 'Transit');
-    const rtsSet = rtsCell('set', 'Set');
+    const rtsRise = rtsCell('rise', t('Rise'));
+    const rtsTransit = rtsCell('arrow', t('Transit'));
+    const rtsSet = rtsCell('set', t('Set'));
     const rtsMsg = h('span', { class: 'rts__msg', hidden: true });
     facts.rts.dd.append(h('span', { class: 'rts' }, rtsRise.el, rtsTransit.el, rtsSet.el), rtsMsg);
 
@@ -242,7 +259,7 @@ export function mountBodyCard(root, ctx) {
             facts.sub.el.hidden = mars;
             const b = hostBodies(mars ? 'mars' : 'earth')[BODY_INDEX[id]];
             card.style.setProperty('--c', `var(--body-${id})`);
-            nameEl.replaceChildren(h('span', { class: 'dot dot--lg', 'aria-hidden': 'true' }), b.name);
+            nameEl.replaceChildren(h('span', { class: 'dot dot--lg', 'aria-hidden': 'true' }), t(b.name));
             discKey = '';
         }
     }
@@ -282,14 +299,14 @@ export function mountBodyCard(root, ctx) {
         const name = m?.name ?? id;
         passBox.update(id, snap);
         if (!st) {
-            setText(kindEl, m ? `${m.kindLabel || ''}` : 'Loading…');
+            setText(kindEl, m ? `${m.kindLabel || ''}` : t('Loading…'));
             const mars = !!ui.onMars?.();
-            setText(sentence, !m ? 'Its data is still loading.' : m.kind === 'sat' && mars
-                ? `Earth satellites are seen from the Earth: use Back to Earth to follow ${name}.`
+            setText(sentence, !m ? t('Its data is still loading.') : m.kind === 'sat' && mars
+                ? t('Earth satellites are seen from the Earth: use Back to Earth to follow {name}.', { name })
                 : m.kind === 'sat'
-                    ? `${name} is not shown at this date: its orbital elements are only used ${ctx.extras?.provider?.('sat')?.validDays ?? 14} days either side of their own date.`
-                    : m.kind === 'moon' && !mars ? `${name} is seen from Mars: Stand on Mars to see it.`
-                        : `${name} is not in the sky at this date.`);
+                    ? t('{name} is not shown at this date: its orbital elements are only used {n} days either side of their own date.', { name, n: ctx.extras?.provider?.('sat')?.validDays ?? 14 })
+                    : m.kind === 'moon' && !mars ? t('{name} is seen from Mars: Stand on Mars to see it.', { name })
+                        : t('{name} is not in the sky at this date.', { name }));
             findLine.hidden = true;
             light.hidden = true;
             morePos.hidden = true;
@@ -307,14 +324,7 @@ export function mountBodyCard(root, ctx) {
         const con = sky.constellation?.name || '';
         setText(kindEl, info?.kindLabel || m?.kindLabel || '');
         const { alt, az } = ui.altAz(st);
-        let sent = '';
-        if (Number.isFinite(alt)) {
-            const where = ui.compassWords(az);
-            if (st.above && alt >= 80) sent = `${name} is nearly overhead (${Math.round(alt)}°)`;
-            else if (st.above) sent = `${name} is ${Math.max(0, Math.round(alt))}° above the ${where} horizon`;
-            else sent = `${name} is ${Math.abs(Math.round(alt))}° below the ${where} horizon`;
-            sent += con ? `, in ${con}.` : '.';
-        }
+        let sent = Number.isFinite(alt) ? positionText(name, !!st.above, alt, ui.compassWords(az), con) : '';
         if (info?.subtitle) sent = `${info.subtitle}. ${sent}`;
         setText(sentence, sent);
         // A catalogue star is not its own signpost: by identity (the guide's J2000 places do not
@@ -326,12 +336,12 @@ export function mountBodyCard(root, ctx) {
         if (guide) setText(findText, lowerFirst(guide.text));
         findLine.hidden = !guide;
         light.hidden = true;
-        xLines.replaceChildren(...(info?.lines ?? []).map((t) => h('p', { class: 'card__xline' }, t)));
+        xLines.replaceChildren(...(info?.lines ?? []).map((line) => h('p', { class: 'card__xline' }, line)));
         xFacts.replaceChildren(...(info?.facts ?? []).map(([k, v]) => h('div', { class: 'fact fact--wide' },
             h('dt', { class: 'fact__label' }, k), h('dd', { class: 'fact__value' }, v))));
         setText(xCaveat, info?.caveat ?? '');
         xCaveat.hidden = !info?.caveat;
-        setText(xSources, info?.sources?.length ? `Sources: ${info.sources.join('; ')}.` : '');
+        setText(xSources, info?.sources?.length ? t('Sources: {list}.', { list: info.sources.join('; ') }) : '');
         xSources.hidden = !info?.sources?.length;
         setText(facts.alt.dd, Number.isFinite(alt) ? ui.fmt('fmtAlt', alt) : '—');
         setText(facts.az.dd, Number.isFinite(az) ? ui.fmt('fmtAz', az) : '—');
@@ -343,13 +353,13 @@ export function mountBodyCard(root, ctx) {
             setText(rtsRise.time, rts.riseMs != null ? ui.fmtClock(rts.riseMs) : '—');
             setText(rtsSet.time, rts.setMs != null ? ui.fmtClock(rts.setMs) : '—');
             setText(rtsTransit.time, rts.transitMs != null ? ui.fmtClock(rts.transitMs) : '—');
-            setText(rtsTransit.extra, rts.transitAltDeg != null && rts.transitMs != null ? `${Math.round(rts.transitAltDeg)}° high` : '');
+            setText(rtsTransit.extra, rts.transitAltDeg != null && rts.transitMs != null ? t('{deg}° high', { deg: Math.round(rts.transitAltDeg) }) : '');
         }
         // The provider's own 'Distance' (with km) replaces the generic one.
-        facts.dist.el.hidden = !Number.isFinite(st.distAU) || !!info?.facts?.some(([k]) => k === 'Distance');
+        facts.dist.el.hidden = !Number.isFinite(st.distAU) || !!info?.facts?.some(([k]) => k === 'Distance' || k === t('Distance'));
         if (Number.isFinite(st.distAU)) setText(facts.dist.dd, ui.fmt('fmtDistAU', st.distAU));
         facts.mag.el.hidden = !Number.isFinite(st.mag);
-        if (Number.isFinite(st.mag)) setText(facts.mag.dd, `${ui.fmt('fmtMag', st.mag)}${st.approx ? ' (approx.)' : ''}`);
+        if (Number.isFinite(st.mag)) setText(facts.mag.dd, st.approx ? t('{mag} (approx.)', { mag: ui.fmt('fmtMag', st.mag) }) : ui.fmt('fmtMag', st.mag));
         setText(facts.j2000.dd, `${ui.fmt('fmtRA', sky.raH)} / ${ui.fmt('fmtDec', sky.decDeg)}`);
         syncLayerButtons();
     }
@@ -367,24 +377,16 @@ export function mountBodyCard(root, ctx) {
         const b = ui.bodyOf(snap, id);
         if (!b) return;
         const info = hostBodies(snap.host)[BODY_INDEX[id]];
-        const t = snap.tMs;
+        const now = snap.tMs;
         const { alt, az } = ui.altAz(b);
         const up = isUp(b, alt);
         const con = b.constellation?.name || '';
         const subject = ui.bodySubject(id);
 
-        setText(kindEl, KIND_LABEL[info.kind] || '');
+        setText(kindEl, KIND_LABEL[info.kind] ? t(KIND_LABEL[info.kind]) : '');
 
         // Position sentence.
-        let sent = '';
-        if (Number.isFinite(alt)) {
-            const where = ui.compassWords(az);
-            if (up && alt >= 80) sent = `${subject} is nearly overhead (${Math.round(alt)}°)`;
-            else if (up) sent = `${subject} is ${Math.max(0, Math.round(alt))}° above the ${where} horizon`;
-            else sent = `${subject} is ${Math.abs(Math.round(alt))}° below the ${where} horizon`;
-            sent += con ? `, in ${con}.` : '.';
-        }
-        setText(sentence, sent);
+        setText(sentence, Number.isFinite(alt) ? positionText(subject, up, alt, ui.compassWords(az), con) : '');
 
         // Find it: which way to face, how many fists up, and from the nearest bright neighbour.
         // Never for the Sun (nobody should look for it by eye).
@@ -395,8 +397,8 @@ export function mountBodyCard(root, ctx) {
 
         // Light-time sentence.
         if (Number.isFinite(b.lightTimeS)) {
-            setText(lightText, `The light you see from ${ui.bodySubject(id, false)} left ${ui.fmt('fmtLightTime', b.lightTimeS)} ago.`);
-            setText(lightAgo, b.lightTimeS >= 60 ? `It set out at ${ui.fmtClock(t - b.lightTimeS * 1000, { seconds: true })}.` : '');
+            setText(lightText, t('The light you see from {body} left {time} ago.', { body: ui.bodySubject(id, false), time: ui.fmt('fmtLightTime', b.lightTimeS) }));
+            setText(lightAgo, b.lightTimeS >= 60 ? t('It set out at {time}.', { time: ui.fmtClock(now - b.lightTimeS * 1000, { seconds: true }) }) : '');
             light.hidden = false;
         } else light.hidden = true;
 
@@ -405,29 +407,32 @@ export function mountBodyCard(root, ctx) {
             const age = ((((snap.moonPhaseDeg % 360) + 360) % 360) / 360) * SYNODIC_DAYS;
             const ecl = lunarEclipseState(snap);
             const sol = solarEclipseState(snap);
-            const eclTxt = ecl ? ` · ${ecl.text}` : sol ? ` · in front of the Sun (${sol.kind === 'total' ? 'total' : sol.kind} solar eclipse)` : '';
-            setText(moonLine, `${moonPhaseName(snap.moonPhaseDeg)} · ${age.toFixed(1)} days old${eclTxt}`);
+            const eclTxt = ecl ? ` · ${ecl.text}` : !sol ? '' : ` · ${sol.kind === 'total' ? t('in front of the Sun (total solar eclipse)')
+                : sol.kind === 'annular' ? t('in front of the Sun (annular solar eclipse)') : t('in front of the Sun (partial solar eclipse)')}`;
+            setText(moonLine, t('{phase} · {age} days old', { phase: moonPhaseName(snap.moonPhaseDeg), age: dec(age, 1) }) + eclTxt);
             moonLine.hidden = false;
         } else if (id === 'sun' && solarEclipseState(snap)) {
             const sol = solarEclipseState(snap);
-            setText(moonLine, sol.kind === 'total' ? 'Total solar eclipse: the Moon hides the whole Sun.'
-                : sol.kind === 'annular' ? `${sol.text}: a ring of Sun around the Moon.` : `${sol.text}.`);
+            setText(moonLine, sol.kind === 'total' ? t('Total solar eclipse: the Moon hides the whole Sun.')
+                : sol.kind === 'annular' ? t('{eclipse}: a ring of Sun around the Moon.', { eclipse: sol.text }) : `${sol.text}.`);
             moonLine.hidden = false;
         } else moonLine.hidden = true;
 
         const rep = id === 'sun' ? null : ui.tonightFor(id);
         if (rep && VERDICT[rep.verdict]) {
             const [label, tone] = VERDICT[rep.verdict];
-            setText(verdictBadge, label);
+            setText(verdictBadge, t(label));
             verdictBadge.className = `badge badge--${tone}`;
             const bits = [];
             if (Number.isFinite(rep.bestMs) && rep.verdict !== 'not-visible' && rep.verdict !== 'daytime') {
-                bits.push(`best around ${Math.abs(rep.bestMs - t) < 864e5 ? ui.fmtClock(rep.bestMs) : ui.fmtWhen(rep.bestMs, t)}${Number.isFinite(rep.bestAltDeg) ? `, ${Math.round(rep.bestAltDeg)}° high` : ''}${Number.isFinite(rep.bestAzDeg) ? ` in the ${ui.compassWords(rep.bestAzDeg)}` : ''}`);
+                const v = { time: Math.abs(rep.bestMs - now) < 864e5 ? ui.fmtClock(rep.bestMs) : ui.fmtWhen(rep.bestMs, now), deg: Math.round(rep.bestAltDeg), dir: ui.compassWords(rep.bestAzDeg) };
+                bits.push(!Number.isFinite(rep.bestAltDeg) ? t('best around {time}', v)
+                    : Number.isFinite(rep.bestAzDeg) ? t('best around {time}, {deg}° high in the {dir}', v) : t('best around {time}, {deg}° high', v));
             }
             if (Number.isFinite(rep.windowStartMs) && Number.isFinite(rep.windowEndMs) && rep.windowEndMs > rep.windowStartMs) {
-                bits.push(`visible ${ui.fmtClock(rep.windowStartMs)}–${ui.fmtClock(rep.windowEndMs)}`);
+                bits.push(t('visible {from}–{to}', { from: ui.fmtClock(rep.windowStartMs), to: ui.fmtClock(rep.windowEndMs) }));
             }
-            if (rep.equipment && EQUIPMENT[rep.equipment] && rep.verdict !== 'not-visible') bits.push(EQUIPMENT[rep.equipment]);
+            if (rep.equipment && EQUIPMENT[rep.equipment] && rep.verdict !== 'not-visible') bits.push(t(EQUIPMENT[rep.equipment]));
             setText(verdictText, bits.join(' · '));
             verdict.hidden = false;
         } else verdict.hidden = true;
@@ -435,9 +440,9 @@ export function mountBodyCard(root, ctx) {
         // Facts.
         setText(facts.alt.dd, Number.isFinite(alt) ? ui.fmt('fmtAlt', alt) : '—');
         setText(facts.az.dd, Number.isFinite(az) ? ui.fmt('fmtAz', az) : '—');
-        renderRts(id, t);
+        renderRts(id, now);
         if (id === 'moon') {
-            setText(facts.dist.dd, Number.isFinite(b.distAU) ? `${ui.fmt('fmtDistKm', b.distAU * AU_KM)} · ${(b.distER || b.distAU * AU_KM / 6378.137).toFixed(1)} Earth radii` : '—');
+            setText(facts.dist.dd, Number.isFinite(b.distAU) ? t('{km} · {n} Earth radii', { km: ui.fmt('fmtDistKm', b.distAU * AU_KM), n: dec(b.distER || b.distAU * AU_KM / 6378.137, 1) }) : '—');
         } else {
             setText(facts.dist.dd, Number.isFinite(b.distAU) ? ui.fmt('fmtDistAU', b.distAU) : '—');
         }
@@ -447,11 +452,12 @@ export function mountBodyCard(root, ctx) {
         facts.elong.el.hidden = isSun;
         if (!isSun) {
             const ecl = id === 'moon' ? lunarEclipseState(snap) : null;
-            let phase = Number.isFinite(b.phaseFrac) ? `${Math.round(b.phaseFrac * 100)}% lit` : '—';
-            if (ecl && phase !== '—') phase += ecl.total ? ' · totally eclipsed' : ` · ${Math.round(ecl.sunlit * 100)}% sunlit`;
-            setText(facts.phase.dd, phase);
-            const side = b.elongSide === 'morning' ? ' · morning sky' : b.elongSide === 'evening' ? ' · evening sky' : '';
-            setText(facts.elong.dd, Number.isFinite(b.elongDeg) ? `${b.elongDeg.toFixed(1)}°${side}` : '—');
+            const pv = { pct: Math.round(b.phaseFrac * 100), sunlit: Math.round((ecl?.sunlit ?? 1) * 100) };
+            setText(facts.phase.dd, !Number.isFinite(b.phaseFrac) ? '—' : !ecl ? t('{pct}% lit', pv)
+                : ecl.total ? t('{pct}% lit · totally eclipsed', pv) : t('{pct}% lit · {sunlit}% sunlit', pv));
+            const ev = { deg: dec(b.elongDeg, 1) };
+            setText(facts.elong.dd, !Number.isFinite(b.elongDeg) ? '—' : b.elongSide === 'morning' ? t('{deg}° · morning sky', ev)
+                : b.elongSide === 'evening' ? t('{deg}° · evening sky', ev) : `${ev.deg}°`);
         }
         const size = ui.fmt('fmtAngSize', b.angDiamArcsec);
         setText(facts.size.dd, size !== '—' ? size : angSize(b.angDiamArcsec));
@@ -475,8 +481,9 @@ export function mountBodyCard(root, ctx) {
             discKey = key;
             drawPhaseDisc(disc, { frac, litRight, color: info.color, sun: isSun, moon: id === 'moon', shadow, cover });
             disc.setAttribute('aria-label', isSun
-                ? (sol ? `The Sun’s disc, ${sol.kind === 'total' ? 'hidden by the Moon' : `${sol.pct}% covered by the Moon`}` : 'The Sun’s disc')
-                : `${info.name}: ${Math.round(frac * 100)}% of the disc lit, lit side ${litRight ? 'right' : 'left'}`);
+                ? (!sol ? t('The Sun’s disc') : sol.kind === 'total' ? t('The Sun’s disc, hidden by the Moon') : t('The Sun’s disc, {pct}% covered by the Moon', { pct: sol.pct }))
+                : litRight ? t('{body}: {pct}% of the disc lit, lit side right', { body: t(info.name), pct: Math.round(frac * 100) })
+                    : t('{body}: {pct}% of the disc lit, lit side left', { body: t(info.name), pct: Math.round(frac * 100) }));
         }
         // From Mars: no eyepiece portrait of the Earth (slot 4 draws Mars's maps) or of the Moon (its
         // libration is the Earth's view), and no year planner (the astro worker plans for the Earth observer).
@@ -489,20 +496,20 @@ export function mountBodyCard(root, ctx) {
         syncLayerButtons();
     }
 
-    function renderRts(id, t) {
-        const rs = ui.riseSetFor(id, t);
+    function renderRts(id, now) {
+        const rs = ui.riseSetFor(id, now);
         const rtsBox = facts.rts.dd.firstChild;
         let msg = '';
-        if (!rs.known) msg = ui.onMars?.() ? 'Rise and set times are not computed on Mars yet' : 'Computing…';
-        else if (rs.status === 'circumpolar' && rs.riseMs == null && rs.setMs == null) msg = 'Up all day — it never sets here today';
-        else if (rs.status === 'never' && rs.riseMs == null) msg = 'Stays below the horizon all day';
+        if (!rs.known) msg = ui.onMars?.() ? t('Rise and set times are not computed on Mars yet') : t('Computing…');
+        else if (rs.status === 'circumpolar' && rs.riseMs == null && rs.setMs == null) msg = t('Up all day — it never sets here today');
+        else if (rs.status === 'never' && rs.riseMs == null) msg = t('Stays below the horizon all day');
         rtsMsg.hidden = !msg;
         setText(rtsMsg, msg);
         rtsBox.hidden = !!msg && msg !== '' && rs.transitMs == null;
         setText(rtsRise.time, rs.riseMs != null ? ui.fmtClock(rs.riseMs) : '—');
         setText(rtsSet.time, rs.setMs != null ? ui.fmtClock(rs.setMs) : '—');
         setText(rtsTransit.time, rs.transitMs != null ? ui.fmtClock(rs.transitMs) : '—');
-        setText(rtsTransit.extra, rs.transitAltDeg != null && rs.transitMs != null ? `${Math.round(rs.transitAltDeg)}° high` : '');
+        setText(rtsTransit.extra, rs.transitAltDeg != null && rs.transitMs != null ? t('{deg}° high', { deg: Math.round(rs.transitAltDeg) }) : '');
         setText(rtsRise.extra, '');
         setText(rtsSet.extra, '');
     }
@@ -525,8 +532,8 @@ export function mountBodyCard(root, ctx) {
     };
 }
 
-function lowerFirst(t) {
-    return t ? t.charAt(0).toLowerCase() + t.slice(1) : t;
+function lowerFirst(s) {
+    return s ? s.charAt(0).toLowerCase() + s.slice(1) : s;
 }
 
 /** "31′ 36″" for discs ≥ 1′, else "17.3″". */
@@ -537,7 +544,7 @@ function angSize(as) {
         const sec = Math.round(as - m * 60);
         return sec === 60 ? `${m + 1}′ 00″` : `${m}′ ${String(sec).padStart(2, '0')}″`;
     }
-    return `${as.toFixed(1)}″`;
+    return `${dec(as, 1)}″`;
 }
 
 /**
@@ -686,4 +693,4 @@ function hexRgb(hex) {
     const m = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(hex || '');
     return m ? [parseInt(m[1], 16), parseInt(m[2], 16), parseInt(m[3], 16)] : [220, 220, 230];
 }
-function mixRgb(a, b, t) { return a.map((v, i) => Math.round(v + (b[i] - v) * t)); }
+function mixRgb(a, b, f) { return a.map((v, i) => Math.round(v + (b[i] - v) * f)); }

@@ -18,7 +18,7 @@
  *
  * @module ui/eyepiece
  */
-import { BODY_INDEX } from '../astro/bodies.js';
+import { BODIES, BODY_INDEX } from '../astro/bodies.js';
 import {
     SHAPES, MARS_SPOTS, createDiscFrame, createDiscView, discFrame, discView, toFrame, compressRadius, ringAt, grsLongitudeDeg,
 } from '../astro/disc.js';
@@ -26,7 +26,7 @@ import {
     GALILEAN, MOON_TRANSIT, MOON_OCCULTED, MOON_ECLIPSED, MOON_SHADOW, bestLimbFeature, librationDirection, saturnEdgeOn,
 } from '../astro/moons.js';
 import { h, setText } from './dom.js';
-import { dateText } from '../core/i18n.js';
+import { t, N_, dec, dateText } from '../core/i18n.js';
 
 const W = 320;
 const H = 148;
@@ -86,10 +86,10 @@ function noise(x, y) {
     const a = hash(ix, iy), b = hash(ix + 1, iy), c = hash(ix, iy + 1), d = hash(ix + 1, iy + 1);
     return (a + (b - a) * ux) + ((c + (d - c) * ux) - (a + (b - a) * ux)) * uy;
 }
-const sstep = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+const sstep = (a, b, x) => { const u = Math.min(1, Math.max(0, (x - a) / (b - a))); return u * u * (3 - 2 * u); };
 const band = (x, a, b, w) => sstep(a - w, a + w, x) * (1 - sstep(b - w, b + w, x));
-function mix3(c, d, t, out) {
-    out[0] = c[0] + (d[0] - c[0]) * t; out[1] = c[1] + (d[1] - c[1]) * t; out[2] = c[2] + (d[2] - c[2]) * t;
+function mix3(c, d, f, out) {
+    out[0] = c[0] + (d[0] - c[0]) * f; out[1] = c[1] + (d[1] - c[1]) * f; out[2] = c[2] + (d[2] - c[2]) * f;
     return out;
 }
 
@@ -116,23 +116,23 @@ function albedo(kind, nb, lat, lon, grsLon) {
         const cap = Math.min(1, sstep(71, 77, lat) + sstep(73, 80, -lat));
         mix3(c, [0.96, 0.95, 0.94], cap, c);
     } else if (kind === 3) {
-        const t = lat + 1.8 * (noise(lon * 0.08, lat * 0.32) - 0.5);
+        const la = lat + 1.8 * (noise(lon * 0.08, lat * 0.32) - 0.5);
         c[0] = C_ZONE[0]; c[1] = C_ZONE[1]; c[2] = C_ZONE[2];
-        mix3(c, C_BELT, band(t, 7, 18, 1.6), c);
-        mix3(c, C_BELT, band(t, -20, -7, 1.6), c);
-        mix3(c, C_TAN, band(t, 24, 31, 1.6), c);
-        mix3(c, C_TAN, band(t, -34, -27, 1.6), c);
-        mix3(c, C_TAN2, band(Math.abs(t), 37, 44, 2), c);
-        mix3(c, C_POLE, sstep(46, 62, Math.abs(t)), c);
+        mix3(c, C_BELT, band(la, 7, 18, 1.6), c);
+        mix3(c, C_BELT, band(la, -20, -7, 1.6), c);
+        mix3(c, C_TAN, band(la, 24, 31, 1.6), c);
+        mix3(c, C_TAN, band(la, -34, -27, 1.6), c);
+        mix3(c, C_TAN2, band(Math.abs(la), 37, 44, 2), c);
+        mix3(c, C_POLE, sstep(46, 62, Math.abs(la)), c);
         const dl = ((lon - grsLon + 540) % 360) - 180;
         const e = (dl / 7.5) ** 2 + ((lat + 22.4) / 4.6) ** 2;
         mix3(c, C_GRS, 1 - sstep(0.55, 1, e), c);
     } else if (kind === 4) {
-        const t = lat + 0.8 * (noise(lon * 0.05, lat * 0.25) - 0.5);
+        const la = lat + 0.8 * (noise(lon * 0.05, lat * 0.25) - 0.5);
         c[0] = 0.90; c[1] = 0.82; c[2] = 0.62;
-        mix3(c, [0.80, 0.69, 0.49], band(Math.abs(t), 11, 22, 2.5), c);
-        mix3(c, [0.86, 0.77, 0.58], 0.6 * band(Math.abs(t), 28, 40, 3), c);
-        mix3(c, [0.62, 0.66, 0.66], sstep(56, 74, Math.abs(t)), c);
+        mix3(c, [0.80, 0.69, 0.49], band(Math.abs(la), 11, 22, 2.5), c);
+        mix3(c, [0.86, 0.77, 0.58], 0.6 * band(Math.abs(la), 28, 40, 3), c);
+        mix3(c, [0.62, 0.66, 0.66], sstep(56, 74, Math.abs(la)), c);
     } else if (kind === 5) {
         const k = 1 + 0.08 * sstep(40, 80, lat);
         c[0] = 0.45 * k; c[1] = 0.78 * k; c[2] = 0.86 * k;
@@ -346,8 +346,9 @@ export function createEyepiece() {
         }
         const text = captionFor(snap, id, st, moons);
         setText(caption, text);
-        canvas.setAttribute('aria-label', `${st.id[0].toUpperCase()}${st.id.slice(1)} as a small telescope shows it now: ${text}`);
-        setText(note, id === 'moon' ? 'Lunar north up · magnified' : `Planet north up, east left · magnified${id === 'jupiter' || id === 'saturn' || id === 'mars' ? ' · markings schematic' : ''}`);
+        canvas.setAttribute('aria-label', t('{body} as a small telescope shows it now: {text}', { body: t(BODIES[i].name), text }));
+        setText(note, id === 'moon' ? t('Lunar north up · magnified') : id === 'jupiter' || id === 'saturn' || id === 'mars'
+            ? t('Planet north up, east left · magnified · markings schematic') : t('Planet north up, east left · magnified'));
     }
 
     function draw(id, R, moons, dpr, grsLon) {
@@ -405,8 +406,8 @@ export function createEyepiece() {
         }
         c.fillStyle = 'rgba(200, 210, 225, .6)';
         c.textBaseline = 'middle';
-        c.fillText('E', 10 * dpr, cy);
-        c.fillText('W', canvas.width - 10 * dpr, cy);
+        c.fillText(t('E'), 10 * dpr, cy);
+        c.fillText(t('W'), canvas.width - 10 * dpr, cy);
     }
 
     function captionFor(snap, id, st, moons) {
@@ -416,43 +417,44 @@ export function createEyepiece() {
             const mag = Math.hypot(l.elonDeg, l.elatDeg);
             const dir = librationDirection(l.elonDeg, l.elatDeg);
             const best = bestLimbFeature(l.elonDeg, l.elatDeg);
-            let s = dir ? `Libration ${mag.toFixed(1)}° toward the ${dir} limb` : 'Libration under half a degree';
-            if (best && best.gainDeg >= 2.5) s += ` · ${best.name} ${best.distDeg < 90 ? 'well placed' : 'just past the limb'}`;
+            let s = dir ? t('Libration {deg}° toward the {dir} limb', { deg: dec(mag, 1), dir: t(dir) }) : t('Libration under half a degree');
+            if (best && best.gainDeg >= 2.5) s += ` · ${best.distDeg < 90 ? t('{feature} well placed', { feature: best.name }) : t('{feature} just past the limb', { feature: best.name })}`;
             return `${s}.`;
         }
         if (id === 'jupiter' && moons) {
             const order = compassOrder([...moons.list.filter((o) => !(o.f & (MOON_OCCULTED | MOON_ECLIPSED))), { m: { name: '●' }, x: 0 }]);
             const bits = [order.map((o) => o.m.name).join(' · ')];
             for (const o of moons.list) {
-                if (o.f & MOON_OCCULTED) bits.push(`${o.m.name} behind Jupiter`);
-                else if (o.f & MOON_ECLIPSED) bits.push(`${o.m.name} in Jupiter’s shadow`);
-                else if (o.f & MOON_TRANSIT) bits.push(`${o.m.name} crossing the disc`);
-                if (o.f & MOON_SHADOW) bits.push(`${o.m.name}’s shadow on Jupiter`);
+                const v = { moon: o.m.name };
+                if (o.f & MOON_OCCULTED) bits.push(t('{moon} behind Jupiter', v));
+                else if (o.f & MOON_ECLIPSED) bits.push(t('{moon} in Jupiter’s shadow', v));
+                else if (o.f & MOON_TRANSIT) bits.push(t('{moon} crossing the disc', v));
+                if (o.f & MOON_SHADOW) bits.push(t('{moon}’s shadow on Jupiter', v));
             }
-            return `East to west: ${bits[0]}.${bits.length > 1 ? ` ${bits.slice(1).join('; ')}.` : ''}`;
+            return t('East to west: {list}.', { list: bits[0] }) + (bits.length > 1 ? ` ${bits.slice(1).join('; ')}.` : '');
         }
         if (id === 'saturn') {
             const B = -st.ringTiltDeg;
-            const face = Math.abs(B) < 0.05 ? 'edge-on' : B > 0 ? 'north face' : 'south face';
-            let s = `Rings open ${Math.abs(B).toFixed(1)}° (${face})`;
+            const v = { deg: dec(Math.abs(B), 1) };
+            let s = Math.abs(B) < 0.05 ? t('Rings open {deg}° (edge-on)', v) : B > 0 ? t('Rings open {deg}° (north face)', v) : t('Rings open {deg}° (south face)', v);
             const e = saturnEdgeOn(snap.tMs);
             if (e) {
                 const a = monthYear(e.firstMs), b = monthYear(e.lastMs);
-                s += e.count > 1 && a !== b ? ` · edge-on from ${a} to ${b}` : ` · edge-on in ${a}`;
+                s += ` · ${e.count > 1 && a !== b ? t('edge-on from {from} to {to}', { from: a, to: b }) : t('edge-on in {when}', { when: a })}`;
             }
             return `${s}.`;
         }
         const pct = Math.round((st.phaseFrac ?? 1) * 100);
         if (id === 'mars') {
             const cmW = ((-view.cmDeg % 360) + 360) % 360;
-            return `${pct}% lit · central meridian ${Math.round(cmW)}° W.`;
+            return t('{pct}% lit · central meridian {deg}° W.', { pct, deg: Math.round(cmW) });
         }
         if (id === 'uranus' || id === 'neptune') {
-            const t = view.subLatDeg;
-            return `${t >= 0 ? 'North' : 'South'} pole tipped ${Math.abs(t).toFixed(0)}° toward us.`;
+            const tip = view.subLatDeg, v = { deg: Math.abs(tip).toFixed(0) };
+            return tip >= 0 ? t('North pole tipped {deg}° toward us.', v) : t('South pole tipped {deg}° toward us.', v);
         }
-        const shape = pct < 3 ? 'a hair-thin crescent' : pct < 45 ? 'a crescent' : pct < 55 ? 'half lit' : pct < 97 ? 'gibbous' : 'nearly full';
-        return `${pct}% lit, ${shape} · phase angle ${Math.round(view.phaseAngleDeg)}°.`;
+        const shape = pct < 3 ? N_('a hair-thin crescent') : pct < 45 ? N_('a crescent') : pct < 55 ? N_('half lit') : pct < 97 ? N_('gibbous') : N_('nearly full');
+        return t('{pct}% lit, {shape} · phase angle {deg}°.', { pct, shape: t(shape), deg: Math.round(view.phaseAngleDeg) });
     }
 
     return {

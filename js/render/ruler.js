@@ -20,7 +20,7 @@ import { createLineLayer } from './sky.js';
 import { BODY_INDEX } from '../astro/bodies.js';
 import { liftByRefraction } from '../astro/photometry.js';
 import { vectorAngleDeg, rulerText, handSpan, fmtAngle } from '../astro/sky-guide.js';
-import { N_ } from '../core/i18n.js';
+import { t, N_ } from '../core/i18n.js';
 
 const ARC_SEGS = 64;
 const RING_SEGS = 20;
@@ -108,7 +108,7 @@ export function createRuler(rc, deps = {}) {
         if (next === text) return false;
         text = next;
         anchor.text = next;
-        anchor.ariaLabel = `${nameOf(ends[0])} to ${nameOf(ends[1])}: ${fmtAngle(deg)}, about ${handSpan(deg)} at arm's length`;
+        anchor.ariaLabel = t('{from} to {to}: {angle}, about {span} at arm’s length', { from: t(nameOf(ends[0])), to: t(nameOf(ends[1])), angle: fmtAngle(deg), span: handSpan(deg) });
         return true;
     }
 
@@ -133,12 +133,12 @@ export function createRuler(rc, deps = {}) {
             const s = Math.sin(ang);
             P.set(A);
             for (let k = 1; k <= ARC_SEGS; k++) {
-                const t = k / ARC_SEGS;
+                const f = k / ARC_SEGS;
                 if (s > 1e-9) {
-                    const wa = Math.sin((1 - t) * ang) / s, wb = Math.sin(t * ang) / s;
+                    const wa = Math.sin((1 - f) * ang) / s, wb = Math.sin(f * ang) / s;
                     for (let c = 0; c < 3; c++) Q[c] = A[c] * wa + B[c] * wb;
                 } else {
-                    for (let c = 0; c < 3; c++) Q[c] = A[c] + (B[c] - A[c]) * t;
+                    for (let c = 0; c < 3; c++) Q[c] = A[c] + (B[c] - A[c]) * f;
                 }
                 norm(Q);
                 seg(P, Q);

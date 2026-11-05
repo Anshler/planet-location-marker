@@ -18,6 +18,7 @@
  */
 
 import { hostBodies } from './bodies.js';
+import { t, N_, dec } from '../core/i18n.js';
 
 const DEG = Math.PI / 180;
 
@@ -35,13 +36,19 @@ export const REF_MIN_ALT_DEG = 3;
 export const REF_FAINTER_MAG = 1.5;
 
 const COMPASS16_WORDS = Object.freeze([
-    'north', 'north-north-east', 'north-east', 'east-north-east', 'east', 'east-south-east', 'south-east', 'south-south-east',
-    'south', 'south-south-west', 'south-west', 'west-south-west', 'west', 'west-north-west', 'north-west', 'north-north-west',
+    N_('north'), N_('north-north-east'), N_('north-east'), N_('east-north-east'), N_('east'), N_('east-south-east'), N_('south-east'),
+    N_('south-south-east'), N_('south'), N_('south-south-west'), N_('south-west'), N_('west-south-west'), N_('west'), N_('west-north-west'),
+    N_('north-west'), N_('north-north-west'),
 ]);
 /** Offset directions by 45° sector, counter-clockwise from 'right' (screen-like: +x right, +y up). */
 const DIR8 = Object.freeze([
     'right of', 'above and to the right of', 'above', 'above and to the left of',
     'left of', 'below and to the left of', 'below', 'below and to the right of',
+]);
+/** The same as whole phrases for findIt's sentence, in the interface's language. */
+const DIR8_PHRASES = Object.freeze([
+    N_('{span} right of {ref}'), N_('{span} above and to the right of {ref}'), N_('{span} above {ref}'), N_('{span} above and to the left of {ref}'),
+    N_('{span} left of {ref}'), N_('{span} below and to the left of {ref}'), N_('{span} below {ref}'), N_('{span} below and to the right of {ref}'),
 ]);
 
 /**
@@ -72,19 +79,19 @@ const wrap360 = (d) => ((d % 360) + 360) % 360;
 
 /**
  * An angle as hands at arm's length: 'less than a finger', 'a finger', '3 fingers', 'half a fist',
- * '1 fist', '1½ fists', '4 fists'. Empty for a negative or non-finite angle.
+ * '1 fist', '1½ fists', '4 fists' (in the interface's language). Empty for a negative or non-finite angle.
  * @param {number} deg
  * @returns {string}
  */
 export function handSpan(deg) {
     if (!Number.isFinite(deg) || deg < 0) return '';
-    if (deg < NEXT_TO_DEG) return 'less than a finger';
-    if (deg < 1.5 * FINGER_DEG) return 'a finger';
-    if (deg < 3.5 * FINGER_DEG) return `${Math.round(deg / FINGER_DEG)} fingers`;
-    if (deg < 0.75 * FIST_DEG) return 'half a fist';
+    if (deg < NEXT_TO_DEG) return t('less than a finger');
+    if (deg < 1.5 * FINGER_DEG) return t('a finger');
+    if (deg < 3.5 * FINGER_DEG) return t('{n} fingers', { n: Math.round(deg / FINGER_DEG) });
+    if (deg < 0.75 * FIST_DEG) return t('half a fist');
     const halves = Math.round(deg / (FIST_DEG / 2));
     const whole = Math.floor(halves / 2), half = halves % 2 === 1;
-    return `${whole}${half ? '½' : ''} fist${whole === 1 && !half ? '' : 's'}`;
+    return whole === 1 && !half ? t('1 fist') : t('{n} fists', { n: `${whole}${half ? '½' : ''}` });
 }
 
 /**
@@ -157,7 +164,8 @@ export function relativeOffset(ref, target) {
 
 /**
  * 'Find it' guidance: which way to face, how many hands up, and where it is from the nearest
- * bright neighbour. Null below the horizon (apparent altitude under −0.5°).
+ * bright neighbour. Null below the horizon (apparent altitude under −0.5°). `face`, `ref.name` and
+ * `ref.words` stay English (data); `up`, `ref.span` and `text` are in the interface's language.
  * @param {{name?:string, azDeg:number, altDeg:number, mag?:number}} target apparent horizon position;
  *   with `mag`, neighbours more than REF_FAINTER_MAG fainter are a last resort
  * @param {Array<{name:string, azDeg:number, altDeg:number, mag?:number}>} [refs] candidate neighbours
@@ -172,29 +180,29 @@ export function findIt(target, refs = []) {
     const overhead = alt >= 80;
     const up = handSpan(Math.max(0, alt));
     let head;
-    if (overhead) head = 'Look almost straight up';
-    else if (alt < 2.5) head = `Face ${face}, just above the horizon`;
-    else head = `Face ${face}, ${up} up from the horizon`;
+    if (overhead) head = t('Look almost straight up');
+    else if (alt < 2.5) head = t('Face {dir}, just above the horizon', { dir: t(face) });
+    else head = t('Face {dir}, {span} up from the horizon', { dir: t(face), span: up });
     // A neighbour much fainter than the target is a poor signpost (Jupiter is no easier to find from
     // Regulus): those count only when nothing comparable is near.
     const list = Array.isArray(refs) ? refs : [];
     const tMag = Number.isFinite(target.mag) ? target.mag : Infinity;
     let ref = nearestRef(list, target, tMag + REF_FAINTER_MAG);
     if (!ref && Number.isFinite(tMag)) ref = nearestRef(list, target, Infinity);
-    let tail = '';
+    let text = `${head}.`;
     let refOut = null;
     if (ref) {
         const off = relativeOffset(ref, target);
         if (off.sepDeg < NEXT_TO_DEG) {
             refOut = { name: ref.name, span: '', words: 'right next to', sepDeg: off.sepDeg };
-            tail = `, right next to ${ref.name}`;
+            text = t('{head}, right next to {ref}.', { head, ref: t(ref.name) });
         } else {
             const span = handSpan(off.sepDeg);
             refOut = { name: ref.name, span, words: off.words, sepDeg: off.sepDeg };
-            tail = `, ${span} ${off.words} ${ref.name}`;
+            text = t('{head}, {offset}.', { head, offset: t(DIR8_PHRASES[DIR8.indexOf(off.words)], { span, ref: t(ref.name) }) });
         }
     }
-    return { face, up, overhead, ref: refOut, text: `${head}${tail}.` };
+    return { face, up, overhead, ref: refOut, text };
 }
 
 /** The neighbour nearest the target within MAX_REF_SEP_DEG and no fainter than magLimit, or null. */
@@ -251,7 +259,7 @@ export function guideRefs(snap, targetId = null) {
         const alt = full ? b.altDeg : b.altGeomDeg, az = full ? b.azDeg : b.azGeomDeg;
         const mag = id === 'moon' && !mars ? -10 : Number.isFinite(b.mag) ? b.mag : 99;
         if (!(alt >= REF_MIN_ALT_DEG) || mag > lim) continue;
-        const name = id === 'moon' ? 'the Moon' : mars && id === 'mars' ? 'the Earth' : names[i].name;
+        const name = id === 'moon' ? N_('the Moon') : mars && id === 'mars' ? N_('the Earth') : names[i].name;
         out.push({ id, name, azDeg: az, altDeg: alt, mag });
     }
     if (o.upS && o.northS && o.eastS && sunAlt < -8) {
@@ -278,7 +286,7 @@ export function guideRefs(snap, targetId = null) {
 export function fmtAngle(deg) {
     if (!Number.isFinite(deg)) return '—';
     if (deg < 1) return `${Math.round(deg * 60)}′`;
-    if (deg < 20) return `${(Math.round(deg * 10) / 10).toFixed(1)}°`;
+    if (deg < 20) return `${dec(Math.round(deg * 10) / 10, 1)}°`;
     return `${Math.round(deg)}°`;
 }
 
@@ -289,7 +297,7 @@ export function fmtAngle(deg) {
  */
 export function rulerText(deg) {
     if (!Number.isFinite(deg)) return '';
-    return `${fmtAngle(deg)} · about ${handSpan(deg)}`;
+    return t('{angle} · about {span}', { angle: fmtAngle(deg), span: handSpan(deg) });
 }
 
 /**
@@ -313,14 +321,14 @@ export function edgeHit(px, py, dx, dy, x0, y0, x1, y1, out) {
     py = clamp(py, y0, y1);
     const l = Math.hypot(dx, dy);
     if (!(l > 1e-12)) { dx = 1; dy = 0; } else { dx /= l; dy /= l; }
-    let t = Infinity, edge = 'right';
-    if (dx > 1e-12) { const u = (x1 - px) / dx; if (u < t) { t = u; edge = 'right'; } }
-    if (dx < -1e-12) { const u = (x0 - px) / dx; if (u < t) { t = u; edge = 'left'; } }
-    if (dy > 1e-12) { const u = (y1 - py) / dy; if (u < t) { t = u; edge = 'bottom'; } }
-    if (dy < -1e-12) { const u = (y0 - py) / dy; if (u < t) { t = u; edge = 'top'; } }
-    if (!Number.isFinite(t)) t = 0;
-    out.x = clamp(px + dx * t, x0, x1);
-    out.y = clamp(py + dy * t, y0, y1);
+    let k = Infinity, edge = 'right';
+    if (dx > 1e-12) { const u = (x1 - px) / dx; if (u < k) { k = u; edge = 'right'; } }
+    if (dx < -1e-12) { const u = (x0 - px) / dx; if (u < k) { k = u; edge = 'left'; } }
+    if (dy > 1e-12) { const u = (y1 - py) / dy; if (u < k) { k = u; edge = 'bottom'; } }
+    if (dy < -1e-12) { const u = (y0 - py) / dy; if (u < k) { k = u; edge = 'top'; } }
+    if (!Number.isFinite(k)) k = 0;
+    out.x = clamp(px + dx * k, x0, x1);
+    out.y = clamp(py + dy * k, y0, y1);
     out.edge = edge;
     return out;
 }

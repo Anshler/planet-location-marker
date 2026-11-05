@@ -73,8 +73,9 @@ export function mountBodyCard(root, ctx) {
     const empty = h('div', { class: 'card-empty' },
         h('div', { class: 'card-empty__icon', 'aria-hidden': 'true' }, icon('target', { size: 28 })),
         h('h3', { class: 'card-empty__title' }, 'Pick a body'),
-        h('p', { class: 'card-empty__text for-fine' }, 'Click a planet in the sky, a row in Up now, or press 1–9.'),
-        h('p', { class: 'card-empty__text for-coarse' }, 'Tap a world at the end of its beam, a row in Up now, or a name below.'),
+        h('p', { class: 'card-empty__text for-fine for-3d' }, 'Click a planet in the sky, a row in Up now, or press 1–9.'),
+        h('p', { class: 'card-empty__text for-coarse for-3d' }, 'Tap a world at the end of its beam, a row in Up now, or a name below.'),
+        h('p', { class: 'card-empty__text for-text' }, 'Choose a row in Up now or a name below.'),
         pickGrid, findBtn);
     offs.push(on(pickGrid, 'click', (e) => {
         const b = /** @type {HTMLElement} */ (e.target).closest('[data-id]');

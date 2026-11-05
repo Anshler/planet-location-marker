@@ -238,7 +238,7 @@ export function mountDisplay(root, ctx) {
         if (skyDark.value !== sd) skyDark.value = sd;
         const sg = ui.snap?.skyglow;
         setText(skyHint, sd === 'auto'
-            ? `${sg?.auto ? `Estimated Bortle ${sg.bortle} from the cities around ${ui.placeShort(st.observer)}` : 'Estimated from the cities around you'}: moonlight and city glow brighten the sky view and hide faint stars.`
+            ? `${sg?.auto ? `Estimated Bortle ${sg.bortle} from the cities around ${ui.placeShort(st.observer)}` : 'Estimated from the cities around you'}: moonlight and city glow brighten the sky and hide faint stars.`
             : sd === 'pristine' ? 'No light pollution: the sky of a remote dark site, with moonlight only.'
                 : `Bortle ${sd}: the sky of ${BORTLE_NAMES[Number(sd) - 1].toLowerCase()}, wherever you are.`);
         const au = st.display?.aurora || 'typical';

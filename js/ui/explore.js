@@ -67,7 +67,7 @@ export function mountExplore(root, ctx) {
         const d = h('span', { class: 'tour-card__blurb' }, detail);
         return { el: h('button', { class: 'tour-card', type: 'button' }, h('span', { class: 'tour-card__title' }, icon(ic, { size: 16 }), t), d), t, d };
     };
-    const two = card('compare', 'Two places at once', 'A second pin and its beams, compared in Up now');
+    const two = card('compare', 'Two places at once', '');
     const twoName = h('span', { style: 'flex:1' });
     const twoChange = h('button', { class: 'btn btn--ghost btn--sm', type: 'button' }, 'Change');
     const twoRemove = h('button', { class: 'btn btn--ghost btn--sm', type: 'button' }, 'Remove');
@@ -132,6 +132,7 @@ export function mountExplore(root, ctx) {
         const gl = s.status?.webgl !== false;
         // startTour and standOnMars need the 3D view.
         tours.hidden = mars.el.hidden = !gl;
+        setText(two.d, gl ? 'A second pin and its beams, compared in Up now' : 'The sky from a second place, compared in Up now');
         const o2 = s.observer2, onMars = s.host?.id === 'mars';
         // A second place is an Earth comparison (Details hides Compare on Mars too).
         two.el.hidden = onMars;

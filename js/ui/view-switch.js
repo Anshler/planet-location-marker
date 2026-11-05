@@ -128,7 +128,7 @@ export function mountViewSwitch(root, ctx) {
     const shareMenu = menu({
         button: shareBtn, label: 'Share', host, placement, items: () => [
             // Inside the click, so the system share sheet keeps its user activation.
-            { icon: 'link', name: 'Share link', detail: 'Opens exactly this view: place, time, camera and layers', kbd: 'S', run: () => share() },
+            { icon: 'link', name: 'Share link', detail: () => (gl() ? 'Opens exactly this view: place, time, camera and layers' : 'Opens this place and time'), kbd: 'S', run: () => share() },
             { icon: 'postcard', name: 'Postcard…', detail: 'A designed image of this view, ready to post', run: () => postcard.open() },
             { icon: 'video', name: 'Time-lapse video…', detail: 'A clip of a day here, a night of turning stars or the 2027 eclipse',
                 hidden: () => !gl(), run: () => videoDlg.open() },
@@ -139,8 +139,9 @@ export function mountViewSwitch(root, ctx) {
     const coarse = () => document.body.classList.contains('is-coarse');
     const moreMenu = menu({
         button: moreBtn, label: 'More', host, placement, items: () => [
-            { icon: coarse() ? 'help' : 'keyboard', name: coarse() ? 'Gestures and help' : 'Keyboard shortcuts and mouse', kbd: '?',
-                detail: coarse() ? 'Drag, pinch and tap: what each one does' : 'The keys, and what the mouse does', run: () => ui.toggleHelp(true) },
+            !gl() ? { icon: 'keyboard', name: 'Keyboard shortcuts', kbd: '?', detail: 'The keys, and what each one does', run: () => ui.toggleHelp(true) }
+                : { icon: coarse() ? 'help' : 'keyboard', name: coarse() ? 'Gestures and help' : 'Keyboard shortcuts and mouse', kbd: '?',
+                    detail: coarse() ? 'Drag, pinch and tap: what each one does' : 'The keys, and what the mouse does', run: () => ui.toggleHelp(true) },
             { icon: 'sparkle', name: 'Interface tips', detail: 'The three tips from the first visit, again', hidden: () => !gl(), run: () => ui.showTips() },
             { kind: 'check', icon: 'eye', name: 'Night vision', kbd: 'Shift+N', checked: () => !!st().display?.red,
                 // In red the accent is no cue, so the words say it is on.

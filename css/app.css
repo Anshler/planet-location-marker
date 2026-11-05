@@ -2168,7 +2168,9 @@ body.is-coarse #labels-root button.lbl::before { content: ""; position: absolute
 /* Touch-first copy: .for-fine shows with a mouse and keyboard, .for-coarse on touch; key caps and key
    hints hide on touch (the help dialog's key table keeps them), and the place search gets its Cancel. */
 body:not(.is-coarse) .for-coarse, body.is-coarse .for-fine { display: none !important; }
-:is(.btn, .dialog__title) > :is(.for-fine, .for-coarse) { display: inline-flex; align-items: center; gap: inherit; }
+/* Copy about the 3D view (.for-3d), and its text-mode twin (.for-text). */
+.ui[data-layout="text"] .for-3d, .ui:not([data-layout="text"]) .for-text { display: none !important; }
+:is(.btn, .dialog__title) > :is(.for-fine, .for-coarse, .for-text) { display: inline-flex; align-items: center; gap: inherit; }
 body.is-coarse .ui :is(.kbd, .kbds, .switch-row__keys):not(.help *) { display: none; }
 body.is-coarse .ui .palette__close { display: inline-flex; height: 40px; padding: 0 8px; background: none; color: var(--accent); font-weight: var(--fw-2); }
 

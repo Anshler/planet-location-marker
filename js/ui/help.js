@@ -100,16 +100,18 @@ export function mountHelp(root, ctx) {
     const dialog = h('div', { class: 'dialog help glass', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'help-title' },
         h('header', { class: 'dialog__head' },
             h('h2', { class: 'dialog__title', id: 'help-title' },
-                h('span', { class: 'for-fine' }, icon('keyboard', { size: 20 }), 'Keyboard shortcuts and mouse'),
-                h('span', { class: 'for-coarse' }, icon('help', { size: 20 }), 'Gestures')),
+                h('span', { class: 'for-fine for-3d' }, icon('keyboard', { size: 20 }), 'Keyboard shortcuts and mouse'),
+                h('span', { class: 'for-coarse for-3d' }, icon('help', { size: 20 }), 'Gestures'),
+                h('span', { class: 'for-text' }, icon('keyboard', { size: 20 }), 'Keyboard shortcuts')),
             closeBtn),
-        h('section', { class: 'help__group help__touch for-coarse' }, actionList(GESTURES)),
-        h('section', { class: 'help__group help__mouse for-fine' }, h('h3', { class: 'group-title' }, 'Mouse'), actionList(MOUSE)),
+        h('section', { class: 'help__group help__touch for-coarse for-3d' }, actionList(GESTURES)),
+        h('section', { class: 'help__group help__mouse for-fine for-3d' }, h('h3', { class: 'group-title' }, 'Mouse'), actionList(MOUSE)),
         h('div', { class: 'help__grid' }, SHORTCUTS.map((g) => h('section', { class: 'help__group' },
             h('h3', { class: 'group-title' }, g.title),
             h('dl', { class: 'help__list' }, g.rows.map(([k, d]) => h('div', { class: 'help__row' },
                 h('dt', null, keysEl(k)), h('dd', null, d))))))),
-        h('p', { class: 'note for-fine' }, 'Shortcuts are ignored while typing in a field, except Esc. On touch screens, drag to rotate and pinch to zoom.'),
+        h('p', { class: 'note for-fine' }, 'Shortcuts are ignored while typing in a field, except Esc.',
+            h('span', { class: 'for-3d' }, ' On touch screens, drag to rotate and pinch to zoom.')),
         h('div', { class: 'btn-row help__foot' }, keysBtn, tipsBtn));
     const layer = h('div', { class: 'modal-layer help-layer', hidden: true }, h('div', { class: 'modal-backdrop' }), dialog);
     root.appendChild(layer);

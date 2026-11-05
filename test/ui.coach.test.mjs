@@ -19,6 +19,12 @@ test('featuredWorld: the highest body up, the Sun after the others, the Moon as 
     assert.deepEqual(featuredWorld(bodies, altAz), ['jupiter', 'mars', 'sun', 'moon']);
     assert.deepEqual(featuredWorld([{ id: 'moon', alt: 3 }, { id: 'saturn', alt: 10 }], altAz), ['saturn', 'moon']);
     assert.deepEqual(featuredWorld(null, altAz), ['moon']);
+    // Mercury 3° from the Sun is a dark disc in its glare, Neptune too faint: Venus, then the Sun.
+    const dusk = [{ id: 'sun', alt: 2, elongDeg: 0 }, { id: 'mercury', alt: 5, elongDeg: 3, mag: -1 }, { id: 'venus', alt: 45, elongDeg: 46, mag: -4.5 },
+        { id: 'neptune', alt: 60, elongDeg: 120, mag: 7.8 }, { id: 'moon', alt: 30, elongDeg: 10, mag: -6 }];
+    assert.deepEqual(featuredWorld(dusk, altAz), ['venus', 'moon', 'sun', 'neptune', 'mercury']);
+    const onlyMercury = [{ id: 'mercury', alt: 50, elongDeg: 4, mag: 0 }, { id: 'sun', alt: 48 }];
+    assert.deepEqual(featuredWorld(onlyMercury, altAz), ['sun', 'mercury', 'moon']);
 });
 
 test('spotRect pads the target and stays on screen', () => {

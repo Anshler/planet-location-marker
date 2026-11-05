@@ -31,18 +31,22 @@ export const COACH_STEPS = Object.freeze([
         N_('Globe, Sky or Map: choose how you look.')],
 ]);
 
+/** A world the eye cannot pick out: lost in the Sun's glare, or fainter than a city sky shows. */
+const hardToSee = (b) => b.id !== 'moon' && b.id !== 'sun' && ((Number.isFinite(b.elongDeg) && b.elongDeg > 0 && b.elongDeg < 15) || (Number.isFinite(b.mag) && b.mag > 4));
+
 /**
- * The world to point at: the highest above the horizon other than the Sun, else the Sun, else the
- * Moon. Pure.
+ * The world to point at: the highest above the horizon other than the Sun that can be seen, else
+ * the Sun, else one that cannot (Mercury 3° from the Sun, Neptune), else the Moon. Pure.
  * @param {any[]|null|undefined} bodies Snapshot bodies
  * @param {(b:any) => {alt:number}} altAz
- * @returns {string[]} body ids, best first: everything above the horizon by altitude, the Sun last
+ * @returns {string[]} body ids, best first: the visible ones above the horizon by altitude, the
+ *   Sun, then the ones hard to see
  */
 export function featuredWorld(bodies, altAz) {
     const up = [];
     for (const b of bodies || []) {
         const a = altAz(b)?.alt;
-        if (Number.isFinite(a) && a > 0) up.push([b.id, b.id === 'sun' ? -1 : a]);
+        if (Number.isFinite(a) && a > 0) up.push([b.id, b.id === 'sun' ? -1 : hardToSee(b) ? a - 1000 : a]);
     }
     up.sort((p, q) => q[1] - p[1]);
     const ids = up.map((p) => p[0]);

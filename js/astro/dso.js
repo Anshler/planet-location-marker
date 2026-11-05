@@ -15,23 +15,38 @@
 import { raDecToScene } from './frames.js';
 import { departureLine, lyWords, AU_PER_LY } from './lighttime.js';
 import { guestRiseSet } from './guest-stars.js';
+import { t, N_, dec } from '../core/i18n.js';
 
 const DAY_MS = 86400000;
 
 /** Type code → label and the sprite's tint (sRGB; the renderer keeps it near grey). */
 export const DSO_TYPES = Object.freeze({
-    sg: { label: 'Spiral galaxy', color: '#ded6c6' },
-    eg: { label: 'Elliptical galaxy', color: '#e2d8c4' },
-    ig: { label: 'Irregular galaxy', color: '#d8dce6' },
-    gc: { label: 'Globular cluster', color: '#e6dcc2' },
-    oc: { label: 'Open cluster', color: '#d4e0f4' },
-    en: { label: 'Emission nebula', color: '#cfe4d8' },
-    rn: { label: 'Reflection nebula', color: '#c6d6f2' },
-    pn: { label: 'Planetary nebula', color: '#b6e6dc' },
-    snr: { label: 'Supernova remnant', color: '#d6e2cc' },
-    sc: { label: 'Milky Way star cloud', color: '#e2e2ea' },
-    ast: { label: 'Asterism', color: '#dfe6f2' },
+    sg: { label: N_('Spiral galaxy'), color: '#ded6c6' },
+    eg: { label: N_('Elliptical galaxy'), color: '#e2d8c4' },
+    ig: { label: N_('Irregular galaxy'), color: '#d8dce6' },
+    gc: { label: N_('Globular cluster'), color: '#e6dcc2' },
+    oc: { label: N_('Open cluster'), color: '#d4e0f4' },
+    en: { label: N_('Emission nebula'), color: '#cfe4d8' },
+    rn: { label: N_('Reflection nebula'), color: '#c6d6f2' },
+    pn: { label: N_('Planetary nebula'), color: '#b6e6dc' },
+    snr: { label: N_('Supernova remnant'), color: '#d6e2cc' },
+    sc: { label: N_('Milky Way star cloud'), color: '#e2e2ea' },
+    ast: { label: N_('Asterism'), color: '#dfe6f2' },
 });
+
+/**
+ * Names in data/dso.json with a standard Vietnamese form, marked for the string table: the
+ * interface shows every extra object's name through t() (labels, the search, the card).
+ */
+export const DSO_COMMON_NAMES = Object.freeze([
+    N_('Andromeda Galaxy'), N_('Triangulum Galaxy'), N_('Orion Nebula'), N_('Crab Nebula'), N_('Pleiades'), N_('Hyades'),
+    N_('Large Magellanic Cloud'), N_('Small Magellanic Cloud'), N_('Ring Nebula'), N_('Eagle Nebula'), N_('Lagoon Nebula'),
+    N_('Trifid Nebula'), N_('Whirlpool Galaxy'), N_('Sombrero Galaxy'), N_('Beehive Cluster'), N_('Dumbbell Nebula'), N_('Helix Nebula'),
+    N_('Cat’s Eye Nebula'), N_('Rosette Nebula'), N_('North America Nebula'), N_('Pinwheel Galaxy'), N_('Black Eye Galaxy'),
+    N_('Owl Nebula'), N_('Veil Nebula'), N_('Carina Nebula'), N_('Tarantula Nebula'), N_('Sunflower Galaxy'), N_('Cigar Galaxy'),
+    N_('Butterfly Cluster'), N_('Wild Duck Cluster'), N_('Jewel Box'), N_('Christmas Tree Cluster'), N_('Ghost of Jupiter'),
+    N_('Hercules Globular Cluster'), N_('Southern Pleiades'), N_('Double Cluster (h Persei)'), N_('Double Cluster (χ Persei)'),
+]);
 
 /** Numeric type codes for the GPU (render/dso.js). */
 export const DSO_TYPE_CODE = Object.freeze({ sg: 0, eg: 1, ig: 2, gc: 3, oc: 4, en: 5, rn: 6, pn: 7, snr: 8, sc: 9, ast: 10 });
@@ -49,8 +64,8 @@ export function dsoEffMag(mag, majArcmin) {
  * @returns {number}
  */
 export function dsoVisibility(eff, limit) {
-    const t = Math.min(1, Math.max(0, (eff - (limit + 0.35)) / ((limit - 0.45) - (limit + 0.35))));
-    return t * t * (3 - 2 * t);
+    const x = Math.min(1, Math.max(0, (eff - (limit + 0.35)) / ((limit - 0.45) - (limit + 0.35))));
+    return x * x * (3 - 2 * x);
 }
 
 /** Labels always on (sky view, gated by the sky like star names) for objects at least this easy to see. */
@@ -92,7 +107,7 @@ export function decodeDso(json) {
 
 /** "3.2° × 1.0°" or "8′ × 6′" or "40″". */
 export function sizeWords(majArcmin, minArcmin) {
-    const one = (a) => (a >= 60 ? `${(a / 60).toFixed(a >= 600 ? 0 : 1)}°` : a >= 1 ? `${Math.round(a)}′` : `${Math.round(a * 60)}″`);
+    const one = (a) => (a >= 60 ? `${dec(a / 60, a >= 600 ? 0 : 1)}°` : a >= 1 ? `${Math.round(a)}′` : `${Math.round(a * 60)}″`);
     return Math.abs(majArcmin - minArcmin) < 0.05 * majArcmin ? one(majArcmin) : `${one(majArcmin)} × ${one(minArcmin)}`;
 }
 
@@ -108,7 +123,7 @@ export function createDsoProvider(list) {
     let rts = null;
     return {
         kind: 'dso',
-        kindLabel: 'Deep-sky object',
+        kindLabel: N_('Deep-sky object'),
         list,
         byId,
         ids: () => ids,
@@ -136,31 +151,31 @@ export function createDsoProvider(list) {
         card(id, st, snap) {
             const d = byId.get(id);
             if (!d) return null;
-            const t = snap?.tMs ?? NaN;
+            const tMs = snap?.tMs ?? NaN;
             const o = snap?.observer;
-            if (o && Number.isFinite(t)) {
-                const day0 = Math.floor((t + o.lonDeg / 15 * 3600e3) / DAY_MS) * DAY_MS - o.lonDeg / 15 * 3600e3;
+            if (o && Number.isFinite(tMs)) {
+                const day0 = Math.floor((tMs + o.lonDeg / 15 * 3600e3) / DAY_MS) * DAY_MS - o.lonDeg / 15 * 3600e3;
                 const key = `${id}|${day0}|${o.latDeg.toFixed(2)}|${o.lonDeg.toFixed(2)}`;
                 if (key !== rtsKey) {
                     rtsKey = key;
                     try { rts = guestRiseSet({ raH: d.raDeg / 15, decDeg: d.decDeg, distLy: Math.max(1, d.ly) }, o, day0); } catch { rts = null; }
                 }
             }
-            const label = d.key === 'm40' ? 'Double star' : DSO_TYPES[d.type].label;
+            const label = d.key === 'm40' ? t('Double star') : t(DSO_TYPES[d.type].label);
             const des = [d.messier, d.desig].filter(Boolean).join(' · ');
-            const eye = d.effMag <= 4.6 ? 'Easy to see with the naked eye from a dark site'
-                : d.effMag <= 6.3 ? 'A naked-eye smudge under a dark sky; binoculars show it well'
-                    : d.effMag <= 8 ? 'Binoculars or a small telescope' : 'A telescope object';
+            const eye = d.effMag <= 4.6 ? t('Easy to see with the naked eye from a dark site.')
+                : d.effMag <= 6.3 ? t('A naked-eye smudge under a dark sky; binoculars show it well.')
+                    : d.effMag <= 8 ? t('Binoculars or a small telescope.') : t('A telescope object.');
             return {
                 kindLabel: label,
                 subtitle: des && des !== d.name ? des : '',
-                lines: [departureLine(t, d.ly), `${eye}.`],
+                lines: [departureLine(tMs, d.ly), eye],
                 facts: [
-                    ['Distance', lyWords(d.ly)],
-                    ['Apparent size', sizeWords(d.majArcmin, d.minArcmin)],
-                    ...(des ? [['Designation', des]] : []),
+                    [t('Distance'), lyWords(d.ly)],
+                    [t('Apparent size'), sizeWords(d.majArcmin, d.minArcmin)],
+                    ...(des ? [[t('Designation'), des]] : []),
                 ],
-                caveat: 'Drawn as a faint illustrative smudge at its true size and orientation; distances are rounded catalogue values.',
+                caveat: t('Drawn as a faint illustrative smudge at its true size and orientation; distances are rounded catalogue values.'),
                 sources: ['d3-celestial Messier catalogue (BSD-3)', 'NGC/IC, SEDS and NED values'],
                 rts,
             };

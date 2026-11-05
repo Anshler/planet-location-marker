@@ -19,6 +19,7 @@ import { AE } from './ae.js';
 import { raDecToScene } from './frames.js';
 import { fromCalendar } from '../core/tz.js';
 import { fmtDate } from '../core/format.js';
+import { t, N_, dec } from '../core/i18n.js';
 
 const DAY_MS = 86400e3;
 /** Faintest magnitude at which a guest star is still drawn (a little past the naked-eye limit). */
@@ -39,36 +40,36 @@ const TABLE = [
     {
         key: 'sn1006', name: 'SN 1006', long: 'SN 1006, in Lupus', ra: 15 + 2 / 60 + 48.4 / 3600, dec: -(41 + 54 / 60 + 42 / 3600), distLy: 7200,
         first: [1006, 4, 30], peak: [1006, 5, 3], last: [1008, 5, 1], peakMag: -7.5, type: 'Ia', tail: 0.0155,
-        record: 'The brightest stellar event in recorded history: seen from China, Japan, Egypt (Ali ibn Ridwan), Iraq, Yemen and Switzerland, bright enough to read by.',
-        caveat: 'Peak brightness is uncertain by about ±1 mag (estimates run −7 to −8); the fading between the records is a template.',
+        record: N_('The brightest stellar event in recorded history: seen from China, Japan, Egypt (Ali ibn Ridwan), Iraq, Yemen and Switzerland, bright enough to read by.'),
+        caveat: N_('Peak brightness is uncertain by about ±1 mag (estimates run −7 to −8); the fading between the records is a template.'),
         sources: ['Stephenson & Green, Historical Supernovae and their Remnants (OUP 2002)', 'Winkler, Gupta & Long 2003, ApJ 585, 324'],
     },
     {
-        key: 'sn1054', name: 'SN 1054 (the Crab)', long: 'SN 1054, the Crab supernova in Taurus', ra: 5 + 34 / 60 + 31.94 / 3600, dec: 22 + 52.2 / 3600, distLy: 6500,
+        key: 'sn1054', name: N_('SN 1054 (the Crab)'), long: 'SN 1054, the Crab supernova in Taurus', ra: 5 + 34 / 60 + 31.94 / 3600, dec: 22 + 52.2 / 3600, distLy: 6500,
         first: [1054, 7, 4], peak: [1054, 7, 4], last: [1056, 4, 6], peakMag: -6, type: 'II', tail: 0.0159,
-        record: 'Song dynasty astronomers saw a guest star near ζ Tauri on 4 July 1054: visible by day for 23 days and at night for 642 days. A pictograph at Chaco Canyon may record it.',
-        caveat: 'Peak brightness is uncertain by about ±1 mag; the Chaco Canyon reading is debated, so “may record”. The light curve between the records is a template.',
+        record: N_('Song dynasty astronomers saw a guest star near ζ Tauri on 4 July 1054: visible by day for 23 days and at night for 642 days. A pictograph at Chaco Canyon may record it.'),
+        caveat: N_('Peak brightness is uncertain by about ±1 mag; the Chaco Canyon reading is debated, so “may record”. The light curve between the records is a template.'),
         sources: ['Song Huiyao; Stephenson & Green 2002', 'Collins et al. 1999, PASP 111, 871 (the light curve)'],
     },
     {
         key: 'sn1181', name: 'SN 1181', long: 'SN 1181, in Cassiopeia', ra: 0 + 53 / 60 + 11.2 / 3600, dec: 67 + 30 / 60 + 2 / 3600, distLy: 7500,
         first: [1181, 8, 6], peak: [1181, 8, 11], last: [1182, 2, 6], peakMag: 0, type: 'Ia', tail: 0.025,
-        record: 'Recorded in China and Japan for 185 days, near the Chinese asterism Chuanshe. The remnant is probably the nebula Pa 30 (earlier thought to be 3C 58).',
-        caveat: 'Peak brightness is uncertain (around 0 mag); the remnant identification (Pa 30) is recent. The light curve is a template.',
+        record: N_('Recorded in China and Japan for 185 days, near the Chinese asterism Chuanshe. The remnant is probably the nebula Pa 30 (earlier thought to be 3C 58).'),
+        caveat: N_('Peak brightness is uncertain (around 0 mag); the remnant identification (Pa 30) is recent. The light curve is a template.'),
         sources: ['Stephenson & Green 2002', 'Ritter et al. 2021, ApJL 918, L33 (Pa 30)'],
     },
     {
-        key: 'tycho1572', name: "Tycho's star (SN 1572)", long: "Tycho's supernova, in Cassiopeia", ra: 0 + 25 / 60 + 19.9 / 3600, dec: 64 + 8 / 60 + 18 / 3600, distLy: 8000,
+        key: 'tycho1572', name: N_("Tycho's star (SN 1572)"), long: "Tycho's supernova, in Cassiopeia", ra: 0 + 25 / 60 + 19.9 / 3600, dec: 64 + 8 / 60 + 18 / 3600, distLy: 8000,
         first: [1572, 11, 6], peak: [1572, 11, 11], last: [1574, 3, 15], peakMag: -4, type: 'Ia', tail: 0.0155,
-        record: 'Tycho Brahe saw it on the evening of 11 November 1572, as bright as Venus. Its unchanging place showed that the heavens beyond the Moon could change.',
-        caveat: 'Peak brightness about −4 (as bright as Venus) from the records; ±0.5 mag. Light echoes confirm a type Ia.',
+        record: N_('Tycho Brahe saw it on the evening of 11 November 1572, as bright as Venus. Its unchanging place showed that the heavens beyond the Moon could change.'),
+        caveat: N_('Peak brightness about −4 (as bright as Venus) from the records; ±0.5 mag. Light echoes confirm a type Ia.'),
         sources: ['Tycho Brahe, De nova stella (1573)', 'Krause et al. 2008, Nature 456, 617'],
     },
     {
-        key: 'kepler1604', name: "Kepler's star (SN 1604)", long: "Kepler's supernova, in Ophiuchus", ra: 17 + 30 / 60 + 42 / 3600, dec: -(21 + 29 / 60), distLy: 17000,
+        key: 'kepler1604', name: N_("Kepler's star (SN 1604)"), long: "Kepler's supernova, in Ophiuchus", ra: 17 + 30 / 60 + 42 / 3600, dec: -(21 + 29 / 60), distLy: 17000,
         first: [1604, 10, 9], peak: [1604, 10, 28], last: [1605, 10, 8], peakMag: -2.5, type: 'Ia', tail: 0.0155,
-        record: 'First seen on 9 October 1604 near Mars and Jupiter; Johannes Kepler followed it for a year. The last supernova seen in our galaxy.',
-        caveat: 'Peak brightness about −2.5 from the records; ±0.5 mag.',
+        record: N_('First seen on 9 October 1604 near Mars and Jupiter; Johannes Kepler followed it for a year. The last supernova seen in our galaxy.'),
+        caveat: N_('Peak brightness about −2.5 from the records; ±0.5 mag.'),
         sources: ['Kepler, De stella nova (1606)', 'Stephenson & Green 2002'],
     },
 ];
@@ -152,7 +153,7 @@ export function guestRiseSet(g, observer, dayStartMs) {
 
 /** "6.5 thousand light-years" */
 function lyText(ly) {
-    return ly >= 1000 ? `${(ly / 1000).toFixed(ly < 10000 ? 1 : 0)} thousand light-years` : `${ly} light-years`;
+    return ly >= 1000 ? t('{n} thousand light-years', { n: dec(ly / 1000, ly < 10000 ? 1 : 0) }) : t('{n} light-years', { n: ly });
 }
 
 /**
@@ -168,7 +169,7 @@ export function createGuestProvider(opts = {}) {
     let rts = null;
     return {
         kind: 'guest',
-        kindLabel: 'Guest star (supernova)',
+        kindLabel: N_('Guest star (supernova)'),
         ids: () => ids,
         meta(id) {
             const g = BY_ID.get(id);
@@ -187,16 +188,18 @@ export function createGuestProvider(opts = {}) {
         card(id, st, snap) {
             const g = BY_ID.get(id);
             if (!g) return null;
-            const t = snap?.tMs ?? NaN;
+            const tMs = snap?.tMs ?? NaN;
             const o = snap?.observer;
             // Whole days from the recorded day to the observer's local (mean) day.
             const lonMs = o && Number.isFinite(o.lonDeg) ? o.lonDeg / 15 * 3600e3 : 0;
-            const days = Math.floor((t + lonMs) / DAY_MS) - Math.floor(g.firstRecMs / DAY_MS);
-            const bright = st.mag <= -4 ? 'bright enough to see in daylight' : st.mag <= 1 ? 'one of the brightest points in the sky'
-                : st.mag <= 6 ? 'visible to the naked eye' : 'fading below the naked-eye limit';
-            if (o && Number.isFinite(t)) {
+            const days = Math.floor((tMs + lonMs) / DAY_MS) - Math.floor(g.firstRecMs / DAY_MS);
+            const bright = st.mag <= -4 ? t('bright enough to see in daylight') : st.mag <= 1 ? t('one of the brightest points in the sky')
+                : st.mag <= 6 ? t('visible to the naked eye') : t('fading below the naked-eye limit');
+            const when = days === 0 ? t('First recorded today') : days < 0 ? t('First recorded on {date}', { date: fmt(g.firstRecMs) })
+                : t('Day {n} since it was first recorded ({date})', { n: days, date: fmt(g.firstRecMs) });
+            if (o && Number.isFinite(tMs)) {
                 // The local day, near enough: from local mean midnight.
-                const day0 = Math.floor((t + o.lonDeg / 15 * 3600e3) / DAY_MS) * DAY_MS - o.lonDeg / 15 * 3600e3;
+                const day0 = Math.floor((tMs + o.lonDeg / 15 * 3600e3) / DAY_MS) * DAY_MS - o.lonDeg / 15 * 3600e3;
                 const key = `${id}|${day0}|${o.latDeg.toFixed(2)}|${o.lonDeg.toFixed(2)}`;
                 if (key !== rtsKey) {
                     rtsKey = key;
@@ -205,18 +208,18 @@ export function createGuestProvider(opts = {}) {
             }
             return {
                 rts,
-                kindLabel: 'Guest star · a supernova',
+                kindLabel: t('Guest star · a supernova'),
                 lines: [
-                    `${days === 0 ? 'First recorded today' : days < 0 ? `First recorded on ${fmt(g.firstRecMs)}` : `Day ${days} since it was first recorded (${fmt(g.firstRecMs)})`}: ${bright}.`,
-                    g.record,
-                    `The star exploded about ${lyText(g.distLy)} away: its light took that long to arrive.`,
+                    `${when}: ${bright}.`,
+                    t(g.record),
+                    t('The star exploded about {dist} away: its light took that long to arrive.', { dist: lyText(g.distLy) }),
                 ],
                 facts: [
-                    ['Peak', `about ${g.peakMag > 0 ? '+' : g.peakMag < 0 ? '−' : ''}${Math.abs(g.peakMag)} mag on ${fmt(g.peakMs)}`],
-                    ['Last recorded', fmt(g.lastMs)],
-                    ['Distance', lyText(g.distLy)],
+                    [t('Peak'), t('about {mag} mag on {date}', { mag: `${g.peakMag > 0 ? '+' : g.peakMag < 0 ? '−' : ''}${dec(Math.abs(g.peakMag), g.peakMag % 1 ? 1 : 0)}`, date: fmt(g.peakMs) })],
+                    [t('Last recorded'), fmt(g.lastMs)],
+                    [t('Distance'), lyText(g.distLy)],
                 ],
-                caveat: g.caveat,
+                caveat: t(g.caveat),
                 sources: [...g.sources],
             };
         },

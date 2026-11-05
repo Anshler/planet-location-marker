@@ -12,6 +12,8 @@
 import { AE } from './ae.js';
 import { BODIES, bodyById, AU_KM } from './bodies.js';
 import { SUNRISE_ALT_DEG } from './photometry.js';
+import { t, locale, tag } from '../core/i18n.js';
+import { fmtMag, compass16 as compassText } from '../core/format.js';
 
 const DAY_MS = 86400000;
 const SAMPLE_MIN = 10;                       // tonight() sampling step
@@ -250,27 +252,24 @@ export function sunAltitudeSeries(observer, fromMs, toMs, n) {
 // back to UTC rather than failing the whole report.
 const timeFormatters = new Map();
 function timeFormatter(tz, hour12) {
-    const key = `${tz}|${hour12 ? 12 : 24}`;
+    const key = `${tz}|${hour12 ? 12 : 24}|${locale()}`;
     let fn = timeFormatters.get(key);
     if (!fn) {
         const opts = hour12
             ? { hour: 'numeric', minute: '2-digit', hour12: true }
             : { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' };
+        // English as designed ('8:14 PM', '20:14'); other locales in their own words ('8:14 CH').
+        const lang = locale() !== 'en' ? tag() : hour12 ? 'en-US' : 'en-GB';
         let dtf;
         try {
-            dtf = new Intl.DateTimeFormat(hour12 ? 'en-US' : 'en-GB', { ...opts, timeZone: tz || 'UTC' });
+            dtf = new Intl.DateTimeFormat(lang, { ...opts, timeZone: tz || 'UTC' });
         } catch {
-            dtf = new Intl.DateTimeFormat(hour12 ? 'en-US' : 'en-GB', { ...opts, timeZone: 'UTC' });
+            dtf = new Intl.DateTimeFormat(lang, { ...opts, timeZone: 'UTC' });
         }
         fn = (ms) => (ms === null ? '—' : dtf.format(new Date(ms)));
         timeFormatters.set(key, fn);
     }
     return fn;
-}
-
-function fmtMag(m) {
-    const s = Math.abs(m).toFixed(1);
-    return m < 0 && s !== '0.0' ? `−${s}` : s;
 }
 
 // Apparent topocentric RA/Dec of date at hourly nodes, RA unwrapped so that
@@ -380,7 +379,7 @@ function classifySamples(grid, w, darkLimit) {
 
 function decideVerdict(id, elongDeg, c, w) {
     if (elongDeg < (GLARE_LIMIT_DEG[id] ?? DEFAULT_GLARE_LIMIT_DEG)) {
-        return { verdict: 'not-visible', best: -1, flags: null, reason: `too close to the Sun (${Math.round(elongDeg)}°)` };
+        return { verdict: 'not-visible', best: -1, flags: null, reason: 'near' };
     }
     if (c.vis >= 0) {
         let verdict = 'low';
@@ -393,10 +392,9 @@ function decideVerdict(id, elongDeg, c, w) {
     if (c.day >= 0 && daytimeOk && elongDeg >= DAYTIME_MIN_ELONG_DEG) {
         return { verdict: 'daytime', best: c.day, flags: w.daylit, reason: null };
     }
-    let reason = 'below the horizon after dark';
-    if (c.day >= 0) {
-        reason = daytimeOk ? `lost in the Sun’s glare (${Math.round(elongDeg)}° away)` : 'up only in daylight';
-    }
+    // Why not: 'near' the Sun, below the horizon after 'dark', lost in the Sun's 'glare', up only by 'day'.
+    let reason = 'dark';
+    if (c.day >= 0) reason = daytimeOk ? 'glare' : 'day';
     return { verdict: 'not-visible', best: -1, flags: null, reason };
 }
 
@@ -497,22 +495,35 @@ export function tonight(observer, nearMs, opts = {}) {
 
 function litText(frac) {
     const pct = frac * 100;
-    if (pct > 0 && pct < 1) return '<1% lit';
-    return `${Math.round(pct)}% lit`;
+    if (pct > 0 && pct < 1) return t('<1% lit');
+    return t('{n}% lit', { n: Math.round(pct) });
 }
 
+/** The report's sentence in the interface's language (the worker has the table): one whole phrase per case. */
 function sentenceFor(r, reason, fmt) {
-    if (r.verdict === 'not-visible') return `${r.name}: not visible tonight — ${reason}`;
-    const light = r.id === 'moon' ? litText(r.phaseFrac) : `mag ${fmtMag(r.mag)}`;
-    const gear = r.equipment === 'naked-eye' ? '' : ` (${r.equipment})`;
-    const where = `${Math.round(r.bestAltDeg)}° ${r.compass}`;
-    const con = r.constellation.name;
+    const v = { body: t(r.name), deg: Math.round(r.elongDeg) };
+    if (r.verdict === 'not-visible') {
+        return reason === 'near' ? t('{body}: not visible tonight — too close to the Sun ({deg}°)', v)
+            : reason === 'glare' ? t('{body}: not visible tonight — lost in the Sun’s glare ({deg}° away)', v)
+                : reason === 'day' ? t('{body}: not visible tonight — up only in daylight', v) : t('{body}: not visible tonight — below the horizon after dark', v);
+    }
+    v.light = r.id === 'moon' ? litText(r.phaseFrac) : t('mag {mag}', { mag: fmtMag(r.mag) });
+    v.alt = Math.round(r.bestAltDeg);
+    v.dir = compassText(r.bestAzDeg);
+    v.con = r.constellation.name;
+    v.time = fmt(r.bestMs);
+    v.gear = r.equipment === 'telescope' ? t('telescope') : t('binoculars');
+    const gear = r.equipment !== 'naked-eye';
     switch (r.verdict) {
         case 'twilight':
-            return `${r.name}: in twilight only, ${where} at ${fmt(r.bestMs)}, ${light} in ${con}${gear}`;
+            return gear ? t('{body}: in twilight only, {alt}° {dir} at {time}, {light} in {con} ({gear})', v) : t('{body}: in twilight only, {alt}° {dir} at {time}, {light} in {con}', v);
         case 'daytime':
-            return `${r.name}: daytime only, ${where} at ${fmt(r.bestMs)}, ${light} in ${con}`;
+            return t('{body}: daytime only, {alt}° {dir} at {time}, {light} in {con}', v);
+        case 'excellent':
+            return gear ? t('{body}: excellent, highest {time} at {alt}° {dir}, {light} in {con} ({gear})', v) : t('{body}: excellent, highest {time} at {alt}° {dir}, {light} in {con}', v);
+        case 'good':
+            return gear ? t('{body}: good, highest {time} at {alt}° {dir}, {light} in {con} ({gear})', v) : t('{body}: good, highest {time} at {alt}° {dir}, {light} in {con}', v);
         default:
-            return `${r.name}: ${r.verdict}, highest ${fmt(r.bestMs)} at ${where}, ${light} in ${con}${gear}`;
+            return gear ? t('{body}: low, highest {time} at {alt}° {dir}, {light} in {con} ({gear})', v) : t('{body}: low, highest {time} at {alt}° {dir}, {light} in {con}', v);
     }
 }

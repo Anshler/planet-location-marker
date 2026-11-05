@@ -1758,7 +1758,7 @@ function bindRenderState({ store, bus, clock, rc, rig, loop, snap, astro, m, lab
         };
         let restored = null;
         try {
-            restored = textures?.restore?.() ?? null;
+            restored = textures?.restore?.(restoreKeys()) ?? null;
         } catch (err) {
             console.error('[main] texture restore failed', err);
         }
@@ -1770,6 +1770,30 @@ function bindRenderState({ store, bus, clock, rc, rig, loop, snap, astro, m, lab
         // rc draws nothing until it settles: a frame would upload a map whose decoded copy was closed.
         return restored;
     });
+}
+
+/**
+ * The texture keys a context restore brings back: the tier the modules hold (staged or committed)
+ * and the one asked for (a step down at the loss), so another tier's closed maps (max's 8192 px
+ * ones after a step down) are dropped rather than fetched and uploaded again; so is a stand-in
+ * whose own map is in (max's 4096 px maps once the 8192 px ones are), which nothing draws. Null
+ * (every key) without the texture plan.
+ * @returns {Set<string>|null}
+ */
+function restoreKeys() {
+    const mod = R.texMod;
+    if (!mod?.keysForTier) return null;
+    const keep = new Set();
+    for (const cfg of [currentCfg, R.governor?.config?.()]) {
+        if (!cfg) continue;
+        const k = mod.keysForTier(cfg);
+        const all = [...k.critical, ...k.primary, ...k.deferred];
+        const mask = mod.maskKeyFor?.(cfg);
+        const unused = new Set(all.filter((key) => R.textures?.isReady?.(key))
+            .map((key) => mod.interimKeyFor?.(key)).filter((key) => key && key !== mask));
+        for (const key of all) if (!unused.has(key)) keep.add(key);
+    }
+    return keep.size ? keep : null;
 }
 
 /**

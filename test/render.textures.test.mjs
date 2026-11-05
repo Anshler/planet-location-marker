@@ -286,6 +286,40 @@ test('store: restore() fetches closed maps again, one at a time, into the same T
     }
 }));
 
+test('store: restore(keep) brings back only the current tier\'s closed maps; another tier\'s are dropped, loadable again', () => withClosingDecoder(async () => {
+    const had = globalThis.fetch;
+    const calls = [];
+    globalThis.fetch = fakeFetch(calls);
+    try {
+        const uploads = [];
+        const ready = [];
+        const store = createTextureStore(losableRenderer(uploads), { onProgress: (e) => e.done && ready.push(e.key) });
+        // Max's 8192 px day map and the 4096 one high draws, both closed after upload.
+        await store.load(['day8k', 'day4k']);
+        await tick(5);
+        const old8k = store.get('day8k');
+        calls.length = 0;
+        uploads.length = 0;
+        await store.restore(['dayPreview', 'day4k']);
+        assert.deepEqual(calls, [ASSETS.day4k.url], 'the abandoned tier\'s map is not fetched');
+        assert.deepEqual(uploads, ['day4k'], 'nor uploaded');
+        assert.equal(store.state('day8k'), 'idle');
+        assert.equal(store.isReady('day8k'), false);
+        assert.equal(old8k.image.width, 1, 'a material still holding it draws a 1×1 stand-in, never a closed image');
+        assert.deepEqual(store.progress(), { loaded: ASSETS.day4k.bytes, total: ASSETS.day4k.bytes }, 'out of the progress');
+        // Back on max later: fetched afresh into a new Texture, and onReady fires again.
+        const seen = [];
+        store.onReady('day8k', (tex) => seen.push(tex));
+        await store.load(['day8k']);
+        assert.deepEqual(calls, [ASSETS.day4k.url, ASSETS.day8k.url]);
+        assert.equal(seen.length, 1);
+        assert.notEqual(seen[0], old8k);
+        assert.equal(store.get('day8k'), seen[0]);
+    } finally {
+        globalThis.fetch = had;
+    }
+}));
+
 test('store: a closed map that cannot be fetched on restore takes its preview or a 1×1 stand-in, so no frame throws', () => withClosingDecoder(async () => {
     const had = globalThis.fetch;
     let fail = false;

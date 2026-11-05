@@ -94,7 +94,7 @@ function afterFrame() {
  *   state:(key:string)=>'idle'|'loading'|'preview'|'ready'|'failed',
  *   holdUploads:(until:Promise<unknown>, opts?:{bind?:boolean})=>Promise<void>,
  *   setAnisotropy:(n?:number, keys?:string[])=>void,
- *   restore:()=>Promise<void>,
+ *   restore:(keep?:Iterable<string>)=>Promise<void>,
  *   dispose:()=>void }}
  */
 export function createTextureStore(renderer, { onProgress, prefetched = null } = {}) {
@@ -178,9 +178,7 @@ export function createTextureStore(renderer, { onProgress, prefetched = null } =
                     e.tex.image = pv.image;
                     e.tex.flipY = pv.flipY;
                 } else {
-                    const hex = PLACEHOLDER_HEX[e.key] ?? 0;
-                    const px = [(hex >> 16) & 255, (hex >> 8) & 255, hex & 255, 255];
-                    e.tex.image = typeof ImageData === 'function' ? new ImageData(new Uint8ClampedArray(px), 1, 1) : { width: 1, height: 1 };
+                    e.tex.image = standInPixel(e.key);
                 }
                 e.tex.needsUpdate = true;
                 e.state = 'failed';
@@ -189,6 +187,29 @@ export function createTextureStore(renderer, { onProgress, prefetched = null } =
         })();
         e.reloading = p;
         return p.finally(() => { if (e.reloading === p) e.reloading = null; });
+    }
+
+    /** A 1 × 1 image of the key's placeholder colour, for a Texture whose decoded image is closed. */
+    function standInPixel(key) {
+        const hex = PLACEHOLDER_HEX[key] ?? 0;
+        const px = [(hex >> 16) & 255, (hex >> 8) & 255, hex & 255, 255];
+        return typeof ImageData === 'function' ? new ImageData(new Uint8ClampedArray(px), 1, 1) : { width: 1, height: 1 };
+    }
+
+    /**
+     * Forgets a closed map that a context restore does not bring back (another tier's): its GPU copy
+     * died with the context, so there is nothing to dispose. Its Texture takes the 1 × 1 stand-in, so
+     * a material that still holds it draws the placeholder colour, never a closed image; a later
+     * load() fetches the file afresh and fires onReady with a new Texture.
+     */
+    function drop(e) {
+        e.tex.image = standInPixel(e.key);
+        e.tex.flipY = false;
+        e.tex.needsUpdate = true;
+        e.tex = null;
+        e.state = 'idle';
+        e.promise = null;
+        e.received = 0;
     }
 
     /** One held upload per task, each after a frame, so two large maps never share a long task. */
@@ -425,16 +446,21 @@ export function createTextureStore(renderer, { onProgress, prefetched = null } =
          * After a WebGL context restore: every loaded map goes back on the GPU, a kept image at its
          * first draw, a closed one fetched and decoded again first, one at a time (the loss was
          * likely memory pressure). Resolves once those are uploaded; nothing may draw before (a
-         * frame would upload a closed image), so main.js holds the restore on it.
+         * frame would upload a closed image), so main.js holds the restore on it. `keep`: the keys
+         * the current tier draws (keysForTier); a closed map outside it (a tier left behind, such
+         * as max's 8192 px maps after a step down) is dropped instead of fetched and uploaded.
+         * @param {Iterable<string>} [keep] every key when absent
          * @returns {Promise<void>} never rejects
          */
-        restore() {
+        restore(keep) {
             for (const t of placeholders.values()) t.needsUpdate = true;
+            const wanted = keep ? new Set(keep) : null;
             let chain = Promise.resolve();
             for (const e of entries.values()) {
                 if (!e.tex) continue;
-                if (isClosed(e.tex.image)) chain = chain.then(() => reload(e, true));
-                else e.tex.needsUpdate = true;
+                if (!isClosed(e.tex.image)) e.tex.needsUpdate = true;
+                else if (wanted && !wanted.has(e.key)) drop(e);
+                else chain = chain.then(() => reload(e, true));
             }
             return chain;
         },

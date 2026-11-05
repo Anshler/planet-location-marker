@@ -488,7 +488,7 @@ export function mountTimebar(root, ctx) {
     let lastYear = NaN;
     let zoneText = '';               // the zone's long form: accessible names, the popover, announcements
     let fitZone = () => {};
-    const refit = () => requestAnimationFrame(() => fitZone());
+    const refit = () => setTimeout(() => fitZone());
     function syncControls(force = false) {
         const { playing, live, rate, range } = clock;
         const mobile = ui.layout === 'mobile';

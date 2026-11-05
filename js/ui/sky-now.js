@@ -24,10 +24,11 @@ import { icon } from './icons.js';
 import { mountTonight, drawSparkline } from './tonight.js';
 import { mountSkyDome } from './sky-dome.js';
 import { BORTLE_NAMES } from './layers.js';
+import { t, N_, dec } from '../core/i18n.js';
 
 /** The summary's badge, and the twilight's name in its ⓘ. */
-const TW_BADGE = { day: 'Day', civil: 'Twilight', nautical: 'Twilight', astronomical: 'Twilight', night: 'Night' };
-const TW_NAME = { civil: 'civil twilight', nautical: 'nautical twilight', astronomical: 'astronomical twilight', night: 'night' };
+const TW_BADGE = { day: N_('Day'), civil: N_('Twilight'), nautical: N_('Twilight'), astronomical: N_('Twilight'), night: N_('Night') };
+const TW_NAME = { civil: N_('civil twilight'), nautical: N_('nautical twilight'), astronomical: N_('astronomical twilight'), night: N_('night') };
 
 /**
  * The Charts card's preference from the stored `skyDome` and the older `tonightOpen`. `open` is
@@ -81,17 +82,17 @@ export function isUp(b, alt) {
  * Formats rise/set information for a row.
  * @returns {string}
  */
-function riseSetText(ui, id, up, t) {
-    const rs = ui.riseSetFor(id, t);
+function riseSetText(ui, id, up, now) {
+    const rs = ui.riseSetFor(id, now);
     // The next one, so within a day the clock says it ("Sets 02:45", never "Rises Sun 07:28").
-    const at = (ms) => (ms - t < 864e5 ? ui.fmtClock(ms) : ui.fmtWhen(ms, t));
+    const at = (ms) => (ms - now < 864e5 ? ui.fmtClock(ms) : ui.fmtWhen(ms, now));
     if (up) {
-        if (rs.nextSetMs != null) return `Sets ${at(rs.nextSetMs)}`;
-        if (rs.status === 'circumpolar') return 'Up all day';
+        if (rs.nextSetMs != null) return t('Sets {time}', { time: at(rs.nextSetMs) });
+        if (rs.status === 'circumpolar') return t('Up all day');
         return '';
     }
-    if (rs.nextRiseMs != null) return `Rises ${at(rs.nextRiseMs)}`;
-    if (rs.status === 'never') return 'Stays below the horizon';
+    if (rs.nextRiseMs != null) return t('Rises {time}', { time: at(rs.nextRiseMs) });
+    if (rs.status === 'never') return t('Stays below the horizon');
     return '';
 }
 
@@ -99,13 +100,14 @@ function riseSetText(ui, id, up, t) {
  * The right-hand column of a row below the horizon: how long until it rises.
  * @returns {string}
  */
-export function downText(ui, rs, t) {
+export function downText(ui, rs, now) {
     if (rs.nextRiseMs != null) {
-        const rel = ui.fmt('fmtRelative', rs.nextRiseMs, t);
-        if (rel === 'now') return 'rising now';
-        if (rel !== '—' && !rel.endsWith('ago')) return `rises ${rel}`;
+        const d = rs.nextRiseMs - now;
+        const rel = ui.fmt('fmtRelative', rs.nextRiseMs, now);
+        if (rel !== '—' && Math.abs(d) < 30e3) return t('rising now');
+        if (rel !== '—' && d > 0) return t('rises {when}', { when: rel });
     }
-    return rs.status === 'never' ? 'stays down' : 'below horizon';
+    return rs.status === 'never' ? t('stays down') : t('below horizon');
 }
 
 /**
@@ -123,14 +125,14 @@ export function mountSkyNow(root, ctx) {
     const dark = h('span');
     const sun = h('p', { class: 'sum__line' });
     const skyEl = h('span');
-    const change = h('button', { class: 'link', type: 'button', 'aria-label': 'Change the light pollution' }, 'Change');
+    const change = h('button', { class: 'link', type: 'button', 'aria-label': t('Change the light pollution') }, t('Change'));
     const moreId = uid('sum');
     const more = h('div', { class: 'sum__more note', id: moreId, tabindex: '-1', hidden: true });
     const info = h('button', {
         class: 'icon-btn icon-btn--sm sum__info', type: 'button', 'aria-expanded': 'false', 'aria-controls': moreId,
-        'aria-label': 'What these mean', 'data-tip': 'What these mean',
+        'aria-label': t('What these mean'), 'data-tip': t('What these mean'),
     }, icon('info', { size: 16 }));
-    const summary = h('section', { class: 'sum', 'aria-label': 'Tonight’s sky' },
+    const summary = h('section', { class: 'sum', 'aria-label': t('Tonight’s sky') },
         h('p', { class: 'sum__line sum__line--head' }, badge, dark, info), sun,
         h('p', { class: 'sum__line' }, skyEl, ' ', change), more);
     offs.push(on(info, 'click', () => {
@@ -139,17 +141,17 @@ export function mountSkyNow(root, ctx) {
         if (!more.hidden) more.focus();
     }));
     offs.push(on(change, 'click', () => ui.openPanel('display', { reveal: 'conditions' })));
-    const list = h('ul', { class: 'body-list', 'aria-label': 'Bodies, above the horizon first' });
-    const upHead = h('li', { class: 'body-list__group', 'aria-hidden': 'true' }, h('span', null, 'Above the horizon'), h('span', { class: 'body-list__count' }));
-    const downHead = h('li', { class: 'body-list__group', 'aria-hidden': 'true' }, h('span', null, 'Below the horizon'), h('span', { class: 'body-list__count' }));
-    const empty = h('p', { class: 'empty' }, h('span', { class: 'spinner', 'aria-hidden': 'true' }), 'Computing positions…');
+    const list = h('ul', { class: 'body-list', 'aria-label': t('Bodies, above the horizon first') });
+    const upHead = h('li', { class: 'body-list__group', 'aria-hidden': 'true' }, h('span', null, t('Above the horizon')), h('span', { class: 'body-list__count' }));
+    const downHead = h('li', { class: 'body-list__group', 'aria-hidden': 'true' }, h('span', null, t('Below the horizon')), h('span', { class: 'body-list__count' }));
+    const empty = h('p', { class: 'empty' }, h('span', { class: 'spinner', 'aria-hidden': 'true' }), t('Computing positions…'));
 
     // ---------------------------------------------------------------- two places
     const cmpTitle = h('h3', { class: 'compare__title' });
-    const cmpShow = h('button', { class: 'btn btn--soft btn--sm', type: 'button', title: 'Frame the Earth and the Moon so both places’ beams can be seen meeting at it' },
-        icon('compare', { size: 15 }), 'Show both beams');
-    const cmpEdit = h('button', { class: 'icon-btn icon-btn--sm', type: 'button', 'aria-label': 'Change the second place', title: 'Change the second place' }, icon('search', { size: 15 }));
-    const cmpRemove = h('button', { class: 'icon-btn icon-btn--sm', type: 'button', 'aria-label': 'Remove the second place', title: 'Remove the second place' }, icon('close', { size: 15 }));
+    const cmpShow = h('button', { class: 'btn btn--soft btn--sm', type: 'button', title: t('Frame the Earth and the Moon so both places’ beams can be seen meeting at it') },
+        icon('compare', { size: 15 }), t('Show both beams'));
+    const cmpEdit = h('button', { class: 'icon-btn icon-btn--sm', type: 'button', 'aria-label': t('Change the second place'), title: t('Change the second place') }, icon('search', { size: 15 }));
+    const cmpRemove = h('button', { class: 'icon-btn icon-btn--sm', type: 'button', 'aria-label': t('Remove the second place'), title: t('Remove the second place') }, icon('close', { size: 15 }));
     const cmpCol = (cls) => {
         const place = h('span', { class: 'compare__place' });
         const pos = h('span', { class: 'compare__pos' });
@@ -159,7 +161,7 @@ export function mountSkyNow(root, ctx) {
     const cmpA = cmpCol('compare__col--a');
     const cmpB = cmpCol('compare__col--b');
     const cmpNote = h('p', { class: 'compare__note' });
-    const compare = h('section', { class: 'compare', 'aria-label': 'Two places compared', hidden: true },
+    const compare = h('section', { class: 'compare', 'aria-label': t('Two places compared'), hidden: true },
         h('div', { class: 'compare__head' }, cmpTitle, h('span', { class: 'compare__tools' }, cmpShow, cmpEdit, cmpRemove)),
         h('div', { class: 'compare__grid', role: 'group' }, cmpA.el, cmpB.el),
         cmpNote);
@@ -177,14 +179,14 @@ export function mountSkyNow(root, ctx) {
     const tonightCard = mountTonight(ctx);
     const chartsId = uid('charts');
     const chartsToggle = h('button', { class: 'charts__toggle', type: 'button', 'aria-expanded': 'false', 'aria-controls': chartsId },
-        h('span', { class: 'charts__title' }, 'Charts'), icon('chevron-down', { size: 16 }));
+        h('span', { class: 'charts__title' }, t('Charts')), icon('chevron-down', { size: 16 }));
     const chartSeg = segmented({
-        label: 'Chart', className: 'charts__seg', value: chart,
-        options: [{ value: 'dome', label: 'Sky dome' }, { value: 'tonight', label: 'Tonight' }],
+        label: t('Chart'), className: 'charts__seg', value: chart,
+        options: [{ value: 'dome', label: t('Sky dome') }, { value: 'tonight', label: t('Tonight') }],
         onChange: (v) => { chart = v === 'tonight' ? 'tonight' : 'dome'; setCharts(true, true); },
     });
     const chartsBody = h('div', { class: 'charts__body', id: chartsId, hidden: true }, dome.el, tonightCard.el);
-    const charts = h('section', { class: 'charts card', 'aria-label': 'Charts' }, h('div', { class: 'charts__head' }, chartsToggle, chartSeg.el), chartsBody);
+    const charts = h('section', { class: 'charts card', 'aria-label': t('Charts') }, h('div', { class: 'charts__head' }, chartsToggle, chartSeg.el), chartsBody);
     /** `save`: a user's choice, kept in `skyDome`. */
     function setCharts(o, save) {
         if (save) { chosen = true; savePref('skyDome', { ...chartsPref(loadPref('skyDome', null), null), open: o, chart }); }
@@ -207,21 +209,21 @@ export function mountSkyNow(root, ctx) {
     offs.push(ui.on('layout', byLayout));
     offs.push(store.subscribe((st) => st.host?.id, () => setCharts(open, false)));
 
-    const coarseTip = 'Tip: tap a row, or a world at the end of its beam, to meet it. Sky view stands you on the ground to look up.';
+    const coarseTip = t('Tip: tap a row, or a world at the end of its beam, to meet it. Sky view stands you on the ground to look up.');
     const keys = () => h('span', null, h('kbd', { class: 'kbd' }, '1'), '–', h('kbd', { class: 'kbd' }, '9'));
     root.append(
         summary, compare, empty, list, charts,
         // Keys on a mouse and keyboard, gestures on a touch-first device (body.is-coarse, css/app.css).
-        h('p', { class: 'note for-fine skynow__tip' }, tpl('Tip: press {keys} to select a body and {v} for Sky view.', { keys: keys(), v: h('kbd', { class: 'kbd' }, 'V') })),
+        h('p', { class: 'note for-fine skynow__tip' }, tpl(t('Tip: press {keys} to select a body and {v} for Sky view.'), { keys: keys(), v: h('kbd', { class: 'kbd' }, 'V') })),
         h('p', { class: 'note for-coarse skynow__tip' }, coarseTip),
-        h('p', { class: 'note skynow__tip skynow__tip--text' }, tpl('Tip: press {keys} to select a body.', { keys: keys() })));
+        h('p', { class: 'note skynow__tip skynow__tip--text' }, tpl(t('Tip: press {keys} to select a body.'), { keys: keys() })));
     byLayout();
 
     /** @type {Record<string, any>} */
     const rows = {};
     for (const b of BODIES) {
         const comp = makeCompass();
-        const nameText = document.createTextNode(b.name);
+        const nameText = document.createTextNode(t(b.name));
         const name = h('span', { class: 'body-row__name' }, h('span', { class: 'dot', 'aria-hidden': 'true' }), nameText);
         const sub = h('span', { class: 'body-row__sub' });
         const alt = h('span', { class: 'body-row__alt' });
@@ -248,7 +250,7 @@ export function mountSkyNow(root, ctx) {
     function update(snap) {
         if (!snap?.bodies?.length) return;
         empty.hidden = true;
-        const t = snap.tMs;
+        const now = snap.tMs;
         const sel = store.get().selection;
         const items = [];
         // Standing on Mars, slot 4 is the Earth (astro/bodies.js hostBodies).
@@ -258,11 +260,11 @@ export function mountSkyNow(root, ctx) {
         for (const b of snap.bodies) {
             const r = rows[b.id];
             if (!r) continue;
-            const nm = table[BODY_INDEX[b.id]].name;
+            const nm = t(table[BODY_INDEX[b.id]].name);
             if (r.nameText.data !== nm) r.nameText.data = nm;
             const { alt, az } = ui.altAz(b);
             const up = isUp(b, alt);
-            const rs = ui.riseSetFor(b.id, t);
+            const rs = ui.riseSetFor(b.id, now);
             items.push({ id: b.id, up, alt, rise: rs.nextRiseMs ?? (rs.status === 'never' ? Infinity : 9e15) });
             // Compass: needle to azimuth; the dot sits at the polar-projected altitude when up.
             if (Number.isFinite(az)) r.comp.needle.setAttribute('transform', `rotate(${az.toFixed(1)} 16 16)`);
@@ -271,19 +273,20 @@ export function mountSkyNow(root, ctx) {
             r.button.classList.toggle('is-down', !up);
             r.button.classList.toggle('is-selected', sel === b.id);
             setAttr(r.button, 'aria-current', sel === b.id ? 'true' : null);
-            const altTxt = up ? `${Math.max(0, Math.round(alt))}°` : downText(ui, rs, t);
+            const altTxt = up ? `${Math.max(0, Math.round(alt))}°` : downText(ui, rs, now);
             const dirTxt = up ? ui.compass(az) : '';
             setText(r.alt, altTxt);
             setText(r.dir, dirTxt);
-            const rsTxt = riseSetText(ui, b.id, up, t);
-            const magTxt = b.id !== 'sun' && shownMag(b) !== null ? `mag ${ui.fmt('fmtMag', b.mag)}` : '';
-            setText(r.sub, [rsTxt, magTxt].filter(Boolean).join(' · '));
-            const spoken = up
-                ? `${ui.bodyName(b.id)}: ${Math.round(alt)} degrees up in the ${ui.compassWords(az)}.`
-                : `${ui.bodyName(b.id)}: below the horizon${altTxt.startsWith('rises') ? `, ${altTxt}` : ''}.`;
-            setAttr(r.button, 'aria-label', `${spoken} ${rsTxt ? rsTxt + '.' : ''} ${magTxt ? 'Magnitude ' + ui.fmt('fmtMag', b.mag) + '.' : ''}`.trim());
+            const rsTxt = riseSetText(ui, b.id, up, now);
+            const mag = b.id !== 'sun' && shownMag(b) !== null ? ui.fmt('fmtMag', b.mag) : '';
+            setText(r.sub, [rsTxt, mag && t('mag {m}', { m: mag })].filter(Boolean).join(' · '));
+            const body = ui.bodyName(b.id);
+            const rising = !up && altTxt !== t('stays down') && altTxt !== t('below horizon');
+            const spoken = up ? t('{body}: {deg} degrees up in the {dir}.', { body, deg: Math.round(alt), dir: ui.compassWords(az) })
+                : rising ? t('{body}: below the horizon, {when}.', { body, when: altTxt }) : t('{body}: below the horizon.', { body });
+            setAttr(r.button, 'aria-label', `${spoken} ${rsTxt ? rsTxt + '.' : ''} ${mag ? t('Magnitude {m}.', { m: mag }) : ''}`.trim());
             r.up = up;
-            updateSpark(r, b.id, t, series);
+            updateSpark(r, b.id, now, series);
         }
         items.sort((a, b) => (a.up !== b.up ? (a.up ? -1 : 1) : a.up ? b.alt - a.alt : a.rise - b.rise));
         const nUp = items.filter((i) => i.up).length;
@@ -309,7 +312,7 @@ export function mountSkyNow(root, ctx) {
     /** A row's 24-h sparkline, redrawn when the series changes or the now dot moves a pixel. */
     const SPARK_W = 44, SPARK_H = 16;
     let sparkRev = 0, sparkOf = null;
-    function updateSpark(r, id, t, s) {
+    function updateSpark(r, id, now, s) {
         const i = s && id !== 'sun' ? s.ids.indexOf(id) : -1;
         const row = !s ? -2 : id === 'sun' ? -1 : i >= 0 ? i : -2;
         const show = row >= -1;
@@ -317,12 +320,12 @@ export function mountSkyNow(root, ctx) {
         if (!show) return;
         if (s !== sparkOf) { sparkOf = s; sparkRev += 1; }
         const dpr = Math.min(2, globalThis.devicePixelRatio || 1);
-        const key = `${sparkRev}|${dpr}|${Math.round(((t - s.t0Ms) / ((s.n - 1) * s.stepMs)) * SPARK_W)}`;
+        const key = `${sparkRev}|${dpr}|${Math.round(((now - s.t0Ms) / ((s.n - 1) * s.stepMs)) * SPARK_W)}`;
         if (key === r.sparkKey) return;
         r.sparkKey = key;
         if (r.spark.width !== SPARK_W * dpr) { r.spark.width = SPARK_W * dpr; r.spark.height = SPARK_H * dpr; }
         const c = r.spark.getContext('2d');
-        if (c) drawSparkline(c, SPARK_W, SPARK_H, dpr, s, row, t, BODIES[BODY_INDEX[id]].color);
+        if (c) drawSparkline(c, SPARK_W, SPARK_H, dpr, s, row, now, BODIES[BODY_INDEX[id]].color);
     }
 
     /** The two-places card: the selected body (else the Moon) from both, and their angle apart. */
@@ -335,26 +338,30 @@ export function mountSkyNow(root, ctx) {
         const id = st.selection && st.selection in BODY_INDEX ? st.selection : 'moon';
         const i = BODY_INDEX[id];
         const name = ui.bodyName(id);
-        setText(cmpTitle, `${name} from two places`);
+        setText(cmpTitle, t('{body} from two places', { body: name }));
         cmpShow.hidden = st.status?.webgl === false;
         const fill = (col, b, placeName) => {
             const { alt, az } = ui.altAz(b);
             const up = isUp(b, alt);
             setText(col.place, placeName);
             setText(col.pos, Number.isFinite(alt) ? `${ui.fmt('fmtAlt', alt)} · ${ui.compass(az)}` : '—');
-            setText(col.sub, up ? `Up, in the ${ui.compassWords(az)}` : 'Below the horizon');
+            const dir = ui.compassWords(az);
+            setText(col.sub, up ? t('Up, in the {dir}', { dir }) : t('Below the horizon'));
             col.el.classList.toggle('is-down', !up);
-            setAttr(col.el, 'aria-label', `From ${placeName}: ${name} ${up ? `${Math.round(alt)} degrees up in the ${ui.compassWords(az)}` : 'below the horizon'}.`);
+            setAttr(col.el, 'aria-label', up ? t('From {place}: {body} {deg} degrees up in the {dir}.', { place: placeName, body: name, deg: Math.round(alt), dir })
+                : t('From {place}: {body} below the horizon.', { place: placeName, body: name }));
         };
-        fill(cmpA, snap.bodies[i], st.observer?.name || 'Your location');
-        fill(cmpB, s2.bodies[i], o2.name || 'Second place');
+        fill(cmpA, snap.bodies[i], st.observer?.name || t('Your location'));
+        fill(cmpB, s2.bodies[i], o2.name || t('Second place'));
         const r = compareSight(snap, s2, i, sight);
         let note = '';
         if (r) {
-            const apart = r.sepDeg >= 0.1 ? `${r.sepDeg.toFixed(2)}°` : r.sepDeg >= 0.001 ? `${(r.sepDeg * 3600).toFixed(1)}″` : 'less than 0.001°';
+            const apart = r.sepDeg >= 0.1 ? `${dec(r.sepDeg, 2)}°` : r.sepDeg >= 0.001 ? `${dec(r.sepDeg * 3600, 1)}″` : t('less than 0.001°');
             note = id === 'moon' && Number.isFinite(r.distKm)
-                ? `Its direction differs by ${apart} between the two places: the Moon’s parallax. ${ui.fmt('fmtInt', r.perpKm)} km of baseline across the line of sight ÷ ${r.sepDeg.toFixed(2)}° ≈ ${ui.fmt('fmtDistKm', Math.round(r.distKm / 1000) * 1000)} to the Moon, as Lalande and Lacaille measured it from Berlin and the Cape in 1751.`
-                : `Its direction differs by ${apart} between the two places${id === 'sun' ? ' (the Sun’s tiny parallax)' : ''}: too far away for the sightlines to meet in view.`;
+                ? t('Its direction differs by {apart} between the two places: the Moon’s parallax. {base} km of baseline across the line of sight ÷ {sep}° ≈ {dist} to the Moon, as Lalande and Lacaille measured it from Berlin and the Cape in 1751.',
+                    { apart, base: ui.fmt('fmtInt', r.perpKm), sep: dec(r.sepDeg, 2), dist: ui.fmt('fmtDistKm', Math.round(r.distKm / 1000) * 1000) })
+                : id === 'sun' ? t('Its direction differs by {apart} between the two places (the Sun’s tiny parallax): too far away for the sightlines to meet in view.', { apart })
+                    : t('Its direction differs by {apart} between the two places: too far away for the sightlines to meet in view.', { apart });
         }
         setText(cmpNote, note);
     }
@@ -366,13 +373,13 @@ export function mountSkyNow(root, ctx) {
         const tw = snap.observer?.twilight;
         const sunAlt = snap.observer?.sunAltDeg;
         const sol = solarEclipseState(snap);
-        setText(badge, sol ? (sol.kind === 'total' ? 'Total solar eclipse' : 'Solar eclipse') : TW_BADGE[tw] || 'Sky');
+        setText(badge, sol ? (sol.kind === 'total' ? t('Total solar eclipse') : t('Solar eclipse')) : t(TW_BADGE[tw] || 'Sky'));
         badge.className = `badge${sol || tw === 'day' ? ' badge--warn' : TW_BADGE[tw] === 'Twilight' ? ' badge--accent' : ''}`;
         const why = [];
         if (Number.isFinite(sunAlt)) {
             const a = ui.fmt('fmtAlt', Math.abs(sunAlt));
-            why.push(sunAlt >= 0 ? `The Sun is ${a} above the horizon.`
-                : TW_NAME[tw] ? `The Sun is ${a} below the horizon: ${TW_NAME[tw]}.` : `The Sun is ${a} below the horizon.`);
+            why.push(sunAlt >= 0 ? t('The Sun is {alt} above the horizon.', { alt: a })
+                : TW_NAME[tw] ? t('The Sun is {alt} below the horizon: {phase}.', { alt: a, phase: t(TW_NAME[tw]) }) : t('The Sun is {alt} below the horizon.', { alt: a }));
         }
         let l1 = '', l2 = '', l3 = '';
         const mars = snap.host === 'mars' && snap.mars;
@@ -380,35 +387,35 @@ export function mountSkyNow(root, ctx) {
             // Standing on Mars: the site and its clock, its season, and the light from home.
             const m = snap.mars;
             const site = marsSiteNear(m.site.latDeg, m.site.lonDeg, 0.5);
-            l1 = `${m.site.name || 'Mars'} · ${marsClockText(m.time, site ? { ...site, lonDeg: m.site.lonDeg } : { lonDeg: m.site.lonDeg }).text}`;
-            l2 = `Ls ${Math.round(m.time.lsDeg)}°, ${marsSeason(m.time.lsDeg, m.site.latDeg)}`;
+            l1 = `${t(m.site.name || 'Mars')} · ${marsClockText(m.time, site ? { ...site, lonDeg: m.site.lonDeg } : { lonDeg: m.site.lonDeg }).text}`;
+            l2 = t('Ls {ls}°, {season}', { ls: Math.round(m.time.lsDeg), season: t(marsSeason(m.time.lsDeg, m.site.latDeg)) });
             const e = snap.bodies[BODY_INDEX.mars];
-            if (e && Number.isFinite(e.lightTimeS)) l3 = `The light from home left ${Math.max(1, Math.round(e.lightTimeS / 60))} min ago`;
-            why.push('Rise and set times are not computed on Mars yet.');
+            if (e && Number.isFinite(e.lightTimeS)) l3 = t('The light from home left {n} min ago', { n: Math.max(1, Math.round(e.lightTimeS / 60)) });
+            why.push(t('Rise and set times are not computed on Mars yet.'));
         } else {
             const n = ui.almanac.night?.twilight;
             if (n && Number.isFinite(n.astroDuskMs) && Number.isFinite(n.astroDawnMs)) {
-                l1 = `Fully dark ${ui.fmtClock(n.astroDuskMs)}–${ui.fmtClock(n.astroDawnMs)}`;
-                why.push('Fully dark is astronomical night: the Sun more than 18° below the horizon, when the faintest stars show.');
+                l1 = t('Fully dark {from}–{to}', { from: ui.fmtClock(n.astroDuskMs), to: ui.fmtClock(n.astroDawnMs) });
+                why.push(t('Fully dark is astronomical night: the Sun more than 18° below the horizon, when the faintest stars show.'));
             } else if (n && Number.isFinite(n.sunsetMs)) {
-                l1 = 'No full darkness tonight';
-                why.push('Tonight the Sun never gets 18° below the horizon, so the sky never gets fully dark.');
+                l1 = t('No full darkness tonight');
+                why.push(t('Tonight the Sun never gets 18° below the horizon, so the sky never gets fully dark.'));
             }
-            if (n && Number.isFinite(n.sunsetMs) && Number.isFinite(n.sunriseMs)) l2 = `Sunset ${ui.fmtClock(n.sunsetMs)} · Sunrise ${ui.fmtClock(n.sunriseMs)}`;
+            if (n && Number.isFinite(n.sunsetMs) && Number.isFinite(n.sunriseMs)) l2 = t('Sunset {set} · Sunrise {rise}', { set: ui.fmtClock(n.sunsetMs), rise: ui.fmtClock(n.sunriseMs) });
             const moon = ui.bodyOf(snap, 'moon');
             let m = '';
             if (moon && Number.isFinite(moon.phaseFrac) && Number.isFinite(snap.moonPhaseDeg)) {
                 const ecl = lunarEclipseState(snap);
                 const phase = moonPhaseName(snap.moonPhaseDeg);
-                m = sol ? (sol.kind === 'total' ? 'The Moon covers the whole Sun' : `The Moon covers ${sol.pct}% of the Sun`)
-                    : ecl ? `${phase} ${ecl.text}` : `${phase}, ${Math.round(moon.phaseFrac * 100)}% lit`;
+                m = sol ? (sol.kind === 'total' ? t('The Moon covers the whole Sun') : t('The Moon covers {pct}% of the Sun', { pct: sol.pct }))
+                    : ecl ? moonEclipseText(phase, ecl) : t('{phase}, {pct}% lit', { phase, pct: Math.round(moon.phaseFrac * 100) });
             }
             if (m) l2 = l2 ? `${l2} · ${m}` : m;
             const sky = skyDarknessText(snap);
             l3 = sky;
             if (sky) {
-                why.push('The Bortle scale rates a night sky from 1, a pristine dark site, to 9, an inner city.');
-                if (/magnitude/.test(sky)) why.push('The magnitude is that of the faintest stars a dark-adapted eye can see overhead, with the Moon and light pollution counted. Larger numbers are fainter.');
+                why.push(t('The Bortle scale rates a night sky from 1, a pristine dark site, to 9, an inner city.'));
+                if (darkEnough(snap)) why.push(t('The magnitude is that of the faintest stars a dark-adapted eye can see overhead, with the Moon and light pollution counted. Larger numbers are fainter.'));
             }
             const aur = auroraText(snap);
             if (aur) why.push(`${aur}.`);
@@ -444,13 +451,13 @@ export function skyDarknessText(snap) {
     const sg = snap?.skyglow;
     if (!sg || !Number.isFinite(sg.bortle)) return '';
     const n = Math.min(9, Math.max(1, Math.round(sg.bortle)));
-    const name = BORTLE_NAMES[n - 1];
-    const sunAlt = snap.observer?.sunAltDeg;
-    if (Number.isFinite(sunAlt) && sunAlt <= -15 && Number.isFinite(sg.limitMag)) {
-        return `${name}: stars to magnitude ${sg.limitMag.toFixed(1)} (Bortle ${n})`;
-    }
-    return `${name} (Bortle ${n})`;
+    const name = t(BORTLE_NAMES[n - 1]);
+    if (darkEnough(snap)) return t('{name}: stars to magnitude {mag} (Bortle {n})', { name, mag: dec(sg.limitMag, 1), n });
+    return t('{name} (Bortle {n})', { name, n });
 }
+
+/** Dark enough for the naked-eye limit: the Sun 15° down and a limit computed. */
+const darkEnough = (snap) => snap.observer?.sunAltDeg <= -15 && Number.isFinite(snap.skyglow?.limitMag);
 
 /**
  * Moon phase name from the Sun–Moon ecliptic elongation (0 = new, 180 = full).
@@ -460,14 +467,14 @@ export function skyDarknessText(snap) {
  */
 export function moonPhaseName(deg) {
     const d = ((deg % 360) + 360) % 360;
-    if (d < 6 || d > 354) return 'New Moon';
-    if (Math.abs(d - 90) < 6) return 'First quarter';
-    if (Math.abs(d - 180) < 6) return 'Full Moon';
-    if (Math.abs(d - 270) < 6) return 'Last quarter';
-    if (d < 90) return 'Waxing crescent';
-    if (d < 180) return 'Waxing gibbous';
-    if (d < 270) return 'Waning gibbous';
-    return 'Waning crescent';
+    if (d < 6 || d > 354) return t('New Moon');
+    if (Math.abs(d - 90) < 6) return t('First quarter');
+    if (Math.abs(d - 180) < 6) return t('Full Moon');
+    if (Math.abs(d - 270) < 6) return t('Last quarter');
+    if (d < 90) return t('Waxing crescent');
+    if (d < 180) return t('Waxing gibbous');
+    if (d < 270) return t('Waning gibbous');
+    return t('Waning crescent');
 }
 
 /**
@@ -483,7 +490,17 @@ export function lunarEclipseState(snap) {
     if (!e?.lunar || !Number.isFinite(lit) || lit >= 0.99) return null;
     const sunlit = Math.min(1, Math.max(0, lit));
     const total = sunlit < 0.005;
-    return { total, sunlit, text: total ? 'in total eclipse' : `in eclipse, ${Math.round(sunlit * 100)}% sunlit` };
+    return { total, sunlit, text: total ? t('in total eclipse') : t('in eclipse, {pct}% sunlit', { pct: Math.round(sunlit * 100) }) };
+}
+
+/**
+ * The Moon's phase and its eclipse as one phrase: 'Full Moon in total eclipse', 'Full Moon in
+ * eclipse, 42% sunlit'.
+ * @param {string} phase moonPhaseName
+ * @param {{total:boolean, sunlit:number}} ecl lunarEclipseState
+ */
+export function moonEclipseText(phase, ecl) {
+    return ecl.total ? t('{phase} in total eclipse', { phase }) : t('{phase} in eclipse, {pct}% sunlit', { phase, pct: Math.round(ecl.sunlit * 100) });
 }
 
 /**
@@ -505,9 +522,9 @@ export function solarEclipseState(snap) {
     if (covered >= 1) kind = 'total';
     else if (geo && geo.rM < geo.rS && geo.sep <= geo.rS - geo.rM) kind = 'annular';
     // Never round a partial phase up to 100 %: 99.96 % reads "99.9 %".
-    const pct = covered > 0.99 ? (Math.floor(covered * 1000) / 10).toFixed(1) : String(Math.round(covered * 100));
-    const text = kind === 'total' ? 'Total solar eclipse'
-        : `${kind === 'annular' ? 'Annular' : 'Partial'} solar eclipse, ${pct}% of the Sun covered`;
+    const pct = covered > 0.99 ? dec(Math.floor(covered * 1000) / 10, 1) : String(Math.round(covered * 100));
+    const text = kind === 'total' ? t('Total solar eclipse')
+        : kind === 'annular' ? t('Annular solar eclipse, {pct}% of the Sun covered', { pct }) : t('Partial solar eclipse, {pct}% of the Sun covered', { pct });
     return { kind, covered, pct, text, geo };
 }
 

@@ -23,6 +23,7 @@ import { BODY_INDEX, hostBodies } from '../astro/bodies.js';
 import { load as loadPref, save as savePref } from '../core/prefs.js';
 import { h, on, setText, setAttr, segmented } from './dom.js';
 import { SKY_LUT, skyLutIndex, C_NIGHT } from './sky-palette.js';
+import { t, N_ } from '../core/i18n.js';
 
 const DEG = Math.PI / 180;
 const HALF_PI = Math.PI / 2;
@@ -37,10 +38,10 @@ const OBLIQUITY = 23.4392911 * DEG;
 const FONT = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 const DASH = [3, 3];
 const NO_DASH = [];
-const CARDINAL = ['N', 'E', 'S', 'W'];
+const CARDINAL = [N_('N'), N_('E'), N_('S'), N_('W')];
 const HINT = {
-    up: 'Looking up: north at the top and east on the left, the sky overhead as if you held the chart above you.',
-    map: 'Mirrored: east on the right, as on a map of the ground.',
+    up: N_('Looking up: north at the top and east on the left, the sky overhead as if you held the chart above you.'),
+    map: N_('Mirrored: east on the right, as on a map of the ground.'),
 };
 const P = new Float64Array(2);      // projection scratch
 
@@ -111,8 +112,8 @@ export function projectSegments(src, nSeg, o, flip, out) {
         const ua = ax * U[0] + ay * U[1] + az * U[2], ub = bx * U[0] + by * U[1] + bz * U[2];
         if (ua < 0 && ub < 0) { out[d] = NaN; continue; }
         if (ua < 0 || ub < 0) {
-            const t = ua / (ua - ub);
-            const cx = ax + (bx - ax) * t, cy = ay + (by - ay) * t, cz = az + (bz - az) * t;
+            const f = ua / (ua - ub);
+            const cx = ax + (bx - ax) * f, cy = ay + (by - ay) * f, cz = az + (bz - az) * f;
             if (ua < 0) { ax = cx; ay = cy; az = cz; } else { bx = cx; by = cy; bz = cz; }
         }
         projectScene(ax, ay, az, o, flip, P);
@@ -179,9 +180,9 @@ export function fovOutline(v, flip, out, steps = 8) {
     let k = 0;
     for (let edge = 0; edge < 4; edge++) {
         for (let i = 0; i < steps; i++) {
-            const t = -1 + (2 * i) / steps;
-            const sx = edge === 0 ? t : edge === 1 ? 1 : edge === 2 ? -t : -1;
-            const sy = edge === 0 ? 1 : edge === 1 ? -t : edge === 2 ? -1 : t;
+            const f = -1 + (2 * i) / steps;
+            const sx = edge === 0 ? f : edge === 1 ? 1 : edge === 2 ? -f : -1;
+            const sy = edge === 0 ? 1 : edge === 1 ? -f : edge === 2 ? -1 : f;
             // forward (cl·sa, cl·ca, sl), right (ca, −sa, 0), up (−sl·sa, −sl·ca, cl) in ENU
             const e = cl * sa + sx * th * ca - sy * tv * sl * sa;
             const n = cl * ca - sx * th * sa - sy * tv * sl * ca;
@@ -264,7 +265,7 @@ export function nearestHit(items, n, x, y, slop) {
 }
 
 const rgbStr = (c, a = 1) => `rgba(${c[0] | 0},${c[1] | 0},${c[2] | 0},${a})`;
-const mixRgb = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+const mixRgb = (a, b, f) => [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
 const lutRgb = (alt) => { const i = skyLutIndex(alt); return [SKY_LUT[i], SKY_LUT[i + 1], SKY_LUT[i + 2]]; };
 const ECLIPTIC = eclipticSegments(72);
 
@@ -280,17 +281,17 @@ export function mountSkyDome(ctx) {
     let mode = loadPref('skyDome', null)?.mode === 'map' ? 'map' : 'up';
     const save = () => savePref('skyDome', { ...loadPref('skyDome', {}), mode });
 
-    const cv = h('canvas', { class: 'dome__cv', role: 'img', 'aria-label': 'All-sky chart' });
+    const cv = h('canvas', { class: 'dome__cv', role: 'img', 'aria-label': t('All-sky chart') });
     const wrap = h('div', { class: 'dome__wrap' }, cv);
     const hint = h('p', null);
     const seg = segmented({
-        label: 'Chart orientation', className: 'dome__seg', value: mode,
-        options: [{ value: 'up', label: 'Looking up' }, { value: 'map', label: 'Mirrored' }],
+        label: t('Chart orientation'), className: 'dome__seg', value: mode,
+        options: [{ value: 'up', label: t('Looking up') }, { value: 'map', label: t('Mirrored') }],
         onChange: (v) => { mode = v === 'map' ? 'map' : 'up'; save(); setHint(); rebuildNow(); },
     });
     const el = h('div', { class: 'dome' }, wrap,
-        h('div', { class: 'charts__foot' }, seg.el, h('details', { class: 'fold' }, h('summary', null, 'How to read this'), h('div', { class: 'note' }, hint))));
-    const setHint = () => setText(hint, `${HINT[mode]} Tap a dot to select it.`);
+        h('div', { class: 'charts__foot' }, seg.el, h('details', { class: 'fold' }, h('summary', null, t('How to read this')), h('div', { class: 'note' }, hint))));
+    const setHint = () => setText(hint, `${t(HINT[mode])} ${t('Tap a dot to select it.')}`);
     setHint();
 
     const c = cv.getContext('2d');
@@ -456,7 +457,7 @@ export function mountSkyDome(ctx) {
         for (let i = 0; i < 4; i++) {
             const a = i * HALF_PI, rr = R + 10.5;
             g.fillStyle = i === 0 ? '#ff8f7e' : 'rgba(154,166,184,0.95)';
-            g.fillText(CARDINAL[i], cx + flip * Math.sin(a) * rr, cy - Math.cos(a) * rr + 0.5);
+            g.fillText(t(CARDINAL[i]), cx + flip * Math.sin(a) * rr, cy - Math.cos(a) * rr + 0.5);
         }
 
         // Items: the bodies above the horizon (smallest dot first, so the bright ones draw on top), then named stars.
@@ -549,9 +550,9 @@ export function mountSkyDome(ctx) {
 
     function describe(up) {
         up.sort((a, b) => b.alt - a.alt);
-        const text = `All-sky chart, ${mode === 'map' ? 'as a map, east on the right' : 'looking up, east on the left'}, north at the top. `
-            + (up.length ? `Above the horizon: ${up.map((u) => `${u.name} ${Math.round(u.alt)}° ${ui.compass(u.az)}`).join(', ')}.` : 'Nothing above the horizon but stars.')
-            + (view ? ` The camera looks ${ui.compassWords(view.azDeg)}, ${Math.round(view.altDeg)}° up.` : '');
+        const text = `${mode === 'map' ? t('All-sky chart, as a map, east on the right, north at the top.') : t('All-sky chart, looking up, east on the left, north at the top.')} `
+            + (up.length ? t('Above the horizon: {list}.', { list: up.map((u) => `${u.name} ${Math.round(u.alt)}° ${ui.compass(u.az)}`).join(', ') }) : t('Nothing above the horizon but stars.'))
+            + (view ? ` ${t('The camera looks {dir}, {deg}° up.', { dir: ui.compassWords(view.azDeg), deg: Math.round(view.altDeg) })}` : '');
         if (text !== label) { label = text; setAttr(cv, 'aria-label', text); }
     }
 

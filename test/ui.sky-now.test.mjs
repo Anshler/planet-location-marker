@@ -2,7 +2,7 @@
 // panels name the eclipse from snap.eclipse.moonLitFraction instead.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { lunarEclipseState, moonPhaseName, solarEclipseState, solarDiscGeometry, shownMag } from '../js/ui/sky-now.js';
+import { lunarEclipseState, moonPhaseName, moonEclipseText, solarEclipseState, solarDiscGeometry, shownMag } from '../js/ui/sky-now.js';
 import { AE } from '../js/astro/ae.js';
 import { createSnapshot, computeSnapshot } from '../js/astro/snapshot.js';
 
@@ -19,7 +19,8 @@ test('lunarEclipseState: total, partial and none', () => {
 
 test('the Sky-now line for a totally eclipsed full Moon reads naturally', () => {
     const ecl = lunarEclipseState({ eclipse: { lunar: true, moonLitFraction: 0 } });
-    assert.equal(`${moonPhaseName(180)} ${ecl.text}`, 'Full Moon in total eclipse');
+    assert.equal(moonEclipseText(moonPhaseName(180), ecl), 'Full Moon in total eclipse');
+    assert.equal(moonEclipseText(moonPhaseName(180), lunarEclipseState({ eclipse: { lunar: true, moonLitFraction: 0.42 } })), 'Full Moon in eclipse, 42% sunlit');
 });
 
 // Solar eclipses: the panels name the eclipse from snap.eclipse.obscurationAtObserver, and the

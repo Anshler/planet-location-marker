@@ -18,16 +18,17 @@
 import { BODIES, BODY_INDEX } from '../astro/bodies.js';
 import { h, on, setText, setAttr, clamp } from './dom.js';
 import { SKY_LUT, skyLutIndex, hexRgb } from './sky-palette.js';
+import { t, N_, locale, intl } from '../core/i18n.js';
 
 const HOUR = 3600e3;
 const PAD_MS = HOUR;                 // context either side of the night
-const GUTTER = 60;                   // the names column, CSS px
+const GUTTER = 60;                   // the names column's least width, CSS px (wider for longer names)
 const RIGHT = 6;
 const TOP = 6, LANE = 15, RIBBON = 9, AXIS = 17;
 const SUN_UP_DEG = -0.833;
 const STEPS_H = [1, 2, 3, 6];
 const VERDICT = {
-    excellent: 'excellent', good: 'good', low: 'low', twilight: 'in twilight only', daytime: 'by day only', 'not-visible': 'not visible',
+    excellent: N_('excellent'), good: N_('good'), low: N_('low'), twilight: N_('in twilight only'), daytime: N_('by day only'), 'not-visible': N_('not visible'),
 };
 const FONT = 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 
@@ -144,10 +145,10 @@ export function mountTonight(ctx) {
     const { store, clock, ui } = ctx;
     const offs = [];
     let open = false;
-    const cv = h('canvas', { class: 'tonight__cv', role: 'img', 'aria-label': 'Tonight’s visibility chart' });
+    const cv = h('canvas', { class: 'tonight__cv', role: 'img', 'aria-label': t('Tonight’s visibility chart') });
     const note = h('p', { class: 'note', hidden: true });
-    const el = h('div', { class: 'tonight' }, cv, note, h('div', { class: 'charts__foot' }, h('details', { class: 'fold' }, h('summary', null, 'How to read this'),
-        h('p', { class: 'note' }, 'Bars show when each is up, brighter the higher it stands; dots mark its best moment. Drag across to move through the night.'))));
+    const el = h('div', { class: 'tonight' }, cv, note, h('div', { class: 'charts__foot' }, h('details', { class: 'fold' }, h('summary', null, t('How to read this')),
+        h('p', { class: 'note' }, t('Bars show when each is up, brighter the higher it stands; dots mark its best moment. Drag across to move through the night.')))));
 
     const c = cv.getContext('2d');
     const layer = document.createElement('canvas');
@@ -155,7 +156,7 @@ export function mountTonight(ctx) {
     let img = null;
     let src = null, res = null, win = null, rows = BODIES.length - 1;   // the height is kept while data is pending
     let layerKey = '';
-    let cssW = 0, cssH = 0, dpr = 1, plotW = 0, sizeDirty = true;
+    let cssW = 0, cssH = 0, dpr = 1, plotW = 0, sizeDirty = true, gutter = 0;
     let drawnX = NaN, drawnKey = '';
     let drag = null;
     const rgb = BODIES.map((b) => hexRgb(b.color));
@@ -171,8 +172,8 @@ export function mountTonight(ctx) {
     const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(() => { sizeDirty = true; drawnKey = ''; if (ui.snap) update(ui.snap); }) : null;
     ro?.observe(cv);
 
-    const xOf = (t) => GUTTER + ((t - win.fromMs) / (win.toMs - win.fromMs)) * plotW;
-    const tOf = (x) => win.fromMs + clamp((x - GUTTER) / Math.max(1, plotW), 0, 1) * (win.toMs - win.fromMs);
+    const xOf = (ms) => gutter + ((ms - win.fromMs) / (win.toMs - win.fromMs)) * plotW;
+    const tOf = (x) => win.fromMs + clamp((x - gutter) / Math.max(1, plotW), 0, 1) * (win.toMs - win.fromMs);
 
     /** Measures the canvas only when something flagged it (no layout read per redraw). */
     function ensureSize() {
@@ -181,9 +182,14 @@ export function mountTonight(ctx) {
         const d = Math.min(2, globalThis.devicePixelRatio || 1);
         const hgt = TOP + rows * LANE + AXIS;
         sizeDirty = false;
+        if (!gutter) {
+            // The names column fits the locale's longest name ('Sao Thiên Vương'), measured once.
+            c.font = `600 11px ${FONT}`;
+            gutter = Math.max(GUTTER, ...BODIES.slice(1).map((b) => Math.ceil(c.measureText(ui.bodyName(b.id)).width) + 8));
+        }
         if (w === cssW && hgt === cssH && d === dpr) return;
         cssW = w; cssH = hgt; dpr = d;
-        plotW = Math.max(40, cssW - GUTTER - RIGHT);
+        plotW = Math.max(40, cssW - gutter - RIGHT);
         cv.width = Math.round(cssW * dpr);
         cv.height = Math.round(cssH * dpr);
         cv.style.height = `${cssH}px`;
@@ -202,23 +208,26 @@ export function mountTonight(ctx) {
         }
         const px = img.data;
         for (let x = 0; x < plotW; x++) {
-            const t = win.fromMs + ((x + 0.5) / plotW) * (win.toMs - win.fromMs);
-            const sun = seriesAlt(s, -1, t);
+            const ms = win.fromMs + ((x + 0.5) / plotW) * (win.toMs - win.fromMs);
+            const sun = seriesAlt(s, -1, ms);
             const li = skyLutIndex(sun);
             px[x * 4] = SKY_LUT[li]; px[x * 4 + 1] = SKY_LUT[li + 1]; px[x * 4 + 2] = SKY_LUT[li + 2]; px[x * 4 + 3] = 255;
             for (let r = 0; r < rows; r++) {
                 const col = rgb[BODY_INDEX[s.ids[r]]] || rgb[1];
                 const o = ((r + 1) * plotW + x) * 4;
                 px[o] = col[0]; px[o + 1] = col[1]; px[o + 2] = col[2];
-                px[o + 3] = Math.round(255 * ribbonAlpha(seriesAlt(s, r, t), sun));
+                px[o + 3] = Math.round(255 * ribbonAlpha(seriesAlt(s, r, ms), sun));
             }
         }
         lc.putImageData(img, 0, 0);
     }
 
-    function hourLabel(t) {
-        const z = ui.zoned(t);
-        if (store.get().display?.hour12) return `${z.h % 12 || 12} ${z.h < 12 ? 'AM' : 'PM'}`;
+    function hourLabel(ms) {
+        const z = ui.zoned(ms);
+        if (store.get().display?.hour12) {
+            return locale() === 'en' ? `${z.h % 12 || 12} ${z.h < 12 ? 'AM' : 'PM'}`
+                : intl(Intl.DateTimeFormat, { hour: 'numeric', hourCycle: 'h12', timeZone: 'UTC' }).format(Date.UTC(2000, 0, 1, z.h));
+        }
         return `${z.h < 10 ? '0' : ''}${z.h}:00`;
     }
 
@@ -242,13 +251,13 @@ export function mountTonight(ctx) {
         c.font = `10.5px ${FONT}`;
         c.textAlign = 'center';
         c.textBaseline = 'alphabetic';
-        for (let t = Math.ceil((win.fromMs + offMs) / step) * step - offMs; t <= win.toMs; t += step) {
-            const x = Math.round(xOf(t)) + 0.5;
+        for (let ms = Math.ceil((win.fromMs + offMs) / step) * step - offMs; ms <= win.toMs; ms += step) {
+            const x = Math.round(xOf(ms)) + 0.5;
             c.fillStyle = 'rgba(255,255,255,0.08)';
             c.fillRect(x - 0.5, TOP, 1, plotH);
-            if (x < GUTTER + 14 || x > GUTTER + plotW - 14) continue;
+            if (x < gutter + 14 || x > gutter + plotW - 14) continue;
             c.fillStyle = 'rgba(154,166,184,0.95)';
-            c.fillText(hourLabel(t), x, TOP + plotH + 13);
+            c.fillText(hourLabel(ms), x, TOP + plotH + 13);
         }
         // Names, and each body's best moment.
         c.textAlign = 'left';
@@ -287,13 +296,16 @@ export function mountTonight(ctx) {
 
     function describe() {
         const tw = res.twilight;
-        const n = win.kind === 'night' ? '' : win.kind === 'polar-night' ? 'The Sun stays below the horizon all day: the chart shows the whole 24 hours.'
-            : 'No darkness tonight: the Sun stays up, so the chart shows the whole 24 hours.';
+        const n = win.kind === 'night' ? '' : win.kind === 'polar-night' ? t('The Sun stays below the horizon all day: the chart shows the whole 24 hours.')
+            : t('No darkness tonight: the Sun stays up, so the chart shows the whole 24 hours.');
         setText(note, n);
         note.hidden = !n;
-        const bits = res.reports.map((r) => `${ui.bodyName(r.id)} ${VERDICT[r.verdict] || r.verdict}${Number.isFinite(r.bestMs) ? `, best at ${ui.fmtClock(r.bestMs)}` : ''}`);
-        setAttr(cv, 'aria-label', `${win.kind === 'night' ? `Tonight, sunset to sunrise ${ui.fmtClock(tw?.sunsetMs ?? res.nightStartMs)} – ${ui.fmtClock(tw?.sunriseMs ?? res.nightEndMs)}`
-            : win.kind === 'polar-night' ? 'Tonight, polar night' : 'Tonight, no darkness'}. ${bits.join('. ')}.`);
+        const bits = res.reports.map((r) => {
+            const v = { body: ui.bodyName(r.id), verdict: VERDICT[r.verdict] ? t(VERDICT[r.verdict]) : r.verdict };
+            return Number.isFinite(r.bestMs) ? t('{body} {verdict}, best at {time}', { ...v, time: ui.fmtClock(r.bestMs) }) : t('{body} {verdict}', v);
+        });
+        setAttr(cv, 'aria-label', `${win.kind === 'night' ? t('Tonight, sunset to sunrise {from} – {to}', { from: ui.fmtClock(tw?.sunsetMs ?? res.nightStartMs), to: ui.fmtClock(tw?.sunriseMs ?? res.nightEndMs) })
+            : win.kind === 'polar-night' ? t('Tonight, polar night') : t('Tonight, no darkness')}. ${bits.join('. ')}.`);
     }
 
     function update(snap) {
@@ -308,12 +320,12 @@ export function mountTonight(ctx) {
             else note.hidden = true;
         }
         if (!open) return;
-        const t = drag ? drag.t : (snap?.tMs ?? clock.tMs);
+        const now = drag ? drag.t : (snap?.tMs ?? clock.tMs);
         const key = `${store.get().display?.hour12}|${ui.displayTz()}|${cssW}`;
-        const x = res && win && t >= win.fromMs && t <= win.toMs ? xOf(t) : NaN;
+        const x = res && win && now >= win.fromMs && now <= win.toMs ? xOf(now) : NaN;
         if (key === drawnKey && !sizeDirty && (Math.abs(x - drawnX) < 0.5 || (x !== x && drawnX !== drawnX))) return;
         drawnKey = key;
-        draw(t);
+        draw(now);
     }
 
     // Dragging scrubs the clock across the night, as the time bar does; a click jumps there.
@@ -321,7 +333,7 @@ export function mountTonight(ctx) {
     offs.push(on(cv, 'pointerdown', (e) => {
         if (e.button > 0 || !res || !win) return;
         left = cv.getBoundingClientRect().left;
-        if (e.clientX - left < GUTTER - 6) return;
+        if (e.clientX - left < gutter - 6) return;
         try { cv.setPointerCapture?.(e.pointerId); } catch { /* pointer already gone */ }
         drag = { id: e.pointerId, x0: e.clientX, moved: false, paused: false, t: clock.tMs };
         ui.scrubbing = true;
@@ -348,7 +360,7 @@ export function mountTonight(ctx) {
             clock.setTime(target, { animateMs: ui.reducedMotion() ? 0 : 400 });
         } else if (d.paused) clock.play();
         ui.scrubbing = false;
-        ctx.bus?.emit?.('announce', `Time: ${ui.fmtSpoken(clock.tMs)}`);
+        ctx.bus?.emit?.('announce', t('Time: {time}', { time: ui.fmtSpoken(clock.tMs) }));
         drawnKey = '';
         update(ui.snap);
     };

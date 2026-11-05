@@ -1,6 +1,6 @@
 # UI redesign: a calm skeleton
 
-Status: **approved spec**, ready to implement in four chunks (§13). Branch `p7/redesign`, base `40131ce`. All four chunks are implemented; their deviations are in §15.
+Status: **implemented** in four chunks (§13; branch `p7/redesign`, base `40131ce`); the deviations from this spec are in §15.
 
 The owner asked for this: "We've added quite a bit so the UI is getting quite dense and complex. Complex is fine but it has to be intuitive — see if we can improve that."
 

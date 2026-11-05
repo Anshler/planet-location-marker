@@ -141,6 +141,9 @@ browser, and nothing needs the network.
   opens on the gestures (⋯ → Gestures and help), and a first visit ends with three short
   interface tips (⋯ → Interface tips replays them). It installs as an app: ⋯ → Install the
   app or Display → About this app, or Share → Add to Home Screen on an iPhone, with shortcuts to Sky view and Events.
+- **In English or Vietnamese.** The interface follows the browser's language (Vietnamese for
+  `vi…`, else English); Display → Language · Ngôn ngữ changes it, and `#lang=vi` or `#lang=en`
+  in a link sets it for that visit. Numbers, dates and coordinates follow the language too.
 
 ## Keyboard shortcuts
 
@@ -212,6 +215,7 @@ Useful URL options (in the hash):
 - `#intro=0` skips the first-visit intro.
 - `#debug=1` shows the performance overlay.
 - `#q=low` forces a quality tier (`low`, `medium`, `high` or `max`).
+- `#lang=vi` (or `en`) shows the interface in that language for this visit.
 - `#t=2027-02-06T16:00:00Z&p=0` freezes time at a moment.
 - `#tab=events` opens a panel tab (`sky`, `details`, `events`, `explore` or `display`; the old
   `layers`, `settings` and `about` open Display at their part).
@@ -253,7 +257,8 @@ The site is plain static files.
 
 - **GitHub Pages, recommended.** In the repository, open **Settings → Pages → Build and deployment
   → Source: GitHub Actions**. Every push to `main` then runs CI, which covers the tests, the size
-  budgets, the headless smoke tests, the performance gates and the golden renders. If CI passes, `.github/workflows/pages.yml` stages the site
+  budgets, the headless smoke tests, the performance gates and, once goldens are committed to
+  `test/golden/` (see Running locally), the golden renders. If CI passes, `.github/workflows/pages.yml` stages the site
   files, stamps the service worker's version and deploys them.
 - **Branch deploy.** "Deploy from a branch: `main` / root" also works. `.nojekyll` is included.
   The service worker then has no manifest: it still works offline, but fetches everything from

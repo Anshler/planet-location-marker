@@ -75,6 +75,8 @@ const MB = 1e6, KB = 1e3;
 // backoff and diagnostics, the service-worker client; ≈ 99 KB) and the UI lane (Tonight card, sky palette, Sky dome,
 // event glyphs and .ics, place preview, onboarding, night vision, a11y CSS; ≈ 153 KB): measured low 5.07 / medium
 // 5.83 MB, budgets + ~2.5 % (low and medium stay under 6 MB).
+// Re-measured 2026-11-05 after the UI redesign, the Vietnamese interface and the Phase 7 review fixes: low 5.16 /
+// medium 5.92 MB, so medium has ≈ 0.9 % headroom left: the next feature that adds shared JS or CSS re-baselines first.
 export const TIER_BUDGETS = { low: 5200 * KB, medium: 5975 * KB, high: 8 * MB };
 /** Tiers that are measured and printed but have no budget (max: a deliberate, manual choice). */
 export const INFO_TIERS = ['max'];

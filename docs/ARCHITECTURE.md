@@ -176,7 +176,8 @@ the UI and the render stack with literal `import('./…')` calls, so:
    night maps start downloading at once (`prefetchTextures`, handed to the texture store later).
 2. **Clock and first snapshot.** A hash `t` starts the clock paused at that moment. Otherwise it
    starts Live.
-3. **UI.** It mounts immediately. The loop starts headless and publishes 4 Hz readouts, so the
+3. **UI.** It mounts immediately (in Vietnamese, once its table is in, waiting up to 3 s: §12
+   'Choosing'). The loop starts headless and publishes 4 Hz readouts, so the
    Sky Now table works before WebGL exists.
 4. **Render stack.** It is imported in parallel (already downloaded: see 'Early downloads' below).
    The render context is created, then each module in its own `try/catch`. Textures start as 1×1
@@ -297,7 +298,8 @@ critical CSS read them.
   `main.js` subscriptions). The UI
   keeps a few conveniences of its own in `core/prefs` (recent places, `skyDome` — the Charts card's
   `{open, mode, chart}`, with the older `tonightOpen` read once to migrate it —, `coachSeen`,
-  `installHint`, `uiVersion`, and `displayOpen`, Display's open groups).
+  `installHint`, `uiVersion`, `displayOpen`, Display's open groups, and `lang`, the interface
+  language written by `actions.setLanguage`: §12 'Choosing').
 - **`clock`** owns simulated time. The UI calls it directly for play/pause, rate, steps, Now and
   scrubbing. The loop calls `clock.tick(now)` once per animation frame.
 - **`actions`** covers everything with side effects beyond plain state: moving the observer
@@ -1390,7 +1392,7 @@ change.
     whole module graph as `scripts/check-size.mjs` budgets it (`modgraph.mjs pageModules`: static
     and dynamic imports and the astro worker's graph, ≈ 3.8 MB raw, most of which the first visit
     has already loaded), `PRECACHE_DATA` (sky, cities, spacecraft, deep-sky objects, star details,
-    satellites) and the two Earth previews: 184 files, ≈ 4.5 MB. Textures and `data/stars8.json`
+    satellites) and the two Earth previews: 195 files, ≈ 4.5 MB. Textures and `data/stars8.json`
     stay lazy.
   - **Install** reads the manifest (its version must be the worker's), copies every file an
     older version's cache holds with the same hash, then fetches the rest of `precache` plus every
@@ -1425,13 +1427,13 @@ report carries the version.
 
 ```
 #loc=21.0285,105.8542&n=Hanoi&cc=VN&tz=Asia/Ho_Chi_Minh&el=15&t=2027-08-02T10:07:00Z&r=3600&p=1
- &view=orbit&lock=1&sel=moon&ly=bgoscCnmkazhldxw&q=auto&sky=auto&cam=o:21.0,105.8,3.2&intro=0&debug=1
+ &view=orbit&lock=1&sel=moon&ly=bgoscCnmkazhldxwi&q=auto&sky=auto&cam=o:21.0,105.8,3.2&intro=0&debug=1
 ```
 
 - No `t` means Live.
 - `r` is the signed rate in sim-seconds per second, snapped to the ladder.
 - `ly` is the exact set of enabled layers. `d` is the illustrative landscape: links made before it
-  existed carry no `d`, so they open with the flat horizon. `r` is meteors (on by default; older
+  existed carry no `d`, so they open with the flat horizon. `w` is meteors (on by default; older
   links open without them) and `y` the Sun paths and analemma (off by default).
 - `cam` is `o:lat,lon,dist` (the sub-camera point), `s:az,alt,fov` or, with `view=map`,
   `m:lat,lon,dist` (the map's centre and the camera's distance from the plane). An orbit distance
@@ -1443,7 +1445,7 @@ report carries the version.
 - `sel` selects a body or an extra object (`comet:halley`, `guest:sn1054`, `craft:voyager1`; §4) and
   opens its card (the Details tab), as a click on it would.
 - `ly` letter `i` is the `satellites` layer (on by default), `v` the `spacecraft` layer (off by default), `x` the deep-sky objects (`deepSky`,
-  on by default, so the default code is `bgoscCnmkazhldx`; older links without it turn it off) and
+  on by default, so the default code is `bgoscCnmkazhldxwi`; older links without it turn it off) and
   `r` the `precession` layer (off by default). `sel=` takes `star:<hip>` and `dso:<id>` too
   (`sel=dso:M31` is lower-cased).
 - `t` is always a Gregorian ISO instant, also before 1582, when the app shows the Julian date.
@@ -1581,7 +1583,7 @@ About's 'Install app' (`ui/install.js`); the browser's own install UI is left al
   8 MB raw, re-baselined from the spec's estimate to the measured unminified module graph, last
   when the Phase 7 lanes merged; low and medium stay under 6 MB, high under 8 MB) and the 32 MB
   deploy limit. Max (≈ 22.3 MB) is reported but has no budget; its 8192 px maps (≈ 15.2 MB) are why
-  the deploy limit went from 12 to 32 MB (the staged site is ≈ 24.7 MB; GitHub Pages allows 1 GB).
+  the deploy limit went from 12 to 32 MB (the staged site is ≈ 24.9 MB; GitHub Pages allows 1 GB).
 - **`npm run preload`** (`node scripts/lib/modgraph.mjs --write`, `--check` to verify) regenerates
   index.html's boot modulepreload lists (§3 'Early downloads').
 - **`npm run textures`** (`scripts/build-textures.mjs`) re-encodes the derived textures in headless

@@ -488,6 +488,7 @@ export function mountTimebar(root, ctx) {
     let lastYear = NaN;
     let zoneMode = '', zoneOff = NaN;
     let zoneText = '';               // the zone's long form: accessible names, the popover, announcements
+    let zoneFit = null;              // [long template, place, short form, offset] for fitZone
     function syncControls(force = false) {
         const { playing, live, rate, range } = clock;
         const mobile = ui.layout === 'mobile';
@@ -534,12 +535,35 @@ export function mountTimebar(root, ctx) {
         const [long, short] = zoneTemplates(mode, !!obs?.tzApprox);
         const offset = ui.offsetText(t);
         const place = ui.placeShort(obs) || 'Your place';
-        // The place gives way (ellipsis) before the offset does.
-        zoneLong.replaceChildren(tpl(long, { place: h('span', { class: 'stamp__place' }, place), offset }));
-        zoneText = zoneLong.textContent;
-        setText(zoneShort, tpl(short, { offset }).textContent);
-        setText(zoneGo, zoneText);
-        setText(zoneLoop, zoneText);
+        const text = tpl(long, { place, offset }).textContent;
+        if (text === zoneText) return;
+        zoneText = zoneLong.textContent = text;
+        zoneFit = [long, place, tpl(short, { offset }).textContent, offset];
+        setText(zoneShort, zoneFit[2]);
+        setText(zoneGo, text);
+        setText(zoneLoop, text);
+        fitZone();
+    }
+    /**
+     * The place gives way before the offset does. It is cut here, not by CSS's ellipsis, which can
+     * leave a glyph's gap before the comma; with room for under six letters the short form shows.
+     */
+    function fitZone() {
+        const [long, place, short, offset] = zoneFit || [];
+        if (!long?.includes('{place}')) return;
+        let pl = zoneLong.firstElementChild;
+        if (pl?.textContent === place && pl.scrollWidth <= pl.clientWidth) return;
+        pl = h('span', { class: 'stamp__place' }, place);
+        zoneLong.replaceChildren(tpl(long, { place: pl, offset }));
+        const w = pl.clientWidth;
+        if (!w || pl.scrollWidth <= w) return;
+        let lo = 0, hi = place.length;
+        while (lo < hi) {
+            const m = (lo + hi + 1) >> 1;
+            pl.textContent = `${place.slice(0, m).trimEnd()}…`;
+            if (pl.scrollWidth < w) lo = m; else hi = m - 1;
+        }
+        if (lo > 5) pl.textContent = `${place.slice(0, lo).trimEnd()}…`; else zoneLong.textContent = short;
     }
     function syncStamp(force) {
         const now = performance.now();
@@ -1168,7 +1192,7 @@ export function mountTimebar(root, ctx) {
     if (clock.onChange) offs.push(clock.onChange(() => { syncControls(true); kick(); }));
     offs.push(store.subscribe((s) => s.display, () => { labelCache.clear(); syncControls(true); kick(); }));
     offs.push(store.subscribe((s) => s.observer, () => { labelCache.clear(); syncControls(true); kick(); }));
-    offs.push(store.subscribe((s) => s.host, () => { syncControls(true); kick(); }));
+    offs.push(store.subscribe((s) => s.host, () => { syncControls(true); kick(); requestAnimationFrame(fitZone); }));
     offs.push(ui.on('events', kick));
     offs.push(ui.on('almanac', kick));
     offs.push(on(window, 'resize', () => { geomDirty = true; kick(); }));
@@ -1181,6 +1205,9 @@ export function mountTimebar(root, ctx) {
         kick();
     }) : null;
     ro?.observe(scrub);
+    // The room the zone has: the phone's LIVE or Now, a layout switch, the window.
+    const zro = ro && new ResizeObserver(() => fitZone());
+    zro?.observe(dateBtn);
     // Live 1× does not animate the clock: refresh the seconds on the second boundary.
     let secTimer = 0;
     const secondTick = () => {
@@ -1198,6 +1225,7 @@ export function mountTimebar(root, ctx) {
         destroy() {
             offs.forEach((off) => off());
             ro?.disconnect();
+            zro?.disconnect();
             clearTimeout(secTimer);
             if (raf) cancelAnimationFrame(raf);
             dropSeries(series); dropSeries(moonSeries); dropSeries(bodySeries);

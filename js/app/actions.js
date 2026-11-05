@@ -18,6 +18,7 @@ import { eclipsePath, citiesInPath, nearestCentrePoint, shadowPoint } from '../a
 import { createEclipseChase } from './eclipse-chase.js';
 import { localSolarEclipseAt } from '../astro/events.js';
 import { serializeHash } from '../core/url-state.js';
+import { LOCALES, locale } from '../core/i18n.js';
 import { SKY_DARK_SETTINGS, AURORA_SETTINGS } from '../core/store.js';
 import { EXPOSE_KINDS, TRAILS_RATE, trailsLook, nextDarkMs, analemmaPlan } from './expose.js';
 
@@ -965,6 +966,24 @@ export function createActions(deps) {
     }
 
     /**
+     * Display's Language: saves the choice and, when it differs, reloads the page in it (the UI
+     * is built in one language; core/i18n.js). The visit's #lang= is dropped so the choice holds.
+     * @param {string} code  a core/i18n.js LOCALES key
+     * @returns {boolean} true when the page reloads
+     */
+    function setLanguage(code) {
+        if (!Object.hasOwn(LOCALES, code)) return false;
+        prefs?.save?.('lang', code);
+        if (code === locale()) return false;
+        try {
+            const url = String(win.location.href).replace(/([#&])lang=[^&]*(&|$)/, (m, a, b) => (b ? a : '')).replace(/#$/, '');
+            win.history.replaceState(win.history.state, '', url);
+            win.location.reload();
+        } catch { /* no page to reload (tests) */ }
+        return true;
+    }
+
+    /**
      * Aurora activity: the Kp the modelled ovals are drawn for ('quiet' | 'typical' | 'storm';
      * core/store.js AURORA_SETTINGS). A setting, not live space weather.
      * @param {string} v
@@ -1686,7 +1705,7 @@ export function createActions(deps) {
         toggleMap, setObserver2, compareWith, frameObservers, setSystem,
         // Phase 6: stand on Mars (the sky view from an areographic site) and back.
         standOnMars, leaveMars,
-        toggleLayer, setQuality, setTzMode, setSkyDark, setAuroraActivity, setNightVision, share,
+        toggleLayer, setQuality, setTzMode, setSkyDark, setAuroraActivity, setNightVision, setLanguage, share,
         toggleFullscreen, toggleCinema, resetCamera, replayIntro, jumpToEvent,
         // Extensions beyond SPEC §C.9 (used by shortcuts / the shell when present).
         toggleDebug, openPalette, shareUrl, viewFromBody, getView,

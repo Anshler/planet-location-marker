@@ -9,7 +9,7 @@
 
 /** URL-hash keys (core/url-state.js) a report keeps; every other key is dropped. */
 export const DIAG_HASH_KEYS = Object.freeze(['t', 'r', 'p', 'view', 'lock', 'sel', 'ly', 'q', 'sky', 'au', 'trk', 'vt', 'host',
-    'intro', 'debug', 'tour']);
+    'intro', 'debug', 'tour', 'lang']);
 /** The newest errors a report carries, and the longest one kept. */
 export const DIAG_MAX_ERRORS = 20;
 const ERROR_CHARS = 800;
@@ -49,8 +49,9 @@ const num = (x, d = 2) => (Number.isFinite(x) ? Math.round(x * 10 ** d) / 10 ** 
  * @param {{version?:string, nowMs?:number, decision?:any, quality?:any, renderer?:string, maxTex?:number,
  *   dpr?:number, renderDpr?:number, viewport?:number[], coarse?:boolean, userAgent?:string, webgl?:boolean,
  *   governor?:any, tierLog?:any[], strikes?:Record<string, number>, disabled?:string[], losses?:any,
- *   errors?:unknown[], stats?:any, hash?:string, sw?:{version?:string|null, controlled?:boolean, waiting?:string|null}}} d
- *   `sw`: the service worker serving the page (`__app.sw`): which deploy the report comes from.
+ *   errors?:unknown[], stats?:any, hash?:string, sw?:{version?:string|null, controlled?:boolean, waiting?:string|null}, lang?:string}} d
+ *   `sw`: the service worker serving the page (`__app.sw`): which deploy the report comes from;
+ *   `lang`: the interface's language (core/i18n.js).
  * @returns {object}
  */
 export function buildDiagnostics(d = {}) {
@@ -60,7 +61,7 @@ export function buildDiagnostics(d = {}) {
     const errors = Array.isArray(d.errors) ? d.errors.slice(-DIAG_MAX_ERRORS).map(scrubError) : [];
     return {
         app: {
-            version: d.version ?? null, at: Number.isFinite(d.nowMs) ? new Date(d.nowMs).toISOString() : null,
+            version: d.version ?? null, at: Number.isFinite(d.nowMs) ? new Date(d.nowMs).toISOString() : null, lang: d.lang ?? null,
             sw: d.sw ? { version: d.sw.version ?? null, controlled: !!d.sw.controlled, waiting: d.sw.waiting ?? null } : null,
         },
         tier: {

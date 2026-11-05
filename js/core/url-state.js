@@ -19,7 +19,9 @@
 // site, planetocentric °N,°E, written only when it is not Jezero Crater (the default). `tab` opens a
 // panel tab (store PANELS, e.g. the install shortcut's `tab=events`, or an old tab's id from
 // PANEL_ALIASES: `settings` and `about` also give `reveal`, the section to open); like `tour`, it is
-// read, never written.
+// read, never written. `lang` (en, vi: core/i18n.js LOCALES) picks the interface's language for
+// this visit without saving it (Display's Language saves a choice); like `debug=1`, the address bar
+// keeps it.
 //
 // parseHash never throws: values are validated, clamped (time, elevation, camera) or dropped, and
 // every key that was present but not usable as written is listed in `invalid` (for the
@@ -32,6 +34,7 @@ import { DEFAULT_STATE, SKY_DARK_SETTINGS, AURORA_SETTINGS, VANTAGE_SETTINGS, VI
 import { canonTz, daysInMonth } from './tz.js';
 import { isTourId } from './tour-catalog.js';
 import { normalizeSelectionId, isSelectionId } from './selection.js';
+import { LOCALES } from './i18n.js';
 
 const QUALITY_SETTINGS = Object.freeze(['auto', 'low', 'medium', 'high', 'max']);
 /** `ly` letters in canonical order (SPEC §F.4). Case-sensitive: c = lines, C = names. */
@@ -44,7 +47,7 @@ export const LAYER_CODES = Object.freeze([
 ].map((pair) => Object.freeze(pair)));
 const LAYER_BY_CODE = new Map(LAYER_CODES);
 const KNOWN_KEYS = new Set(['loc', 'n', 'cc', 'tz', 'el', 't', 'r', 'p', 'view', 'lock', 'sel', 'ly', 'q', 'sky', 'au', 'cam', 'trk', 'vt', 'intro', 'debug', 'tour', 'tab',
-    'loc2', 'n2', 'tz2', 'host', 'hloc']);
+    'loc2', 'n2', 'tz2', 'host', 'hloc', 'lang']);
 const MAX_HASH_LEN = 4096;
 const NAME_MAX = 80;
 const ELEV_MIN = -500, ELEV_MAX = 9000;
@@ -370,7 +373,7 @@ function parseFlag(v, emptyMeans) {
     return undefined;
 }
 
-/** view, lock, sel, ly, q, sky, au, cam, trk, vt, intro, debug, tour, tab. */
+/** view, lock, sel, ly, q, sky, au, cam, trk, vt, intro, debug, tour, tab, lang. */
 function parseViewKeys(params, out, invalid) {
     if (params.has('view')) {
         const v = params.get('view').trim().toLowerCase();
@@ -464,6 +467,11 @@ function parseViewKeys(params, out, invalid) {
         const to = PANELS.includes(v) ? [v] : Object.hasOwn(PANEL_ALIASES, v) ? PANEL_ALIASES[v] : null;
         if (to) { out.panel = to[0]; if (to[1]) out.reveal = to[1]; } else if (v !== '') invalid.push('tab');
     }
+    if (params.has('lang')) {
+        const v = params.get('lang').trim().toLowerCase();
+        if (Object.hasOwn(LOCALES, v)) out.lang = v;
+        else if (v !== '') invalid.push('lang');
+    }
 }
 
 /**
@@ -500,7 +508,7 @@ function isoSeconds(ms) {
  * Builds the hash for the current state: `'#loc=…&…'` ('' when there is nothing to say).
  * Keys at their default are omitted; `t` only appears off-Live.
  * @param {{state?:Partial<import('./types.js').AppState>, clock?:{tMs:number, rate:number, playing:boolean, live:boolean}|null,
- *          cam?:unknown, extra?:{intro?:boolean, debug?:boolean}}} [args]
+ *          cam?:unknown, extra?:{intro?:boolean, debug?:boolean, lang?:string}}} [args]
  * @returns {string}
  */
 export function serializeHash({ state, clock, cam, extra } = {}) {
@@ -557,6 +565,7 @@ export function serializeHash({ state, clock, cam, extra } = {}) {
         if (c) parts.push(`cam=${c}`);
         if (extra?.intro === false) parts.push('intro=0');
         if (extra?.debug) parts.push('debug=1');
+        if (extra?.lang && Object.hasOwn(LOCALES, extra.lang)) parts.push(`lang=${extra.lang}`);
     } catch {
         // Serialisation is best-effort; whatever was built so far is still a valid link.
     }
@@ -596,7 +605,9 @@ export function bindUrl({ win, store, clock, getCam, onExternalChange, minInterv
     if (!hist || !loc || typeof hist.replaceState !== 'function') return () => {};
 
     const extra = {};
-    if (parseHash(readLocationHash(loc)).debug) extra.debug = true;
+    const launch = parseHash(readLocationHash(loc));
+    if (launch.debug) extra.debug = true;
+    if (launch.lang) extra.lang = launch.lang;
     const readCam = () => {
         try {
             return typeof getCam === 'function' ? getCam() : null;

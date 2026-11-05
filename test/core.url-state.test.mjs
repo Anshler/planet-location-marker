@@ -607,3 +607,14 @@ test('the shell mounts exactly the PANELS tabs, in order', async () => {
     const block = src.slice(src.indexOf('export const TABS'), src.indexOf('];', src.indexOf('export const TABS')));
     assert.deepEqual([...block.matchAll(/\{ id: '([a-z]+)'/g)].map((m) => m[1]), [...PANELS]);
 });
+
+test('lang: en or vi for this visit, kept like debug, never invented', () => {
+    assert.equal(parseHash('#lang=vi').lang, 'vi');
+    assert.equal(parseHash('#lang=EN').lang, 'en');
+    const bad = parseHash('#lang=fr');
+    assert.equal(bad.lang, undefined);
+    assert.deepEqual(bad.invalid, ['lang']);
+    assert.equal(serializeHash({ state: {}, extra: { lang: 'vi' } }), '#lang=vi');
+    assert.equal(serializeHash({ state: {}, extra: { lang: 'xx' } }), '');
+    assert.equal(serializeHash({ state: {} }), '');
+});

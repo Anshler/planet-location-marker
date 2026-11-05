@@ -3,9 +3,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     fmtDate, fmtTime, fmtDateTime, fmtRA, fmtDec, fmtDeg, fmtAlt, fmtAz, compass16, compassWord, fmtDistAU, fmtDistKm,
-    fmtLightTime, fmtRate, fmtMag, fmtPct, fmtLatLon, fmtRelative, fmtDuration, fmtAngSize, fmtInt, moonPhaseName, moonAgeDays,
+    fmtLightTime, fmtRate, fmtMag, fmtPct, fmtLatLon, fmtRelative, fmtDuration, fmtAngSize, fmtInt, fmtNum, moonPhaseName, moonAgeDays,
 } from '../js/core/format.js';
 import { RATES } from '../js/core/clock.js';
+import { setLocale } from '../js/core/i18n.js';
+import fs from 'node:fs';
 
 const M = String.fromCharCode(0x2212); // minus sign
 const DASH = String.fromCharCode(0x2014);
@@ -208,4 +210,42 @@ test('Moon phase names and age', () => {
     assert.equal(moonPhaseName(-90), 'Last quarter');
     assert.ok(Math.abs(moonAgeDays(180) - 14.7652945) < 1e-6);
     assert.ok(Number.isNaN(moonAgeDays('x')));
+});
+
+test('fmtNum: decimals with the true minus sign, no negative zero', () => {
+    assert.equal(fmtNum(-1.25, 1), `${M}1.3`);
+    assert.equal(fmtNum(-0.04, 1), '0.0');
+    assert.equal(fmtNum(12345.678, 2), '12345.68');
+    assert.equal(fmtNum('x'), DASH);
+});
+
+test('Vietnamese: decimal comma, dot grouping, Intl dates, translated units (machine formats untouched)', () => {
+    setLocale('vi', JSON.parse(fs.readFileSync(new URL('../data/i18n/vi.json', import.meta.url), 'utf8')));
+    try {
+        assert.equal(fmtInt(384400), '384.400');
+        assert.equal(fmtNum(-1.25, 1), `${M}1,3`);
+        assert.equal(fmtAlt(34.21), '34,2°');
+        assert.equal(fmtMag(-4.3), `${M}4,3`);
+        assert.equal(fmtAz(118), '118° ĐĐN');
+        assert.equal(compassWord(135), 'đông nam');
+        assert.equal(fmtDistKm(2.28e8), '228,0 triệu km');
+        assert.equal(fmtDistAU(1.524), '1,524 AU · 228,0 triệu km');
+        assert.equal(fmtDuration(2.5 * 365.25 * 864e5), '2,5 năm');
+        assert.equal(fmtDuration((3 * 3600 + 12 * 60) * 1000), '3 giờ 12 phút');
+        assert.equal(fmtRate(1), 'Thời gian thực');
+        assert.equal(fmtRate(-86400), `${M}1 ngày/giây`);
+        assert.equal(fmtRelative(T + (3 * 3600 + 12 * 60) * 1000, T), '3 giờ 12 phút nữa');
+        assert.equal(fmtRelative(T - 25 * 60e3, T), '25 phút trước');
+        assert.equal(fmtLatLon(21.0285, 105.8542), '21,03° B 105,85° Đ');
+        assert.equal(fmtLatLon(-33.86, -151.2, 'dec', { digits: 4, sep: ', ' }), '33,8600° N; 151,2000° T', 'the list separator clears the decimal comma');
+        assert.equal(fmtDate(T, 'Asia/Ho_Chi_Minh'), 'CN, 11 thg 10, 2026');
+        assert.equal(fmtDate(Date.UTC(1000, 0, 1), 'UTC', { calendar: true }), 'Thứ 4, 27 thg 12, 999 (lịch Julius)');
+        assert.equal(fmtTime(T, 'Asia/Ho_Chi_Minh'), '20:14:05');
+        assert.equal(fmtTime(T, 'Asia/Ho_Chi_Minh', true, { seconds: false }), '8:14 CH');
+        assert.equal(moonPhaseName(180), 'Trăng tròn');
+        assert.equal(fmtRA(6.7525), '6h 45m 09s', 'RA notation is international');
+    } finally {
+        setLocale('en');
+    }
+    assert.equal(fmtInt(384400), '384,400', 'English again');
 });

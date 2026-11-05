@@ -24,6 +24,7 @@ import { visibilityYear } from './planner.js';
 import { sunFigures } from './sunpath.js';
 import { allPasses } from './satellites.js';
 import { BODY_IDS } from './bodies.js';
+import { setLocale } from '../core/i18n.js';
 
 function riseSetAll({ bodyIds, observer, fromMs, toMs }) {
     aeObserverOf(observer); // validate once so a bad observer fails the whole request clearly
@@ -77,6 +78,8 @@ function eclipsePathOp({ peakMs, stepS, cities, nCities }) {
  *              → {riseSet, twilight, tonight, sunSeries:{fromMs, toMs, values}} in one round trip
  *  - satPasses {tle, observer, fromMs, days?}            → SatPass[] (satellites.js allPasses: the next visible
  *              passes of every satellite in data/tle.json, `tle`, over `days` (10), by start time)
+ *  - locale    {code, table}                             → true (core/i18n.js setLocale: the page's
+ *              language, posted by client.js when it creates the worker)
  *  - ping      {}                                        → 'pong'
  * @type {Readonly<Record<string, (args:object) => unknown>>}
  */
@@ -110,6 +113,7 @@ export const OPS = Object.freeze({
         };
     },
     satPasses: ({ tle, observer, fromMs, days }) => allPasses(tle, observer, fromMs, days ?? 10),
+    locale: ({ code, table }) => { setLocale(code, table); return true; },
     ping: () => 'pong',
 });
 

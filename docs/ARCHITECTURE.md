@@ -86,7 +86,8 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `js/core/sampling.js` | Renderer policies, pure: `halton`, `createSupersampler` (idle supersampling: which frames accumulate, their weight and jitter, when to park), `viewMotionPx`, `streakShutter` and `strobeDim` (fast-time streaks). |
 | | `js/core/prefs.js` | `localStorage` under `pc2.`, falling back to memory. |
 | | `js/core/texture-plan.js` | Which images each tier loads: `ASSETS` (URLs, bytes, colour space), `INTERIM` and `PREVIEW` stand-ins, the per-slot key choices and `keysForTier` (critical previews, primary day and night maps, deferred rest); `download`/`prefetchTextures`, the early streamed fetches `main.js` starts before the render stack exists. No three.js; `render/textures.js` re-exports it. |
-| | `js/core/tz.js`, `js/core/format.js` | Time zones (canonicalised, DST-safe) and every displayed number and string. Calendar dates before 15 Oct 1582 are shown Julian (`toCalendar`, `fromCalendar`, `parseCalendarInput`, JDN helpers); instants and `t=` stay Gregorian UTC. |
+| | `js/core/i18n.js` | The interface's language (§12 'Strings and locales'): `t`, `tn`, `N_`, `setLocale`, `locale`, `pickLocale`, cached `intl()` formatters, `dec`, and `dateText`/`timeText` (wall-clock fields → the locale's date and time). |
+| | `js/core/tz.js`, `js/core/format.js` | Time zones (canonicalised, DST-safe) and every displayed number and string, in the interface's locale. Calendar dates before 15 Oct 1582 are shown Julian (`toCalendar`, `fromCalendar`, `parseCalendarInput`, JDN helpers); instants and `t=` stay Gregorian UTC. |
 | | `js/core/types.js` | JSDoc typedefs: the shared contract. |
 | Geo | `js/geo/cities.js` | About 1,600 GeoNames cities. Fuzzy search, `nearest`, `byTz`. |
 | | `js/geo/geocode.js` | Online providers with timeouts, a circuit breaker and an LRU cache. |
@@ -1454,6 +1455,8 @@ report carries the version.
   opens Display, `settings` opens it at Sky conditions and `about` with About this app open; an
   alias is never reported invalid. Like `tour`, it is read, never written.
   The installed app's Events shortcut is `./#tab=events`; its Sky view shortcut is `./#view=sky`.
+- `lang` (`en`, `vi`) sets the interface's language for this visit without saving it (§12
+  'Strings and locales'); like `debug=1`, `bindUrl` keeps it in the address bar.
 - Night vision (`display.red`) is never written to or read from the hash: it is a preference of
   the device you observe with (saved with the display prefs), not part of the sky being shared, so
   a link from a red screen opens in full colour (`test/app.actions.test.mjs`).
@@ -1636,3 +1639,48 @@ About's 'Install app' (`ui/install.js`); the browser's own install UI is left al
   leaves the scene's labels (`#labels-root`, over the unforced 3D view) in their own colours. New
   controls whose state is only a background need a line there. Override selectors include
   `body.is-sky` where the sky view sets the same token.
+
+### Strings and locales (`js/core/i18n.js`)
+
+The interface speaks English and Vietnamese. gettext style: **the English source text is the key**.
+
+- **A string.** `import { t } from '../core/i18n.js'` once per module and write the whole phrase,
+  placeholders included: `t('Observer set to {place}', { place })`. Never build a sentence from
+  fragments (word order differs); a phrase holding DOM nodes goes through `tpl(t('Press {key} to
+  search'), { key: kbd('K') })` (js/ui/dom.js). Counts take `tn('{n} world above you', '{n} worlds
+  above you', n)`; the table's key is the `other` form. aria-labels, titles, `data-tip`s,
+  placeholders, toasts, announcements and alt text count. Key names on key caps stay keys.
+- **A table's string.** Module-level tables are built before the locale is set, so mark their
+  strings `N_('Beams')` (an identity) and translate where they are shown: `t(item.label)`. Never
+  call `t()` at module level.
+- **Then** add the translation to `data/i18n/vi.json` (`{"English": "Tiếng Việt"}`, keys sorted).
+  `test/repo.i18n.test.mjs` extracts every `t`/`tn`/`N_` literal from js/ and fails on a missing
+  key, a placeholder mismatch, an empty translation, unsorted keys, a key no source uses any more,
+  or a `t()` of a template literal with `${}` (a key that cannot be looked up). A missing key falls back to English
+  silently.
+- **Numbers and dates.** User-visible numbers go through `core/format.js` (`fmtNum`, `fmtInt`,
+  `fmtDeg`, `fmtMag`, `fmtDistKm`, `fmtDuration`…): Vietnamese has a decimal comma, dot grouping,
+  and '; ' between coordinates. Dates and times go through `dateText`/`timeText` (the UI hub's
+  `fmtDay`, `fmtClock`, `fmtWhen`…): English keeps its designed form ('Sun 11 Oct 2026', '8:14 PM',
+  Intl en-US names); other locales use `Intl.DateTimeFormat(locale).formatToParts` on the
+  calendar's fields, with the weekday from the fields, so Julian dates before 1582 stay right.
+  Machine formats never change: the URL hash, .ics, CSV, diagnostics.
+- **Choosing.** `#lang=vi|en` (this visit only; the address bar keeps it), then the saved choice
+  (pref `lang`, Display → Language · Ngôn ngữ), then `navigator.language` ('vi…' → Vietnamese),
+  else English. At boot `main.js` fetches `data/i18n/<code>.json` alongside the UI module and
+  `setLocale`s it before `mountUI`; if it fails within 3 s the interface mounts in English with a
+  toast (in English). `<html lang>` follows. Changing the language in Display saves the pref,
+  drops `#lang=` and **reloads**: the page is built in one language, and the state survives in the
+  hash. English costs no table; vi.json is fetched only when Vietnamese is active (it is not in
+  the service worker's precache: the warm-up message caches it on a Vietnamese visit).
+- **Names.** Constellations keep their IAU Latin names and stars their proper names (Sirius,
+  Vega); the Sun, Moon and planets are translated (Mặt Trời, Mặt Trăng, Sao Thủy…).
+- **The astro worker.** It has its own module instance, so `client.js` posts the active locale
+  and table as the worker's first message (op `locale`; the locale only changes by reload) and
+  worker-side `t()` works. Prefer returning structured fields (a kind and its values) and
+  writing the sentence in js/ui; text the worker builds (almanac and event sentences) uses `t()`
+  with the posted table.
+- **A new locale.** Add it to `LOCALES` (its own name) and `TAGS` in i18n.js, add
+  `data/i18n/<code>.json` with every key, a `FILE_BUDGETS` entry in scripts/check-size.mjs, and
+  the test's `TABLES`. Plural forms beyond one/other are objects keyed by Intl.PluralRules
+  categories (`{"one": …, "few": …, "other": …}`).

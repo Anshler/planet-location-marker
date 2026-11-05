@@ -6,10 +6,13 @@
  * one call per setTimeout(0) tick so the page stays responsive.
  *
  * The worker is created lazily on the first call, so it never competes with
- * the critical boot path.
+ * the critical boot path. Its first message is the interface's locale and string table
+ * (core/i18n.js; the locale only changes by a reload), so worker-side t() speaks it too.
  *
  * @module astro/client
  */
+
+import { locale, strings } from '../core/i18n.js';
 
 /**
  * @typedef {{
@@ -99,6 +102,8 @@ export function createAstroClient(options = {}) {
             return;
         }
         mode = 'worker';
+        // id 0 is never pending: the reply is dropped.
+        if (strings()) worker.postMessage({ id: 0, op: 'locale', args: { code: locale(), table: strings() } });
         worker.addEventListener('message', onMessage);
         worker.addEventListener('error', switchToFallback);
         worker.addEventListener('messageerror', switchToFallback);

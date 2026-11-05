@@ -26,6 +26,7 @@ import { keysForTier, prefetchTextures, setMaxTextureSize } from './core/texture
 import * as prefs from './core/prefs.js';
 import * as tz from './core/tz.js';
 import * as format from './core/format.js';
+import { LOCALES, pickLocale, setLocale, locale } from './core/i18n.js';
 import { loadCities, placeToObserver } from './geo/cities.js';
 import { createGeocoder, createLruCache } from './geo/geocode.js';
 import { createHorizon } from './geo/horizon.js';
@@ -67,6 +68,8 @@ const PREVIEW_WAIT_MS = 300;
 /** Never wait longer than this for shader compilation behind the loader. */
 const COMPILE_MAX_WAIT_MS = 10000;
 const DATA_TIMEOUT_MS = 20000;
+/** How long the UI waits for its language's table (data/i18n/<code>.json) before it mounts in English. */
+const LANG_WAIT_MS = 3000;
 const QUALITY_SETTINGS = ['auto', 'low', 'medium', 'high', 'max'];
 const DOUBLE_CLICK_MS = 380;
 const DOUBLE_CLICK_PX = 12;
@@ -511,6 +514,10 @@ async function boot() {
     } catch {
         hash = {};
     }
+    // The interface's language (core/i18n.js): #lang=, the saved choice, the device's language.
+    // Its table (data/i18n/<code>.json) arrives before the UI mounts; English needs none.
+    const lang = pickLocale(hash.lang, prefs.load('lang', null), navigator.language);
+    const langP = lang === 'en' ? null : fetchJson(`data/i18n/${lang}.json`, LANG_WAIT_MS);
     let decision = { tier: 'low', ceiling: 'low', textMode: !env.can3d, reason: 'text' };
     try {
         decision = detectTier({
@@ -705,6 +712,9 @@ async function boot() {
     const st1 = store.get();
     const firstRun = env.can3d && !prefs.load('introSeen', false) && !hash.cam && !hash.tour && hash.intro !== false
         && st1.view.mode === 'orbit' && st1.view.vantage === 'none' && st1.host.id === 'earth';
+    const table = await langP;
+    if (table && typeof table === 'object') setLocale(lang, table);
+    document.documentElement.lang = locale();
     try {
         const { mountUI } = await uiModP;
         R.ui = mountUI(document.getElementById('ui-root'), {
@@ -726,6 +736,7 @@ async function boot() {
         suspended: () => !!store.get().ui.tour,
     });
     reportHashProblems(hash, bus);
+    if (locale() !== lang) bus.emit('toast', { message: `${LOCALES[lang]} could not be loaded, so the interface is in English.`, kind: 'warn' });
     bindLaunchQueue(bootHref);
     // A Mars link without the 3D view opens on the Earth: say why (as actions.standOnMars does).
     if (hash.host?.id === 'mars' && !env.can3d) bus.emit('toast', { message: 'Standing on Mars needs the 3D view.', kind: 'info' });
@@ -1793,7 +1804,7 @@ function diagnostics() {
         maxTex: R.rc?.renderer?.capabilities?.maxTextureSize ?? env.maxTextureSize, dpr: window.devicePixelRatio, renderDpr: R.rc?.dpr,
         viewport: [window.innerWidth, window.innerHeight], coarse: env.coarse, userAgent: navigator.userAgent, webgl: st?.status.webgl,
         governor: R.governor, tierLog: R.tierLog, disabled: ls.disabled, strikes: ls.strikes, losses: R.losses,
-        errors: window.__pcErrors, stats: app.stats(), hash: location.hash, sw: app.sw,
+        errors: window.__pcErrors, stats: app.stats(), hash: location.hash, sw: app.sw, lang: locale(),
     });
 }
 

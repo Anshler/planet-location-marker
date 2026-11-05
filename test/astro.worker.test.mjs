@@ -14,7 +14,7 @@ const NEAR = Date.parse('2026-10-11T08:00:00Z');
 
 test('worker.js is importable on the main thread without side effects', () => {
     assert.equal(typeof W.runOp, 'function');
-    assert.deepEqual(Object.keys(W.OPS).sort(), ['almanac', 'altSeries', 'eclipsePath', 'events', 'moonOrbit', 'orbits', 'path', 'ping', 'riseSet', 'satPasses', 'sunFigures', 'sunSeries', 'tonight', 'twilight', 'visibilityYear']);
+    assert.deepEqual(Object.keys(W.OPS).sort(), ['almanac', 'altSeries', 'eclipsePath', 'events', 'locale', 'moonOrbit', 'orbits', 'path', 'ping', 'riseSet', 'satPasses', 'sunFigures', 'sunSeries', 'tonight', 'twilight', 'visibilityYear']);
     assert.equal(typeof globalThis.onmessage, 'undefined');
 });
 

@@ -422,7 +422,7 @@ export function mountBodyCard(root, ctx) {
             verdictBadge.className = `badge badge--${tone}`;
             const bits = [];
             if (Number.isFinite(rep.bestMs) && rep.verdict !== 'not-visible' && rep.verdict !== 'daytime') {
-                bits.push(`best around ${ui.fmtWhen(rep.bestMs, t)}${Number.isFinite(rep.bestAltDeg) ? `, ${Math.round(rep.bestAltDeg)}° high` : ''}${Number.isFinite(rep.bestAzDeg) ? ` in the ${ui.compassWords(rep.bestAzDeg)}` : ''}`);
+                bits.push(`best around ${Math.abs(rep.bestMs - t) < 864e5 ? ui.fmtClock(rep.bestMs) : ui.fmtWhen(rep.bestMs, t)}${Number.isFinite(rep.bestAltDeg) ? `, ${Math.round(rep.bestAltDeg)}° high` : ''}${Number.isFinite(rep.bestAzDeg) ? ` in the ${ui.compassWords(rep.bestAzDeg)}` : ''}`);
             }
             if (Number.isFinite(rep.windowStartMs) && Number.isFinite(rep.windowEndMs) && rep.windowEndMs > rep.windowStartMs) {
                 bits.push(`visible ${ui.fmtClock(rep.windowStartMs)}–${ui.fmtClock(rep.windowEndMs)}`);

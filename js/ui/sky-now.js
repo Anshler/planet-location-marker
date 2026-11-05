@@ -83,12 +83,14 @@ export function isUp(b, alt) {
  */
 function riseSetText(ui, id, up, t) {
     const rs = ui.riseSetFor(id, t);
+    // The next one, so within a day the clock says it ("Sets 02:45", never "Rises Sun 07:28").
+    const at = (ms) => (ms - t < 864e5 ? ui.fmtClock(ms) : ui.fmtWhen(ms, t));
     if (up) {
-        if (rs.nextSetMs != null) return `Sets ${ui.fmtWhen(rs.nextSetMs, t)}`;
+        if (rs.nextSetMs != null) return `Sets ${at(rs.nextSetMs)}`;
         if (rs.status === 'circumpolar') return 'Up all day';
         return '';
     }
-    if (rs.nextRiseMs != null) return `Rises ${ui.fmtWhen(rs.nextRiseMs, t)}`;
+    if (rs.nextRiseMs != null) return `Rises ${at(rs.nextRiseMs)}`;
     if (rs.status === 'never') return 'Stays below the horizon';
     return '';
 }
@@ -274,7 +276,7 @@ export function mountSkyNow(root, ctx) {
             setText(r.alt, altTxt);
             setText(r.dir, dirTxt);
             const rsTxt = riseSetText(ui, b.id, up, t);
-            const magTxt = shownMag(b) !== null ? `mag ${ui.fmt('fmtMag', b.mag)}` : '';
+            const magTxt = b.id !== 'sun' && shownMag(b) !== null ? `mag ${ui.fmt('fmtMag', b.mag)}` : '';
             setText(r.sub, [rsTxt, magTxt].filter(Boolean).join(' · '));
             const spoken = up
                 ? `${ui.bodyName(b.id)}: ${Math.round(alt)} degrees up in the ${ui.compassWords(az)}.`

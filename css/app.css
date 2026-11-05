@@ -1767,10 +1767,10 @@ body.is-touring .toasts { bottom: calc(var(--gutter) + var(--tb-h) + 180px + var
 
 /* Menus (dom.js menu(): Tools, Share, ⋯): a name and a one-line detail per row, the key on the
    right, ● or ✓ before a checked choice, eyebrow titles over groups. */
-.vmenu { width: 340px; max-height: calc(100dvh - 24px); overflow-y: auto; padding: var(--sp-1); }
+.vmenu { width: 372px; max-height: calc(100dvh - 24px); overflow-y: auto; padding: var(--sp-1); }
 .vmenu__title { padding: var(--sp-2) var(--sp-3) var(--sp-1); }
 .vmenu__sep { height: 1px; margin: var(--sp-1) var(--sp-2); background: var(--line); }
-.vmenu__item { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 9px 10px; border: 0; border-radius: var(--r-s); background: none; color: var(--text); text-align: left; cursor: pointer; }
+.vmenu__item { display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 8px 10px; border: 0; border-radius: var(--r-s); background: none; color: var(--text); text-align: left; cursor: pointer; }
 .vmenu__item:hover, .vmenu__item:focus-visible { background: rgba(255, 255, 255, .07); }
 .vmenu__item svg { flex: none; margin-top: 1px; color: var(--muted); }
 .vmenu__item[aria-checked="true"] svg, .vmenu__item[aria-checked="true"] .vmenu__name { color: var(--accent); }

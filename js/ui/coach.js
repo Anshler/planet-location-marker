@@ -123,7 +123,7 @@ export function mountCoach(root, ctx) {
         if (id === 'view') return visible(q('.ui .seg--view')) ? q('.ui .seg--view') : null;
         const ids = featuredWorld(ui.snap?.bodies, ui.altAz);
         const panel = q('.ui .panel')?.getBoundingClientRect();
-        for (const sel of ['#labels-root .lbl--body[data-id="?"]:not(.is-hidden)', '.ui .tabpanel--sky:not([hidden]) .body-row[data-id="?"]']) {
+        for (const sel of ['#labels-root .lbl--body[data-id="?"]:not(.is-hidden, .is-below)', '.ui .tabpanel--sky:not([hidden]) .body-row[data-id="?"]']) {
             for (const b of ids) {
                 const el = q(sel.replace('?', b));
                 // A beam label under the desktop panel does not count.

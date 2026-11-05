@@ -1685,7 +1685,22 @@ The interface speaks English and Vietnamese. gettext style: **the English source
   hash. English costs no table; vi.json is fetched only when Vietnamese is active (it is not in
   the service worker's precache: the warm-up message caches it on a Vietnamese visit).
 - **Names.** Constellations keep their IAU Latin names and stars their proper names (Sirius,
-  Vega); the Sun, Moon and planets are translated (Mặt Trời, Mặt Trăng, Sao Thủy…).
+  Vega); the Sun, Moon and planets are translated (Mặt Trời, Mặt Trăng, Sao Thủy…). The panels
+  show `astro/bodies.js` names through `t()` (`ui.bodyName`, or `t(b.name)`), and the search
+  finds a body by either name ('Sao Mộc' or 'Jupiter'). The Moon's kind reads 'Natural
+  satellite', so it never repeats the body's own name.
+- **The panels** (Up now, Details, Events, Explore, the search, the HUD, the dialogs) build every
+  sentence in js/ui from the snapshot's and the almanac's numbers, one `t()` per whole phrase.
+  Their data tables mark their words with `N_` and are shown with `t()`: `core/moments.js`
+  (titles, dates, captions; sources stay as cited), `core/tour-catalog.js`, the exposure, video
+  and postcard presets, the HUD's contacts and titles. What the astro modules write themselves
+  (event titles and details, extra objects' cards, `skyCaption`, `findIt`, `auroraText`, the
+  Mars season) reaches the panels as their module returns it. An .ics file's SUMMARY and
+  DESCRIPTION, a postcard's band and a video's stamp follow the interface's language; the
+  calendar's structure, dates and UIDs do not change. Vietnamese details the layout absorbs:
+  mid-sentence months are lower case ('giữa tháng 8'; Intl's standalone form is 'Tháng 8'), a
+  month axis too narrow for 'Tháng 11' takes Intl's narrow form, and Tonight's names column is
+  measured from the locale's longest name.
 - **The astro worker.** It has its own module instance, so `client.js` posts the active locale
   and table as the worker's first message (op `locale`; the locale only changes by reload) and
   worker-side `t()` works. Prefer returning structured fields (a kind and its values) and

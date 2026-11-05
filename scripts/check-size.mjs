@@ -94,9 +94,10 @@ export const FILE_BUDGETS = {
     'data/starinfo.json': 160 * KB,
     // The max tier's deeper stars (scripts/build-stars.mjs; fetched on max only, outside every tier budget).
     'data/stars8.json': 1300 * KB,
-    // The Vietnamese strings (core/i18n.js; fetched before the UI mounts, only when Vietnamese is active; every UI
-    // string once converted, ≈ 2000 keys).
-    'data/i18n/vi.json': 160 * KB,
+    // The Vietnamese strings (core/i18n.js; fetched before the UI mounts, only when Vietnamese is active; outside
+    // every tier budget). Re-baselined 2026-11-05 from 160 KB: the app's and astro modules' sentences (events,
+    // object cards, light time, tours) brought it to ≈ 1850 keys, 168 KB raw (≈ 50 KB gzip).
+    'data/i18n/vi.json': 200 * KB,
     // The 512 px Earth previews (scripts/build-textures.mjs): they ride ahead of the module graph, so they stay tiny.
     'assets/textures/earth_day_preview.webp': 16 * KB,
     'assets/textures/earth_night_preview.webp': 10 * KB,

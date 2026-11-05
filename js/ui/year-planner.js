@@ -18,7 +18,7 @@
 import { BODIES, BODY_INDEX } from '../astro/bodies.js';
 import { PLANNER_BODIES, plannerVisible, plannerSummary } from '../astro/planner.js';
 import { h, on, setText } from './dom.js';
-import { t, N_ } from '../core/i18n.js';
+import { t, N_, locale } from '../core/i18n.js';
 
 const DAY = 86400e3;
 const NIGHTS = 365;
@@ -222,7 +222,8 @@ export function createYearPlanner(ctx) {
             const x = PAD_L + (i / N) * pw;
             if (prevMo >= 0) {
                 c.fillStyle = 'rgba(200,210,225,.75)';
-                c.fillText(ui.fmtDate(year.firstMidnightMs + (i - 1) * DAY + DAY / 2, { month: 'short' }, zone), (monthX + x) / 2, CHART_H - 4);
+                // A column is ~26 px: 'Nov', or Intl's narrow month outside English ('11', not 'Tháng 11').
+                c.fillText(ui.fmtDate(year.firstMidnightMs + (i - 1) * DAY + DAY / 2, { month: locale() === 'en' ? 'short' : 'narrow' }, zone), (monthX + x) / 2, CHART_H - 4);
             }
             if (z && i > 0) { c.fillStyle = 'rgba(255,255,255,.1)'; c.fillRect(Math.round(x), PAD_T, 1, ph); }
             monthX = x;
@@ -262,7 +263,9 @@ export function createYearPlanner(ctx) {
         if (!s || s.visibleNights === 0) return t('{body}: not well placed from here in the next 12 months (too low, or too close to the Sun).', { body: name });
         const zone = zoneOf();
         const nightMs = (i) => year.firstMidnightMs + i * DAY;
-        const when = (i) => part(ui.zoned(nightMs(i) + DAY / 2, zone).d, ui.fmtDate(nightMs(i) + DAY / 2, { month: 'long' }, zone));
+        // Intl's standalone month is capitalised in Vietnamese ('Tháng 8'); mid-sentence it is 'tháng 8'.
+        const month = (ms) => { const m = ui.fmtDate(ms, { month: 'long' }, zone); return locale() === 'en' ? m : m.toLocaleLowerCase(); };
+        const when = (i) => part(ui.zoned(nightMs(i) + DAY / 2, zone).d, month(nightMs(i) + DAY / 2));
         const yearOf = (i) => ui.zoned(nightMs(i) + DAY / 2, zone).y;
         let maxMin = 0;
         for (let i = s.bestFrom; i <= s.bestTo; i++) maxMin = Math.max(maxMin, s.minutes[i]);

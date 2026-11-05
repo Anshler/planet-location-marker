@@ -1702,7 +1702,7 @@ body.is-exposing #labels-root { visibility: hidden; }
 .ecl-trk__rail.is-central { background: linear-gradient(90deg, var(--c) 25%, var(--k) 25% 75%, var(--c) 75%); box-shadow: 0 0 0 1px rgba(255, 255, 255, .12); }
 .ecl-trk__head { position: absolute; top: -5px; left: calc(var(--p) * 100%); z-index: 1; width: 3px; height: 14px; margin-left: -1.5px; border-radius: var(--r-pill); background: var(--accent); box-shadow: 0 0 8px rgba(124, 196, 255, .8); }
 .ecl-trk__nodes { position: relative; height: 48px; margin: 0; padding: 0; list-style: none; }
-.ecl-trk__nodes li { position: absolute; top: 6px; display: flex; flex-direction: column; align-items: center; max-width: 72px; color: var(--muted); font-size: var(--fs-1); line-height: 1.25; text-align: center; transform: translateX(-50%); }
+.ecl-trk__nodes li { position: absolute; top: 6px; display: flex; flex-direction: column; align-items: center; width: max-content; max-width: 72px; color: var(--muted); font-size: var(--fs-1); line-height: 1.25; text-align: center; transform: translateX(-50%); }
 .ecl-trk__nodes small { color: var(--faint); font-size: var(--fs-1); }
 .ecl-trk__nodes li::before { content: ""; position: absolute; top: -12px; left: calc(50% - 4px); width: 8px; height: 8px; border: 1.5px solid var(--muted); border-radius: 50%; background: var(--panel-solid); }
 .ecl-trk__nodes li:first-child { align-items: flex-start; transform: translateX(-4px); }

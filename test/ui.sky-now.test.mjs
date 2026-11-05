@@ -2,7 +2,7 @@
 // panels name the eclipse from snap.eclipse.moonLitFraction instead.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { lunarEclipseState, moonPhaseName, moonEclipseText, solarEclipseState, solarDiscGeometry, shownMag } from '../js/ui/sky-now.js';
+import { lunarEclipseState, moonPhaseName, moonEclipseText, solarEclipseState, solarDiscGeometry, shownMag, subText, downText } from '../js/ui/sky-now.js';
 import { AE } from '../js/astro/ae.js';
 import { createSnapshot, computeSnapshot } from '../js/astro/snapshot.js';
 
@@ -105,4 +105,13 @@ test('chartsPref: a chart and an open state the user chose; Tonight wins only wh
     assert.deepEqual(chartsPref({ open: false }, false), { open: false, mode: 'up', chart: 'dome' });
     assert.deepEqual(chartsPref({ open: true, chart: 'tonight', mode: 'map' }, false), { open: true, chart: 'tonight', mode: 'map' }, 'once migrated, tonightOpen is ignored');
     assert.deepEqual(chartsPref({ open: 'yes', chart: 'pie' }, null), { mode: 'up', chart: 'dome' }, 'junk is dropped');
+});
+
+test('a body that never rises: "stays down" on the right, only its magnitude below (no second "stays below")', () => {
+    const ui = { fmt: () => '—' };
+    const never = { status: 'never', nextRiseMs: null };
+    assert.equal(downText(ui, never, 0), 'stays down');
+    assert.equal(subText(never, 'Stays below the horizon', false, 'mag 0.6'), 'mag 0.6');
+    assert.equal(subText({ status: 'normal', nextRiseMs: 5e6 }, 'Rises 21:03', false, 'mag 0.6'), 'Rises 21:03 · mag 0.6');
+    assert.equal(subText({ status: 'circumpolar', nextRiseMs: null }, 'Up all day', true, ''), 'Up all day');
 });

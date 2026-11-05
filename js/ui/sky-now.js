@@ -97,6 +97,20 @@ function riseSetText(ui, id, up, now) {
 }
 
 /**
+ * A row's sub-line: rise or set, then the magnitude. Not 'Stays below the horizon' when the
+ * right-hand column already says 'stays down' (downText): the magnitude gets the room.
+ * @param {{status?:string, nextRiseMs?:number|null}} rs
+ * @param {string} rsTxt riseSetText
+ * @param {boolean} up
+ * @param {string} magTxt
+ * @returns {string}
+ */
+export function subText(rs, rsTxt, up, magTxt) {
+    const staysDown = !up && rs?.nextRiseMs == null && rs?.status === 'never';
+    return [staysDown ? '' : rsTxt, magTxt].filter(Boolean).join(' · ');
+}
+
+/**
  * The right-hand column of a row below the horizon: how long until it rises.
  * @returns {string}
  */
@@ -279,7 +293,7 @@ export function mountSkyNow(root, ctx) {
             setText(r.dir, dirTxt);
             const rsTxt = riseSetText(ui, b.id, up, now);
             const mag = b.id !== 'sun' && shownMag(b) !== null ? ui.fmt('fmtMag', b.mag) : '';
-            setText(r.sub, [rsTxt, mag && t('mag {m}', { m: mag })].filter(Boolean).join(' · '));
+            setText(r.sub, subText(rs, rsTxt, up, mag && t('mag {m}', { m: mag })));
             const body = ui.bodyName(b.id);
             const rising = !up && altTxt !== t('stays down') && altTxt !== t('below horizon');
             const spoken = up ? t('{body}: {deg} degrees up in the {dir}.', { body, deg: Math.round(alt), dir: ui.compassWords(az) })

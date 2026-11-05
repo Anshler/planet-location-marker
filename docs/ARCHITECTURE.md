@@ -18,7 +18,7 @@ formulas and accuracy, is in [ASTRONOMY.md](ASTRONOMY.md).
 index.html        import map · inline loader · feature detection · global error capture
 └─ js/main.js     composition root: builds everything, wires it together, owns boot order
    ├─ js/core/    app state: store, bus, clock, url-state, prefs, tz, format, quality,    PURE
-   │              texture-plan, context-loss, diagnostics
+   │              texture-plan, context-loss, diagnostics, i18n (strings and Intl)
    ├─ js/geo/     offline cities, online geocoder, lat/lon parsing, landscape profile     PURE
    ├─ js/astro/   astronomy: frames, snapshot, almanac, events, paths, worker + client    PURE
    ├─ js/data/    star-catalog decoder                                                    PURE
@@ -1652,7 +1652,12 @@ The interface speaks English and Vietnamese. gettext style: **the English source
   placeholders, toasts, announcements and alt text count. Key names on key caps stay keys.
 - **A table's string.** Module-level tables are built before the locale is set, so mark their
   strings `N_('Beams')` (an identity) and translate where they are shown: `t(item.label)`. Never
-  call `t()` at module level.
+  call `t()` at module level. `t(name)` of a string the table lacks (a city, a comet) is that
+  string, so names can always pass through it. Several tables share one English source:
+  `astro/bodies.js` names, `ui/layers.js LAYER_GROUPS` (Display, the help table, the shortcut
+  flashes), `ui/shell.js TABS`, `ui/timebar.js STEP_UNITS`.
+- **No local `t`.** A module that imports `t` never names a variable or parameter `t` (it would
+  shadow the import, or throw in its temporal dead zone); the repo test checks it.
 - **Then** add the translation to `data/i18n/vi.json` (`{"English": "Tiếng Việt"}`, keys sorted).
   `test/repo.i18n.test.mjs` extracts every `t`/`tn`/`N_` literal from js/ and fails on a missing
   key, a placeholder mismatch, an empty translation, unsorted keys, a key no source uses any more,
@@ -1664,7 +1669,13 @@ The interface speaks English and Vietnamese. gettext style: **the English source
   `fmtDay`, `fmtClock`, `fmtWhen`…): English keeps its designed form ('Sun 11 Oct 2026', '8:14 PM',
   Intl en-US names); other locales use `Intl.DateTimeFormat(locale).formatToParts` on the
   calendar's fields, with the weekday from the fields, so Julian dates before 1582 stay right.
-  Machine formats never change: the URL hash, .ics, CSV, diagnostics.
+  Machine formats never change: the URL hash, .ics, CSV, diagnostics, the GitHub issue template.
+  The hub's `ui.fmtDate(ms, opts, tz)` takes Intl's options for any other shape ('October 2026').
+  Where space is tight outside English the time bar uses Intl's compact forms: ticks 'T3 14', the
+  phone's date 'T5, 5/11/2026'.
+- **Layout.** Vietnamese runs about a quarter longer. `:lang(vi)` rules in css/app.css absorb the
+  few places that need it (the phone's LIVE pill); prefer a layout that wraps over a per-language
+  rule.
 - **Choosing.** `#lang=vi|en` (this visit only; the address bar keeps it), then the saved choice
   (pref `lang`, Display → Language · Ngôn ngữ), then `navigator.language` ('vi…' → Vietnamese),
   else English. At boot `main.js` fetches `data/i18n/<code>.json` alongside the UI module and

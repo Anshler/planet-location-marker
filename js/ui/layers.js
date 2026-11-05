@@ -1,11 +1,9 @@
 /**
  * Display tab (UI-REDESIGN §4.11): a switch per layer (actions.toggleLayer), the current view's
- * first (`where`: 'globe', which counts the map and the solar system, 'sky' or 'both') and the
- * other view's in their own group, Reset layers; then Quality, Sky conditions (light pollution, the
- * modelled aurora), Comfort (night vision), About this app (ui/about.js), Replay intro and Reset all
- * settings. Each group is a <details> whose summary says its state ("6 of 6 on"); a first visit
- * opens Beams and labels, later ones what was left open (pref `displayOpen`). A group's id is its
- * `[data-reveal]` for ui.openPanel. Text mode keeps Sky conditions, Comfort, About and the App row.
+ * first (`where`: 'globe', which counts the map and the solar system, 'sky' or 'both'), then the
+ * other view's; Quality, Sky conditions, Comfort, About this app (ui/about.js), Replay intro and
+ * Reset all settings. Each group is a <details data-reveal> whose summary gives its state; pref
+ * `displayOpen` keeps the open ones. Text mode keeps Sky conditions, Comfort, About and the App row.
  *
  * @module ui/layers
  */
@@ -91,9 +89,6 @@ export function layersFor(view) {
 export const BORTLE_NAMES = ['Excellent dark site', 'Typical dark site', 'Rural sky', 'Rural/suburban transition', 'Suburban sky',
     'Bright suburban sky', 'Suburban/urban transition', 'City sky', 'Inner-city sky'];
 const TIER_NAME = { low: 'Low', medium: 'Medium', high: 'High', max: 'Max' };
-/** Max is never chosen automatically, so its cost is spelled out next to the choice. */
-const MAX_CAPTION = 'Everything at full detail: 8K Earth maps, full screen resolution, every effect at its finest. '
-    + 'Large download (about 15 MB more); for fast GPUs.';
 const AURORA_STATE = { quiet: 'Quiet aurora', typical: 'Typical aurora', storm: 'Aurora storm' };
 
 /**
@@ -106,22 +101,17 @@ export function mountDisplay(root, ctx) {
     const { store, ui } = ctx;
     const offs = [];
     const st0 = store.get();
-    const opened = new Set(loadPref('displayOpen', ['beams']));
+    const opened = loadPref('displayOpen', ['beams']);
     const fill = (t, parts) => tpl(t, parts).textContent;
-    /** A group: a <details> whose summary is its title and its state (`set`). */
+    /** A group: its summary is its title and its state (`set`). */
     const fold = (id, title, ...kids) => {
         const state = h('span', { class: 'fold__state' });
-        const el = h('details', { class: 'fold', 'data-reveal': id, open: opened.has(id) },
+        const el = h('details', { class: 'fold', 'data-reveal': id, open: opened.includes(id) },
             h('summary', null, title, ' ', state), h('div', { class: 'fold__body' }, ...kids));
         return { el, body: el.lastChild, set: (text) => setText(state, text) };
     };
     // Each group stays as the user leaves it (a reveal counts).
-    offs.push(on(root, 'toggle', ({ target: d }) => {
-        const id = d.dataset?.reveal;
-        if (!id) return;
-        if (d.open) opened.add(id); else opened.delete(id);
-        savePref('displayOpen', [...opened]);
-    }, true));
+    offs.push(on(root, 'toggle', () => savePref('displayOpen', [...root.querySelectorAll('[data-reveal][open]')].map((d) => d.dataset.reveal)), true));
 
     // ---------------------------------------------------------------- layers
     /** @type {Record<string, ReturnType<typeof switchRow>>} */
@@ -145,7 +135,7 @@ export function mountDisplay(root, ctx) {
     const layersEl = h('div', { class: 'display-layers' },
         h('div', { class: 'section-head' }, viewNote, describe, resetLayers), boxes.map((b) => b.el),
         h('p', { class: 'note' }, 'Layer choices are remembered on this device and included in shared links.'));
-    /** Each box's layer keys in the current view: the groups', then the other view's. */
+    /** Each box's keys in this view. */
     let shown = [];
     let shownView = '';
     function placeLayers() {
@@ -154,10 +144,7 @@ export function mountDisplay(root, ctx) {
         shownView = view;
         const { groups, other: rest } = layersFor(view);
         shown = [...groups.map(([, keys]) => keys), rest];
-        boxes.forEach((b, i) => {
-            b.body.replaceChildren(...shown[i].map((k) => rows[k].el));
-            b.el.hidden = !shown[i].length;
-        });
+        boxes.forEach((b, i) => b.body.replaceChildren(...shown[i].map((k) => rows[k].el)));
         setText(otherTitle, view === 'sky' ? 'Only on the globe' : 'Only in Sky view');
         setText(viewNote, view === 'sky' ? 'Layers for the Sky view.' : 'Layers for the globe view.');
     }
@@ -174,11 +161,13 @@ export function mountDisplay(root, ctx) {
         options: ['auto', 'low', 'medium', 'high', 'max'].map((v) => ({ value: v, label: v === 'auto' ? 'Auto' : TIER_NAME[v] })),
         value: st0.quality?.setting || 'auto', onChange: (v) => ui.act('setQuality', v),
     });
-    const running = h('p', { class: 'note' });
-    const qualityBox = fold('quality', 'Quality', quality.el, running);
+    // Max is never chosen automatically, so its cost is spelled out next to the choice.
+    const maxNote = h('p', { class: 'note' }, 'Everything at full detail: 8K Earth maps, full screen resolution, every effect at its finest. '
+        + 'Large download (about 15 MB more); for fast GPUs.');
+    const qualityBox = fold('quality', 'Quality', quality.el, maxNote);
 
     // ---------------------------------------------------------------- sky conditions
-    // Light pollution in the Sky view (js/astro/skyglow.js); a reveal of the group focuses it.
+    // Light pollution in the Sky view (js/astro/skyglow.js), focused by a reveal.
     const skyDark = h('select', { class: 'select', 'data-autofocus': '' },
         h('option', { value: 'auto' }, 'Auto (from your place)'),
         h('option', { value: 'pristine' }, 'Pristine (no light pollution)'),
@@ -253,10 +242,9 @@ export function mountDisplay(root, ctx) {
         const tier = TIER_NAME[st.quality?.active] || 'Medium';
         const chosen = TIER_NAME[qs] || 'Auto';
         quality.set(qs);
+        // Auto, or Max held lower (repeated GPU context losses), says what runs.
         qualityBox.set(chosen === tier ? tier : fill('{setting} (running {tier})', { setting: chosen, tier }));
-        // Max held lower for the session (repeated GPU context losses) says what runs instead.
-        setText(running, qs === 'max' && st.quality?.active === 'max' ? MAX_CAPTION
-            : `Running: ${tier}${qs === 'auto' ? ' · chosen for this device' : ''}`);
+        maxNote.hidden = qs !== 'max';
         const sd = st.display?.skyDark || 'auto';
         if (skyDark.value !== sd) skyDark.value = sd;
         const sg = ui.snap?.skyglow;
@@ -269,7 +257,7 @@ export function mountDisplay(root, ctx) {
         setText(auroraHint, ovalSummary(au));
         const bortle = sd === 'auto' ? sg?.auto && sg.bortle : sd !== 'pristine' && sd;
         conditions.set(fill('{sky} · {aurora}', {
-            sky: bortle ? fill('Bortle {n}', { n: bortle }) : sd === 'auto' ? 'Auto' : 'No light pollution', aurora: AURORA_STATE[au] || '',
+            sky: bortle ? fill('Bortle {n}', { n: bortle }) : sd === 'auto' ? 'Auto' : 'No light pollution', aurora: AURORA_STATE[au],
         }));
         red.set(!!st.display?.red);
         comfort.set(st.display?.red ? 'Night vision on' : 'Night vision off');

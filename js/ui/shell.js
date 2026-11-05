@@ -186,8 +186,8 @@ export function mountShell(root, ctx) {
 
     // ------------------------------------------------------------------ open a panel
     /**
-     * Shows a tab, expanding the rail or raising the sheet as needed; `reveal` opens (the <details>
-     * it is or is in), scrolls to, focuses (`[data-autofocus]`, else the summary) and flashes a section.
+     * Shows a tab, expanding the rail or raising the sheet as needed; `reveal` opens, scrolls to,
+     * focuses and flashes one of its sections.
      * @param {string} id
      * @param {{focus?: boolean, sheet?: 'half'|'full', reveal?: string}} [opts]
      */
@@ -202,8 +202,7 @@ export function mountShell(root, ctx) {
         const pane = tabs[activeTab].pane;
         const sec = reveal && pane.querySelector(`[data-reveal="${reveal}"]`);
         if (sec) {
-            const fold = sec.closest('details');
-            if (fold) fold.open = true;
+            sec.closest('details')?.setAttribute('open', '');
             requestAnimationFrame(() => {
                 sec.scrollIntoView({ block: 'nearest' });
                 (sec.querySelector('[data-autofocus]') || sec.querySelector('summary') || focusables(sec)[0])?.focus({ preventScroll: true });

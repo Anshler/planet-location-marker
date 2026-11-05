@@ -1390,7 +1390,7 @@ body.is-coarse .ev__cal { width: 44px; height: 44px; }
 .group .switch-row, .fold__body > .switch-row { margin: 0 -10px; width: calc(100% + 20px); }
 .display-layers { margin-bottom: 20px; }
 .fold__body { padding-bottom: var(--sp-3); }
-/* Display's groups: the title, and on the right the group's state ("6 of 6 on"). */
+/* A Display group's state ("6 of 6 on"). */
 .fold__state { float: right; margin-left: var(--sp-3); color: var(--muted); font-weight: var(--fw-1); }
 /* A section ui.openPanel revealed: flashed once (an outline only under reduced motion). */
 [data-reveal] { scroll-margin: var(--sp-3); }

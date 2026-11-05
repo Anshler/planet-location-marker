@@ -41,6 +41,16 @@ test('layersFor: a view lists its own layers and puts the other view\'s in one g
     assert.deepEqual(layersFor('globe').other, ['altAzGrid', 'landscape', 'meteors']);
 });
 
+test('Display\'s groups: a unique id each, and none empty in either view (mountDisplay never hides one)', () => {
+    const ids = LAYER_GROUPS.map((g) => g.id);
+    assert.equal(new Set([...ids, 'other', 'quality', 'conditions', 'comfort', 'about']).size, ids.length + 5);
+    for (const view of ['globe', 'sky']) {
+        const { groups, other } = layersFor(view);
+        for (const [title, ks] of groups) assert.ok(ks.length, `${view}: ${title}`);
+        assert.ok(other.length, `${view}: the other view's`);
+    }
+});
+
 test('one name per layer: Display, the announcements and the help table agree', () => {
     for (const [key, label, k] of items) {
         assert.equal(LAYER_LABELS[key], label, key);

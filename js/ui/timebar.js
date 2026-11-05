@@ -486,9 +486,9 @@ export function mountTimebar(root, ctx) {
     // ================================================================ control state
     let lastStampAt = 0;
     let lastYear = NaN;
-    let zoneMode = '', zoneOff = NaN;
     let zoneText = '';               // the zone's long form: accessible names, the popover, announcements
-    let zoneFit = null;              // [long template, place, short form, offset] for fitZone
+    let fitZone = () => {};
+    const refit = () => requestAnimationFrame(() => fitZone());
     function syncControls(force = false) {
         const { playing, live, rate, range } = clock;
         const mobile = ui.layout === 'mobile';
@@ -529,7 +529,7 @@ export function mountTimebar(root, ctx) {
         setText(tzSeg.el.firstChild, ui.placeShort(st.observer) || 'Your place');
         clock24.set(!st.display?.hour12);
     }
-    /** The zone's long and short forms (zoneTemplates) in the date button and the popover. */
+    /** The zone's long and short forms (zoneTemplates) in the date button and the popover, when they change. */
     function syncZone(t, mode) {
         const obs = store.get().observer;
         const [long, short] = zoneTemplates(mode, !!obs?.tzApprox);
@@ -537,33 +537,21 @@ export function mountTimebar(root, ctx) {
         const place = ui.placeShort(obs) || 'Your place';
         const text = tpl(long, { place, offset }).textContent;
         if (text === zoneText) return;
-        zoneText = zoneLong.textContent = text;
-        zoneFit = [long, place, tpl(short, { offset }).textContent, offset];
-        setText(zoneShort, zoneFit[2]);
+        zoneText = text;
+        setText(zoneShort, tpl(short, { offset }).textContent);
         setText(zoneGo, text);
         setText(zoneLoop, text);
+        // The place gives way first, cut here (CSS's ellipsis can leave a gap); under six letters, the short form.
+        fitZone = () => {
+            const pl = h('span', { class: 'stamp__place' }, place);
+            zoneLong.replaceChildren(tpl(long, { place: pl, offset }));
+            const w = pl.clientWidth;
+            if (!w || pl.scrollWidth <= w) return;
+            let n = Math.floor(place.length * w / pl.scrollWidth);
+            do pl.textContent = `${place.slice(0, n).trimEnd()}…`; while (pl.scrollWidth >= w && --n > 5);
+            if (n < 6) zoneLong.textContent = zoneShort.textContent;
+        };
         fitZone();
-    }
-    /**
-     * The place gives way before the offset does. It is cut here, not by CSS's ellipsis, which can
-     * leave a glyph's gap before the comma; with room for under six letters the short form shows.
-     */
-    function fitZone() {
-        const [long, place, short, offset] = zoneFit || [];
-        if (!long?.includes('{place}')) return;
-        let pl = zoneLong.firstElementChild;
-        if (pl?.textContent === place && pl.scrollWidth <= pl.clientWidth) return;
-        pl = h('span', { class: 'stamp__place' }, place);
-        zoneLong.replaceChildren(tpl(long, { place: pl, offset }));
-        const w = pl.clientWidth;
-        if (!w || pl.scrollWidth <= w) return;
-        let lo = 0, hi = place.length;
-        while (lo < hi) {
-            const m = (lo + hi + 1) >> 1;
-            pl.textContent = `${place.slice(0, m).trimEnd()}…`;
-            if (pl.scrollWidth < w) lo = m; else hi = m - 1;
-        }
-        if (lo > 5) pl.textContent = `${place.slice(0, lo).trimEnd()}…`; else zoneLong.textContent = short;
     }
     function syncStamp(force) {
         const now = performance.now();
@@ -581,8 +569,7 @@ export function mountTimebar(root, ctx) {
             if (stampCal.title !== tipText) stampCal.title = tipText;
         }
         const st = store.get();
-        const mode = st.display?.tzMode || 'observer';
-        if (force || mode !== zoneMode || z.offsetMin !== zoneOff) { zoneMode = mode; zoneOff = z.offsetMin; syncZone(t, mode); }
+        syncZone(t, st.display?.tzMode || 'observer');
         const stamp = ui.fmtSpoken(t);
         const host = st.host;
         const mars = host?.id === 'mars';
@@ -1192,7 +1179,7 @@ export function mountTimebar(root, ctx) {
     if (clock.onChange) offs.push(clock.onChange(() => { syncControls(true); kick(); }));
     offs.push(store.subscribe((s) => s.display, () => { labelCache.clear(); syncControls(true); kick(); }));
     offs.push(store.subscribe((s) => s.observer, () => { labelCache.clear(); syncControls(true); kick(); }));
-    offs.push(store.subscribe((s) => s.host, () => { syncControls(true); kick(); requestAnimationFrame(fitZone); }));
+    offs.push(store.subscribe((s) => s.host, () => { syncControls(true); kick(); refit(); }));
     offs.push(ui.on('events', kick));
     offs.push(ui.on('almanac', kick));
     offs.push(on(window, 'resize', () => { geomDirty = true; kick(); }));
@@ -1205,8 +1192,8 @@ export function mountTimebar(root, ctx) {
         kick();
     }) : null;
     ro?.observe(scrub);
-    // The room the zone has: the phone's LIVE or Now, a layout switch, the window.
-    const zro = ro && new ResizeObserver(() => fitZone());
+    // The zone's room: LIVE or Now, the layout, the window.
+    const zro = ro && new ResizeObserver(refit);
     zro?.observe(dateBtn);
     // Live 1× does not animate the clock: refresh the seconds on the second boundary.
     let secTimer = 0;

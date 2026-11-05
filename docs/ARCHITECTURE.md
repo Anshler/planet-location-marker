@@ -1705,7 +1705,10 @@ The interface speaks English and Vietnamese. gettext style: **the English source
   Vega); the Sun, Moon and planets are translated (Mặt Trời, Mặt Trăng, Sao Thủy…). The panels
   show `astro/bodies.js` names through `t()` (`ui.bodyName`, or `t(b.name)`), and the search
   finds a body by either name ('Sao Mộc' or 'Jupiter'). The Moon's kind reads 'Natural
-  satellite', so it never repeats the body's own name.
+  satellite', so it never repeats the body's own name. Places keep the city list's English
+  (GeoNames), except where the locale has its own name: `core/format.js placeName` shows Vietnam's
+  largest cities and a few conventional exonyms in Vietnamese ('TP. Hồ Chí Minh', 'Bắc Kinh'),
+  for display only; links, prefs and the place search keep the English.
 - **The panels** (Up now, Details, Events, Explore, the search, the HUD, the dialogs) build every
   sentence in js/ui from the snapshot's and the almanac's numbers, one `t()` per whole phrase.
   Their data tables mark their words with `N_` and are shown with `t()`: `core/moments.js`

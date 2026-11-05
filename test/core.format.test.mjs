@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
     fmtDate, fmtTime, fmtDateTime, fmtRA, fmtDec, fmtDeg, fmtAlt, fmtAz, compass16, compassWord, fmtDistAU, fmtDistKm,
-    fmtLightTime, fmtRate, fmtMag, fmtPct, fmtLatLon, fmtRelative, fmtDuration, fmtAngSize, fmtInt, fmtNum, moonPhaseName, moonAgeDays,
+    fmtLightTime, fmtRate, fmtMag, fmtPct, fmtLatLon, fmtRelative, fmtDuration, fmtAngSize, fmtInt, fmtNum, moonPhaseName, moonAgeDays, placeName,
 } from '../js/core/format.js';
 import { RATES } from '../js/core/clock.js';
 import { setLocale } from '../js/core/i18n.js';
@@ -244,8 +244,14 @@ test('Vietnamese: decimal comma, dot grouping, Intl dates, translated units (mac
         assert.equal(fmtTime(T, 'Asia/Ho_Chi_Minh', true, { seconds: false }), '8:14 CH');
         assert.equal(moonPhaseName(180), 'Trăng tròn');
         assert.equal(fmtRA(6.7525), '6h 45m 09s', 'RA notation is international');
+        assert.equal(placeName('Ho Chi Minh City'), 'TP. Hồ Chí Minh', 'a city with its own Vietnamese name');
+        assert.equal(placeName('near Hanoi'), 'gần Hà Nội');
+        assert.equal(placeName('near Lyon'), 'gần Lyon');
+        assert.equal(placeName('Lyon'), 'Lyon');
     } finally {
         setLocale('en');
     }
+    assert.equal(placeName('Ho Chi Minh City'), 'Ho Chi Minh City');
+    assert.equal(placeName('near Hanoi'), 'near Hanoi');
     assert.equal(fmtInt(384400), '384,400', 'English again');
 });

@@ -296,7 +296,8 @@ function createUiHub(ctx, rootEl) {
             const r = cities.nearest(lat, lon);
             if (r && r.city && r.km <= 300) {
                 const ctry = countryText(r.city);
-                return ctry ? `${r.city.name}, ${ctry}` : r.city.name;
+                const name = placeName(r.city.name);
+                return ctry ? `${name}, ${ctry}` : name;
             }
         } catch { /* ignore */ }
         return null;

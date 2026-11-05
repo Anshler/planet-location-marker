@@ -374,18 +374,25 @@ export function fmtRelative(ms, nowMs) {
     return d > 0 ? t('in {time}', { time: s }) : t('{time} ago', { time: s });
 }
 
-/** Names app/actions.js and core/store.js give places in English. */
-const NAMED = [N_('North Pole'), N_('South Pole'), N_('Royal Observatory Greenwich')];
+/**
+ * Names app/actions.js and core/store.js give places in English, and the cities (data/cities.json,
+ * GeoNames' English) a locale names its own way: Vietnam's largest and the conventional exonyms.
+ */
+const NAMED = [N_('North Pole'), N_('South Pole'), N_('Royal Observatory Greenwich'),
+    N_('Ho Chi Minh City'), N_('Hanoi'), N_('Haiphong'), N_('Da Nang'), N_('Qui Nhon'),
+    N_('Beijing'), N_('Shanghai'), N_('Guangzhou'), N_('Hong Kong'), N_('Taipei'), N_('Moscow')];
 
 /**
  * An observer's stored name in the locale. app/actions.js names places in English, since names
- * live in links and prefs: 'near Lyon' → 'gần Lyon', 'North Pole' → 'Bắc Cực' (and the default observer); others as given.
+ * live in links and prefs: 'near Lyon' → 'gần Lyon', 'North Pole' → 'Bắc Cực' (and the default
+ * observer), 'Hanoi' → 'Hà Nội'; others as given. Display only: links, prefs and the place search
+ * keep the English.
  * @param {string} name
  * @returns {string}
  */
 export function placeName(name) {
     const s = String(name ?? '');
-    return s.startsWith('near ') ? t('near {place}', { place: s.slice(5) }) : NAMED.includes(s) ? t(s) : s;
+    return s.startsWith('near ') ? t('near {place}', { place: placeName(s.slice(5)) }) : NAMED.includes(s) ? t(s) : s;
 }
 
 /**

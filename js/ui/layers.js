@@ -1,25 +1,27 @@
 /**
  * Display tab (UI-REDESIGN §4.11): a switch per layer (actions.toggleLayer), the current view's
  * first (`where`: 'globe', which counts the map and the solar system, 'sky' or 'both') and the
- * other view's in a closed group, Reset layers; then Sky conditions (light pollution, the modelled
- * aurora), Quality, Comfort (night vision), About this app (ui/about.js), Replay intro and Reset all
- * settings. Sections `[data-reveal]` 'conditions' and 'about' are ui.openPanel's to reveal. Text
- * mode keeps Sky conditions, Comfort, About and the App row.
+ * other view's in their own group, Reset layers; then Quality, Sky conditions (light pollution, the
+ * modelled aurora), Comfort (night vision), About this app (ui/about.js), Replay intro and Reset all
+ * settings. Each group is a <details> whose summary says its state ("6 of 6 on"); a first visit
+ * opens Beams and labels, later ones what was left open (pref `displayOpen`). A group's id is its
+ * `[data-reveal]` for ui.openPanel. Text mode keeps Sky conditions, Comfort, About and the App row.
  *
  * @module ui/layers
  */
 
 import { DEFAULT_STATE } from '../core/store.js';
+import { load as loadPref, save as savePref } from '../core/prefs.js';
 import { ovalSummary } from '../astro/geomag.js';
 import { VERSION } from '../version.js';
-import { h, on, setText, segmented, switchRow } from './dom.js';
+import { h, on, setText, segmented, switchRow, tpl } from './dom.js';
 import { icon } from './icons.js';
 import { mountAbout } from './about.js';
 
 /** Layer switches by meaning: [key, label, keys?, description?, where ('globe' | 'sky' | 'both')]. */
 export const LAYER_GROUPS = [
     {
-        title: 'Beams and labels',
+        id: 'beams', title: 'Beams and labels',
         items: [
             ['beams', 'Beams', ['B'], 'A line of sight from you to every body', 'globe'],
             ['ghostBeams', 'Beams through the Earth', null, 'Dashed where a beam passes through the planet', 'globe'],
@@ -28,7 +30,7 @@ export const LAYER_GROUPS = [
         ],
     },
     {
-        title: 'Stars',
+        id: 'stars', title: 'Stars',
         items: [
             ['stars', 'Stars', null, null, 'both'],
             ['constellations', 'Constellation lines', ['C'], null, 'both'],
@@ -39,7 +41,7 @@ export const LAYER_GROUPS = [
         ],
     },
     {
-        title: 'Guides',
+        id: 'guides', title: 'Guides',
         items: [
             ['ecliptic', 'Ecliptic', ['E'], 'The Sun’s yearly path; planets stay close to it', 'both'],
             ['eqGrid', 'Equatorial grid (RA/Dec)', ['G'], 'Right ascension and declination of date: the true pole and equinox', 'both'],
@@ -50,7 +52,7 @@ export const LAYER_GROUPS = [
         ],
     },
     {
-        title: 'Earth',
+        id: 'earth', title: 'Earth',
         items: [
             ['clouds', 'Clouds', null, 'Illustrative, not live weather', 'globe'],
             ['atmosphere', 'Atmosphere', null, null, 'globe'],
@@ -61,7 +63,7 @@ export const LAYER_GROUPS = [
         ],
     },
     {
-        title: 'In orbit',
+        id: 'orbit', title: 'In orbit',
         items: [
             ['satellites', 'Satellites', null, 'The ISS, Tiangong, Hubble and bright rocket bodies moving in real time, with their next visible passes', 'both'],
             ['spacecraft', 'Spacecraft', null, 'Faint radio beams to Voyager 1 and 2, New Horizons and JWST, with the one-way radio time', 'both'],
@@ -92,6 +94,7 @@ const TIER_NAME = { low: 'Low', medium: 'Medium', high: 'High', max: 'Max' };
 /** Max is never chosen automatically, so its cost is spelled out next to the choice. */
 const MAX_CAPTION = 'Everything at full detail: 8K Earth maps, full screen resolution, every effect at its finest. '
     + 'Large download (about 15 MB more); for fast GPUs.';
+const AURORA_STATE = { quiet: 'Quiet aurora', typical: 'Typical aurora', storm: 'Aurora storm' };
 
 /**
  * Mounts the Display tab.
@@ -103,44 +106,59 @@ export function mountDisplay(root, ctx) {
     const { store, ui } = ctx;
     const offs = [];
     const st0 = store.get();
-    const group = (title, ...kids) => h('div', { class: 'group' }, h('h3', { class: 'group-title' }, title), ...kids);
+    const opened = new Set(loadPref('displayOpen', ['beams']));
+    const fill = (t, parts) => tpl(t, parts).textContent;
+    /** A group: a <details> whose summary is its title and its state (`set`). */
+    const fold = (id, title, ...kids) => {
+        const state = h('span', { class: 'fold__state' });
+        const el = h('details', { class: 'fold', 'data-reveal': id, open: opened.has(id) },
+            h('summary', null, title, ' ', state), h('div', { class: 'fold__body' }, ...kids));
+        return { el, body: el.lastChild, set: (text) => setText(state, text) };
+    };
+    // Each group stays as the user leaves it (a reveal counts).
+    offs.push(on(root, 'toggle', ({ target: d }) => {
+        const id = d.dataset?.reveal;
+        if (!id) return;
+        if (d.open) opened.add(id); else opened.delete(id);
+        savePref('displayOpen', [...opened]);
+    }, true));
 
     // ---------------------------------------------------------------- layers
     /** @type {Record<string, ReturnType<typeof switchRow>>} */
     const rows = {};
-    const boxes = LAYER_GROUPS.map((g) => {
+    const otherTitle = h('span');
+    const boxes = [...LAYER_GROUPS.map((g) => {
         for (const [key, label, keys, desc] of g.items) {
             rows[key] = switchRow({
                 label, desc: desc || undefined, keys: keys || undefined, checked: !!st0.layers?.[key],
                 onChange: (v) => ui.act('toggleLayer', key, v),
             });
         }
-        return group(g.title);
-    });
+        return fold(g.id, g.title);
+    }), fold('other', otherTitle)];
     const resetLayers = h('button', { class: 'btn btn--ghost btn--sm', type: 'button' }, icon('undo', { size: 15 }), 'Reset layers');
     const viewNote = h('p', { class: 'display__view' });
-    const otherSum = h('summary');
-    const otherBody = h('div', { class: 'fold__body' });
-    const other = h('details', { class: 'fold' }, otherSum, otherBody);
     // The rows are compact; ⓘ shows every layer's description (still each row's aria-describedby).
     const describe = h('button', {
         class: 'icon-btn icon-btn--sm', type: 'button', 'aria-expanded': 'false', 'aria-label': 'What the layers show', 'data-tip': 'What the layers show',
     }, icon('info', { size: 16 }));
     const layersEl = h('div', { class: 'display-layers' },
-        h('div', { class: 'section-head' }, viewNote, describe, resetLayers), ...boxes, other,
+        h('div', { class: 'section-head' }, viewNote, describe, resetLayers), boxes.map((b) => b.el),
         h('p', { class: 'note' }, 'Layer choices are remembered on this device and included in shared links.'));
+    /** Each box's layer keys in the current view: the groups', then the other view's. */
+    let shown = [];
     let shownView = '';
     function placeLayers() {
         const view = store.get().view?.mode === 'sky' ? 'sky' : 'globe';
         if (view === shownView) return;
         shownView = view;
         const { groups, other: rest } = layersFor(view);
-        groups.forEach(([, keys], i) => {
-            boxes[i].replaceChildren(boxes[i].firstChild, ...keys.map((k) => rows[k].el));
-            boxes[i].hidden = !keys.length;
+        shown = [...groups.map(([, keys]) => keys), rest];
+        boxes.forEach((b, i) => {
+            b.body.replaceChildren(...shown[i].map((k) => rows[k].el));
+            b.el.hidden = !shown[i].length;
         });
-        otherBody.replaceChildren(...rest.map((k) => rows[k].el));
-        setText(otherSum, view === 'sky' ? `Only on the globe · ${rest.length}` : `Only in Sky view · ${rest.length}`);
+        setText(otherTitle, view === 'sky' ? 'Only on the globe' : 'Only in Sky view');
         setText(viewNote, view === 'sky' ? 'Layers for the Sky view.' : 'Layers for the globe view.');
     }
     offs.push(on(describe, 'click', () => describe.setAttribute('aria-expanded', String(layersEl.classList.toggle('is-described')))));
@@ -150,9 +168,18 @@ export function mountDisplay(root, ctx) {
         ctx.bus.emit('announce', 'Layers reset to their defaults.');
     }));
 
+    // ---------------------------------------------------------------- quality
+    const quality = segmented({
+        label: 'Quality',
+        options: ['auto', 'low', 'medium', 'high', 'max'].map((v) => ({ value: v, label: v === 'auto' ? 'Auto' : TIER_NAME[v] })),
+        value: st0.quality?.setting || 'auto', onChange: (v) => ui.act('setQuality', v),
+    });
+    const running = h('p', { class: 'note' });
+    const qualityBox = fold('quality', 'Quality', quality.el, running);
+
     // ---------------------------------------------------------------- sky conditions
-    // Light pollution in the Sky view (js/astro/skyglow.js).
-    const skyDark = h('select', { class: 'select' },
+    // Light pollution in the Sky view (js/astro/skyglow.js); a reveal of the group focuses it.
+    const skyDark = h('select', { class: 'select', 'data-autofocus': '' },
         h('option', { value: 'auto' }, 'Auto (from your place)'),
         h('option', { value: 'pristine' }, 'Pristine (no light pollution)'),
         ...BORTLE_NAMES.map((name, i) => h('option', { value: String(i + 1) }, `Bortle ${i + 1} · ${name}`)));
@@ -166,19 +193,9 @@ export function mountDisplay(root, ctx) {
         value: st0.display?.aurora || 'typical', onChange: (v) => ui.act('setAuroraActivity', v),
     });
     const auroraHint = h('p', { class: 'note' });
-    const conditions = h('div', { class: 'group', 'data-reveal': 'conditions' },
-        h('h3', { class: 'group-title' }, 'Sky conditions'),
+    const conditions = fold('conditions', 'Sky conditions',
         h('label', { class: 'field' }, h('span', { class: 'field__label' }, 'Light pollution'), skyDark), skyHint,
         h('div', { class: 'field' }, h('span', { class: 'field__label', 'aria-hidden': 'true' }, 'Aurora'), aurora.el), auroraHint);
-
-    // ---------------------------------------------------------------- quality
-    const quality = segmented({
-        label: 'Quality',
-        options: ['auto', 'low', 'medium', 'high', 'max'].map((v) => ({ value: v, label: v === 'auto' ? 'Auto' : TIER_NAME[v] })),
-        value: st0.quality?.setting || 'auto', onChange: (v) => ui.act('setQuality', v),
-    });
-    const running = h('p', { class: 'note' });
-    const qualityEl = group('Quality', quality.el, running);
 
     // ---------------------------------------------------------------- comfort
     // A device preference (display.red, saved, never in links).
@@ -189,10 +206,12 @@ export function mountDisplay(root, ctx) {
         note: globalThis.navigator && !('wakeLock' in navigator) ? 'This browser cannot keep the screen awake' : '',
     });
     const motion = h('p', { class: 'note' });
+    const comfort = fold('comfort', 'Comfort', red.el, motion);
 
     // ---------------------------------------------------------------- about, app
-    const aboutBody = h('div', { class: 'fold__body' });
-    const about = mountAbout(aboutBody, ctx);
+    const aboutBox = fold('about', 'About this app');
+    aboutBox.set(fill('Version {version}', { version: VERSION }));
+    const about = mountAbout(aboutBox.body, ctx);
     const replay = h('button', { class: 'btn btn--soft', type: 'button' }, icon('play', { size: 14 }), 'Replay intro');
     const reset = h('button', { class: 'btn btn--danger-ghost', type: 'button' }, icon('undo', { size: 16 }), 'Reset all settings');
     const confirmYes = h('button', { class: 'btn btn--danger', type: 'button' }, 'Reset');
@@ -202,8 +221,7 @@ export function mountDisplay(root, ctx) {
         h('div', { class: 'confirm__actions' }, confirmNo, confirmYes));
     const noGl = h('p', { class: 'note' }, 'Layers are drawn in the 3D view, which this device can’t show.');
 
-    root.append(layersEl, noGl, conditions, qualityEl, group('Comfort', red.el, motion),
-        h('details', { class: 'fold fold--about', 'data-reveal': 'about' }, h('summary', null, `About this app · version ${VERSION}`), aboutBody),
+    root.append(layersEl, noGl, qualityBox.el, conditions.el, comfort.el, aboutBox.el,
         h('div', { class: 'group group--actions' }, h('div', { class: 'btn-row' }, replay, reset), confirm));
 
     offs.push(on(replay, 'click', () => ui.act('replayIntro')));
@@ -224,16 +242,21 @@ export function mountDisplay(root, ctx) {
     const sync = () => {
         const st = store.get();
         const gl = st.status?.webgl !== false;
-        layersEl.hidden = qualityEl.hidden = replay.hidden = !gl;
+        layersEl.hidden = qualityBox.el.hidden = replay.hidden = !gl;
         noGl.hidden = gl;
         placeLayers();
         const ly = st.layers || {};
         for (const key in rows) rows[key].set(!!ly[key]);
+        boxes.forEach((b, i) => b.set(fill('{n} of {total} on', { n: shown[i].filter((k) => ly[k]).length, total: shown[i].length })));
         rows.clouds.setNote(st.quality?.active === 'low' ? 'Not drawn at Low quality' : '');
-        quality.set(st.quality?.setting || 'auto');
+        const qs = st.quality?.setting || 'auto';
+        const tier = TIER_NAME[st.quality?.active] || 'Medium';
+        const chosen = TIER_NAME[qs] || 'Auto';
+        quality.set(qs);
+        qualityBox.set(chosen === tier ? tier : fill('{setting} (running {tier})', { setting: chosen, tier }));
         // Max held lower for the session (repeated GPU context losses) says what runs instead.
-        setText(running, st.quality?.setting === 'max' && st.quality?.active === 'max' ? MAX_CAPTION
-            : `Running: ${TIER_NAME[st.quality?.active] || 'Medium'}${st.quality?.setting === 'auto' ? ' · chosen for this device' : ''}`);
+        setText(running, qs === 'max' && st.quality?.active === 'max' ? MAX_CAPTION
+            : `Running: ${tier}${qs === 'auto' ? ' · chosen for this device' : ''}`);
         const sd = st.display?.skyDark || 'auto';
         if (skyDark.value !== sd) skyDark.value = sd;
         const sg = ui.snap?.skyglow;
@@ -244,13 +267,18 @@ export function mountDisplay(root, ctx) {
         const au = st.display?.aurora || 'typical';
         aurora.set(au);
         setText(auroraHint, ovalSummary(au));
+        const bortle = sd === 'auto' ? sg?.auto && sg.bortle : sd !== 'pristine' && sd;
+        conditions.set(fill('{sky} · {aurora}', {
+            sky: bortle ? fill('Bortle {n}', { n: bortle }) : sd === 'auto' ? 'Auto' : 'No light pollution', aurora: AURORA_STATE[au] || '',
+        }));
         red.set(!!st.display?.red);
+        comfort.set(st.display?.red ? 'Night vision on' : 'Night vision off');
         setText(motion, st.status?.reducedMotion || ui.reducedMotion()
             ? 'Reduced motion is on (system setting): transitions are cuts and the intro is skipped.'
             : 'Animations follow your system’s motion setting.');
     };
     for (const k of ['layers', 'quality', 'display', 'observer', 'status']) offs.push(store.subscribe((s) => s[k], sync));
-    offs.push(store.subscribe((s) => s.view?.mode, placeLayers));
+    offs.push(store.subscribe((s) => s.view?.mode, sync));
     // The estimated class arrives with the readouts (snap.skyglow).
     let lastSky = '';
     offs.push(ui.on('snap', (snap) => {

@@ -591,9 +591,9 @@ body.tier-medium:not(.is-coarse) .glass {
     font-weight: var(--fw-3);
     box-shadow: 0 1px 2px rgba(0, 0, 0, .35), inset 0 0 0 1px var(--line-2);
 }
-.group .seg { display: flex; width: 100%; }
+.fold__body .seg { display: flex; width: 100%; }
 /* Full-width groups share the width evenly; slim padding lets five choices (Quality) fit a phone. */
-.group .seg__btn { padding: 0 6px; }
+.fold__body .seg__btn { padding: 0 6px; }
 
 .link { display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: none; color: var(--accent); text-decoration: none; font-weight: var(--fw-2); cursor: pointer; }
 .link:hover { text-decoration: underline; text-underline-offset: 3px; }
@@ -1388,8 +1388,10 @@ body.is-coarse .ev__cal { width: 44px; height: 44px; }
 .display-layers .section-head .btn { flex: none; }
 .display-layers:not(.is-described) .switch-row__desc { display: none; }
 .group .switch-row, .fold__body > .switch-row { margin: 0 -10px; width: calc(100% + 20px); }
-.fold--about { margin-top: 20px; }
+.display-layers { margin-bottom: 20px; }
 .fold__body { padding-bottom: var(--sp-3); }
+/* Display's groups: the title, and on the right the group's state ("6 of 6 on"). */
+.fold__state { float: right; margin-left: var(--sp-3); color: var(--muted); font-weight: var(--fw-1); }
 /* A section ui.openPanel revealed: flashed once (an outline only under reduced motion). */
 [data-reveal] { scroll-margin: var(--sp-3); }
 .is-flash { border-radius: var(--r-s); outline: 2px solid var(--accent); outline-offset: 4px; animation: reveal 1.2s var(--ease-out); }
@@ -2272,7 +2274,7 @@ body.is-mars .ui[data-layout="mobile"] .tb-sol { order: -1; min-width: 0; paddin
     .seg__btn { background: transparent; color: ButtonText; }
     .seg .seg__btn.is-on, .seg .seg__btn[aria-checked="true"],
     .chip[role="radio"][aria-checked="true"], .ui [aria-pressed="true"], .btn--ghost.is-on { background: Highlight; color: HighlightText; box-shadow: none; }
-    .tab[aria-selected="true"], .navbar .tab[aria-selected="true"], .vmenu__item[aria-checked="true"]::before, details > summary { color: ButtonText; }
+    .tab[aria-selected="true"], .navbar .tab[aria-selected="true"], .vmenu__item[aria-checked="true"]::before, details > summary, .fold__state { color: ButtonText; }
     .tab[aria-selected="true"], .vmenu__item[aria-checked="true"] .vmenu__name { text-decoration: underline 2px; text-underline-offset: 4px; }
     .tabs__ink, .vb-btn__dot { forced-color-adjust: none; background: Highlight; }
     .tb-scrub__thumb::before { background: CanvasText; box-shadow: 0 0 0 1px Canvas; }

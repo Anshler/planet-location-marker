@@ -15,19 +15,20 @@
 
 import { h, on, trapFocus } from './dom.js';
 import { load as loadPref, save as savePref } from '../core/prefs.js';
+import { t, N_ } from '../core/i18n.js';
 
 const PAD = 6;
 const GAP = 12;
 const MARGIN = 12;
 
-/** The steps: [id, title, text with a mouse, text on touch]; the world step's text names its target. */
+/** The steps: [id, title, text with a mouse, text on touch] (English; t() where shown); the world step's text names its target. */
 export const COACH_STEPS = Object.freeze([
-    ['world', 'Meet a world', 'Click a world, at the end of its beam or in Up now, to see where it is, when it rises and how to find it. Keys 1–9 pick one too.',
-        'Tap a world, at the end of its beam or in Up now, to see where it is, when it rises and how to find it.'],
-    ['time', 'Travel in time', 'Drag the time bar to move through hours and days. Space plays and pauses; Now brings you back.',
-        'Drag the time bar to move through hours and days. ▶ plays time; Now brings you back.'],
-    ['view', 'Choose a view', 'Globe, Sky or Map: choose how you look. V switches Globe and Sky; M opens the map.',
-        'Globe, Sky or Map: choose how you look.'],
+    ['world', N_('Meet a world'), N_('Click a world, at the end of its beam or in Up now, to see where it is, when it rises and how to find it. Keys 1–9 pick one too.'),
+        N_('Tap a world, at the end of its beam or in Up now, to see where it is, when it rises and how to find it.')],
+    ['time', N_('Travel in time'), N_('Drag the time bar to move through hours and days. Space plays and pauses; Now brings you back.'),
+        N_('Drag the time bar to move through hours and days. ▶ plays time; Now brings you back.')],
+    ['view', N_('Choose a view'), N_('Globe, Sky or Map: choose how you look. V switches Globe and Sky; M opens the map.'),
+        N_('Globe, Sky or Map: choose how you look.')],
 ]);
 
 /**
@@ -100,8 +101,8 @@ export function mountCoach(root, ctx) {
     const count = h('p', { class: 'coach__count' });
     const title = h('h2', { class: 'coach__title', id: 'coach-title' });
     const text = h('p', { class: 'coach__text' });
-    const skipBtn = h('button', { class: 'btn btn--ghost btn--sm', type: 'button' }, 'Skip');
-    const nextBtn = h('button', { class: 'btn btn--primary btn--sm', type: 'button' }, 'Next');
+    const skipBtn = h('button', { class: 'btn btn--ghost btn--sm', type: 'button' }, t('Skip'));
+    const nextBtn = h('button', { class: 'btn btn--primary btn--sm', type: 'button' }, t('Next'));
     const tip = h('div', { class: 'coach__tip glass', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'coach-title' },
         count, title, text, h('div', { class: 'coach__acts' }, skipBtn, nextBtn));
     const layer = h('div', { class: 'coach', hidden: true }, spot, tip);
@@ -151,13 +152,13 @@ export function mountCoach(root, ctx) {
             if (el) {
                 index = i;
                 target = el;
-                const [, t, fine, touch] = steps[i];
-                count.textContent = `Tip ${i + 1} of ${steps.length}`;
-                title.textContent = t;
-                text.textContent = coarse() ? touch : fine;
-                nextBtn.textContent = i === steps.length - 1 ? 'Done' : 'Next';
+                const [, head, fine, touch] = steps[i];
+                count.textContent = t('Tip {n} of {total}', { n: i + 1, total: steps.length });
+                title.textContent = t(head);
+                text.textContent = t(coarse() ? touch : fine);
+                nextBtn.textContent = i === steps.length - 1 ? t('Done') : t('Next');
                 measure();
-                bus.emit('announce', `${t}. ${text.textContent}`);
+                bus.emit('announce', `${title.textContent}. ${text.textContent}`);
                 return;
             }
             i += 1;
@@ -240,7 +241,7 @@ export function mountCoach(root, ctx) {
         const back = loadPref('introSeen', false);
         if (loadPref('uiVersion', 0) >= 2 || (back && p !== 'ready')) return;
         savePref('uiVersion', 2);
-        if (back) bus.emit('toast', { message: 'Settings are now in Display, and tours and history are in Explore.', actionLabel: 'Show me',
+        if (back) bus.emit('toast', { message: t('Settings are now in Display, and tours and history are in Explore.'), actionLabel: t('Show me'),
             onAction: () => ui.openPanel('display'), timeoutMs: 10000 });
     };
     offs.push(store.subscribe((s) => s.status?.phase, moved, { immediate: true }));

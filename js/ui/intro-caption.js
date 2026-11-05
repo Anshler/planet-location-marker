@@ -11,6 +11,7 @@
  */
 
 import { h } from './dom.js';
+import { t, tn } from '../core/i18n.js';
 
 /** How long the card stays (the beams land and the interface fades in meanwhile). */
 export const SHOW_MS = 3400;
@@ -36,7 +37,7 @@ export function worldsAbove(bodies, altAz) {
  * @param {number} n worlds above the horizon
  */
 export function introCaption(place, clock, n) {
-    const worlds = n > 0 ? `${n} ${n === 1 ? 'world' : 'worlds'} above you` : 'every world below your horizon';
+    const worlds = n > 0 ? tn('{n} world above you', '{n} worlds above you', n) : t('every world below your horizon');
     return { title: place, line: `${clock} · ${worlds}`, spoken: `${place}, ${clock}. ${worlds.charAt(0).toUpperCase()}${worlds.slice(1)}.` };
 }
 

@@ -19,8 +19,8 @@
 import { h, on } from './dom.js';
 import { icon } from './icons.js';
 import { load as loadPref, save as savePref } from '../core/prefs.js';
+import { t } from '../core/i18n.js';
 
-const IOS_STEPS = 'tap the Share button, then ‘Add to Home Screen’';
 const HINT_DELAY_MS = 60e3;
 
 /**
@@ -58,7 +58,7 @@ export const offerNow = () => installOffer({ standalone: standalone(), prompt: !
 export async function install(ctx) {
     const ev = window.__pcInstall;
     if (!ev) {
-        if (onIos()) ctx.bus.emit('toast', { message: `Add it to your Home Screen: in Safari, ${IOS_STEPS}.`, kind: 'info', timeoutMs: 10000 });
+        if (onIos()) ctx.bus.emit('toast', { message: t('Add it to your Home Screen: in Safari, tap the Share button, then ‘Add to Home Screen’.'), kind: 'info', timeoutMs: 10000 });
         return;
     }
     // One prompt per event: a new one arrives if the browser offers again.
@@ -69,7 +69,7 @@ export async function install(ctx) {
         outcome = (await ev.userChoice)?.outcome || 'dismissed';
     } catch { outcome = 'failed'; }
     if (outcome === 'failed') {
-        ctx.bus.emit('toast', { message: 'Your browser’s menu can install it: look for ‘Install app’ or ‘Add to Home screen’.', kind: 'info' });
+        ctx.bus.emit('toast', { message: t('Your browser’s menu can install it: look for ‘Install app’ or ‘Add to Home screen’.'), kind: 'info' });
     }
 }
 
@@ -80,17 +80,17 @@ export async function install(ctx) {
  */
 export function mountInstall(ctx) {
     const offs = [];
-    const btn = h('button', { class: 'btn btn--primary', type: 'button' }, icon('download', { size: 16 }), 'Install app');
+    const btn = h('button', { class: 'btn btn--primary', type: 'button' }, icon('download', { size: 16 }), t('Install app'));
     const text = h('p', { class: 'prose' });
-    const el = h('div', { class: 'group install', hidden: true }, h('h3', { class: 'group-title' }, 'Install'), text, btn);
+    const el = h('div', { class: 'group install', hidden: true }, h('h3', { class: 'group-title' }, t('Install')), text, btn);
 
     const sync = () => {
         const offer = offerNow();
         el.hidden = !offer;
         btn.hidden = offer !== 'prompt';
         text.textContent = offer === 'ios'
-            ? `Add it to your Home Screen: in Safari, ${IOS_STEPS}. It opens full screen and works offline.`
-            : 'Add it to your home screen or desktop: it opens in its own window and works offline.';
+            ? t('Add it to your Home Screen: in Safari, tap the Share button, then ‘Add to Home Screen’. It opens full screen and works offline.')
+            : t('Add it to your home screen or desktop: it opens in its own window and works offline.');
     };
     offs.push(on(window, 'beforeinstallprompt', (e) => { window.__pcInstall = e; sync(); }));
     offs.push(on(window, 'appinstalled', () => { window.__pcInstall = null; sync(); }));
@@ -117,7 +117,7 @@ export function mountInstallHint(ctx) {
     const tick = () => {
         if (busy()) { timer = setTimeout(tick, 15e3); return; }
         savePref('installHint', true);
-        bus.emit('toast', { message: `Keep it on your Home Screen: ${IOS_STEPS}.`, kind: 'info', actionLabel: 'Got it', onAction: () => {}, timeoutMs: 15e3 });
+        bus.emit('toast', { message: t('Keep it on your Home Screen: tap the Share button, then ‘Add to Home Screen’.'), kind: 'info', actionLabel: t('Got it'), onAction: () => {}, timeoutMs: 15e3 });
     };
     timer = setTimeout(tick, HINT_DELAY_MS);
     return () => clearTimeout(timer);

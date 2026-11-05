@@ -1829,6 +1829,10 @@ function bindViewInsets(rig, store) {
                 const sheet = root.querySelector('.sheet')?.getBoundingClientRect();
                 if (sheet && sheet.height > 0) ins.bottom = clampPx(H - sheet.top, H * 0.55);
             }
+            // In Sky view the Eclipse Companion covers the top of the sky (the eclipsed Sun is framed
+            // below it, and below the mode chips under it on a phone or a narrow window).
+            const ecl = store.get().view.mode === 'sky' ? root.querySelector('.ecl:not([hidden])')?.getBoundingClientRect() : null;
+            if (ecl && ecl.height > 0 && ecl.bottom < H * 0.5) ins.top = clampPx(ecl.bottom + 8, H * 0.4);
         }
         const key = `${ins.left},${ins.right},${ins.top},${ins.bottom}`;
         if (key === lastKey) return;
@@ -1859,7 +1863,7 @@ function bindViewInsets(rig, store) {
     const watched = new Set();
     // The sheet exists only in the phone layout, so the set is refreshed after layout switches.
     const watch = () => {
-        for (const sel of ['.panel', '.timebar', '.sheet']) {
+        for (const sel of ['.panel', '.timebar', '.sheet', '.ecl']) {
             const el = root.querySelector(sel);
             if (!el || watched.has(el)) continue;
             watched.add(el);
@@ -1870,6 +1874,7 @@ function bindViewInsets(rig, store) {
     watch();
     window.addEventListener('resize', schedule);
     store.subscribe((s) => s.ui.cinema, schedule);
+    store.subscribe((s) => s.view.mode, schedule);
     schedule();
 }
 

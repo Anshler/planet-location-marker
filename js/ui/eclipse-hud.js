@@ -107,7 +107,7 @@ function spoken(ms) {
  * @returns {{update(snap:any): void, destroy(): void}}
  */
 export function mountEclipseHud(root, ctx) {
-    const { store, bus, ui } = ctx;
+    const { store, bus, ui, clock } = ctx;
     const el = (tag, cls, ...kids) => h(tag, cls && { class: cls }, ...kids);
     const btn = (cls, ...kids) => h('button', { class: `btn btn--sm ${cls}`, type: 'button' }, ...kids);
     root.hidden = true;
@@ -135,8 +135,10 @@ export function mountEclipseHud(root, ctx) {
     /** The user's own open or closed, until this eclipse ends. */
     let chosen = '';
     function fold() {
-        const st = store.get();
-        const auto = ui.layout === 'mobile' && (st.ui?.sheet !== 'peek' || st.view?.mode === 'sky');
+        const st = store.get(), sky = st.view?.mode === 'sky';
+        // A phone above peek or in Sky view, and any layout while a playback runs in Sky view (the
+        // Sun is the show then): the countdown alone.
+        const auto = (ui.layout === 'mobile' && (st.ui?.sheet !== 'peek' || sky)) || (sky && !!clock?.range);
         const shut = chosen ? chosen === 'closed' : auto;
         root.classList.toggle('is-collapsed', shut);
         toggle.setAttribute('aria-expanded', String(!shut));
@@ -271,17 +273,21 @@ export function mountEclipseHud(root, ctx) {
     const refresh = () => update();
     offs.push(store.subscribe((s) => s.ui?.eclipse, refresh), store.subscribe((s) => s.observer, refresh),
         ui.on('events', refresh), ui.on('display', refresh),
-        store.subscribe((s) => s.ui?.sheet, fold), store.subscribe((s) => s.view?.mode, fold), ui.on('layout', fold));
+        store.subscribe((s) => s.ui?.sheet, fold), store.subscribe((s) => s.view?.mode, fold), ui.on('layout', fold),
+        clock?.onChange?.((ev) => { if (ev?.type === 'range') fold(); }) ?? (() => {}));
 
-    // The status stack under the top bar (ui/modes.js: the mode chips) stacks below the
-    // panel (css: --ecl-h, its height and a gap, 0 while it is hidden), never under it.
+    // The status stack under the top bar (ui/modes.js: the mode chips) goes beside the panel on a
+    // wide window, else below it (css: --ecl-w and --ecl-h, its right edge and height plus a gap,
+    // 0 while it is hidden), never under it.
     const host = ui?.root ?? root.ownerDocument?.documentElement ?? null;
-    let lastH = -1;
+    let lastH = -1, lastW = -1;
     const publish = () => {
-        const hgt = root.hidden ? 0 : Math.ceil(root.getBoundingClientRect?.().height || 0);
-        if (hgt === lastH || !host?.style) return;
-        lastH = hgt;
+        const r = root.hidden ? null : root.getBoundingClientRect?.();
+        const hgt = Math.ceil(r?.height || 0), w = hgt > 0 ? Math.ceil(r.right) + 8 : 0;
+        if ((hgt === lastH && w === lastW) || !host?.style) return;
+        lastH = hgt; lastW = w;
         host.style.setProperty('--ecl-h', hgt > 0 ? `${hgt + 8}px` : '0px');
+        host.style.setProperty('--ecl-w', `${w}px`);
     };
     const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(publish) : null;
     ro?.observe(root);
@@ -293,6 +299,7 @@ export function mountEclipseHud(root, ctx) {
             clearTimeout(sayTimer);
             ro?.disconnect();
             host?.style?.removeProperty?.('--ecl-h');
+            host?.style?.removeProperty?.('--ecl-w');
             root.textContent = '';
         },
     };

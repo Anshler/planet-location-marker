@@ -682,6 +682,7 @@ function startNarrator(ctx) {
     }));
 
     if (clock?.onChange) {
+        let lastOnce = false;
         offs.push(clock.onChange((ev) => {
             const type = ev?.type;
             if (type === 'clamp') {
@@ -692,7 +693,12 @@ function startNarrator(ctx) {
             if (ui.scrubbing) return;
             if (type === 'live') { say('Live: showing the sky right now'); return; }
             if (type === 'rate') { say(`Speed ${ui.fmt('fmtRate', clock.rate)}`); return; }
-            if (type === 'range') { say(clock.range ? 'Loop started.' : 'Loop stopped.'); return; }
+            if (type === 'range') {
+                const r = clock.range, once = r ? r.loop === 'once' : lastOnce;
+                lastOnce = once;
+                say(r ? (once ? 'Playing.' : 'Loop started.') : (once ? 'Playback stopped.' : 'Loop stopped.'));
+                return;
+            }
             if (type === 'pause' || type === 'jump' || type === 'play') {
                 // Debounced so a burst of steps reads out once, with the final time.
                 clearTimeout(timeTimer);

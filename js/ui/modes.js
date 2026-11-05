@@ -152,11 +152,15 @@ export function mountModes(host, ctx) {
     const syncLoop = () => {
         const r = clock?.range;
         if (!r || r.strideMs) return clear('loop');
-        set('loop', {
-            icon: 'timelapse', title: `Looping ${ui.fmtWhen(r.fromMs, clock.tMs)} → ${ui.fmtWhen(r.toMs, r.fromMs)}`,
-            detail: r.loop === 'once' ? `${r.durationS} s, played once` : `${r.durationS} s per loop, ${PLAY[r.loop] ?? PLAY.loop}`,
+        const from = ui.fmtWhen(r.fromMs, clock.tMs), to = ui.fmtWhen(r.toMs, r.fromMs), stop = () => clock.setRange(null);
+        set('loop', r.loop === 'once' ? {
+            icon: 'timelapse', title: `Playing ${from} → ${to}`, detail: `Once through in ${r.durationS} s`,
             actions: [{ label: 'Edit', run: () => ui.openTime?.('loop') }],
-            exit: { label: 'Stop the loop', done: 'Loop stopped', run: () => clock.setRange(null) },
+            exit: { label: 'Stop', done: 'Playback stopped', run: stop },
+        } : {
+            icon: 'timelapse', title: `Looping ${from} → ${to}`, detail: `${r.durationS} s per loop, ${PLAY[r.loop] ?? PLAY.loop}`,
+            actions: [{ label: 'Edit', run: () => ui.openTime?.('loop') }],
+            exit: { label: 'Stop the loop', done: 'Loop stopped', run: stop },
         });
     };
     const offClock = clock?.onChange?.((ev) => { if (ev?.type === 'range') syncLoop(); });

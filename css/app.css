@@ -1042,6 +1042,10 @@ body.tier-medium:not(.is-coarse) .glass {
 /* The status stack: a chip per mode under the top bar (and under the Eclipse Companion: --ecl-h,
    set by ui/eclipse-hud.js), oldest first, then the shortcut flash. */
 .status-stack { position: fixed; top: calc(64px + var(--safe-t) + var(--ecl-h, 0px)); left: calc((100vw - var(--panel-w) - var(--gutter)) / 2); z-index: 11; display: flex; flex-direction: column; align-items: center; gap: var(--sp-2); max-width: calc(100vw - var(--panel-w) - var(--gutter) * 4); translate: -50% 0; pointer-events: none; }
+/* A wide window has room beside the Eclipse Companion, so the chips stay at the top of the view. */
+@media (min-width: 1240px) {
+    .ui[data-layout="desktop"] .status-stack { top: calc(64px + var(--safe-t)); left: calc((100vw - var(--panel-w) - var(--gutter) + var(--ecl-w, 0px)) / 2); max-width: calc(100vw - var(--panel-w) - var(--gutter) * 4 - var(--ecl-w, 0px)); }
+}
 .status-stack > * { pointer-events: auto; }
 .mode { display: flex; align-items: center; gap: var(--sp-2); max-width: 100%; min-height: 40px; padding: var(--sp-1) var(--sp-1) var(--sp-1) var(--sp-3); border-radius: var(--r-pill); }
 .mode__icon { display: flex; flex: none; color: var(--accent); }

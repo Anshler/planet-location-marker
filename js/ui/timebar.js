@@ -502,7 +502,7 @@ export function mountTimebar(root, ctx) {
         setText(unitBack, mobile ? `Back ${unit.long}` : unit.unit);
         setText(unitFwd, mobile ? `Forward ${unit.long}` : unit.unit);
         // The phone row is tight: real time reads '1×' there so the date keeps its year.
-        const rateText = range ? 'Loop' : ui.fmt('fmtRate', rate, { compact: mobile });
+        const rateText = range ? (range.loop === 'once' ? 'Playing' : 'Loop') : ui.fmt('fmtRate', rate, { compact: mobile });
         setText(rateOut, rateText);
         setAttr(rateOut, 'aria-label', playing ? `Speed: ${rateText}` : `Speed: ${rateText}, paused`);
         rateOut.classList.toggle('is-reverse', rate < 0 && !range);

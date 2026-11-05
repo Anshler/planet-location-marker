@@ -18,13 +18,15 @@
 import { BODIES, BODY_INDEX } from '../astro/bodies.js';
 import { PLANNER_BODIES, plannerVisible, plannerSummary } from '../astro/planner.js';
 import { h, on, setText } from './dom.js';
+import { t, N_ } from '../core/i18n.js';
 
 const DAY = 86400e3;
 const NIGHTS = 365;
 const CHART_H = 160;
 const PAD_L = 30, PAD_B = 16, PAD_T = 18;
 const EVENT_KINDS = new Set(['opposition', 'conjunction', 'max-elongation', 'brilliancy']);
-const EVENT_TAG = { opposition: 'Opp', conjunction: 'Conj', 'max-elongation': 'Elong', brilliancy: 'Bright' };
+const EVENT_TAG = { opposition: N_('Opp'), conjunction: N_('Conj'), 'max-elongation': N_('Elong'), brilliancy: N_('Bright') };
+const SUN_DAY = { june: N_('June solstice'), december: N_('December solstice'), march: N_('Equinox') };
 
 function hexRgb(hex) {
     const m = /^#?([\da-f]{2})([\da-f]{2})([\da-f]{2})$/i.exec(hex || '');
@@ -47,7 +49,8 @@ function skyRgb(sunAlt, moonAlt, moonPct, out) {
     return out;
 }
 
-const part = (d) => (d <= 10 ? 'early' : d <= 20 ? 'mid' : 'late');
+/** 'early October' ('đầu tháng 10'): the part of the month and its name. */
+const part = (d, month) => (d <= 10 ? t('early {month}', { month }) : d <= 20 ? t('mid {month}', { month }) : t('late {month}', { month }));
 
 /**
  * @param {any} ctx UiCtx
@@ -55,14 +58,14 @@ const part = (d) => (d <= 10 ? 'early' : d <= 20 ? 'mid' : 'late');
 export function createYearPlanner(ctx) {
     const { store, ui } = ctx;
     const offs = [];
-    const cv = h('canvas', { class: 'planner__cv', width: 320, height: CHART_H, role: 'img', 'aria-label': 'Visibility chart', tabindex: '-1' });
+    const cv = h('canvas', { class: 'planner__cv', width: 320, height: CHART_H, role: 'img', 'aria-label': t('Visibility chart'), tabindex: '-1' });
     const summary = h('span', { class: 'fold__sub' });
     const legend = h('p', { class: 'note' },
-        'Approximate. Each column is a night, each row an hour from 15:00 to 09:00 (standard time). Coloured where it is at least 10° up in darkness; lighter bands are moonlit. Click a night to go there.');
-    const bestBtn = h('button', { class: 'btn btn--soft btn--sm planner__best', type: 'button', hidden: true }, 'Jump to its best night');
+        t('Approximate. Each column is a night, each row an hour from 15:00 to 09:00 (standard time). Coloured where it is at least 10° up in darkness; lighter bands are moonlit. Click a night to go there.'));
+    const bestBtn = h('button', { class: 'btn btn--soft btn--sm planner__best', type: 'button', hidden: true }, t('Jump to its best night'));
     const sunText = h('p', { class: 'planner__sun', hidden: true });
     const el = h('details', { class: 'fold planner', hidden: true },
-        h('summary', null, h('span', null, 'The year ahead'), summary), cv, bestBtn, legend, sunText);
+        h('summary', null, h('span', null, t('The year ahead')), summary), cv, bestBtn, legend, sunText);
     offs.push(on(el, 'toggle', () => { drawKey = ''; if (el.open && ui.snap && shownId) update(ui.snap, shownId); }));
 
     /** @type {Map<string, any>} key → PlannerYear */
@@ -81,18 +84,18 @@ export function createYearPlanner(ctx) {
     const zoneOf = () => ui.observerTz(store.get().observer);
 
     /** UT ms of local standard-time midnight on the 1st of the month containing t (observer zone). */
-    function firstMidnight(t) {
+    function firstMidnight(ms) {
         const zone = zoneOf();
-        const z = ui.zoned(t, zone);
+        const z = ui.zoned(ms, zone);
         const jan = ui.zoned(Date.UTC(z.y, 0, 15, 12), zone).offsetMin, jul = ui.zoned(Date.UTC(z.y, 6, 15, 12), zone).offsetMin;
         const std = Math.min(Number.isFinite(jan) ? jan : 0, Number.isFinite(jul) ? jul : 0);
         return { ms: Date.UTC(z.y, z.mo - 1, 1) - std * 60e3, stdOffMin: std };
     }
 
-    function request(t) {
+    function request(ms) {
         const astro = ctx.services?.astro;
         if (!astro?.call) return;
-        const fm = firstMidnight(t);
+        const fm = firstMidnight(ms);
         const key = `${ui.observerKey()}|${fm.ms}`;
         if (key === yearKey || key === pending) return;
         if (cache.has(key)) { year = cache.get(key); yearKey = key; drawKey = ''; return; }
@@ -130,17 +133,17 @@ export function createYearPlanner(ctx) {
             if (sunPending !== key || !f?.arcs) return;
             sunPending = '';
             sunKey = key;
-            const name = { june: 'June solstice', december: 'December solstice', march: 'Equinox' };
             const bits = [];
             for (const k of ['june', 'december', 'march']) {
                 const a = f.arcs.find((x) => x.key === k);
                 if (!a) continue;
                 const az = (v) => (Number.isFinite(v) ? `${Math.round(v)}° ${ui.compass(v)}` : '—');
                 const ok = Number.isFinite(a.riseAzDeg) && Number.isFinite(a.setAzDeg);
-                bits.push(ok ? `${name[k]}: rises ${az(a.riseAzDeg)}, sets ${az(a.setAzDeg)}, ${Math.round(a.noonAltDeg)}° high at noon`
-                    : `${name[k]}: ${a.noonAltDeg > 0 ? 'up all day' : 'below the horizon all day'}`);
+                const day = t(SUN_DAY[k]);
+                bits.push(ok ? t('{day}: rises {rise}, sets {set}, {deg}° high at noon', { day, rise: az(a.riseAzDeg), set: az(a.setAzDeg), deg: Math.round(a.noonAltDeg) })
+                    : a.noonAltDeg > 0 ? t('{day}: up all day', { day }) : t('{day}: below the horizon all day', { day }));
             }
-            setText(sunText, `Sun paths here — ${bits.join('; ')}.`);
+            setText(sunText, t('Sun paths here — {list}.', { list: bits.join('; ') }));
             sunText.hidden = shownId !== 'sun';
         }, () => { if (sunPending === key) sunPending = ''; });
     }
@@ -149,11 +152,11 @@ export function createYearPlanner(ctx) {
     const rgb = [0, 0, 0];
     let off = null;
 
-    function nightIndex(t) {
-        return year ? Math.floor((t - year.firstMidnightMs + DAY / 2) / DAY) : -1;
+    function nightIndex(ms) {
+        return year ? Math.floor((ms - year.firstMidnightMs + DAY / 2) / DAY) : -1;
     }
 
-    function draw(id, t) {
+    function draw(id, now) {
         const W = Math.max(240, Math.round(cv.clientWidth || cv.parentElement?.clientWidth || 320));
         const dpr = Math.min(2, globalThis.devicePixelRatio || 1);
         if (cv.width !== Math.round(W * dpr) || cv.height !== Math.round(CHART_H * dpr)) {
@@ -240,10 +243,10 @@ export function createYearPlanner(ctx) {
             c.fillStyle = col;
             c.beginPath(); c.moveTo(x - 4, PAD_T - 11); c.lineTo(x + 4, PAD_T - 11); c.lineTo(x, PAD_T - 3); c.closePath(); c.fill();
             c.textAlign = x > W - 44 ? 'right' : 'left';
-            c.fillText(EVENT_TAG[ev.kind] || '', x + (x > W - 44 ? -6 : 6), PAD_T - 7);
+            c.fillText(EVENT_TAG[ev.kind] ? t(EVENT_TAG[ev.kind]) : '', x + (x > W - 44 ? -6 : 6), PAD_T - 7);
         }
         // Tonight.
-        const iNow = nightIndex(t);
+        const iNow = nightIndex(now);
         if (iNow >= 0 && iNow < N) {
             const x = PAD_L + ((iNow + 0.5) / N) * pw;
             c.fillStyle = 'rgba(124,196,255,.95)';
@@ -255,29 +258,28 @@ export function createYearPlanner(ctx) {
         const info = BODIES[BODY_INDEX[id]];
         const s = plannerSummary(year, id);
         peak = null;
-        if (!s || s.visibleNights === 0) return `${info.name}: not well placed from here in the next 12 months (too low, or too close to the Sun).`;
+        const name = t(info.name);
+        if (!s || s.visibleNights === 0) return t('{body}: not well placed from here in the next 12 months (too low, or too close to the Sun).', { body: name });
         const zone = zoneOf();
         const nightMs = (i) => year.firstMidnightMs + i * DAY;
-        const when = (i) => { const z = ui.zoned(nightMs(i) + DAY / 2, zone); return `${part(z.d)} ${ui.fmtDate(nightMs(i) + DAY / 2, { month: 'long' }, zone)}`; };
+        const when = (i) => part(ui.zoned(nightMs(i) + DAY / 2, zone).d, ui.fmtDate(nightMs(i) + DAY / 2, { month: 'long' }, zone));
         const yearOf = (i) => ui.zoned(nightMs(i) + DAY / 2, zone).y;
         let maxMin = 0;
         for (let i = s.bestFrom; i <= s.bestTo; i++) maxMin = Math.max(maxMin, s.minutes[i]);
-        const hours = maxMin >= 90 ? `up to ${Math.round(maxMin / 60)} h a night` : `up to ${maxMin} min a night`;
         const bits = [];
         // The year, whenever the best stretch ends in another year than the chart's first night.
-        const toYear = yearOf(s.bestTo) !== yearOf(0) ? ` ${yearOf(s.bestTo)}` : '';
-        bits.push(s.bestFrom === s.bestTo ? `best around ${when(s.bestFrom)}` : `best from ${when(s.bestFrom)} to ${when(s.bestTo)}${toYear}`);
-        bits.push(`${hours} in darkness`);
+        const to = yearOf(s.bestTo) !== yearOf(0) ? t('{when} {year}', { when: when(s.bestTo), year: yearOf(s.bestTo) }) : when(s.bestTo);
+        bits.push(s.bestFrom === s.bestTo ? t('best around {when}', { when: when(s.bestFrom) }) : t('best from {from} to {to}', { from: when(s.bestFrom), to }));
+        bits.push(maxMin >= 90 ? t('up to {n} h a night in darkness', { n: Math.round(maxMin / 60) }) : t('up to {n} min a night in darkness', { n: maxMin }));
         if (s.peakNight >= 0) {
             const tPeak = nightMs(s.peakNight) + (year.startMin + s.peakSample * year.stepMin) * 60e3;
             peak = { tMs: tPeak };
-            bits.push(`highest ${Math.round(s.peakAltDeg)}° around ${ui.fmtClock(tPeak)} in ${when(s.peakNight)}`);
+            bits.push(t('highest {deg}° around {time} in {when}', { deg: Math.round(s.peakAltDeg), time: ui.fmtClock(tPeak), when: when(s.peakNight) }));
         }
         if (s.brightestNight >= 0 && Number.isFinite(s.brightestMag)) {
-            const m = s.brightestMag;
-            bits.push(`brightest ${m < 0 ? '−' : ''}${Math.abs(m).toFixed(1)} in ${when(s.brightestNight)}`);
+            bits.push(t('brightest {mag} in {when}', { mag: ui.fmt('fmtMag', s.brightestMag), when: when(s.brightestNight) }));
         }
-        return `${info.name}: ${bits.join('; ')}.`;
+        return `${name}: ${bits.join('; ')}.`;
     }
 
     // ---------------------------------------------------------------- update
@@ -296,7 +298,7 @@ export function createYearPlanner(ctx) {
         sunText.hidden = true;
         if (!planet || !snap) return;
         request(snap.tMs);
-        if (!year) { setText(summary, 'Computing the year ahead…'); bestBtn.hidden = true; return; }
+        if (!year) { setText(summary, t('Computing the year ahead…')); bestBtn.hidden = true; return; }
         const iNow = nightIndex(snap.tMs);
         const key = `${yearKey}|${id}|${iNow}|${ui.events?.list?.length ?? 0}|${el.open ? Math.round(cv.clientWidth) : 0}|${store.get().display?.hour12}`;
         if (key === drawKey) return;
@@ -304,7 +306,7 @@ export function createYearPlanner(ctx) {
         if (el.open) draw(id, snap.tMs);
         const text = sentence(id);
         setText(summary, text);
-        cv.setAttribute('aria-label', `Visibility chart for the next 12 months. ${text}`);
+        cv.setAttribute('aria-label', t('Visibility chart for the next 12 months. {text}', { text }));
         bestBtn.hidden = !peak;
     }
 

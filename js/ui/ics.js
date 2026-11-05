@@ -7,7 +7,8 @@
  *   with DTEND where the event lasts (an eclipse's contacts, a transit, a satellite pass, a meteor
  *   shower's best hour), else an instant;
  * - SUMMARY (the title), DESCRIPTION (the detail, the place the times are for, and a deep link
- *   to that sky), URL and a display VALARM 30 minutes before;
+ *   to that sky), URL and a display VALARM 30 minutes before; the words follow the interface's
+ *   language (core/i18n.js), the structure, dates and UIDs stay RFC 5545's;
  * - TEXT values escaped (\ ; , and newlines) and every content line folded at 75 octets of
  *   UTF-8, never inside a character, with CRLF line ends.
  *
@@ -16,6 +17,8 @@
  *
  * @module ui/ics
  */
+
+import { t } from '../core/i18n.js';
 
 const ECLIPSE_KINDS = new Set(['solar-eclipse', 'local-solar-eclipse', 'lunar-eclipse']);
 const HOUR = 3600e3;
@@ -72,7 +75,7 @@ const finite = (x) => typeof x === 'number' && Number.isFinite(x);
  * @returns {{startMs:number, endMs:number|null}}
  */
 export function eventSpan(ev) {
-    const t = Number(ev?.tMs);
+    const at = Number(ev?.tMs);
     const span = (a, b) => (finite(a) && finite(b) && b > a ? { startMs: a, endMs: b } : null);
     let s = null;
     if (ev?.kind === 'local-solar-eclipse') s = span(ev.c1Ms, ev.c4Ms);
@@ -80,13 +83,13 @@ export function eventSpan(ev) {
     else if (ev?.kind === 'transit') s = span(ev.startMs, ev.finishMs);
     else if (ev?.kind === 'sat-pass') s = span(ev.pass?.startMs, ev.pass?.endMs);
     else if (ev?.kind === 'meteor-shower' && finite(ev.visibleMs)) s = { startMs: ev.visibleMs - HOUR / 2, endMs: ev.visibleMs + HOUR / 2 };
-    return s || { startMs: t, endMs: null };
+    return s || { startMs: at, endMs: null };
 }
 
-/** 'mars-jupiter-conjunction': the title before any ' — ' and without parentheses, ASCII. */
+/** 'mars-jupiter-conjunction': the title before any ' — ' and without parentheses, ASCII ('đ' → 'd'). */
 export function slug(title) {
     const s = String(title || '').split(' — ')[0].replace(/\([^)]*\)/g, '')
-        .normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/đ/g, 'd')
         .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
     return s.slice(0, 60).replace(/-+$/, '') || 'sky-event';
 }
@@ -109,12 +112,12 @@ export function icsFileName(ev, day) {
  */
 export function veventLines(ev, { nowMs, url = '', place = '', placeKey = '', alarmMin = 30 }) {
     const { startMs, endMs } = eventSpan(ev);
-    const title = String(ev?.title || 'Sky event');
+    const title = String(ev?.title || t('Sky event'));
     const uidBase = String(ev?.id || `${ev?.kind || 'event'}:${Math.round(startMs / 60000)}`).replace(/[^A-Za-z0-9:+._-]/g, '-');
     const parts = [];
     if (ev?.detail) parts.push(String(ev.detail));
-    if (place) parts.push(`Times and visibility for ${place}.`);
-    if (url) parts.push(`See this sky: ${url}`);
+    if (place) parts.push(t('Times and visibility for {place}.', { place }));
+    if (url) parts.push(t('See this sky: {url}', { url }));
     const lines = [
         'BEGIN:VEVENT',
         `UID:${uidBase}${placeKey ? `.${placeKey}` : ''}@planet-location-marker`,

@@ -17,6 +17,7 @@ import { icon } from './icons.js';
 import { eventGlyph } from './event-glyphs.js';
 import { buildCalendar, eclipseBundle, icsFileName, placeKeyOf, saveIcs } from './ics.js';
 import { passEvent, isBrightPass } from './sat-passes.js';
+import { t, tn, N_ } from '../core/i18n.js';
 
 const DAY = 86400e3;
 /** Under All: the next 8 weeks, or at least this many events, before 'Show the rest'. */
@@ -26,13 +27,13 @@ const PLANET_KINDS = new Set(['opposition', 'conjunction', 'max-elongation', 'br
 const MOON_KINDS = new Set(['moon-phase', 'lunar-eclipse', 'occultation', 'lunar-apsis']);
 
 export const FILTERS = [
-    { id: 'all', label: 'All', test: () => true },
-    { id: 'moon', label: 'Moon', test: (e) => MOON_KINDS.has(e.kind) },
-    { id: 'planets', label: 'Planets', test: (e) => PLANET_KINDS.has(e.kind) },
-    { id: 'eclipses', label: 'Eclipses', test: (e) => e.kind.includes('eclipse') || e.kind === 'transit' },
-    { id: 'meteors', label: 'Meteors', test: (e) => e.kind === 'meteor-shower' },
-    { id: 'sats', label: 'Satellites', test: (e) => e.kind === 'sat-pass' },
-    { id: 'seasons', label: 'Seasons', test: (e) => e.kind === 'equinox' || e.kind === 'solstice' },
+    { id: 'all', label: N_('All'), test: () => true },
+    { id: 'moon', label: N_('Moon'), test: (e) => MOON_KINDS.has(e.kind) },
+    { id: 'planets', label: N_('Planets'), test: (e) => PLANET_KINDS.has(e.kind) },
+    { id: 'eclipses', label: N_('Eclipses'), test: (e) => e.kind.includes('eclipse') || e.kind === 'transit' },
+    { id: 'meteors', label: N_('Meteors'), test: (e) => e.kind === 'meteor-shower' },
+    { id: 'sats', label: N_('Satellites'), test: (e) => e.kind === 'sat-pass' },
+    { id: 'seasons', label: N_('Seasons'), test: (e) => e.kind === 'equinox' || e.kind === 'solstice' },
 ];
 
 /** CSS colour for an event's glyph tile (its tint). */
@@ -61,20 +62,20 @@ export function mountEventsPanel(root, ctx) {
 
     const chips = FILTERS.map((f) => h('button', {
         class: 'chip', type: 'button', role: 'radio', 'aria-checked': String(f.id === filter), tabindex: f.id === filter ? '0' : '-1', 'data-filter': f.id,
-    }, f.label));
-    const filterBar = h('div', { class: 'filters', role: 'radiogroup', 'aria-label': 'Show' }, chips);
+    }, t(f.label)));
+    const filterBar = h('div', { class: 'filters', role: 'radiogroup', 'aria-label': t('Show') }, chips);
     const next = h('div', { class: 'ev-next', hidden: true });
-    const list = h('ol', { class: 'ev-list', 'aria-label': 'Upcoming events' });
+    const list = h('ol', { class: 'ev-list', 'aria-label': t('Upcoming events') });
     // 'All eclipses in the next year' as one calendar file (shown under All and Eclipses).
     const bundleBtn = h('button', { class: 'btn btn--soft btn--sm ev-bundle', type: 'button', hidden: true }, icon('calendar', { size: 16 }), h('span'));
     const moreBtn = h('button', { class: 'btn btn--soft btn--sm ev-bundle', type: 'button', hidden: true });
-    const empty = h('p', { class: 'empty' }, h('span', { class: 'spinner', 'aria-hidden': 'true' }), 'Computing upcoming events…');
+    const empty = h('p', { class: 'empty' }, h('span', { class: 'spinner', 'aria-hidden': 'true' }), t('Computing upcoming events…'));
     // Standing on Mars (ROADMAP stand-on-mars, phase 1): the events are the Earth observer's.
     const marsNote = h('p', { class: 'note note--mars', hidden: true },
-        'You are standing on Mars: these events, times and jumps are for your place on the Earth.');
+        t('You are standing on Mars: these events, times and jumps are for your place on the Earth.'));
     offs.push(store.subscribe((st) => st.host?.id, (id) => { marsNote.hidden = id !== 'mars'; }, { immediate: true }));
     root.append(marsNote, next, filterBar, list, empty, moreBtn, bundleBtn,
-        h('p', { class: 'note' }, 'Times are in the time bar’s zone. Choosing an event moves the clock, and the view where useful.'));
+        h('p', { class: 'note' }, t('Times are in the time bar’s zone. Choosing an event moves the clock, and the view where useful.')));
 
     /** Under All, the rows past the window wait for 'Show the rest'; another filter shows them all. */
     let expanded = false;
@@ -84,7 +85,7 @@ export function mountEventsPanel(root, ctx) {
         render(true);
         const n = list.querySelectorAll('.ev').length - from;
         list.querySelectorAll('.ev')[from]?.focus();
-        ctx.bus?.emit?.('announce', n === 1 ? '1 more event shown.' : `${n} more events shown.`);
+        ctx.bus?.emit?.('announce', tn('{n} more event shown.', '{n} more events shown.', n));
     }));
     const choose = (id) => {
         filter = id;
@@ -119,7 +120,7 @@ export function mountEventsPanel(root, ctx) {
         if (!bundle.length) return;
         const y0 = new Date(bundle[0].tMs).getUTCFullYear(), y1 = new Date(bundle.at(-1).tMs).getUTCFullYear();
         const years = y0 === y1 ? String(y0) : `${y0}-${y1}`;
-        addToCalendar(bundle, `Eclipses ${years.replace('-', '–')}`, `eclipses-${years}.ics`, true);
+        addToCalendar(bundle, t('Eclipses {years}', { years: years.replace('-', '–') }), `eclipses-${years}.ics`, true);
     }));
 
     /**
@@ -139,10 +140,12 @@ export function mountEventsPanel(root, ctx) {
                 urlFor: (ev) => ui.act('shareUrl', { event: ev }) || '' });
         } catch { text = ''; }
         const toast = (message, kind = 'info') => ctx.bus?.emit?.('toast', { message, kind, timeoutMs: 3500 });
-        if (!text) { toast("The calendar file couldn't be made.", 'warn'); return; }
+        if (!text) { toast(t('The calendar file couldn’t be made.'), 'warn'); return; }
         saveIcs(text, fileName, { title: name }).then((r) => {
-            if (r === 'saved') toast(evs.length > 1 ? `Saved ${evs.length} events as ${fileName}: open it to add them to your calendar` : `Saved ${fileName}: open it to add it to your calendar`);
-            else if (r === 'failed') toast("The calendar file couldn't be saved on this device.", 'warn');
+            if (r === 'saved') {
+                toast(evs.length > 1 ? t('Saved {n} events as {file}: open it to add them to your calendar', { n: evs.length, file: fileName })
+                    : t('Saved {file}: open it to add it to your calendar', { file: fileName }));
+            } else if (r === 'failed') toast(t('The calendar file couldn’t be saved on this device.'), 'warn');
         });
     }
 
@@ -158,31 +161,31 @@ export function mountEventsPanel(root, ctx) {
     const simNow = () => (Number.isFinite(clock?.tMs) ? clock.tMs : ui.snap?.tMs ?? Date.now());
 
     function render(force = false) {
-        const t = simNow();
-        const all = withPasses(ui.events?.list, t);
+        const now = simNow();
+        const all = withPasses(ui.events?.list, now);
         if (!all) {
             empty.hidden = false;
-            if (!ctx.services?.astro) setText(empty, 'Upcoming events are unavailable on this device.');
+            if (!ctx.services?.astro) setText(empty, t('Upcoming events are unavailable on this device.'));
             return;
         }
         const f = FILTERS.find((x) => x.id === filter) || FILTERS[0];
-        const upcoming = all.filter((e) => e && Number.isFinite(e.tMs) && e.tMs >= t - 30 * 60e3 && e.tMs <= t + 366 * DAY && f.test(e));
+        const upcoming = all.filter((e) => e && Number.isFinite(e.tMs) && e.tMs >= now - 30 * 60e3 && e.tMs <= now + 366 * DAY && f.test(e));
         const south = ctx.store.get().observer?.latDeg < 0;
         const key = `${filter}|${expanded}|${upcoming.length}|${upcoming[0]?.id ?? ''}|${upcoming.at(-1)?.id ?? ''}|${ui.displayTz()}|${ctx.store.get().display?.hour12}|${south}`;
-        if (!force && key === lastKey) { refreshRelative(t); return; }
+        if (!force && key === lastKey) { refreshRelative(now); return; }
         lastKey = key;
         empty.hidden = true;
         shownEvents = upcoming;
         metaEls = [];
-        bundle = eclipseBundle(ui.events?.list, t - 30 * 60e3, t + 366 * DAY);
+        bundle = eclipseBundle(ui.events?.list, now - 30 * 60e3, now + 366 * DAY);
         bundleBtn.hidden = !bundle.length || (filter !== 'all' && filter !== 'eclipses');
         // Under the Eclipses filter it leads the list; under All it ends it.
         if (filter === 'eclipses') { if (bundleBtn.previousElementSibling !== filterBar) filterBar.after(bundleBtn); } else if (bundleBtn.previousElementSibling !== moreBtn) moreBtn.after(bundleBtn);
-        setText(bundleBtn.lastChild, bundle.length === 1 ? 'Add the eclipse of the next 12 months to a calendar'
-            : `Add all ${bundle.length} eclipses of the next 12 months to a calendar`);
+        setText(bundleBtn.lastChild, bundle.length === 1 ? t('Add the eclipse of the next 12 months to a calendar')
+            : t('Add all {n} eclipses of the next 12 months to a calendar', { n: bundle.length }));
         const calBtn = (ev, i, text) => h('button', {
             class: `btn btn--soft btn--sm ${text ? '' : 'ev__cal'}`, type: 'button', 'data-cal': String(i),
-            'aria-label': `Add ${ev.title} to a calendar`, title: 'Add to calendar (.ics)',
+            'aria-label': t('Add {event} to a calendar', { event: ev.title }), title: t('Add to calendar (.ics)'),
         }, icon('calendar', { size: 16 }), text);
         const sat = (ev) => ev.kind === 'sat-pass';
 
@@ -192,15 +195,16 @@ export function mountEventsPanel(root, ctx) {
             const meta = h('span', { class: 'ev-next__when' });
             metaEls.push({ ev: first, meta, hero: true });
             next.replaceChildren(
-                h('span', { class: 'ev-next__label' }, 'Next up'),
+                h('span', { class: 'ev-next__label' }, t('Next up')),
                 h('div', { class: 'ev-next__row' },
                     h('span', { class: 'ev__icon ev__icon--lg', style: { '--c': eventColor(first) }, 'aria-hidden': 'true' }, eventGlyph(first, { size: 34, south })),
                     h('div', { class: 'ev__main' }, h('span', { class: 'ev-next__title' }, first.title), meta,
                         first.detail ? h('span', { class: 'ev__detail' }, first.detail) : null)),
                 h('div', { class: 'btn-row' },
-                    h('button', { class: 'btn btn--primary btn--sm', type: 'button', 'data-ev': '0', 'aria-label': `${sat(first) ? 'Watch' : 'Jump to'} ${first.title}` },
-                        icon('arrow-right', { size: 16 }), sat(first) ? 'Watch this pass' : 'Jump to it'),
-                    calBtn(first, 0, 'Add to calendar')));
+                    h('button', { class: 'btn btn--primary btn--sm', type: 'button', 'data-ev': '0',
+                        'aria-label': sat(first) ? t('Watch {event}', { event: first.title }) : t('Jump to {event}', { event: first.title }) },
+                    icon('arrow-right', { size: 16 }), sat(first) ? t('Watch this pass') : t('Jump to it')),
+                    calBtn(first, 0, t('Add to calendar'))));
             next.hidden = false;
         } else next.hidden = true;
 
@@ -209,7 +213,7 @@ export function mountEventsPanel(root, ctx) {
         // Under All: the next 8 weeks, or the first 12 events, whichever is more.
         let shown = upcoming.length;
         if (filter === 'all' && !expanded) {
-            const cut = upcoming.findIndex((e) => e.tMs > t + WINDOW_DAYS * DAY);
+            const cut = upcoming.findIndex((e) => e.tMs > now + WINDOW_DAYS * DAY);
             if (cut >= 0) shown = Math.max(cut, Math.min(WINDOW_MIN, shown));
         }
         upcoming.slice(0, shown).forEach((ev, i) => {
@@ -223,7 +227,8 @@ export function mountEventsPanel(root, ctx) {
             items.push(h('li', { class: 'ev-item' },
                 h('button', {
                     class: 'ev', type: 'button', 'data-ev': String(i), 'aria-describedby': ev.detail ? `ev-d${i}` : null,
-                    'aria-label': `${sat(ev) ? 'Watch' : 'Jump to'} ${ev.title}, ${ui.fmtSpoken(ev.tMs)}`,
+                    'aria-label': sat(ev) ? t('Watch {event}, {when}', { event: ev.title, when: ui.fmtSpoken(ev.tMs) })
+                        : t('Jump to {event}, {when}', { event: ev.title, when: ui.fmtSpoken(ev.tMs) }),
                 },
                 h('span', { class: 'ev__icon', style: { '--c': eventColor(ev) }, 'aria-hidden': 'true' }, eventGlyph(ev, { size: 26, south })),
                 h('span', { class: 'ev__main' },
@@ -235,17 +240,17 @@ export function mountEventsPanel(root, ctx) {
         });
         const rest = upcoming.length - shown;
         moreBtn.hidden = rest <= 0;
-        setText(moreBtn, rest === 1 ? 'Show the rest of the 12 months (1 more)' : `Show the rest of the 12 months (${rest} more)`);
+        setText(moreBtn, rest === 1 ? t('Show the rest of the 12 months (1 more)') : t('Show the rest of the 12 months ({n} more)', { n: rest }));
         if (!upcoming.length) {
-            items.push(h('li', { class: 'ev-none' }, filter === 'all' ? 'No events in the next 12 months.' : 'No events of this kind in the next 12 months.'));
+            items.push(h('li', { class: 'ev-none' }, filter === 'all' ? t('No events in the next 12 months.') : t('No events of this kind in the next 12 months.')));
         }
         list.replaceChildren(...items);
-        refreshRelative(t, true);
+        refreshRelative(now, true);
     }
 
     /** The year's events plus the satellite passes this filter shows (cached per pass list). */
     let passCache = { list: null, filter: '', tz: '', evs: [] };
-    function withPasses(list, t) {
+    function withPasses(list, at) {
         if (!list) return list;
         const pl = ui.passes?.list;
         if (!Array.isArray(pl) || !pl.length) return list;
@@ -253,17 +258,17 @@ export function mountEventsPanel(root, ctx) {
         if (passCache.list !== pl || passCache.filter !== filter || passCache.tz !== tz) {
             passCache = { list: pl, filter, tz, evs: pl.filter((p) => filter === 'sats' || isBrightPass(p)).map((p) => passEvent(p, ui)) };
         }
-        const evs = passCache.evs.filter((e) => e.pass.endMs >= t - 60e3);
+        const evs = passCache.evs.filter((e) => e.pass.endMs >= at - 60e3);
         return evs.length ? list.concat(evs).sort((a, b) => a.tMs - b.tMs) : list;
     }
 
-    function refreshRelative(t, force = false) {
+    function refreshRelative(at, force = false) {
         const now = performance.now();
         if (!force && now - lastRel < 1000) return;
         lastRel = now;
         for (const { ev, meta, hero } of metaEls) {
             const when = `${ui.fmtDay(ev.tMs, { year: false })} · ${ui.fmtClock(ev.tMs)}`;
-            const rel = ui.fmt('fmtRelative', ev.tMs, t);
+            const rel = ui.fmt('fmtRelative', ev.tMs, at);
             setText(meta, hero ? `${rel === '—' ? '' : rel + ' · '}${when}` : `${when}${rel === '—' ? '' : ' · ' + rel}`);
         }
     }

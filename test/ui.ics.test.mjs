@@ -122,3 +122,20 @@ test('eclipseBundle: lunar and local solar eclipses, and global ones only when n
     const aug = real.filter((e) => Math.abs(e.tMs - Date.parse('2027-08-02T10:07:00Z')) < 864e5);
     assert.deepEqual(aug.map((e) => e.kind), ['local-solar-eclipse']);
 });
+
+test('the calendar speaks the interface language; its structure, dates and UIDs do not change', async () => {
+    const { setLocale } = await import('../js/core/i18n.js');
+    const vi = JSON.parse((await import('node:fs')).readFileSync(new URL('../data/i18n/vi.json', import.meta.url), 'utf8'));
+    const ev = { id: 'conj:mars:jupiter:2026-11-10', kind: 'conjunction', tMs: Date.parse('2026-11-10T03:00:00Z') };
+    const en = veventLines(ev, { nowMs: NOW, url: 'https://x.test/#t=1', place: 'Hà Nội', placeKey: '21.03,105.85' });
+    setLocale('vi', vi);
+    try {
+        const lines = veventLines(ev, { nowMs: NOW, url: 'https://x.test/#t=1', place: 'Hà Nội', placeKey: '21.03,105.85' });
+        assert.equal(lines.find((l) => l.startsWith('SUMMARY:')), 'SUMMARY:Sự kiện bầu trời');
+        assert.match(lines.find((l) => l.startsWith('DESCRIPTION:')), /^DESCRIPTION:Giờ giấc và khả năng quan sát tính cho Hà Nội\.\\n\\nXem bầu trời này: https/);
+        const machine = (ls) => ls.filter((l) => /^(BEGIN|END|UID|DTSTAMP|DTSTART|DTEND|URL|TRANSP|ACTION|TRIGGER):/.test(l));
+        assert.deepEqual(machine(lines), machine(en));
+        assert.equal(slug('Nguyệt thực toàn phần — Đông Á'), 'nguyet-thuc-toan-phan');
+        assert.equal(slug('Điểm cận nhật'), 'diem-can-nhat');
+    } finally { setLocale('en'); }
+});

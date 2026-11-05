@@ -6,6 +6,8 @@
  * @module ui/sky-tools
  */
 
+import { t } from '../core/i18n.js';
+
 /** True where 'Point at the sky' can work: orientation events, a secure page, a touch screen. */
 export function canPointAtSky(win, coarse) {
     try {
@@ -29,22 +31,22 @@ export function mountSkyTools(ctx) {
         const a = sky ? st.ui?.aim : null;
         if (r) {
             ui.modes.set('ruler', {
-                icon: 'ruler', title: 'Angle ruler', live: true,
-                detail: r.ends >= 2 && r.text ? `${cap(r.from)} → ${r.to}: ${r.text} at arm’s length`
-                    : r.ends === 1 ? `From ${r.from}: now tap a second point` : 'Tap a body, a star or any point of the sky',
-                exit: { label: 'Done', done: 'Ruler off', run: () => ui.act('setRuler', false) },
+                icon: 'ruler', title: t('Angle ruler'), live: true,
+                detail: r.ends >= 2 && r.text ? t('{from} → {to}: {text} at arm’s length', { from: cap(t(r.from)), to: t(r.to), text: r.text })
+                    : r.ends === 1 ? t('From {from}: now tap a second point', { from: t(r.from) }) : t('Tap a body, a star or any point of the sky'),
+                exit: { label: t('Done'), done: t('Ruler off'), run: () => ui.act('setRuler', false) },
             });
         } else ui.modes.clear('ruler');
         if (a) {
             const starting = a.source === 'starting';
             ui.modes.set('aim', {
-                icon: 'phone', title: 'Pointing with your phone', live: true,
-                detail: starting ? 'Waiting for the compass…'
-                    : a.aligned ? `Aligned on ${a.aligned}, still approximate`
-                        : a.source === 'relative' ? 'No compass here: centre a bright body and choose Align'
-                            : 'Approximate: centre a bright body, then choose Align',
-                actions: [{ label: 'Align', disabled: starting, run: () => ui.act('alignAim') }],
-                exit: { label: 'Stop', done: 'Stopped following the phone', run: () => ui.act('pointAtSky', false) },
+                icon: 'phone', title: t('Pointing with your phone'), live: true,
+                detail: starting ? t('Waiting for the compass…')
+                    : a.aligned ? t('Aligned on {body}, still approximate', { body: t(a.aligned) })
+                        : a.source === 'relative' ? t('No compass here: centre a bright body and choose Align')
+                            : t('Approximate: centre a bright body, then choose Align'),
+                actions: [{ label: t('Align'), disabled: starting, run: () => ui.act('alignAim') }],
+                exit: { label: t('Stop'), done: t('Stopped following the phone'), run: () => ui.act('pointAtSky', false) },
             });
         } else ui.modes.clear('aim');
     }
@@ -58,6 +60,6 @@ export function mountSkyTools(ctx) {
 }
 
 function cap(s) {
-    const t = String(s ?? '');
-    return t ? t.charAt(0).toUpperCase() + t.slice(1) : t;
+    const str = String(s ?? '');
+    return str ? str.charAt(0).toUpperCase() + str.slice(1) : str;
 }

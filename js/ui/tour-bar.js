@@ -9,6 +9,7 @@
 
 import { h, on, setText } from './dom.js';
 import { icon } from './icons.js';
+import { t } from '../core/i18n.js';
 
 /**
  * @param {HTMLElement} root overlay container
@@ -21,10 +22,10 @@ export function mountTourBar(root, ctx) {
     const eye = h('span', { class: 'tour-bar__eye' });
     const text = h('p', { class: 'tour-bar__text' });
     const fill = h('span', { class: 'tour-bar__fill' });
-    const nextBtn = h('button', { class: 'btn btn--soft btn--sm', type: 'button', 'data-tour-act': 'next' }, 'Next', icon('chevron-right', { size: 16 }));
-    const resumeBtn = h('button', { class: 'btn btn--primary btn--sm', type: 'button', 'data-tour-act': 'resume', hidden: true }, icon('play', { size: 16 }), 'Resume');
-    const endBtn = h('button', { class: 'btn btn--ghost btn--sm', type: 'button', 'data-tour-act': 'end', 'aria-label': 'End the tour (Esc)' }, icon('close', { size: 16 }), 'End tour');
-    const el = h('section', { class: 'tour-bar glass', 'data-tour-ui': '', 'aria-label': 'Guided tour', hidden: true },
+    const nextBtn = h('button', { class: 'btn btn--soft btn--sm', type: 'button', 'data-tour-act': 'next' }, t('Next'), icon('chevron-right', { size: 16 }));
+    const resumeBtn = h('button', { class: 'btn btn--primary btn--sm', type: 'button', 'data-tour-act': 'resume', hidden: true }, icon('play', { size: 16 }), t('Resume'));
+    const endBtn = h('button', { class: 'btn btn--ghost btn--sm', type: 'button', 'data-tour-act': 'end', 'aria-label': t('End the tour (Esc)') }, icon('close', { size: 16 }), t('End tour'));
+    const el = h('section', { class: 'tour-bar glass', 'data-tour-ui': '', 'aria-label': t('Guided tour'), hidden: true },
         h('div', { class: 'tour-bar__main' }, eye, text, h('span', { class: 'tour-bar__track', 'aria-hidden': 'true' }, fill)),
         h('div', { class: 'tour-bar__btns' }, resumeBtn, nextBtn, endBtn));
     root.appendChild(el);
@@ -39,27 +40,29 @@ export function mountTourBar(root, ctx) {
     }));
 
     let lastCaption = null;
-    function render(t) {
-        const show = !!t && !(t.ambient && !t.caption);
+    function render(tour) {
+        const show = !!tour && !(tour.ambient && !tour.caption);
         el.hidden = !show;
-        if (!t) {
+        if (!tour) {
             lastCaption = null;
             return;
         }
-        const n = t.steps > 0 ? ` · ${Math.min(t.step, t.steps)} of ${t.steps}` : '';
-        setText(eye, t.paused ? `${t.title} · paused` : `${t.title}${t.ambient ? '' : n}`);
-        if (t.caption !== lastCaption) {
-            lastCaption = t.caption;
-            setText(text, t.caption);
+        // The catalogue's title and the step's caption are English, shown in the locale (t()).
+        const title = t(tour.title);
+        setText(eye, tour.paused ? t('{title} · paused', { title }) : tour.steps > 0 && !tour.ambient
+            ? t('{title} · {step} of {steps}', { title, step: Math.min(tour.step, tour.steps), steps: tour.steps }) : title);
+        if (tour.caption !== lastCaption) {
+            lastCaption = tour.caption;
+            setText(text, t(tour.caption));
             // Restart the fade-in without forcing a layout read in between.
             text.classList.remove('is-in');
             requestAnimationFrame(() => text.classList.add('is-in'));
         }
-        fill.style.transform = `scaleX(${t.steps > 0 ? Math.min(1, t.step / t.steps) : 0})`;
-        el.classList.toggle('is-paused', !!t.paused);
-        el.classList.toggle('is-ambient', !!t.ambient);
-        resumeBtn.hidden = !t.paused;
-        nextBtn.hidden = !!t.ambient && !t.paused;
+        fill.style.transform = `scaleX(${tour.steps > 0 ? Math.min(1, tour.step / tour.steps) : 0})`;
+        el.classList.toggle('is-paused', !!tour.paused);
+        el.classList.toggle('is-ambient', !!tour.ambient);
+        resumeBtn.hidden = !tour.paused;
+        nextBtn.hidden = !!tour.ambient && !tour.paused;
     }
     offs.push(store.subscribe((s) => s.ui.tour, render, { immediate: true }));
 

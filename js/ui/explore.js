@@ -12,6 +12,7 @@ import { MOMENTS, FAMOUS_COMETS } from '../core/moments.js';
 import { skyCaption } from '../astro/sky-caption.js';
 import { h, on, setText } from './dom.js';
 import { icon } from './icons.js';
+import { t } from '../core/i18n.js';
 
 /**
  * Mounts the Explore tab.
@@ -28,29 +29,29 @@ export function mountExplore(root, ctx) {
     };
     const group = (title, ...kids) => h('div', { class: 'group' }, h('h3', { class: 'group-title' }, title), ...kids);
 
-    const tourBtns = TOURS.map((t) => h('button', {
-        class: 'tour-card', type: 'button', 'data-tour': t.id, 'aria-pressed': 'false',
-        'aria-label': `Play the guided tour ${t.title}: ${t.blurb}`,
-    }, h('span', { class: 'tour-card__title' }, icon('play', { size: 14 }), t.title), h('span', { class: 'tour-card__blurb' }, t.blurb)));
-    const tours = group('Guided tours', h('div', { class: 'tours', role: 'group', 'aria-label': 'Guided tours' }, tourBtns));
+    const tourBtns = TOURS.map((tour) => h('button', {
+        class: 'tour-card', type: 'button', 'data-tour': tour.id, 'aria-pressed': 'false',
+        'aria-label': t('Play the guided tour {title}: {blurb}', { title: t(tour.title), blurb: t(tour.blurb) }),
+    }, h('span', { class: 'tour-card__title' }, icon('play', { size: 14 }), t(tour.title)), h('span', { class: 'tour-card__blurb' }, t(tour.blurb))));
+    const tours = group(t('Guided tours'), h('div', { class: 'tours', role: 'group', 'aria-label': t('Guided tours') }, tourBtns));
 
-    const bornDate = h('input', { class: 'input', type: 'date', min: '1000-01-01', max: '2999-12-31', required: true, 'aria-label': 'Date of birth' });
-    const bornTime = h('input', { class: 'input', type: 'time', value: '21:00', 'aria-label': 'Time (optional)' });
+    const bornDate = h('input', { class: 'input', type: 'date', min: '1000-01-01', max: '2999-12-31', required: true, 'aria-label': t('Date of birth') });
+    const bornTime = h('input', { class: 'input', type: 'time', value: '21:00', 'aria-label': t('Time (optional)') });
     const bornCaption = h('p', { class: 'born__caption', 'aria-live': 'polite', hidden: true });
     const bornForm = h('form', { class: 'born', novalidate: true },
         h('div', { class: 'born__row' },
-            h('label', { class: 'field' }, h('span', { class: 'field__label' }, 'Date'), bornDate),
-            h('label', { class: 'field' }, h('span', { class: 'field__label' }, 'Time'), bornTime),
-            h('button', { class: 'btn btn--primary btn--sm', type: 'submit' }, icon('sky', { size: 16 }), 'Show my sky')),
+            h('label', { class: 'field' }, h('span', { class: 'field__label' }, t('Date')), bornDate),
+            h('label', { class: 'field' }, h('span', { class: 'field__label' }, t('Time')), bornTime),
+            h('button', { class: 'btn btn--primary btn--sm', type: 'submit' }, icon('sky', { size: 16 }), t('Show my sky'))),
         bornCaption);
 
     /** The first `first` links of a history list, then 'Show all', which reveals the rest. */
     const history = (title, list, first, more, cls) => {
         const items = list.map((m, i) => h('div', { role: 'listitem', hidden: i >= first },
             h('a', { class: 'moment', href: m.hash, 'data-moment': m.id },
-                h('span', { class: 'moment__title' }, m.title),
-                h('span', { class: 'moment__when' }, m.when ?? m.detail),
-                m.caption ? h('span', { class: 'moment__caption' }, m.caption) : null,
+                h('span', { class: 'moment__title' }, t(m.title)),
+                h('span', { class: 'moment__when' }, t(m.when ?? m.detail)),
+                m.caption ? h('span', { class: 'moment__caption' }, t(m.caption)) : null,
                 m.sources ? h('span', { class: 'moment__src' }, m.sources.join(' · ')) : null)));
         const all = h('button', { class: 'btn btn--soft btn--sm moments__all', type: 'button' }, more);
         offs.push(on(all, 'click', () => {
@@ -63,14 +64,14 @@ export function mountExplore(root, ctx) {
 
     // Other places: cards like the tours'.
     const card = (ic, title, detail) => {
-        const t = h('span', null, title);
+        const name = h('span', null, title);
         const d = h('span', { class: 'tour-card__blurb' }, detail);
-        return { el: h('button', { class: 'tour-card', type: 'button' }, h('span', { class: 'tour-card__title' }, icon(ic, { size: 16 }), t), d), t, d };
+        return { el: h('button', { class: 'tour-card', type: 'button' }, h('span', { class: 'tour-card__title' }, icon(ic, { size: 16 }), name), d), name, d };
     };
-    const two = card('compare', 'Two places at once', '');
+    const two = card('compare', t('Two places at once'), '');
     const twoName = h('span', { style: 'flex:1' });
-    const twoChange = h('button', { class: 'btn btn--ghost btn--sm', type: 'button' }, 'Change');
-    const twoRemove = h('button', { class: 'btn btn--ghost btn--sm', type: 'button' }, 'Remove');
+    const twoChange = h('button', { class: 'btn btn--ghost btn--sm', type: 'button' }, t('Change'));
+    const twoRemove = h('button', { class: 'btn btn--ghost btn--sm', type: 'button' }, t('Remove'));
     const twoOn = h('p', { class: 'btn-row note', style: 'align-items:center', hidden: true }, twoName, twoChange, twoRemove);
     const mars = card('planet', '', '');
     offs.push(on(two.el, 'click', () => ui.act('compareWith')));
@@ -82,18 +83,18 @@ export function mountExplore(root, ctx) {
         else store.set({ ui: { ...s.ui, palette: 'mars' } });
     }));
 
-    root.append(tours, group('The sky you were born under', h('p', { class: 'note' }, 'Your birthday, seen from where you are now.'), bornForm),
-        history('Moments in history', MOMENTS, 4, `Show all ${MOMENTS.length} moments`, 'moments'),
-        history('Famous comets', FAMOUS_COMETS, 3, `Show all ${FAMOUS_COMETS.length} comets`, 'moments moments--comets'),
-        group('Other places', h('div', { class: 'tours' }, two.el, mars.el), twoOn),
-        h('p', { class: 'note' }, 'Dates before 15 October 1582 are Julian, as the records give them. Positions before 1600 are less certain (ΔT); comet tails and supernova light curves are models.'));
+    root.append(tours, group(t('The sky you were born under'), h('p', { class: 'note' }, t('Your birthday, seen from where you are now.')), bornForm),
+        history(t('Moments in history'), MOMENTS, 4, t('Show all {n} moments', { n: MOMENTS.length }), 'moments'),
+        history(t('Famous comets'), FAMOUS_COMETS, 3, t('Show all {n} comets', { n: FAMOUS_COMETS.length }), 'moments moments--comets'),
+        group(t('Other places'), h('div', { class: 'tours' }, two.el, mars.el), twoOn),
+        h('p', { class: 'note' }, t('Dates before 15 October 1582 are Julian, as the records give them. Positions before 1600 are less certain (ΔT); comet tails and supernova light curves are models.')));
 
     offs.push(on(root, 'click', (e) => {
-        const t = /** @type {HTMLElement} */ (e.target);
-        const tb = t.closest('[data-tour]');
+        const el = /** @type {HTMLElement} */ (e.target);
+        const tb = el.closest('[data-tour]');
         if (tb) ui.act('startTour', tb.dataset.tour);
         // A moment closes the phone sheet to its peek, so the sky it opens is in view.
-        else if (t.closest('[data-moment]')) lower();
+        else if (el.closest('[data-moment]')) lower();
     }));
 
     // 'The sky you were born under': that instant in Sky view, then a caption from the readout.
@@ -111,7 +112,7 @@ export function mountExplore(root, ctx) {
         ui.act('setViewMode', 'sky');
         lower();
         bornCaption.hidden = false;
-        bornCaption.textContent = 'Reading the sky…';
+        bornCaption.textContent = t('Reading the sky…');
         bornWait?.();
         const done = ui.on('snap', (snap) => {
             if (!snap || Math.abs(snap.tMs - ms) > 1000) return;
@@ -132,13 +133,13 @@ export function mountExplore(root, ctx) {
         const gl = s.status?.webgl !== false;
         // startTour and standOnMars need the 3D view.
         tours.hidden = mars.el.hidden = !gl;
-        setText(two.d, gl ? 'A second pin and its beams, compared in Up now' : 'The sky from a second place, compared in Up now');
+        setText(two.d, gl ? t('A second pin and its beams, compared in Up now') : t('The sky from a second place, compared in Up now'));
         const o2 = s.observer2, onMars = s.host?.id === 'mars';
         two.el.hidden = onMars;
         twoOn.hidden = !o2 || onMars;
-        if (o2) setText(twoName, `Comparing with ${ui.placeShort(o2)}`);
-        setText(mars.t, onMars ? 'Back to the Earth' : 'Stand on Mars');
-        setText(mars.d, onMars ? 'Leave Mars for your place on the Earth' : 'The sky from a landing site, with the Earth as an evening star');
+        if (o2) setText(twoName, t('Comparing with {place}', { place: ui.placeShort(o2) }));
+        setText(mars.name, onMars ? t('Back to the Earth') : t('Stand on Mars'));
+        setText(mars.d, onMars ? t('Leave Mars for your place on the Earth') : t('The sky from a landing site, with the Earth as an evening star'));
     };
     for (const sel of [(s) => s.status?.webgl, (s) => s.observer2, (s) => s.host?.id]) offs.push(store.subscribe(sel, sync));
     sync();

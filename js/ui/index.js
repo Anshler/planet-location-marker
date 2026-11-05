@@ -35,6 +35,7 @@ import { mountCoach } from './coach.js';
 import { toCalendar, fromCalendar } from '../core/tz.js';
 import { isExtraId } from '../core/selection.js';
 import { t, N_, dateText, timeText } from '../core/i18n.js';
+import { placeName } from '../core/format.js';
 
 const HOUR = 3600e3;
 const DAY = 86400e3;
@@ -305,7 +306,7 @@ function createUiHub(ctx, rootEl) {
      */
     function placeLabel(o, { country = true } = {}) {
         if (!o) return '';
-        const name = String(o.name || '').trim();
+        const name = placeName(String(o.name || '').trim());
         const ctry = String(o.country || '').trim();
         if (name) {
             if (country && ctry && !name.toLowerCase().includes(ctry.toLowerCase())) return `${name}, ${ctry}`;
@@ -319,9 +320,8 @@ function createUiHub(ctx, rootEl) {
     /** Short place name for the clock's zone and summaries ("Hanoi"). */
     function placeShort(o) {
         const name = String(o?.name || '').trim();
-        // "near Lyon" (actions' English, or the locale's "gần Lyon") → "Lyon".
-        const pre = t('near {place}', { place: '' }).trim();
-        if (name) return name.replace(/^near\s+/i, '').replace(name.startsWith(pre + ' ') ? pre + ' ' : '', '');
+        // "near Lyon" (actions' English) → "Lyon"; the poles in the locale.
+        if (name) return placeName(name.replace(/^near\s+/i, ''));
         const near = nearestCityText(o?.latDeg, o?.lonDeg);
         return near ? near.split(',')[0] : latLonText(o?.latDeg, o?.lonDeg, 1);
     }
@@ -608,7 +608,7 @@ function createUiHub(ctx, rootEl) {
         emit: em.emit,
         fmt, act,
         displayTz, observerTz, zoned, toUtc, fmtClock, fmtDate, fmtDay, fmtStamp, fmtSpoken, fmtWhen, offsetText,
-        latLonText, placeLabel, placeShort, nearestCityText,
+        latLonText, placeLabel, placeShort, placeName, nearestCityText,
         bodyName, bodySubject, bodyOf, compass, compassWords, altAz, extras, onMars,
         checkAlmanac, ingestAlmanac, ingestEvents, invalidateAlmanac, riseSetFor, tonightFor, observerKey, astroObserver,
         /** True when transitions should be cuts. */

@@ -351,8 +351,8 @@ export function mountSkyNow(root, ctx) {
             setAttr(col.el, 'aria-label', up ? t('From {place}: {body} {deg} degrees up in the {dir}.', { place: placeName, body: name, deg: Math.round(alt), dir })
                 : t('From {place}: {body} below the horizon.', { place: placeName, body: name }));
         };
-        fill(cmpA, snap.bodies[i], st.observer?.name || t('Your location'));
-        fill(cmpB, s2.bodies[i], o2.name || t('Second place'));
+        fill(cmpA, snap.bodies[i], ui.placeName(st.observer?.name) || t('Your location'));
+        fill(cmpB, s2.bodies[i], ui.placeName(o2.name) || t('Second place'));
         const r = compareSight(snap, s2, i, sight);
         let note = '';
         if (r) {

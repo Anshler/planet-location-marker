@@ -18,7 +18,8 @@ import { eclipsePath, citiesInPath, nearestCentrePoint, shadowPoint } from '../a
 import { createEclipseChase } from './eclipse-chase.js';
 import { localSolarEclipseAt } from '../astro/events.js';
 import { serializeHash } from '../core/url-state.js';
-import { LOCALES, locale } from '../core/i18n.js';
+import { LOCALES, locale, t, N_ } from '../core/i18n.js';
+import { placeName, compassWord } from '../core/format.js';
 import { SKY_DARK_SETTINGS, AURORA_SETTINGS } from '../core/store.js';
 import { EXPOSE_KINDS, TRAILS_RATE, trailsLook, nextDarkMs, analemmaPlan } from './expose.js';
 
@@ -40,8 +41,8 @@ const TRACK_KINDS = new Set(['none', 'body', 'stars']);
 const VANTAGE_KINDS = new Set(['none', 'l1', 'moon']);
 /** Vantage points (globe view, url `vt`): their names in the menu, the caption and announcements. */
 export const VANTAGES = Object.freeze({
-    l1: Object.freeze({ name: 'View from L1', detail: 'The sunlit Earth from 1.5 million km sunward, as NASA’s DSCOVR sees it' }),
-    moon: Object.freeze({ name: 'Earthrise', detail: 'The Earth rising over the Moon’s limb, from a 150 km lunar orbit' }),
+    l1: Object.freeze({ name: N_('View from L1'), detail: N_('The sunlit Earth from 1.5 million km sunward, as NASA’s DSCOVR sees it') }),
+    moon: Object.freeze({ name: N_('Earthrise'), detail: N_('The Earth rising over the Moon’s limb, from a 150 km lunar orbit') }),
 });
 /** The telescope's narrowest framing (the rig's sky-view floor). */
 export const TELESCOPE_FOV_MIN = 0.2;
@@ -52,7 +53,6 @@ const MAX_RECENT = 8;
 const JUMP_ANIMATE_MS = 1400;
 /** 'Watch this pass' starts the clock this long before the satellite becomes visible. */
 export const PASS_LEAD_MS = 30000;
-const COMPASS8 = Object.freeze(['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west']);
 /** An event flight lasts the time sweep plus this (the globe ↔ sky transitions take 1.8 s). */
 const EVENT_FLY_EXTRA_MS = 400;
 const DAY_MS = 864e5;
@@ -66,16 +66,21 @@ export const TRANSIT_FOV_DEG = 2;
 /** AE eclipse altitudes are the refracted centre; the Sun's upper limb is this much higher. */
 const SUN_LIMB_DEG = 0.27;
 const MAX_PATHS = 4;
+const TIERS = Object.freeze({ low: N_('low'), medium: N_('medium'), high: N_('high'), max: N_('max') });
+const AURORA_SAY = Object.freeze({ quiet: N_('Aurora activity: quiet (modelled)'), typical: N_('Aurora activity: typical (modelled)'),
+    storm: N_('Aurora activity: storm (modelled)') });
+/** An observer's name and country, the name in the locale ('gần Lyon, France'), else `fallback`. */
+const placeText = (o, fallback) => (o.name ? placeName(o.name) : fallback) + (o.country ? ', ' + o.country : '');
 
-/** Human names of the layer switches (announcements). */
+/** Human names of the layer switches (announcements; English, shown through t()). */
 export const LAYER_LABELS = Object.freeze({
-    beams: 'Beams', ghostBeams: 'Beams through the Earth', sunMoonBeams: 'Sun and Moon beams', stars: 'Stars',
-    constellations: 'Constellation lines', constellationNames: 'Constellation names', starNames: 'Star names',
-    milkyWay: 'Milky Way', deepSky: 'Deep-sky objects', clouds: 'Clouds', atmosphere: 'Atmosphere', ecliptic: 'Ecliptic',
-    eqGrid: 'Equatorial grid (RA/Dec)', precession: 'The pole’s 26,000-year circle (precession)', altAzGrid: 'Horizon grid',
-    horizon: 'Horizon disc', footprint: 'Where it’s up on Earth', subpoints: 'Overhead points', trails: 'Path ±6 months',
-    labels: 'Labels', landscape: 'Illustrative landscape', sunPath: 'Sun paths and the analemma', meteors: 'Meteors',
-    satellites: 'Satellites', spacecraft: 'Spacecraft',
+    beams: N_('Beams'), ghostBeams: N_('Beams through the Earth'), sunMoonBeams: N_('Sun and Moon beams'), stars: N_('Stars'),
+    constellations: N_('Constellation lines'), constellationNames: N_('Constellation names'), starNames: N_('Star names'),
+    milkyWay: N_('Milky Way'), deepSky: N_('Deep-sky objects'), clouds: N_('Clouds'), atmosphere: N_('Atmosphere'), ecliptic: N_('Ecliptic'),
+    eqGrid: N_('Equatorial grid (RA/Dec)'), precession: N_('The pole’s 26,000-year circle (precession)'), altAzGrid: N_('Horizon grid'),
+    horizon: N_('Horizon disc'), footprint: N_('Where it’s up on Earth'), subpoints: N_('Overhead points'), trails: N_('Path ±6 months'),
+    labels: N_('Labels'), landscape: N_('Illustrative landscape'), sunPath: N_('Sun paths and the analemma'), meteors: N_('Meteors'),
+    satellites: N_('Satellites'), spacecraft: N_('Spacecraft'),
 });
 
 const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
@@ -126,7 +131,10 @@ function zoneFor(near, lonDeg, tz) {
     return { zone, approx: true };
 }
 
-/** "Lyon" (within 15 km), "near Lyon" (within 300 km), the poles, or '' (the UI shows coordinates). */
+/**
+ * "Lyon" (within 15 km), "near Lyon" (within 300 km), the poles, or '' (the UI shows coordinates).
+ * English on purpose: names live in links and prefs; core/format.js placeName shows them in the locale.
+ */
 function nameFor(near, latDeg) {
     if (near) return near.km <= AT_CITY_KM ? near.city.name : `near ${near.city.name}`;
     if (latDeg >= 89.5) return 'North Pole';
@@ -224,9 +232,9 @@ function sameSpot(a, b) {
  * @returns {{tMs:number, aimMs:number, play:boolean, fovDeg:number|undefined}|null}
  */
 export function eventFraming(ev) {
-    const t = Number(ev?.tMs);
-    if (!Number.isFinite(t)) return null;
-    const vis = Number.isFinite(ev.visibleMs) ? ev.visibleMs : t;
+    const at = Number(ev?.tMs);
+    if (!Number.isFinite(at)) return null;
+    const vis = Number.isFinite(ev.visibleMs) ? ev.visibleMs : at;
     if (ev.kind === 'local-solar-eclipse') {
         const c2 = ev.c2Ms, c3 = ev.c3Ms, alt = ev.sunAltDeg ?? {};
         const up = (a) => Number.isFinite(a) && a + SUN_LIMB_DEG > 0;
@@ -239,10 +247,10 @@ export function eventFraming(ev) {
     if (ev.kind === 'lunar-eclipse' && ev.view === 'sky') return { tMs: vis, aimMs: vis, play: false, fovDeg: ECLIPSE_FOV_DEG };
     // A transit seen from here: the Sun at a 2° field when it is up; a star occultation: the Moon at 5°.
     if (ev.kind === 'transit' && ev.view === 'sky') return { tMs: vis, aimMs: vis, play: false, fovDeg: TRANSIT_FOV_DEG };
-    if (ev.kind === 'occultation') return { tMs: t, aimMs: t, play: false, fovDeg: ECLIPSE_FOV_DEG };
+    if (ev.kind === 'occultation') return { tMs: at, aimMs: at, play: false, fovDeg: ECLIPSE_FOV_DEG };
     // A meteor shower: its best hour here, facing the radiant (ev.look), paused on the composite.
     if (ev.kind === 'meteor-shower' && Number.isFinite(ev.visibleMs)) return { tMs: vis, aimMs: vis, play: false, fovDeg: undefined };
-    return { tMs: t, aimMs: t, play: false, fovDeg: undefined };
+    return { tMs: at, aimMs: at, play: false, fovDeg: undefined };
 }
 
 /**
@@ -415,7 +423,7 @@ export function createActions(deps) {
     const getSnap = deps.getSnap ?? (() => null);
     // The extras registry (astro/extras.js): names of selectable objects beyond the nine.
     const extras = deps.extras ?? null;
-    const nameOf = (id) => (isBodyId(id) ? BODIES[BODY_INDEX[id]].name : extras?.meta?.(id)?.name ?? String(id));
+    const nameOf = (id) => t(isBodyId(id) ? BODIES[BODY_INDEX[id]].name : extras?.meta?.(id)?.name ?? String(id));
 
     /** @type {Observer[]} */
     const undoStack = [];
@@ -472,7 +480,7 @@ export function createActions(deps) {
         try {
             next = normalizeObserver(obs, { cities, tz });
         } catch {
-            toast('Those coordinates are not valid.', 'warn');
+            toast(t('Those coordinates are not valid.'), 'warn');
             return null;
         }
         const prev = store.get().observer;
@@ -486,8 +494,8 @@ export function createActions(deps) {
         if (USER_SOURCES.includes(next.source)) rememberPlace(next);
         // The UI shows its own Undo toast for click placements; other undoable moves get one here.
         if (undoable && next.source !== 'click') {
-            toast(`Observer moved to ${next.name || 'the new location'}${next.country ? ', ' + next.country : ''}`, 'info', {
-                actionLabel: 'Undo', onAction: () => undoObserver(), timeoutMs: 8000,
+            toast(t('Observer moved to {place}', { place: placeText(next, t('the new location')) }), 'info', {
+                actionLabel: t('Undo'), onAction: () => undoObserver(), timeoutMs: 8000,
             });
         }
         const r = rig();
@@ -516,11 +524,11 @@ export function createActions(deps) {
     async function locateMe() {
         const geo = nav?.geolocation;
         if (!geo || typeof geo.getCurrentPosition !== 'function') {
-            toast("Location isn't available in this browser.", 'warn');
+            toast(t("Location isn't available in this browser."), 'warn');
             openPalette();
             return;
         }
-        say('Finding your location…');
+        say(t('Finding your location…'));
         try {
             const pos = await new Promise((resolve, reject) => {
                 geo.getCurrentPosition(resolve, reject, { enableHighAccuracy: false, timeout: 12000, maximumAge: 300000 });
@@ -530,12 +538,12 @@ export function createActions(deps) {
                 { fly: true, undoable: true });
         } catch (err) {
             if (err && err.code === 1) {
-                toast('Location permission denied.', 'warn');
+                toast(t('Location permission denied.'), 'warn');
                 openPalette();
             } else if (err && err.code === 3) {
-                toast('Finding your location took too long. Try again, or search for a place.', 'warn');
+                toast(t('Finding your location took too long. Try again, or search for a place.'), 'warn');
             } else {
-                toast("Couldn't determine your location. Search for a place instead.", 'warn');
+                toast(t("Couldn't determine your location. Search for a place instead."), 'warn');
             }
         }
     }
@@ -608,15 +616,15 @@ export function createActions(deps) {
         if (view.mode === mode && vt === 'none') return;
         if (mode === 'map') {
             if (!has3d()) {
-                toast('The world map needs the 3D view.', 'info');
+                toast(t('The world map needs the 3D view.'), 'info');
                 return;
             }
             if (store.get().status.introPlaying) return;
             chase.stop();
         }
         store.set({ view: { ...view, mode, vantage: 'none' } }, 'actions');
-        if (vt !== 'none' && mode === 'orbit') say('Back to the globe');
-        else if (mode === 'map') say('World map: the night side, twilight bands and where each body is overhead');
+        if (vt !== 'none' && mode === 'orbit') say(t('Back to the globe'));
+        else if (mode === 'map') say(t('World map: the night side, twilight bands and where each body is overhead'));
     }
 
     /**
@@ -628,14 +636,14 @@ export function createActions(deps) {
      */
     function standOnMars(site) {
         if (!has3d()) {
-            toast('Standing on Mars needs the 3D view.', 'info');
+            toast(t('Standing on Mars needs the 3D view.'), 'info');
             return false;
         }
         if (store.get().status.introPlaying) return false;
         const cur = store.get().host;
         let lat = Number(site?.latDeg ?? cur.latDeg), lon = Number(site?.lonDeg ?? cur.lonDeg);
         if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90) {
-            toast('Those Mars coordinates are not valid.', 'warn');
+            toast(t('Those Mars coordinates are not valid.'), 'warn');
             return false;
         }
         lon = ((((lon + 180) % 360) + 360) % 360) - 180 || 0;
@@ -647,7 +655,9 @@ export function createActions(deps) {
             host: { id: 'mars', latDeg: lat, lonDeg: lon, name },
             view: { ...view, mode: 'sky', vantage: 'none', track: 'none' },
         }, 'actions');
-        say(wasMars ? `Moved on Mars to ${name || 'the new site'}` : `Standing on Mars${name ? ` in ${name}` : ''}. Leave the sky view to return to the Earth.`);
+        say(wasMars ? t('Moved on Mars to {place}', { place: name ? t(name) : t('the new site') })
+            : name ? t('Standing on Mars in {place}. Leave the sky view to return to the Earth.', { place: t(name) })
+                : t('Standing on Mars. Leave the sky view to return to the Earth.'));
         return true;
     }
 
@@ -656,7 +666,7 @@ export function createActions(deps) {
         const h = store.get().host;
         if (h.id !== 'mars') return;
         store.set({ host: { ...h, id: 'earth' } }, 'actions');
-        say('Back on the Earth');
+        say(t('Back on the Earth'));
     }
 
     /** M: the flat map and back to the globe. @returns {boolean} the map is (being) shown */
@@ -676,7 +686,7 @@ export function createActions(deps) {
         if (obs == null) {
             if (store.get().observer2) {
                 store.set({ observer2: null }, 'actions');
-                say('Comparison removed');
+                say(t('Comparison removed'));
             }
             return null;
         }
@@ -684,13 +694,13 @@ export function createActions(deps) {
         try {
             next = normalizeObserver({ source: 'manual', ...obs }, { cities, tz });
         } catch {
-            toast('Those coordinates are not valid.', 'warn');
+            toast(t('Those coordinates are not valid.'), 'warn');
             return null;
         }
         const prev = store.get().observer2;
         if (prev && sameSpot(prev, next)) return prev;
         store.set({ observer2: next }, 'actions');
-        say(`Comparing with ${next.name || 'the second place'}${next.country ? ', ' + next.country : ''}`);
+        say(t('Comparing with {place}', { place: placeText(next, t('the second place')) }));
         return next;
     }
 
@@ -733,7 +743,7 @@ export function createActions(deps) {
         if ((st.view.vantage ?? 'none') === kind) return true;
         if (kind !== 'none') {
             if (!has3d()) {
-                toast('Vantage points need the 3D view.', 'info');
+                toast(t('Vantage points need the 3D view.'), 'info');
                 return false;
             }
             if (st.status.introPlaying) return false;
@@ -741,7 +751,7 @@ export function createActions(deps) {
         }
         const mode = kind === 'none' ? st.view.mode : 'orbit';
         store.set({ view: { ...st.view, mode, vantage: kind } }, 'actions');
-        say(kind === 'none' ? 'Back to the globe' : `${VANTAGES[kind].name}: ${VANTAGES[kind].detail}`);
+        say(kind === 'none' ? t('Back to the globe') : t('{name}: {detail}', { name: t(VANTAGES[kind].name), detail: t(VANTAGES[kind].detail) }));
         return true;
     }
 
@@ -756,7 +766,7 @@ export function createActions(deps) {
     function setSystem(on) {
         const r = rig();
         if (!has3d() || !r || typeof r.setSystem !== 'function') {
-            if (on) toast('The solar system view needs the 3D view.', 'info');
+            if (on) toast(t('The solar system view needs the 3D view.'), 'info');
             return false;
         }
         const st = store.get();
@@ -768,7 +778,7 @@ export function createActions(deps) {
             }
         }
         settle(r.setSystem(!!on, { animate: !reducedMotion() }));
-        say(on ? 'Solar system: distances to scale, planets enlarged' : 'Back to the globe');
+        say(on ? t('Solar system: distances to scale, planets enlarged') : t('Back to the globe'));
         return true;
     }
 
@@ -787,12 +797,12 @@ export function createActions(deps) {
         if (!TRACK_KINDS.has(kind)) return false;
         const st = store.get();
         if (kind === 'body' && !st.selection) {
-            toast('Select something first, then follow it.', 'info');
+            toast(t('Select something first, then follow it.'), 'info');
             return false;
         }
         if ((st.view.track ?? 'none') === kind) return true;
         store.set({ view: { ...st.view, track: kind } }, 'actions');
-        say(kind === 'body' ? `Following ${nameOf(st.selection)}.` : kind === 'stars' ? 'Following the stars: the Earth turns beneath them.' : 'Not following.');
+        say(kind === 'body' ? t('Following {body}.', { body: nameOf(st.selection) }) : kind === 'stars' ? t('Following the stars: the Earth turns beneath them.') : t('Not following.'));
         return true;
     }
 
@@ -813,13 +823,13 @@ export function createActions(deps) {
      */
     function telescope(id = store.get().selection) {
         if (!has3d()) {
-            toast('The telescope needs the 3D view.', 'info');
+            toast(t('The telescope needs the 3D view.'), 'info');
             return false;
         }
         const b = bodyNow(id);
         if (!b) return false;
         if (b.altGeomDeg < -2) {
-            toast(`${nameOf(id)} is below the horizon now.`, 'info');
+            toast(t('{body} is below the horizon now.', { body: nameOf(id) }), 'info');
             return false;
         }
         const fov = telescopeFov(id, getSnap(), rig().camera?.aspect);
@@ -833,7 +843,7 @@ export function createActions(deps) {
         const view = store.get().view;
         store.set({ view: { ...view, mode: 'sky', track: 'body', vantage: 'none' } }, 'actions');
         store.set({ ui: { ...store.get().ui, scope: { id, fovDeg: fov, ...prev } } }, 'actions');
-        say(`Telescope on ${nameOf(id)}.`);
+        say(t('Telescope on {body}.', { body: nameOf(id) }));
         return true;
     }
 
@@ -850,7 +860,7 @@ export function createActions(deps) {
         setTracking(trk);
         const v = camView();
         if (trk === 'none' && v?.mode === 'sky') settle(r?.setMode?.('sky', { animate: !reducedMotion(), look: { azDeg: v.azDeg, altDeg: v.altDeg, fovDeg: fov } }));
-        say('Telescope off.');
+        say(t('Telescope off.'));
         return true;
     }
 
@@ -892,7 +902,7 @@ export function createActions(deps) {
         const next = on === undefined ? !view.earthLock : !!on;
         if (view.earthLock === next) return;
         store.set({ view: { ...view, earthLock: next } }, 'actions');
-        say(next ? 'Turning with the Earth: your place stays in view.' : 'Holding the view still: the Earth turns beneath it.');
+        say(next ? t('Turning with the Earth: your place stays in view.') : t('Holding the view still: the Earth turns beneath it.'));
     }
 
     /**
@@ -905,7 +915,8 @@ export function createActions(deps) {
         const next = on === undefined ? !layers[key] : !!on;
         if (layers[key] === next) return;
         store.set({ layers: { ...layers, [key]: next } }, 'actions');
-        say(`${LAYER_LABELS[key] ?? key} ${next ? 'on' : 'off'}`);
+        const layer = LAYER_LABELS[key] ? t(LAYER_LABELS[key]) : key;
+        say(next ? t('{layer} on', { layer }) : t('{layer} off', { layer }));
     }
 
     /** @param {'auto'|'low'|'medium'|'high'|'max'} setting */
@@ -924,7 +935,7 @@ export function createActions(deps) {
             active = setting === 'auto' ? q.ceiling : setting;
         }
         store.set({ quality: { ...q, setting, active } }, 'actions');
-        say(setting === 'auto' ? `Quality: automatic (${active})` : `Quality: ${setting}`);
+        say(setting === 'auto' ? t('Quality: automatic ({tier})', { tier: t(TIERS[active] ?? active) }) : t('Quality: {tier}', { tier: t(TIERS[setting]) }));
     }
 
     /** @param {'observer'|'device'|'utc'} m */
@@ -946,7 +957,7 @@ export function createActions(deps) {
         const display = store.get().display;
         if (display.skyDark === s) return;
         store.set({ display: { ...display, skyDark: s } }, 'actions');
-        say(s === 'auto' ? 'Sky darkness: estimated from your location' : s === 'pristine' ? 'Sky darkness: pristine' : `Sky darkness: Bortle ${s}`);
+        say(s === 'auto' ? t('Sky darkness: estimated from your location') : s === 'pristine' ? t('Sky darkness: pristine') : t('Sky darkness: Bortle {n}', { n: s }));
     }
 
     /**
@@ -960,7 +971,7 @@ export function createActions(deps) {
         const next = on === undefined ? !display.red : !!on;
         if (!!display.red !== next) {
             store.set({ display: { ...display, red: next } }, 'actions');
-            say(next ? 'Night vision on: the screen is dim red and stays awake' : 'Night vision off');
+            say(next ? t('Night vision on: the screen is dim red and stays awake') : t('Night vision off'));
         }
         return next;
     }
@@ -994,7 +1005,7 @@ export function createActions(deps) {
         const display = store.get().display;
         if (display.aurora === s) return;
         store.set({ display: { ...display, aurora: s } }, 'actions');
-        say(`Aurora activity: ${s} (modelled)`);
+        say(t(AURORA_SAY[s]));
     }
 
     /**
@@ -1082,8 +1093,9 @@ export function createActions(deps) {
     async function share() {
         const url = shareUrl();
         const o = store.get().observer;
-        const from = o.name ? o.name.replace(/^near /, '') : 'here';
-        const data = { title: APP_NAME, text: `Where the planets are from ${from} — ${APP_NAME}`, url };
+        const name = o.name ? placeName(o.name.replace(/^near /, '')) : '';
+        const text = name ? t('Where the planets are from {place} — {app}', { place: name, app: APP_NAME }) : t('Where the planets are from here — {app}', { app: APP_NAME });
+        const data = { title: APP_NAME, text, url };
         if (typeof nav?.share === 'function') {
             let can = true;
             try {
@@ -1142,13 +1154,13 @@ export function createActions(deps) {
             }
             const req = el.requestFullscreen || el.webkitRequestFullscreen;
             if (typeof req !== 'function') {
-                toast("Fullscreen isn't available on this device.", 'info');
+                toast(t("Fullscreen isn't available on this device."), 'info');
                 return;
             }
             const p = req.call(el, { navigationUI: 'hide' });
-            if (p && typeof p.catch === 'function') p.catch(() => toast("Fullscreen isn't available here.", 'info'));
+            if (p && typeof p.catch === 'function') p.catch(() => toast(t("Fullscreen isn't available here."), 'info'));
         } catch {
-            toast("Fullscreen isn't available here.", 'info');
+            toast(t("Fullscreen isn't available here."), 'info');
         }
     }
 
@@ -1156,8 +1168,8 @@ export function createActions(deps) {
         const ui = store.get().ui;
         const cinema = !ui.cinema;
         store.set({ ui: { ...ui, cinema } }, 'actions');
-        say(!cinema ? 'Interface shown' : store.get().status.coarse ? 'Interface hidden. Tap Show interface to bring it back.'
-            : 'Interface hidden. Press H to show it again.');
+        say(!cinema ? t('Interface shown') : store.get().status.coarse ? t('Interface hidden. Tap Show interface to bring it back.')
+            : t('Interface hidden. Press H to show it again.'));
     }
 
     function resetCamera() {
@@ -1168,7 +1180,7 @@ export function createActions(deps) {
 
     function replayIntro() {
         if (!has3d() || typeof deps.runIntro !== 'function') {
-            toast('The intro needs the 3D view.', 'info');
+            toast(t('The intro needs the 3D view.'), 'info');
             return;
         }
         settle(deps.runIntro({ force: true }));
@@ -1274,8 +1286,8 @@ export function createActions(deps) {
         if (r && mode === 'sky' && isBodyId(ev.select)) {
             try {
                 scratchSnap ??= createSnapshot();
-                const at = (t) => {
-                    computeSnapshot(t, store.get().observer, scratchSnap, { detail: 'frame' });
+                const at = (ms) => {
+                    computeSnapshot(ms, store.get().observer, scratchSnap, { detail: 'frame' });
                     const b = scratchSnap.bodies[BODY_INDEX[ev.select]];
                     return { azDeg: b.azGeomDeg, altDeg: b.altGeomDeg };
                 };
@@ -1301,20 +1313,20 @@ export function createActions(deps) {
      * @returns {Promise<object|null>}
      */
     function eclipsePathFor(peakMs) {
-        const t = Number(peakMs);
-        if (!Number.isFinite(t)) return Promise.resolve(null);
+        const peak = Number(peakMs);
+        if (!Number.isFinite(peak)) return Promise.resolve(null);
         const list = cities?.list ?? [];
-        const key = `${Math.round(t / 60000)}:${list.length}`;
+        const key = `${Math.round(peak / 60000)}:${list.length}`;
         let p = paths.get(key);
         if (!p) {
             const astro = deps.astro;
             p = astro?.eclipsePath
-                ? Promise.resolve(astro.eclipsePath(t, { cities: list, n: 12 }))
+                ? Promise.resolve(astro.eclipsePath(peak, { cities: list, n: 12 }))
                 : new Promise((resolve) => {
                     // No worker client: compute here (≈ 10–40 ms), after the current task.
                     setTimeout(() => {
                         try {
-                            const path = eclipsePath(t);
+                            const path = eclipsePath(peak);
                             if (path) path.cities = citiesInPath(path, list, 12).map((c) => ({ ...c, city: list[c.index] ?? null }));
                             resolve(path);
                         } catch {
@@ -1359,7 +1371,7 @@ export function createActions(deps) {
             path = null;
         }
         if (!path) {
-            toast('This eclipse has no path of totality or annularity on Earth.', 'info');
+            toast(t('This eclipse has no path of totality or annularity on Earth.'), 'info');
             return null;
         }
         const o = store.get().observer;
@@ -1444,11 +1456,11 @@ export function createActions(deps) {
             }
             if (saved) restoreExposeClock(saved, saved.preset);
             store.set({ ui: { ...store.get().ui, expose: null } }, 'actions');
-            say('Long exposure stopped');
+            say(t('Long exposure stopped'));
             return true;
         }
         if (!has3d()) {
-            toast('Long exposures need the 3D view.', 'info');
+            toast(t('Long exposures need the 3D view.'), 'info');
             return false;
         }
         const st = store.get();
@@ -1469,7 +1481,7 @@ export function createActions(deps) {
         }
         if (k === 'trails') {
             const dark = nextDarkMs(clock.tMs, o, scratchSnap);
-            if (dark === null) toast("The Sun doesn't set far enough here: the exposure waits for darkness.", 'info');
+            if (dark === null) toast(t("The Sun doesn't set far enough here: the exposure waits for darkness."), 'info');
             else if (dark - clock.tMs > 6e4) clock.setTime(dark, { animateMs: reducedMotion() ? 0 : JUMP_ANIMATE_MS });
             clock.setRate(TRAILS_RATE);
             if (!clock.playing) clock.play();
@@ -1496,8 +1508,8 @@ export function createActions(deps) {
         const view = store.get().view;
         if (view.mode !== 'sky') store.set({ view: { ...view, mode: 'sky' } }, look ? 'event' : 'actions');
         store.set({ ui: { ...store.get().ui, expose: k } }, 'actions');
-        say(k === 'trails' ? 'Exposing star trails' : k === 'analemma' ? 'Exposing the analemma: the Sun at noon, every day for a year'
-            : 'Long exposure: every frame is stacked');
+        say(k === 'trails' ? t('Exposing star trails') : k === 'analemma' ? t('Exposing the analemma: the Sun at noon, every day for a year')
+            : t('Long exposure: every frame is stacked'));
         return true;
     }
 
@@ -1567,18 +1579,18 @@ export function createActions(deps) {
         if (!next) {
             if (ui.ruler) {
                 store.set({ ui: { ...ui, ruler: null } }, 'actions');
-                say('Ruler off');
+                say(t('Ruler off'));
             }
             return false;
         }
         if (ui.ruler) return true;
         if (!has3d()) {
-            toast('The ruler needs the 3D view.', 'info');
+            toast(t('The ruler needs the 3D view.'), 'info');
             return false;
         }
         if (store.get().view.mode !== 'sky') store.set({ view: { ...store.get().view, mode: 'sky', vantage: 'none' } }, 'actions');
         store.set({ ui: { ...store.get().ui, ruler: { ends: 0, from: null, to: null, deg: null, text: '', fists: '' } } }, 'actions');
-        say('Ruler on: tap two things in the sky to measure the angle between them');
+        say(t('Ruler on: tap two things in the sky to measure the angle between them'));
         return true;
     }
 
@@ -1598,11 +1610,11 @@ export function createActions(deps) {
         }
         if (ui.aim) return Promise.resolve(true);
         if (!has3d() || typeof deps.aim?.start !== 'function') {
-            toast('Pointing at the sky needs the 3D view.', 'info');
+            toast(t('Pointing at the sky needs the 3D view.'), 'info');
             return Promise.resolve(false);
         }
         if (store.get().view.mode !== 'sky') {
-            toast('Switch to the sky view first.', 'info');
+            toast(t('Switch to the sky view first.'), 'info');
             return Promise.resolve(false);
         }
         const DOE = win?.DeviceOrientationEvent;
@@ -1616,7 +1628,7 @@ export function createActions(deps) {
         }
         return Promise.resolve(perm).catch(() => 'denied').then((p) => {
             if (p !== 'granted') {
-                toast('Motion access was declined, so the view cannot follow the phone. Allow it in the browser settings to try again.', 'warn');
+                toast(t('Motion access was declined, so the view cannot follow the phone. Allow it in the browser settings to try again.'), 'warn');
                 return false;
             }
             return Promise.resolve(deps.aim.start()).catch(() => false);
@@ -1676,8 +1688,8 @@ export function createActions(deps) {
             settle(rig().setMode?.('sky', { animate: !reducedMotion(), look }));
             store.set({ view: { ...store.get().view, mode: 'sky', track: 'body', vantage: 'none' } }, 'event');
         }
-        const where = Number.isFinite(az) ? ` low in the ${COMPASS8[Math.round(((az % 360) + 360) % 360 / 45) % 8]}` : '';
-        say(`Watching ${nameOf(pass.id)}: it appears${where} in ${Math.round(PASS_LEAD_MS / 1000)} seconds`);
+        const vars = { body: nameOf(pass.id), dir: compassWord(az), n: Math.round(PASS_LEAD_MS / 1000) };
+        say(Number.isFinite(az) ? t('Watching {body}: it appears low in the {dir} in {n} seconds', vars) : t('Watching {body}: it appears in {n} seconds', vars));
         return true;
     }
 
@@ -1687,9 +1699,9 @@ export function createActions(deps) {
      * calls do nothing. startTour resolves true once the tour runs.
      */
     function startTour(id) {
-        const t = deps.tours;
-        if (typeof t?.start !== 'function') return Promise.resolve(false);
-        return Promise.resolve(t.start(id)).catch(() => false);
+        const tours = deps.tours;
+        if (typeof tours?.start !== 'function') return Promise.resolve(false);
+        return Promise.resolve(tours.start(id)).catch(() => false);
     }
     const tourCall = (name) => () => {
         try {

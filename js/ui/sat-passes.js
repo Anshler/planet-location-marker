@@ -146,7 +146,7 @@ export function createPassBox(ctx) {
             : hrs ? t('Orbital elements {n} h old', v) : t('Orbital elements {n} days old', v);
         // Standing on Mars the passes are still the Earth place's: Watch takes you back there.
         const o = ctx.store?.get?.().observer;
-        const mars = ui.onMars?.() ? `${t('Passes over {place}; Watch this pass returns you to the Earth.', { place: o?.name || t('your place on the Earth') })} ` : '';
+        const mars = ui.onMars?.() ? `${t('Passes over {place}; Watch this pass returns you to the Earth.', { place: ui.placeName(o?.name) || t('your place on the Earth') })} ` : '';
         setText(head, mars + t('{elements}; predictions stop {date} ({days} days after them). Times in the time-bar zone.', { elements: old, date: ui.fmtDay(until, { year: false }), days }));
     }
 

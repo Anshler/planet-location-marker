@@ -658,7 +658,7 @@ export function mountLocation(root, ctx) {
         const o2 = store.get().observer2;
         compareHead.hidden = !on;
         compareHead.textContent = on
-            ? (o2 ? t('Compare with a second place (now {place}): its beams are drawn dashed, in amber.', { place: o2.name || ui.placeLabel(o2) })
+            ? (o2 ? t('Compare with a second place (now {place}): its beams are drawn dashed, in amber.', { place: ui.placeLabel(o2, { country: false }) })
                 : t('Compare with a second place: its own pin and dashed amber beams, side by side in Up now.'))
             : '';
         dialog.setAttribute('aria-label', on ? t('Compare with a second place') : t('Change location'));

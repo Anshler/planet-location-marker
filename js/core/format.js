@@ -374,6 +374,19 @@ export function fmtRelative(ms, nowMs) {
     return d > 0 ? t('in {time}', { time: s }) : t('{time} ago', { time: s });
 }
 
+const POLES = [N_('North Pole'), N_('South Pole')];
+
+/**
+ * An observer's stored name in the locale. app/actions.js names places in English, since names
+ * live in links and prefs: 'near Lyon' → 'gần Lyon', 'North Pole' → 'Bắc Cực'; others as given.
+ * @param {string} name
+ * @returns {string}
+ */
+export function placeName(name) {
+    const s = String(name ?? '');
+    return s.startsWith('near ') ? t('near {place}', { place: s.slice(5) }) : POLES.includes(s) ? t(s) : s;
+}
+
 /**
  * Moon phase name from the Sun–Moon ecliptic elongation (astronomy-engine MoonPhase: 0 new,
  * 90 first quarter, 180 full, 270 last quarter). Principal phases are named within ±6° (≈ ±12 h).

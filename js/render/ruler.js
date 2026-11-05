@@ -20,6 +20,7 @@ import { createLineLayer } from './sky.js';
 import { BODY_INDEX } from '../astro/bodies.js';
 import { liftByRefraction } from '../astro/photometry.js';
 import { vectorAngleDeg, rulerText, handSpan, fmtAngle } from '../astro/sky-guide.js';
+import { N_ } from '../core/i18n.js';
 
 const ARC_SEGS = 64;
 const RING_SEGS = 20;
@@ -70,7 +71,7 @@ export function createRuler(rc, deps = {}) {
     const none = [];
 
     function nameOf(e) {
-        return e.name || (e.kind === 'point' ? 'a point' : '');
+        return e.name || (e.kind === 'point' ? N_('a point') : '');
     }
 
     function reading() {

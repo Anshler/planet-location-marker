@@ -26,7 +26,7 @@ import { keysForTier, prefetchTextures, setMaxTextureSize } from './core/texture
 import * as prefs from './core/prefs.js';
 import * as tz from './core/tz.js';
 import * as format from './core/format.js';
-import { LOCALES, pickLocale, setLocale, locale } from './core/i18n.js';
+import { LOCALES, pickLocale, setLocale, locale, t, N_ } from './core/i18n.js';
 import { loadCities, placeToObserver } from './geo/cities.js';
 import { createGeocoder, createLruCache } from './geo/geocode.js';
 import { createHorizon } from './geo/horizon.js';
@@ -739,7 +739,7 @@ async function boot() {
     if (locale() !== lang) bus.emit('toast', { message: `${LOCALES[lang]} could not be loaded, so the interface is in English.`, kind: 'warn' });
     bindLaunchQueue(bootHref);
     // A Mars link without the 3D view opens on the Earth: say why (as actions.standOnMars does).
-    if (hash.host?.id === 'mars' && !env.can3d) bus.emit('toast', { message: 'Standing on Mars needs the 3D view.', kind: 'info' });
+    if (hash.host?.id === 'mars' && !env.can3d) bus.emit('toast', { message: t('Standing on Mars needs the 3D view.'), kind: 'info' });
 
     // Late city data: complete a provisional observer (default before cities.json, or a deep
     // link without a timezone) once the index is in.
@@ -801,7 +801,7 @@ function bindHost({ store, bus, loop, extras }) {
         }));
         R.marsHostP.then((h) => { if (store.get().host.id === 'mars') h.enter(); }).catch((err) => {
             console.error('[main] standing on Mars failed', err);
-            bus.emit('toast', { message: "The view from Mars couldn't load.", kind: 'warn' });
+            bus.emit('toast', { message: t("The view from Mars couldn't load."), kind: 'warn' });
             toEarth();
         });
     }, { immediate: true });
@@ -831,9 +831,9 @@ function reportHashProblems(hash, bus) {
     const invalid = Array.isArray(hash.invalid) ? hash.invalid : [];
     if (!invalid.length) return;
     const clamped = timeClamped(hash);
-    if (clamped) bus.emit('toast', { message: `${APP_NAME} covers years 1000–3000.`, kind: 'warn' });
+    if (clamped) bus.emit('toast', { message: t('{app} covers years 1000–3000.', { app: APP_NAME }), kind: 'warn' });
     if (invalid.some((k) => k !== 't' || !clamped)) {
-        bus.emit('toast', { message: 'Some link settings were invalid.', kind: 'warn' });
+        bus.emit('toast', { message: t('Some link settings were invalid.'), kind: 'warn' });
     }
 }
 
@@ -865,9 +865,9 @@ function bindBodyClasses(store) {
     sub((s) => s.status.coarse, (v) => b.classList.toggle('is-coarse', !!v));
     sub((s) => s.status.reducedMotion, (v) => b.classList.toggle('is-reduced-motion', !!v));
     sub((s) => s.status.webgl, (v) => b.classList.toggle('no-webgl', !v));
-    sub((s) => s.quality.active, (t) => {
+    sub((s) => s.quality.active, (tier) => {
         b.classList.remove('tier-low', 'tier-medium', 'tier-high', 'tier-max');
-        if (isTier(t)) b.classList.add(`tier-${t}`);
+        if (isTier(tier)) b.classList.add(`tier-${tier}`);
     });
     let fadeTimer = 0;
     sub((s) => s.status.introPlaying, (v, prev) => {
@@ -1105,7 +1105,7 @@ async function bootRender(ctx) {
             onProgress: (ev) => {
                 if (ev?.error && !texWarned) {
                     texWarned = true;
-                    bus.emit('toast', { message: "Some imagery couldn't load.", kind: 'warn' });
+                    bus.emit('toast', { message: t("Some imagery couldn't load."), kind: 'warn' });
                 }
                 // Chunks move only the loader's bar (until ready); a frame is due when a map is in or failed.
                 updateLoaderProgress();
@@ -1288,7 +1288,7 @@ async function bootRender(ctx) {
     // Catalog: install now or when it arrives.
     const installCatalog = (cat) => {
         if (!cat) {
-            bus.emit('toast', { message: "The star catalogue couldn't load — stars and constellations are hidden.", kind: 'warn' });
+            bus.emit('toast', { message: t("The star catalogue couldn't load — stars and constellations are hidden."), kind: 'warn' });
             return;
         }
         R.catalog = cat;
@@ -1598,9 +1598,14 @@ function bindRenderState({ store, bus, clock, rc, rig, loop, snap, astro, m, lab
     rig.onTrackEnd?.(({ reason, kind, id }) => {
         const st = store.get();
         if ((st.view.track ?? 'none') !== 'none') store.set({ view: { ...st.view, track: 'none' } }, 'rig');
-        const what = kind === 'body' && isBodyId(id) ? bodyById(id).name
-            : kind === 'body' && isExtraId(id) ? R.extras?.meta(id)?.name ?? 'The tracked object' : 'The tracked field';
-        if (reason === 'set') bus.emit('toast', { message: `Stopped following: ${what} set below the horizon.`, kind: 'info' });
+        const name = kind === 'body' && isBodyId(id) ? bodyById(id).name : kind === 'body' && isExtraId(id) ? R.extras?.meta(id)?.name : null;
+        if (reason === 'set') {
+            bus.emit('toast', {
+                message: name ? t('Stopped following: {body} set below the horizon.', { body: t(name) })
+                    : kind === 'body' ? t('Stopped following: The tracked object set below the horizon.') : t('Stopped following: The tracked field set below the horizon.'),
+                kind: 'info',
+            });
+        }
     });
     store.subscribe((s) => s.view.mode, (mode, prev, _state, source) => {
         // A long exposure, the ruler and pointing are sky-view things: the globe ends them.
@@ -1655,7 +1660,7 @@ function bindRenderState({ store, bus, clock, rc, rig, loop, snap, astro, m, lab
     rig.onVantageEnd?.(({ reason }) => {
         const st = store.get();
         if (st.view.vantage !== 'none') store.set({ view: { ...st.view, vantage: 'none' } }, 'rig');
-        if (reason === 'failed') bus.emit('toast', { message: "That vantage point couldn't load.", kind: 'warn' });
+        if (reason === 'failed') bus.emit('toast', { message: t("That vantage point couldn't load."), kind: 'warn' });
     });
     // The ruler turned off: its arc and label go.
     store.subscribe((s) => !!s.ui.ruler, (on) => {
@@ -1781,7 +1786,7 @@ function holdTier(cap, cause) {
     if (to === q.active) return;
     logTier({ from: q.active, to, cause });
     store.set({ quality: { ...q, active: gov.pin(to) } }, 'context-loss');
-    R.bus?.emit('toast', { message: 'Reduced graphics detail to keep things stable', kind: 'info' });
+    R.bus?.emit('toast', { message: t('Reduced graphics detail to keep things stable'), kind: 'info' });
 }
 
 /** Adds a tier change to the diagnostics log (at most 20; `atS`: seconds since boot). */
@@ -1996,7 +2001,7 @@ function rulerTap({ rc, camera, snap, pick, ndc }) {
         const id = pick?.pickDir?.(ndc, camera, cands, rc.size, 18) ?? null;
         if (id && isBodyId(id)) {
             const b = snap.bodies.find((x) => x.id === id);
-            if (b) end = { kind: 'body', id, name: id === 'moon' || id === 'sun' ? `the ${bodyById(id).name}` : bodyById(id).name, dir: b.dirS };
+            if (b) end = { kind: 'body', id, name: id === 'moon' ? N_('the Moon') : id === 'sun' ? N_('the Sun') : bodyById(id).name, dir: b.dirS };
         }
         if (!end && R.catalog?.starNames?.length && store0().layers.stars !== false) {
             const stars = R.catalog.starNames.filter((s) => s.mag <= RULER_STAR_MAG);
@@ -2011,14 +2016,14 @@ function rulerTap({ rc, camera, snap, pick, ndc }) {
             const v = new rc.THREE.Vector3(ndc.x, ndc.y, 0.5).unproject(camera).sub(camera.position).normalize();
             const app = [v.x, v.y, v.z];
             // Undo the drawn lift: the true direction whose lifted place is the tapped one.
-            const t = Float64Array.from(app), l = new Float64Array(3);
+            const dir = Float64Array.from(app), l = new Float64Array(3);
             for (let k = 0; k < 4; k++) {
-                liftByRefraction(t, up, 1, l);
-                for (let c = 0; c < 3; c++) t[c] += app[c] - l[c];
-                const n = Math.hypot(t[0], t[1], t[2]) || 1;
-                t[0] /= n; t[1] /= n; t[2] /= n;
+                liftByRefraction(dir, up, 1, l);
+                for (let c = 0; c < 3; c++) dir[c] += app[c] - l[c];
+                const n = Math.hypot(dir[0], dir[1], dir[2]) || 1;
+                dir[0] /= n; dir[1] /= n; dir[2] /= n;
             }
-            end = { kind: 'point', id: null, name: null, dir: t };
+            end = { kind: 'point', id: null, name: null, dir };
         }
     } catch (err) {
         console.error('[main] ruler tap failed', err);
@@ -2026,8 +2031,8 @@ function rulerTap({ rc, camera, snap, pick, ndc }) {
     }
     R.loop.callModule(ruler, 'tap', end);
     const r = ruler.reading?.();
-    if (r && r.ends === 2 && r.text) R.bus?.emit('announce', `${r.from} to ${r.to}: ${r.text.replace(' · ', ', ')}`);
-    else if (r && r.ends === 1) R.bus?.emit('announce', `From ${r.from}: now tap a second point`);
+    if (r && r.ends === 2 && r.text) R.bus?.emit('announce', t('{from} to {to}: {text}', { from: t(r.from), to: t(r.to), text: r.text.replace(' · ', ', ') }));
+    else if (r && r.ends === 1) R.bus?.emit('announce', t('From {from}: now tap a second point', { from: t(r.from) }));
 }
 const RULER_STAR_MAG = 3.5;
 const store0 = () => R.store.get();
@@ -2373,7 +2378,7 @@ async function startTour(id) {
     } catch (err) {
         toursModP = null;
         console.error('[main] guided tours unavailable', err);
-        R.bus?.emit('toast', { message: 'The tour could not be loaded.', kind: 'warn' });
+        R.bus?.emit('toast', { message: t('The tour could not be loaded.'), kind: 'warn' });
         return false;
     }
     R.tours ??= mod.createTourRunner({
@@ -2391,10 +2396,10 @@ let aimModP = null;
 /** Align picks the body or star nearest the centre within this angle (the compass may be 15° out). */
 const ALIGN_MAX_DEG = 35;
 const AIM_STOP_TOASTS = Object.freeze({
-    idle: 'Stopped following the phone after 2 minutes without movement.',
-    track: 'Stopped following the phone: tracking holds the view now.',
-    nodata: "This device doesn't report which way it is pointing.",
-    unsupported: "This browser can't read the phone's orientation.",
+    idle: N_('Stopped following the phone after 2 minutes without movement.'),
+    track: N_('Stopped following the phone: tracking holds the view now.'),
+    nodata: N_("This device doesn't report which way it is pointing."),
+    unsupported: N_("This browser can't read the phone's orientation."),
 });
 
 /**
@@ -2412,7 +2417,7 @@ async function startAim() {
     } catch (err) {
         aimModP = null;
         console.error('[main] pointing unavailable', err);
-        R.bus?.emit('toast', { message: "Pointing at the sky couldn't load.", kind: 'warn' });
+        R.bus?.emit('toast', { message: t("Pointing at the sky couldn't load."), kind: 'warn' });
         return false;
     }
     R.aim ??= mod.createAim({ rig, wake: R.wake, offsetDeg: Number(prefs.load('aimOffset', 0)) || 0, onStop: (reason) => onAimStop(reason) });
@@ -2428,7 +2433,7 @@ async function startAim() {
         return false;
     }
     store.set({ ui: { ...store.get().ui, aim: { source: R.aim.source, offsetDeg: R.aim.offsetDeg, aligned: null } } }, 'aim');
-    R.bus?.emit('announce', 'Pointing at the sky: move the phone to look around. Directions are approximate.');
+    R.bus?.emit('announce', t('Pointing at the sky: move the phone to look around. Directions are approximate.'));
     return true;
 }
 
@@ -2437,8 +2442,8 @@ function onAimStop(reason) {
     const st = R.store?.get();
     if (st?.ui.aim) R.store.set({ ui: { ...st.ui, aim: null } }, 'aim');
     const msg = AIM_STOP_TOASTS[reason];
-    if (msg) R.bus?.emit('toast', { message: msg, kind: 'info' });
-    else if (reason === 'user') R.bus?.emit('announce', 'Stopped following the phone');
+    if (msg) R.bus?.emit('toast', { message: t(msg), kind: 'info' });
+    else if (reason === 'user') R.bus?.emit('announce', t('Stopped following the phone'));
 }
 
 /**
@@ -2462,17 +2467,17 @@ function alignAim() {
         if (sep < bestSep) { bestSep = sep; best = r; }
     }
     if (!best) {
-        R.bus?.emit('toast', { message: 'Point the phone at the Moon, a bright planet or a bright star, centre it, then tap Align.', kind: 'info' });
+        R.bus?.emit('toast', { message: t('Point the phone at the Moon, a bright planet or a bright star, centre it, then tap Align.'), kind: 'info' });
         return null;
     }
     const off = aim.align(best.azDeg);
     try { prefs.save('aimOffset', Math.round(off * 10) / 10); } catch { /* storage is optional */ }
     const ui = store.get().ui;
     if (ui.aim) store.set({ ui: { ...ui, aim: { ...ui.aim, offsetDeg: off, aligned: best.name } } }, 'aim');
-    const name = best.name.charAt(0).toUpperCase() + best.name.slice(1);
-    const offTxt = `${off < 0 ? '−' : '+'}${Math.abs(Math.round(off))}°`;
-    R.bus?.emit('toast', { message: `Aligned on ${best.name}: the compass is corrected by ${offTxt}.`, kind: 'info', timeoutMs: 3500 });
-    R.bus?.emit('announce', `${name} centred: directions aligned`);
+    const body = t(best.name);
+    const deg = `${off < 0 ? '−' : '+'}${Math.abs(Math.round(off))}°`;
+    R.bus?.emit('toast', { message: t('Aligned on {body}: the compass is corrected by {deg}.', { body, deg }), kind: 'info', timeoutMs: 3500 });
+    R.bus?.emit('announce', t('{body} centred: directions aligned', { body: body.charAt(0).toUpperCase() + body.slice(1) }));
     return best.name;
 }
 
@@ -2489,23 +2494,23 @@ async function pushAlmanac({ store, bus, clock, astro }) {
     if (!astro?.call) return;
     const o = store.get().observer;
     const observer = { latDeg: o.latDeg, lonDeg: o.lonDeg, elevM: o.elevM || 0 };
-    const t = clock.tMs;
+    const now = clock.tMs;
     const half = scrubSpanMs(clock.rate);
     const ids = BODIES.map((b) => b.id);
     const [riseSet, twilight, tonight, sun] = await Promise.allSettled([
-        astro.call('riseSet', { bodyIds: ids, observer, fromMs: t, toMs: t + 26 * 3600e3 }),
-        astro.call('twilight', { observer, nearMs: t }),
-        astro.call('tonight', { observer, nearMs: t }),
-        astro.call('sunSeries', { observer, fromMs: t - half, toMs: t + half, n: 96 }),
+        astro.call('riseSet', { bodyIds: ids, observer, fromMs: now, toMs: now + 26 * 3600e3 }),
+        astro.call('twilight', { observer, nearMs: now }),
+        astro.call('tonight', { observer, nearMs: now }),
+        astro.call('sunSeries', { observer, fromMs: now - half, toMs: now + half, n: 96 }),
     ]);
     const val = (r) => (r.status === 'fulfilled' ? r.value : null);
     bus.emit('almanac', {
         riseSet: val(riseSet), twilight: val(twilight), tonight: val(tonight),
-        sunSeries: val(sun) ? { fromMs: t - half, toMs: t + half, values: val(sun) } : null,
+        sunSeries: val(sun) ? { fromMs: now - half, toMs: now + half, values: val(sun) } : null,
     });
     try {
         const list = await astro.call('events', {
-            observer, fromMs: t - 2 * 864e5, days: 367, tz: o.tz || undefined, hour12: !!store.get().display?.hour12,
+            observer, fromMs: now - 2 * 864e5, days: 367, tz: o.tz || undefined, hour12: !!store.get().display?.hour12,
         });
         if (Array.isArray(list)) bus.emit('events', list);
     } catch (err) {

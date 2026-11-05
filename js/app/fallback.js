@@ -12,6 +12,7 @@
 // that cannot even resolve the 'three' import-map entry.
 
 import { APP_NAME } from '../version.js';
+import { t, N_ } from '../core/i18n.js';
 
 const STYLE_ID = 'pc-fallback-style';
 const BANNER_ID = 'pc-fallback';
@@ -23,24 +24,24 @@ const LOST_RELOAD_AFTER_MS = 8000;
 
 const COPY = {
     'no-webgl2': {
-        title: "3D view isn't available on this device — the sky tables below still work.",
-        detail: 'Your browser or graphics driver does not provide WebGL 2, which the globe needs.',
+        title: N_("3D view isn't available on this device — the sky tables below still work."),
+        detail: N_('Your browser or graphics driver does not provide WebGL 2, which the globe needs.'),
         reload: false,
     },
     'no-importmap': {
-        title: "3D view isn't available on this device — the sky tables below still work.",
-        detail: 'This browser is too old to load the 3D engine. Updating it will bring the globe back.',
+        title: N_("3D view isn't available on this device — the sky tables below still work."),
+        detail: N_('This browser is too old to load the 3D engine. Updating it will bring the globe back.'),
         reload: false,
     },
     'context-failed': {
-        title: 'The 3D view stopped working — the sky tables below still work.',
-        detail: 'The graphics context could not be created or kept alive. Reloading the page may restore it.',
+        title: N_('The 3D view stopped working — the sky tables below still work.'),
+        detail: N_('The graphics context could not be created or kept alive. Reloading the page may restore it.'),
         reload: true,
     },
     // A third context loss within a minute (core/context-loss.js): Retry comes back at Low detail.
     'context-unstable': {
-        title: 'The 3D view was turned off because the graphics kept resetting — the sky tables below still work.',
-        detail: 'This device ran short of graphics memory several times in a row. Retry starts the 3D view again at Low detail.',
+        title: N_('The 3D view was turned off because the graphics kept resetting — the sky tables below still work.'),
+        detail: N_('This device ran short of graphics memory several times in a row. Retry starts the 3D view again at Low detail.'),
         retry: true,
     },
 };
@@ -132,15 +133,15 @@ export function showFallback(reason, opts = {}) {
     banner.insertAdjacentHTML('afterbegin', WARN_ICON);
 
     const body = el('div', { class: 'pc-fb__body' });
-    body.append(el('p', { class: 'pc-fb__title' }, copy.title), el('p', { class: 'pc-fb__detail' }, copy.detail));
+    body.append(el('p', { class: 'pc-fb__title' }, t(copy.title)), el('p', { class: 'pc-fb__detail' }, t(copy.detail)));
     if (copy.reload || copy.retry) {
         const actions = el('div', { class: 'pc-fb__actions' });
-        const btn = el('button', { type: 'button' }, copy.retry ? 'Retry' : 'Reload');
+        const btn = el('button', { type: 'button' }, copy.retry ? t('Retry') : t('Reload'));
         btn.addEventListener('click', () => (copy.retry && opts.onRetry ? opts.onRetry() : location.reload()));
         actions.append(btn);
         body.append(actions);
     }
-    const close = el('button', { type: 'button', class: 'pc-fb__close', 'aria-label': 'Dismiss this message' }, '×');
+    const close = el('button', { type: 'button', class: 'pc-fb__close', 'aria-label': t('Dismiss this message') }, '×');
     close.addEventListener('click', () => banner.remove());
     banner.append(body, close);
     return banner;
@@ -160,7 +161,7 @@ export function showContextLost() {
     if (!box) {
         box = el('div', { id: LOST_ID, class: 'pc-cl', role: 'status', 'aria-live': 'polite' });
         const inner = el('div', { class: 'pc-cl__box' });
-        inner.append(el('div', { class: 'pc-cl__spin', 'aria-hidden': 'true' }), el('p', { class: 'pc-cl__msg' }, 'Graphics were reset — restoring…'));
+        inner.append(el('div', { class: 'pc-cl__spin', 'aria-hidden': 'true' }), el('p', { class: 'pc-cl__msg' }, t('Graphics were reset — restoring…')));
         box.append(inner);
         document.body.appendChild(box);
     }
@@ -169,8 +170,8 @@ export function showContextLost() {
         const inner = box.querySelector('.pc-cl__box');
         if (!inner || inner.querySelector('button')) return;
         const msg = inner.querySelector('.pc-cl__msg');
-        if (msg) msg.textContent = 'The graphics context has not come back yet.';
-        const reload = el('button', { type: 'button' }, 'Reload');
+        if (msg) msg.textContent = t('The graphics context has not come back yet.');
+        const reload = el('button', { type: 'button' }, t('Reload'));
         reload.addEventListener('click', () => location.reload());
         inner.append(reload);
     }, LOST_RELOAD_AFTER_MS);
@@ -199,6 +200,6 @@ export function showFatal(err) {
     if (typeof document === 'undefined' || !document.body) return;
     ensureStyle();
     const box = el('div', { class: 'pc-fb', role: 'alert' });
-    box.append(el('p', { class: 'pc-fb__title' }, `Something went wrong loading ${APP_NAME}.`), el('pre', { class: 'pc-fb__detail' }, detail));
+    box.append(el('p', { class: 'pc-fb__title' }, t('Something went wrong loading {app}.', { app: APP_NAME })), el('pre', { class: 'pc-fb__detail' }, detail));
     document.body.appendChild(box);
 }

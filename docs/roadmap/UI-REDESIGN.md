@@ -1872,3 +1872,58 @@ the right thing and records it here.
   Cut 1 (JSDoc) was already applied by the rewrites. Cuts 2–4 (the time bar's legend, Explore's
   "Show all", the what-moved toast) were not taken, because they remove things users see and the
   net is within the ceiling. They stay the order to cut in if a later change needs the room.
+
+### QA fixes (after chunk 4)
+
+An independent QA pass at `e8fde22` found no blockers, 6 major and 13 minor issues. These fixes
+change what the chunks above record:
+
+- **Popovers close when focus leaves them.** Tabbing out of the Time popover left it open, so the
+  next Esc acted on the app underneath (it deselected the planet). `openPopover` now closes on a
+  `focusout` to anywhere outside the popover and its button, and Esc on the button closes it too.
+- **The phone stamp is three lines** (replacing chunk 2's "Phone stamp"): the time and chevron, the
+  day, then the zone in its long form ("Tokyo, UTC+9", "Royal Observa…, UTC+0", "This device,
+  UTC+0", "UTC"). A 360-px bar leaves the stamp 104 px, and no phone width has room for the day and
+  the zone side by side, so beside the day the zone never showed. The row stays 46 px.
+- **Show times in** lets the Observer segment take the room a long name needs, and wrap if it must
+  (`.seg--fit`); "Royal Observatory Greenwich" printed over "This device" on a phone.
+- **A tight top bar** (`.topbar` is a container): under 655 px, which is a window under 1100 px,
+  the wordmark is the mark alone (§7.1 #1), so at 900 px the place keeps its name. On Mars, under
+  780 px, the coordinates also go, because Back to Earth needs the room.
+- **Play the eclipse.** The Sun started under the companion and the loop chip.
+  - In Sky view the visible Eclipse Companion is a top view inset (`main.js bindViewInsets`), so the
+    eclipsed Sun is framed below it. After Jump to just before totality it is framed there too.
+  - While a clock range plays in Sky view, the companion folds to its countdown on every layout.
+    The user's own fold choice still holds.
+  - On a window 1240 px or wider, the status stack sits beside the companion at the top instead of
+    below it (`--sx`/`--sy` from `--ecl-w`/`--ecl-h`).
+  - A one-shot range reads "Playing 12:59 → 13:10", "Once through in 40 s", Edit, Stop, with the
+    readout "Playing" and the narrator saying "Playing." and "Playback stopped.". Loops keep
+    "Looping…" and "Loop".
+  - When the playback ends the companion unfolds and the inset grows, so the view re-centres once.
+- **The solar system's chip** clears as soon as the fly-back starts. `view.system` lasts until the
+  crossfade.
+- **Text mode** copy no longer refers to the 3D view (§14.8). `.for-3d` hides there and `.for-text`
+  shows only there. This covers the Details empty state, Help's title, its Mouse group and touch
+  note, ⋯'s "Keyboard shortcuts", Share link's detail, Two places' line and the light-pollution hint.
+- **Up now's rows** say the next rise or set within a day as a plain clock ("Sets 02:45", as §4.7
+  draws it), not "Rises Sun 07:28" beside the Sun. The Sun's row drops its magnitude, which a
+  380-px row cut to "mag −2…". Details says "best around 00:34" the same way.
+- **Menus** are 372 px wide with 8-px rows, so Sky view's Tools fits 1280×720 without an inner
+  scroll (731 → 664 px).
+- **Smaller:**
+  - The exposure guard's warning is announced as well as flashed.
+  - On a phone, Esc from the tab bar lowers the full sheet.
+  - Explore hides Two places on Mars.
+  - Hide the interface's touch detail says "tap Show interface".
+  - The coach's first tip never spotlights a label below the horizon.
+- **Not changed:**
+  - Display is still about 2.2 screens (chunk 4, owner's call). A proposal: fold Stars and Guides
+    into one closed group in globe view, and move Quality above the layers.
+  - §14.3's icon-only count holds at 1280 px and wider and on the phone. The narrower desktop
+    widths drop labels exactly where §3.2 and §4.5 say to.
+- **Bytes.** The fixes add 3.4 KB raw, so the redesign stands at +14.8 KB against `40131ce`
+  (14,826 B, under the +15 KB ceiling). The first versions came to +4.7 KB, which took the
+  redesign over the ceiling, so their comments were shortened and the loop chip, the stack's
+  offsets and two long CSS comments were compacted.
+

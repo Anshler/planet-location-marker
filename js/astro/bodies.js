@@ -2,10 +2,13 @@
  * Body registry and physical constants shared by every group.
  *
  * The order of BODIES is a contract: Snapshot.bodies, beam instances, glyph
- * vertices and the 1–9 keyboard shortcuts all index into it.
+ * vertices and the 1–9 keyboard shortcuts all index into it. Names are English, marked for the
+ * string table (core/i18n.js): show them with t(name).
  *
  * @module astro/bodies
  */
+
+import { N_ } from '../core/i18n.js';
 
 /** Kilometres per astronomical unit (IAU 2012). */
 export const AU_KM = 149597870.7;
@@ -50,15 +53,15 @@ export function sunAngularRadius(distAU) {
  * @type {ReadonlyArray<BodyInfo>}
  */
 export const BODIES = Object.freeze([
-    { id: 'sun', ae: 'Sun', name: 'Sun', kind: 'star', color: '#ffd36b', radiusKm: SUN_RADIUS_KM, key: '1' },
-    { id: 'moon', ae: 'Moon', name: 'Moon', kind: 'moon', color: '#d8dde6', radiusKm: 1737.4, key: '2' },
-    { id: 'mercury', ae: 'Mercury', name: 'Mercury', kind: 'planet', color: '#b9b2aa', radiusKm: 2439.7, key: '3' },
-    { id: 'venus', ae: 'Venus', name: 'Venus', kind: 'planet', color: '#fff4d6', radiusKm: 6051.8, key: '4' },
-    { id: 'mars', ae: 'Mars', name: 'Mars', kind: 'planet', color: '#ff6a3d', radiusKm: 3389.5, key: '5' },
-    { id: 'jupiter', ae: 'Jupiter', name: 'Jupiter', kind: 'planet', color: '#e9c08f', radiusKm: 69911, key: '6' },
-    { id: 'saturn', ae: 'Saturn', name: 'Saturn', kind: 'planet', color: '#e8c872', radiusKm: 58232, key: '7' },
-    { id: 'uranus', ae: 'Uranus', name: 'Uranus', kind: 'planet', color: '#9fe3e6', radiusKm: 25362, key: '8' },
-    { id: 'neptune', ae: 'Neptune', name: 'Neptune', kind: 'planet', color: '#7f97ff', radiusKm: 24622, key: '9' },
+    { id: 'sun', ae: 'Sun', name: N_('Sun'), kind: 'star', color: '#ffd36b', radiusKm: SUN_RADIUS_KM, key: '1' },
+    { id: 'moon', ae: 'Moon', name: N_('Moon'), kind: 'moon', color: '#d8dde6', radiusKm: 1737.4, key: '2' },
+    { id: 'mercury', ae: 'Mercury', name: N_('Mercury'), kind: 'planet', color: '#b9b2aa', radiusKm: 2439.7, key: '3' },
+    { id: 'venus', ae: 'Venus', name: N_('Venus'), kind: 'planet', color: '#fff4d6', radiusKm: 6051.8, key: '4' },
+    { id: 'mars', ae: 'Mars', name: N_('Mars'), kind: 'planet', color: '#ff6a3d', radiusKm: 3389.5, key: '5' },
+    { id: 'jupiter', ae: 'Jupiter', name: N_('Jupiter'), kind: 'planet', color: '#e9c08f', radiusKm: 69911, key: '6' },
+    { id: 'saturn', ae: 'Saturn', name: N_('Saturn'), kind: 'planet', color: '#e8c872', radiusKm: 58232, key: '7' },
+    { id: 'uranus', ae: 'Uranus', name: N_('Uranus'), kind: 'planet', color: '#9fe3e6', radiusKm: 25362, key: '8' },
+    { id: 'neptune', ae: 'Neptune', name: N_('Neptune'), kind: 'planet', color: '#7f97ff', radiusKm: 24622, key: '9' },
 ]);
 
 /**
@@ -69,7 +72,7 @@ export const BODIES = Object.freeze([
  * @type {Readonly<BodyInfo & {target:string}>}
  */
 export const EARTH_TARGET = Object.freeze({
-    id: 'mars', target: 'earth', ae: 'Earth', name: 'Earth', kind: 'planet', color: '#6fb6ff', radiusKm: 6371.0, key: '5',
+    id: 'mars', target: 'earth', ae: 'Earth', name: N_('Earth'), kind: 'planet', color: '#6fb6ff', radiusKm: 6371.0, key: '5',
 });
 
 /**

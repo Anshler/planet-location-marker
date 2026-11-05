@@ -214,8 +214,8 @@ export function mountEventsPanel(root, ctx) {
         }
         upcoming.slice(0, shown).forEach((ev, i) => {
             if (i === 0) return; // shown in the hero card
-            const z = ui.zoned(ev.tMs);
-            const m = `${ui.MONTHS_LONG[z.mo - 1]} ${z.y}`;
+            const ym = ui.fmtDate(ev.tMs, { month: 'long', year: 'numeric' });
+            const m = ym.charAt(0).toUpperCase() + ym.slice(1);
             if (m !== month) { month = m; items.push(h('li', { class: 'ev-month', 'aria-hidden': 'true' }, m)); }
             const meta = h('span', { class: 'ev__meta' });
             metaEls.push({ ev, meta });

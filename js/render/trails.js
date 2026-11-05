@@ -18,6 +18,7 @@ import { createLineLayer, skyViewExposure } from './sky.js';
 import { bodyById } from '../astro/bodies.js';
 import { GLYPH_VERT, GLYPH_FRAG } from './shaders/bodies.glsl.js';
 import { glyphSizePx, glyphIntensity } from './bodies.js';
+import { dateText } from '../core/i18n.js';
 
 const DEG = Math.PI / 180;
 const TICK_HALF_RAD = 0.55 * DEG;
@@ -26,21 +27,21 @@ const RING_SEGS = 16;
 const MAX_POINTS = 4096;
 const MAX_GHOSTS = 64;
 
-let dateFmt = null;
-let monthFmt = null;
+/** UTC calendar fields of `ms` for core/i18n.js dateText (the interface's locale). */
+function utcFields(ms) {
+    const d = new Date(ms);
+    return { y: d.getUTCFullYear(), mo: d.getUTCMonth() + 1, d: d.getUTCDate(), wd: d.getUTCDay() };
+}
 function fmtDate(ms) {
     try {
-        dateFmt ??= new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
-        return dateFmt.format(ms);
+        return dateText(utcFields(ms), { day: 'numeric', month: 'short', year: 'numeric' });
     } catch {
         return new Date(ms).toISOString().slice(0, 10);
     }
 }
 function fmtMonth(ms, withYear) {
     try {
-        monthFmt ??= new Intl.DateTimeFormat('en-GB', { month: 'short', timeZone: 'UTC' });
-        const m = monthFmt.format(ms);
-        return withYear ? `${m} ${new Date(ms).getUTCFullYear()}` : m;
+        return dateText(utcFields(ms), { month: 'short', year: withYear && 'numeric' });
     } catch {
         return new Date(ms).toISOString().slice(0, 7);
     }

@@ -63,6 +63,23 @@ function extract() {
     return { keys, dynamic };
 }
 
+/** Files that import t from core/i18n.js and also bind a local `t` (which would shadow it, or throw in its TDZ). */
+function shadows() {
+    const bad = [];
+    for (const file of jsFiles('js')) {
+        const src = fs.readFileSync(path.join(ROOT, file), 'utf8');
+        const { code } = scanJs(src);
+        if (!/import\s*\{[^}]*\bt\b[^}]*\}\s*from\s*'[^']*core\/i18n\.js'/.test(scanJs(src).noComments)) continue;
+        const res = [/\b(?:const|let|var)\s+t\b/g, /(?<![\w$.])t\s*=>/g, /\(\s*t\s*(?:,[^()]*)?\)\s*=>/g, /\bfunction\b[^(]*\(([^)]*\bt\b[^)]*)\)/g,
+            /\(([^()]*,\s*t)\s*\)\s*=>/g, /\[\s*t\s*[,\]]|,\s*t\s*\]\s*=/g];
+        for (const re of res) for (const m of code.matchAll(re)) {
+            if (re.source.startsWith('\\bfunction') && !/(^|[\s,(])t\s*(=|,|$)/.test(m[1])) continue;
+            bad.push(`${file}:${lineAt(src, m.index)}  ${m[0].trim()}`);
+        }
+    }
+    return bad;
+}
+
 const placeholders = (s) => [...String(s).matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
 const forms = (v) => (typeof v === 'string' ? [v] : v && typeof v === 'object' ? Object.values(v) : [v]);
 const { keys, dynamic } = extract();
@@ -71,6 +88,10 @@ const used = new Set(keys.map((k) => k.key));
 test('i18n: the source has marked strings, and none is built from a template', () => {
     assert.ok(keys.length >= 50, `found ${keys.length} marked strings`);
     assert.deepEqual(dynamic, [], 't(`…${x}…`) cannot be translated: use a {placeholder}');
+});
+
+test('i18n: no module that imports t also names a local t', () => {
+    assert.deepEqual(shadows(), []);
 });
 
 for (const rel of TABLES) {

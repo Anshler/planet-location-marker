@@ -9,7 +9,8 @@
  *   twilight, sun-altitude series) and the event list, each kept fresh for the
  *   *simulated* time and current observer (requests go through `services.astro`);
  * - formatting helpers that print times in the display timezone
- *   (`display.tzMode`: observer / device / UTC) exactly as the copy in SPEC §F asks;
+ *   (`display.tzMode`: observer / device / UTC) exactly as the copy in SPEC §F asks, in the
+ *   interface's locale (core/i18n.js dateText / timeText);
  * - navigation hooks filled in by the shell (open a tab, the palette, help, share…).
  *
  * It also runs the narrator (polite announcements for observer / selection / time
@@ -33,21 +34,16 @@ import { mountIntroCaption } from './intro-caption.js';
 import { mountCoach } from './coach.js';
 import { toCalendar, fromCalendar } from '../core/tz.js';
 import { isExtraId } from '../core/selection.js';
+import { t, N_, dateText, timeText } from '../core/i18n.js';
 
 const HOUR = 3600e3;
 const DAY = 86400e3;
-const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const MONTHS_LONG = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September',
-    'October', 'November', 'December'];
 
-/** Compass abbreviations → words used in sentences ("the south-east horizon"). */
-const COMPASS_WORDS = {
-    N: 'north', NNE: 'north-north-east', NE: 'north-east', ENE: 'east-north-east', E: 'east',
-    ESE: 'east-south-east', SE: 'south-east', SSE: 'south-south-east', S: 'south', SSW: 'south-south-west',
-    SW: 'south-west', WSW: 'west-south-west', W: 'west', WNW: 'west-north-west', NW: 'north-west', NNW: 'north-north-west',
-};
-const COMPASS16 = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
+/** The 16 compass points as words for sentences ("the south-east horizon"), from north clockwise. */
+const COMPASS_WORDS = [N_('north'), N_('north-north-east'), N_('north-east'), N_('east-north-east'), N_('east'),
+    N_('east-south-east'), N_('south-east'), N_('south-south-east'), N_('south'), N_('south-south-west'), N_('south-west'),
+    N_('west-south-west'), N_('west'), N_('west-north-west'), N_('north-west'), N_('north-north-west')];
+const point16 = (az) => Math.round((((az % 360) + 360) % 360) / 22.5) % 16;
 
 const pad2 = (n) => (n < 10 ? '0' : '') + n;
 
@@ -230,20 +226,23 @@ function createUiHub(ctx, rootEl) {
     /** "20:14" / "20:14:05" / "8:14 PM" in the display zone. */
     function fmtClock(ms, { seconds = false, tzName } = {}) {
         if (!Number.isFinite(ms)) return '—';
-        const z = zoned(ms, tzName);
-        const mm = pad2(z.mi), ss = pad2(z.s);
-        if (ctx.store.get().display?.hour12) {
-            const hh = z.h % 12 || 12;
-            return `${hh}:${mm}${seconds ? ':' + ss : ''} ${z.h < 12 ? 'AM' : 'PM'}`;
-        }
-        return `${pad2(z.h)}:${mm}${seconds ? ':' + ss : ''}`;
+        return timeText(zoned(ms, tzName), { seconds, hour12: !!ctx.store.get().display?.hour12 });
+    }
+
+    /**
+     * The date of `ms` in the display zone and calendar, in the locale: Intl's weekday, day, month
+     * and year options ("Sat 11 Oct 2026", "Tue 14", "October 2026"; core/i18n.js dateText).
+     * @param {number} ms
+     * @param {{weekday?:any, day?:any, month?:any, year?:any}} opts
+     * @param {string} [tzName]
+     */
+    function fmtDate(ms, opts, tzName) {
+        return Number.isFinite(ms) ? dateText(zoned(ms, tzName), opts) : '—';
     }
 
     /** "Sat 11 Oct 2026" (or without weekday / year). */
     function fmtDay(ms, { weekday = true, year = true, tzName } = {}) {
-        if (!Number.isFinite(ms)) return '—';
-        const z = zoned(ms, tzName);
-        return `${weekday ? WEEKDAYS[z.wd] + ' ' : ''}${z.d} ${MONTHS[z.mo - 1]}${year ? ' ' + z.y : ''}`;
+        return fmtDate(ms, { weekday: weekday && 'short', day: 'numeric', month: 'short', year: year && 'numeric' }, tzName);
     }
 
     /** "Sat 11 Oct 2026 · 20:14:05" — the time-bar stamp. */
@@ -255,7 +254,7 @@ function createUiHub(ctx, rootEl) {
     /** "12 Oct 2026, 21:00" — used in announcements. */
     function fmtSpoken(ms) {
         if (!Number.isFinite(ms)) return '';
-        return `${fmtDay(ms, { weekday: false })}, ${fmtClock(ms)}`;
+        return t('{date}, {time}', { date: fmtDay(ms, { weekday: false }), time: fmtClock(ms) });
     }
 
     /**
@@ -267,8 +266,8 @@ function createUiHub(ctx, rootEl) {
         const a = zoned(ms), b = zoned(Number.isFinite(refMs) ? refMs : ms);
         const clock = fmtClock(ms);
         if (a.y === b.y && a.mo === b.mo && a.d === b.d) return clock;
-        if (Math.abs(ms - refMs) < 6 * DAY) return `${WEEKDAYS[a.wd]} ${clock}`;
-        return `${a.d} ${MONTHS[a.mo - 1]}${a.y !== b.y ? ' ' + a.y : ''} ${clock}`;
+        if (Math.abs(ms - refMs) < 6 * DAY) return `${dateText(a, { weekday: 'short' })} ${clock}`;
+        return `${dateText(a, { day: 'numeric', month: 'short', year: a.y !== b.y && 'numeric' })} ${clock}`;
     }
 
     /** "UTC+7" for the display zone at `ms`. */
@@ -313,14 +312,16 @@ function createUiHub(ctx, rootEl) {
             return name;
         }
         const near = nearestCityText(o.latDeg, o.lonDeg);
-        if (near) return `near ${near}`;
+        if (near) return t('near {place}', { place: near });
         return latLonText(o.latDeg, o.lonDeg, 2);
     }
 
     /** Short place name for the clock's zone and summaries ("Hanoi"). */
     function placeShort(o) {
         const name = String(o?.name || '').trim();
-        if (name) return name.replace(/^near\s+/i, '');
+        // "near Lyon" (actions' English, or the locale's "gần Lyon") → "Lyon".
+        const pre = t('near {place}', { place: '' }).trim();
+        if (name) return name.replace(/^near\s+/i, '').replace(name.startsWith(pre + ' ') ? pre + ' ' : '', '');
         const near = nearestCityText(o?.latDeg, o?.lonDeg);
         return near ? near.split(',')[0] : latLonText(o?.latDeg, o?.lonDeg, 1);
     }
@@ -330,11 +331,14 @@ function createUiHub(ctx, rootEl) {
     const extras = ctx.extras ?? null;
     // Standing on Mars (store.host, ROADMAP stand-on-mars) slot 4 is the Earth (astro/bodies.js hostBodies).
     const onMars = () => ctx.store?.get?.().host?.id === 'mars';
-    const bodyName = (id) => hostBodies(onMars() ? 'mars' : 'earth')[BODY_INDEX[id]]?.name
-        ?? (isExtraId(id) ? extras?.meta?.(id)?.name : null) ?? String(id);
+    /** A body's name in the locale ('Mặt Trăng'); extra objects' names go through t() too. */
+    const bodyName = (id) => {
+        const name = hostBodies(onMars() ? 'mars' : 'earth')[BODY_INDEX[id]]?.name ?? (isExtraId(id) ? extras?.meta?.(id)?.name : null);
+        return name ? t(name) : String(id);
+    };
     /** "The Sun" / "the Moon" / "Mars". */
     const bodySubject = (id, capital = true) => (id === 'sun' || id === 'moon'
-        ? `${capital ? 'The' : 'the'} ${bodyName(id)}` : bodyName(id));
+        ? capital ? t('The {body}', { body: bodyName(id) }) : t('the {body}', { body: bodyName(id) }) : bodyName(id));
     /** A body's BodyState, or an extra object's ExtraState while it is present. */
     const bodyOf = (snap, id) => {
         if (!snap) return null;
@@ -344,13 +348,12 @@ function createUiHub(ctx, rootEl) {
         return st && st.present ? st : null;
     };
 
-    /** Compass point ("SE") — from services.format when present, else local. */
+    /** Compass point ("SE", Vietnamese "ĐN") from services.format. */
     function compass(az) {
-        if (!Number.isFinite(az)) return '—';
-        const c = fmt('compass16', az);
-        return c === '—' ? COMPASS16[Math.round((((az % 360) + 360) % 360) / 22.5) % 16] : c;
+        return Number.isFinite(az) ? fmt('compass16', az) : '—';
     }
-    const compassWords = (az) => COMPASS_WORDS[compass(az)] || compass(az);
+    /** "south-east" (Vietnamese "đông nam"). */
+    const compassWords = (az) => (Number.isFinite(az) ? t(COMPASS_WORDS[point16(az)]) : '—');
 
     /** Apparent (refracted) altitude/azimuth, falling back to geometric on frame-detail snapshots. */
     function altAz(b) {
@@ -410,8 +413,8 @@ function createUiHub(ctx, rootEl) {
     const RTS_IDS = BODIES.map((b) => b.id);
 
     /** Refreshes whatever almanac data no longer describes the simulated time `t`. */
-    function checkAlmanac(t) {
-        if (!Number.isFinite(t) || !services.astro?.call) return;
+    function checkAlmanac(tm) {
+        if (!Number.isFinite(tm) || !services.astro?.call) return;
         const st = ctx.store.get();
         const key = observerKey(st.observer);
         const now = performance.now();
@@ -419,9 +422,9 @@ function createUiHub(ctx, rootEl) {
 
         // Next rise / set for Sky Now: window [t, t+26 h]; stale once any listed event has happened.
         const nx = alm.next;
-        const staleNext = !nx || nx.key !== key || t < nx.fromMs || t > nx.fromMs + 30 * 60e3 || t >= nx.firstEventMs;
+        const staleNext = !nx || nx.key !== key || tm < nx.fromMs || tm > nx.fromMs + 30 * 60e3 || tm >= nx.firstEventMs;
         if (staleNext && !alm.pending.next && now - alm.lastReq.next > gapFor('next', 700)) {
-            const fromMs = t, toMs = t + 26 * HOUR;
+            const fromMs = tm, toMs = tm + 26 * HOUR;
             request('next', 'riseSet', { bodyIds: RTS_IDS, observer: astroObserver(st.observer), fromMs, toMs }, (data) => {
                 alm.next = { data: data || {}, fromMs, toMs, key, firstEventMs: firstEvent(data, fromMs) };
                 em.emit('almanac', alm);
@@ -430,10 +433,10 @@ function createUiHub(ctx, rootEl) {
 
         // Today's rise / transit / set for the body card: the observer's local calendar day.
         const dy = alm.day;
-        const staleDay = !dy || dy.key !== key || t < dy.fromMs || t >= dy.toMs;
+        const staleDay = !dy || dy.key !== key || tm < dy.fromMs || tm >= dy.toMs;
         if (staleDay && !alm.pending.day && now - alm.lastReq.day > gapFor('day', 900)) {
-            let fromMs = t - (t % DAY);
-            try { fromMs = services.tz?.localDayStart?.(t, observerTz(st.observer)) ?? fromMs; } catch { /* keep UTC day */ }
+            let fromMs = tm - (tm % DAY);
+            try { fromMs = services.tz?.localDayStart?.(tm, observerTz(st.observer)) ?? fromMs; } catch { /* keep UTC day */ }
             const toMs = fromMs + DAY;
             request('day', 'riseSet', { bodyIds: RTS_IDS, observer: astroObserver(st.observer), fromMs, toMs }, (data) => {
                 alm.day = { data: data || {}, fromMs, toMs, key };
@@ -446,10 +449,10 @@ function createUiHub(ctx, rootEl) {
         const end = ng?.tonight?.nightEndMs;
         const start = ng?.tonight?.nightStartMs;
         const staleNight = !ng || ng.key !== key
-            || (Number.isFinite(end) ? (t > end + 30 * 60e3 || t < start - 20 * HOUR) : Math.abs(t - ng.reqMs) > 12 * HOUR);
+            || (Number.isFinite(end) ? (tm > end + 30 * 60e3 || tm < start - 20 * HOUR) : Math.abs(tm - ng.reqMs) > 12 * HOUR);
         if (staleNight && !alm.pending.night && now - alm.lastReq.night > gapFor('night', 1500)) {
             const obs = astroObserver(st.observer);
-            const reqMs = t;
+            const reqMs = tm;
             const publish = (tonightRes, twilightRes) => {
                 if (!tonightRes && !twilightRes) return;
                 alm.night = { tonight: tonightRes || null, twilight: twilightRes || tonightRes?.twilight || null, reqMs, key };
@@ -472,9 +475,9 @@ function createUiHub(ctx, rootEl) {
         const skyLp = ui.snap?.skyglow?.lpZenith;
         const lpBucket = Number.isFinite(skyLp) ? Math.round(2 * Math.log10(1 + Math.max(0, skyLp))) : 0;
         const evStale = !events.list || events.key !== key || events.lp !== lpBucket
-            || t < events.fromMs + 20 * DAY || t > events.toMs - 300 * DAY;
+            || tm < events.fromMs + 20 * DAY || tm > events.toMs - 300 * DAY;
         if (evStale && !alm.pending.events && now - alm.lastReq.events > gapFor('events', 2500)) {
-            const fromMs = t - 365 * DAY;
+            const fromMs = tm - 365 * DAY;
             const evArgs = { observer: astroObserver(st.observer), fromMs, days: 730, tz: observerTz(st.observer), hour12: !!st.display?.hour12,
                 skyLp: Number.isFinite(skyLp) ? skyLp : undefined };
             request('events', 'events', evArgs, (list) => {
@@ -493,9 +496,9 @@ function createUiHub(ctx, rootEl) {
         // once data/tle.json is in; again when the place or the elements change, or time leaves the window.
         const tle = ctx.actions?.satelliteElements?.() ?? null;
         const pStale = tle && (!passes.list || passes.key !== key || passes.tle !== tle
-            || t < passes.fromMs || t > passes.fromMs + 2 * DAY);
+            || tm < passes.fromMs || tm > passes.fromMs + 2 * DAY);
         if (pStale && !alm.pending.passes && now - alm.lastReq.passes > gapFor('passes', 3000)) {
-            const fromMs = t - 20 * 60e3;
+            const fromMs = tm - 20 * 60e3;
             request('passes', 'satPasses', { tle, observer: astroObserver(st.observer), fromMs, days: 10 }, (list) => {
                 if (!Array.isArray(list)) return;
                 passes.list = list;
@@ -522,12 +525,12 @@ function createUiHub(ctx, rootEl) {
     function ingestAlmanac(p) {
         if (!p) return;
         const key = observerKey();
-        const t = ui.snap?.tMs ?? ctx.clock?.tMs ?? Date.now();
+        const tm = ui.snap?.tMs ?? ctx.clock?.tMs ?? Date.now();
         if (p.riseSet && !alm.next) {
-            alm.next = { data: p.riseSet, fromMs: t, toMs: t + 24 * HOUR, key, firstEventMs: firstEvent(p.riseSet, t) };
+            alm.next = { data: p.riseSet, fromMs: tm, toMs: tm + 24 * HOUR, key, firstEventMs: firstEvent(p.riseSet, tm) };
         }
         if ((p.tonight || p.twilight) && (!alm.night || alm.night.key !== key)) {
-            alm.night = { tonight: p.tonight || null, twilight: p.twilight || null, reqMs: t, key };
+            alm.night = { tonight: p.tonight || null, twilight: p.twilight || null, reqMs: tm, key };
         }
         if (p.sunSeries?.values?.length) {
             alm.sun = { fromMs: p.sunSeries.fromMs, toMs: p.sunSeries.toMs, values: p.sunSeries.values, key };
@@ -542,10 +545,10 @@ function createUiHub(ctx, rootEl) {
         // Our own request covers a wider span (±1 yr around the simulated time); keep it.
         if (events.list && events.key === key && events.source === 'ui') return;
         const sorted = list.slice().sort((a, b) => a.tMs - b.tMs);
-        const t = ui.snap?.tMs ?? ctx.clock?.tMs ?? Date.now();
+        const tm = ui.snap?.tMs ?? ctx.clock?.tMs ?? Date.now();
         events.list = sorted;
-        events.fromMs = Math.min(t, sorted[0]?.tMs ?? t);
-        events.toMs = Math.max(t + 365 * DAY, sorted.at(-1)?.tMs ?? t);
+        events.fromMs = Math.min(tm, sorted[0]?.tMs ?? tm);
+        events.toMs = Math.max(tm + 365 * DAY, sorted.at(-1)?.tMs ?? tm);
         events.key = key;
         events.source = 'app';
         em.emit('events', events);
@@ -557,8 +560,8 @@ function createUiHub(ctx, rootEl) {
         }
         alm.next = alm.day = alm.night = null;
         em.emit('almanac', alm);
-        const t = ui.snap?.tMs ?? ctx.clock?.tMs;
-        if (Number.isFinite(t)) queueMicrotask(() => checkAlmanac(t));
+        const tm = ui.snap?.tMs ?? ctx.clock?.tMs;
+        if (Number.isFinite(tm)) queueMicrotask(() => checkAlmanac(tm));
     }
 
     /**
@@ -566,12 +569,12 @@ function createUiHub(ctx, rootEl) {
      * `{up, nextRiseMs, nextSetMs, status}` from the "next" window, and today's
      * `{riseMs, transitMs, setMs}` from the "day" window.
      */
-    function riseSetFor(id, t) {
+    function riseSetFor(id, tm) {
         // The almanac (astro worker) is the Earth observer's: from Mars there is none (phase 1).
         if (onMars()) return { status: null, nextRiseMs: null, nextSetMs: null, riseMs: null, transitMs: null, setMs: null, transitAltDeg: null, known: false };
         const nx = alm.next?.data?.[id] || null;
         const dy = alm.day?.data?.[id] || null;
-        const valid = (v) => Number.isFinite(v) && v >= t - 60e3;
+        const valid = (v) => Number.isFinite(v) && v >= tm - 60e3;
         return {
             status: nx?.status || dy?.status || null,
             nextRiseMs: nx && valid(nx.riseMs) ? nx.riseMs : null,
@@ -604,11 +607,10 @@ function createUiHub(ctx, rootEl) {
         on: em.on,
         emit: em.emit,
         fmt, act,
-        displayTz, observerTz, zoned, toUtc, fmtClock, fmtDay, fmtStamp, fmtSpoken, fmtWhen, offsetText,
+        displayTz, observerTz, zoned, toUtc, fmtClock, fmtDate, fmtDay, fmtStamp, fmtSpoken, fmtWhen, offsetText,
         latLonText, placeLabel, placeShort, nearestCityText,
         bodyName, bodySubject, bodyOf, compass, compassWords, altAz, extras, onMars,
         checkAlmanac, ingestAlmanac, ingestEvents, invalidateAlmanac, riseSetFor, tonightFor, observerKey, astroObserver,
-        MONTHS, MONTHS_LONG, WEEKDAYS,
         /** True when transitions should be cuts. */
         reducedMotion: () => !!(ctx.store.get().status?.reducedMotion || ctx.env?.reducedMotion || prefersReducedMotion()),
         // Navigation hooks, replaced by the shell / view switch / toast modules.
@@ -653,32 +655,32 @@ function utcLabel(min) {
  */
 function startNarrator(ctx) {
     const { store, bus, clock, ui } = ctx;
-    const touring = () => { const t = store.get().ui?.tour; return !!t && !t.paused; };
+    const touring = () => { const tour = store.get().ui?.tour; return !!tour && !tour.paused; };
     const say = (text) => { if (text && !touring()) bus.emit('announce', text); };
     const offs = [];
     let timeTimer = 0;
 
     offs.push(store.subscribe((s) => s.observer, (o, prev) => {
         if (!o || !prev) return;
-        say(`Observer set to ${ui.placeLabel(o)}`);
+        say(t('Observer set to {place}', { place: ui.placeLabel(o) }));
         if (o.source === 'click') {
             // The click-placement Undo toast (SPEC F.2). Only one Undo toast is kept on screen.
             bus.emit('toast', {
-                message: `Observer moved to ${ui.placeLabel(o)}`, kind: 'info', actionLabel: 'Undo',
+                message: t('Observer moved to {place}', { place: ui.placeLabel(o) }), kind: 'info', actionLabel: t('Undo'), actionIcon: 'undo',
                 onAction: () => ui.act('undoObserver'), timeoutMs: 8000,
             });
         }
     }));
 
     offs.push(store.subscribe((s) => s.selection, (id) => {
-        if (!id) { say('Selection cleared'); return; }
+        if (!id) { say(t('Selection cleared')); return; }
+        const body = ui.bodyName(id);
         const b = ui.bodyOf(ui.snap, id);
-        if (!b) { say(`${ui.bodyName(id)} selected`); return; }
         const { alt, az } = ui.altAz(b);
-        if (!Number.isFinite(alt)) { say(`${ui.bodyName(id)} selected`); return; }
+        if (!b || !Number.isFinite(alt)) { say(t('{body} selected', { body })); return; }
         say(alt >= 0
-            ? `${ui.bodyName(id)} selected, ${Math.round(alt)} degrees up in the ${ui.compassWords(az)}`
-            : `${ui.bodyName(id)} selected, below the horizon`);
+            ? t('{body} selected, {deg} degrees up in the {dir}', { body, deg: Math.round(alt), dir: ui.compassWords(az) })
+            : t('{body} selected, below the horizon', { body }));
     }));
 
     if (clock?.onChange) {
@@ -686,27 +688,27 @@ function startNarrator(ctx) {
         offs.push(clock.onChange((ev) => {
             const type = ev?.type;
             if (type === 'clamp') {
-                bus.emit('toast', { message: `${APP_NAME} covers years 1000–3000.`, kind: 'warn' });
-                say(`${APP_NAME} covers years 1000 to 3000. Time paused.`);
+                bus.emit('toast', { message: t('{app} covers years 1000–3000.', { app: APP_NAME }), kind: 'warn' });
+                say(t('{app} covers years 1000 to 3000. Time paused.', { app: APP_NAME }));
                 return;
             }
             if (ui.scrubbing) return;
-            if (type === 'live') { say('Live: showing the sky right now'); return; }
-            if (type === 'rate') { say(`Speed ${ui.fmt('fmtRate', clock.rate)}`); return; }
+            if (type === 'live') { say(t('Live: showing the sky right now')); return; }
+            if (type === 'rate') { say(t('Speed {rate}', { rate: ui.fmt('fmtRate', clock.rate) })); return; }
             if (type === 'range') {
                 const r = clock.range;
                 if (r) once = r.loop === 'once';
-                say(r ? (once ? 'Playing.' : 'Loop started.') : once ? 'Playback stopped.' : 'Loop stopped.');
+                say(r ? (once ? t('Playing.') : t('Loop started.')) : once ? t('Playback stopped.') : t('Loop stopped.'));
                 return;
             }
             if (type === 'pause' || type === 'jump' || type === 'play') {
                 // Debounced so a burst of steps reads out once, with the final time.
                 clearTimeout(timeTimer);
                 timeTimer = setTimeout(() => {
-                    const t = clock.tMs;
-                    if (!clock.playing) say(`Time: ${ui.fmtSpoken(t)}, paused`);
-                    else if (type === 'play') say(clock.live ? 'Playing, live' : `Playing at ${ui.fmt('fmtRate', clock.rate)}`);
-                    else say(`Time: ${ui.fmtSpoken(t)}`);
+                    const time = ui.fmtSpoken(clock.tMs);
+                    if (!clock.playing) say(t('Time: {time}, paused', { time }));
+                    else if (type === 'play') say(clock.live ? t('Playing, live') : t('Playing at {rate}', { rate: ui.fmt('fmtRate', clock.rate) }));
+                    else say(t('Time: {time}', { time }));
                 }, 700);
             }
         }));
@@ -745,9 +747,9 @@ function startSceneSummary(ctx) {
         up.sort((a, b) => b.alt - a.alt);
         parts.push(`${ui.placeShort(store.get().observer)}, ${ui.fmtClock(snap.tMs)}.`);
         parts.push(up.length
-            ? `Up now: ${up.map((u) => `${ui.bodyName(u.id)} ${Math.round(u.alt)}° ${ui.compass(u.az)}`).join(', ')}.`
-            : 'Nothing is above the horizon.');
-        if (!moonUp) parts.push('Moon set.');
+            ? t('Up now: {list}.', { list: up.map((u) => `${ui.bodyName(u.id)} ${Math.round(u.alt)}° ${ui.compass(u.az)}`).join(', ') })
+            : t('Nothing is above the horizon.'));
+        if (!moonUp) parts.push(t('Moon set.'));
         const text = parts.join(' ');
         if (text !== last) { last = text; canvas.setAttribute('aria-label', text); }
     };

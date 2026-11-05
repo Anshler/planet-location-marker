@@ -219,7 +219,7 @@ export function createYearPlanner(ctx) {
             const x = PAD_L + (i / N) * pw;
             if (prevMo >= 0) {
                 c.fillStyle = 'rgba(200,210,225,.75)';
-                c.fillText(ui.MONTHS[prevMo - 1].slice(0, 3), (monthX + x) / 2, CHART_H - 4);
+                c.fillText(ui.fmtDate(year.firstMidnightMs + (i - 1) * DAY + DAY / 2, { month: 'short' }, zone), (monthX + x) / 2, CHART_H - 4);
             }
             if (z && i > 0) { c.fillStyle = 'rgba(255,255,255,.1)'; c.fillRect(Math.round(x), PAD_T, 1, ph); }
             monthX = x;
@@ -258,7 +258,7 @@ export function createYearPlanner(ctx) {
         if (!s || s.visibleNights === 0) return `${info.name}: not well placed from here in the next 12 months (too low, or too close to the Sun).`;
         const zone = zoneOf();
         const nightMs = (i) => year.firstMidnightMs + i * DAY;
-        const when = (i) => { const z = ui.zoned(nightMs(i) + DAY / 2, zone); return `${part(z.d)} ${ui.MONTHS_LONG[z.mo - 1]}`; };
+        const when = (i) => { const z = ui.zoned(nightMs(i) + DAY / 2, zone); return `${part(z.d)} ${ui.fmtDate(nightMs(i) + DAY / 2, { month: 'long' }, zone)}`; };
         const yearOf = (i) => ui.zoned(nightMs(i) + DAY / 2, zone).y;
         let maxMin = 0;
         for (let i = s.bestFrom; i <= s.bestTo; i++) maxMin = Math.max(maxMin, s.minutes[i]);

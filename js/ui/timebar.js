@@ -32,6 +32,7 @@ import { icon, swapIcon } from './icons.js';
 import { parseCalendarInput, toCalendar, fromCalendar } from '../core/tz.js';
 import { createMarsTime, marsTimeTT, marsClockText, marsSunAltDeg, marsSiteNear } from '../astro/mars-clock.js';
 import { SKY_LUT, skyLutIndex, smooth, hexRgb, C_DAY, C_NIGHT } from './sky-palette.js';
+import { t, N_, dateText, intl, locale } from '../core/i18n.js';
 
 const MIN_MS = Date.UTC(1000, 0, 1);
 const MAX_MS = Date.UTC(3000, 0, 1);
@@ -40,14 +41,14 @@ const DAY = 86400e3;
 const RAD = Math.PI / 180;
 const RATE_MAX = 31557600;
 
-/** Step units (`clock.step(kind)`): the popover's name, the buttons' unit, their names' phrase. */
+/** Step units (`clock.step(kind)`): the popover's name, the buttons' unit, their names' phrase (English; t() where shown). */
 export const STEP_UNITS = [
-    { kind: 'minute', label: 'Minute', unit: '1 min', long: '1 minute' },
-    { kind: 'hour', label: 'Hour', unit: '1 h', long: '1 hour' },
-    { kind: 'day', label: 'Day', unit: '1 d', long: '1 day' },
-    { kind: 'siderealDay', label: 'Sidereal day (23 h 56 min)', unit: '1 sid. day', long: '1 sidereal day' },
-    { kind: 'month', label: 'Lunar month', unit: '1 mo', long: '1 lunar month' },
-    { kind: 'year', label: 'Year', unit: '1 yr', long: '1 year' },
+    { kind: 'minute', label: N_('Minute'), unit: N_('1 min'), long: N_('1 minute') },
+    { kind: 'hour', label: N_('Hour'), unit: N_('1 h'), long: N_('1 hour') },
+    { kind: 'day', label: N_('Day'), unit: N_('1 d'), long: N_('1 day') },
+    { kind: 'siderealDay', label: N_('Sidereal day (23 h 56 min)'), unit: N_('1 sid. day'), long: N_('1 sidereal day') },
+    { kind: 'month', label: N_('Lunar month'), unit: N_('1 mo'), long: N_('1 lunar month') },
+    { kind: 'year', label: N_('Year'), unit: N_('1 yr'), long: N_('1 year') },
 ];
 
 /**
@@ -58,8 +59,8 @@ export const STEP_UNITS = [
  */
 export function zoneTemplates(mode, approx = false) {
     if (mode === 'utc') return ['UTC', 'UTC'];
-    if (mode === 'device') return ['This device, {offset}', '{offset}'];
-    return approx ? ['{place}, {offset} (approx.)', '{offset} (approx.)'] : ['{place}, {offset}', '{offset}'];
+    if (mode === 'device') return [t('This device, {offset}'), '{offset}'];
+    return approx ? [t('{place}, {offset} (approx.)'), t('{offset} (approx.)')] : ['{place}, {offset}', '{offset}'];
 }
 
 // The sky palette (SPEC F.2): golden hour, rose-violet civil, indigo nautical, near-black night.
@@ -226,37 +227,37 @@ export function mountTimebar(root, ctx) {
     const unitBack = h('span', { class: 'tb-step__unit' });
     const unitFwd = h('span', { class: 'tb-step__unit' });
     const stepBtn = (cls, key, ...kids) => h('button', {
-        class: `icon-btn tb-step ${cls}`, type: 'button', 'data-kbd': key, 'data-tip2': 'Shift: 1 day · Alt: 1 sidereal day',
+        class: `icon-btn tb-step ${cls}`, type: 'button', 'data-kbd': key, 'data-tip2': t('Shift: 1 day · Alt: 1 sidereal day'),
     }, ...kids);
     const btnBack = stepBtn('tb-back', ',', icon('step-back', { size: 20 }), unitBack);
     const btnFwd = stepBtn('tb-fwd', '.', unitFwd, icon('step-fwd', { size: 20 }));
-    const btnPlay = iconBtn('tb-play icon-btn--primary', 'Pause', 'pause', 20, 'Space');
-    const btnSlower = iconBtn('icon-btn--sm', 'Slower', 'minus', 16, '[');
-    const rateOut = h('output', { class: 'tb-rate__value', 'aria-live': 'off' }, 'Real time');
-    const btnFaster = iconBtn('icon-btn--sm', 'Faster', 'plus', 16, ']');
-    const rateGroup = h('div', { class: 'tb-rate', role: 'group', 'aria-label': 'Speed' }, btnSlower, rateOut, btnFaster);
+    const btnPlay = iconBtn('tb-play icon-btn--primary', t('Pause'), 'pause', 20, 'Space');
+    const btnSlower = iconBtn('icon-btn--sm', t('Slower'), 'minus', 16, '[');
+    const rateOut = h('output', { class: 'tb-rate__value', 'aria-live': 'off' }, t('Real time'));
+    const btnFaster = iconBtn('icon-btn--sm', t('Faster'), 'plus', 16, ']');
+    const rateGroup = h('div', { class: 'tb-rate', role: 'group', 'aria-label': t('Speed') }, btnSlower, rateOut, btnFaster);
 
     const stampDay = h('span', { class: 'stamp__day' });
     // Before 15 Oct 1582 the date is Julian, as records give it; the tag says so (title: the Gregorian date).
-    const stampCal = h('span', { class: 'stamp__cal', hidden: true }, 'Julian');
+    const stampCal = h('span', { class: 'stamp__cal', hidden: true }, t('Julian'));
     const stampTime = h('span', { class: 'stamp__time' });
     // The zone the clock shows: the long form, or the short one in a narrow bar and on the phone (CSS).
     const zoneLong = h('span', { class: 'stamp__zl' });
     const zoneShort = h('span', { class: 'stamp__zs' });
     // Standing on Mars: the site's mission sol (or Mars Sol Date) and local mean solar time.
-    const stampMars = h('span', { class: 'tb-sol', hidden: true, title: 'Local mean solar time at the Martian site (Allison & McEwen 2000, as Mars24)' });
+    const stampMars = h('span', { class: 'tb-sol', hidden: true, title: t('Local mean solar time at the Martian site (Allison & McEwen 2000, as Mars24)') });
     const dateBtn = h('button', {
         class: 'tb-date', type: 'button', 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'aria-controls': 'pop-time',
-        'data-tip': 'Go to a date, step, loop or change the time zone',
+        'data-tip': t('Go to a date, step, loop or change the time zone'),
     }, h('span', { class: 'tb-date__icon' }, icon('calendar', { size: 18 })),
     h('span', { class: 'stamp' }, stampDay, stampCal, h('span', { class: 'stamp__sep', 'aria-hidden': 'true' }, '·'), stampTime,
         h('span', { class: 'stamp__zone' }, zoneLong, zoneShort), icon('chevron-down', { size: 16, className: 'tb-date__chev' })), stampMars);
-    const badge = h('span', { class: 'badge badge--warn tb-accuracy', hidden: true, title: 'Planet positions are most accurate between 1800 and 2200' },
-        icon('warning', { size: 14 }), h('span', { class: 'tb-accuracy__text' }, 'Reduced accuracy'));
-    const livePill = h('span', { class: 'badge badge--live', role: 'status', 'aria-label': 'Live: showing the current time' },
-        h('span', { class: 'badge__pulse', 'aria-hidden': 'true' }), 'LIVE');
-    const nowBtn = h('button', { class: 'btn btn--now', type: 'button', 'data-tip': 'Back to the current time', 'data-kbd': 'N' },
-        icon('live', { size: 18 }), h('span', { class: 'btn--now__long' }, 'Return to now'), h('span', { class: 'btn--now__short' }, 'Now'));
+    const badge = h('span', { class: 'badge badge--warn tb-accuracy', hidden: true, title: t('Planet positions are most accurate between 1800 and 2200') },
+        icon('warning', { size: 14 }), h('span', { class: 'tb-accuracy__text' }, t('Reduced accuracy')));
+    const livePill = h('span', { class: 'badge badge--live', role: 'status', 'aria-label': t('Live: showing the current time') },
+        h('span', { class: 'badge__pulse', 'aria-hidden': 'true' }), t('LIVE'));
+    const nowBtn = h('button', { class: 'btn btn--now', type: 'button', 'data-tip': t('Back to the current time'), 'data-kbd': 'N' },
+        icon('live', { size: 18 }), h('span', { class: 'btn--now__long' }, t('Return to now')), h('span', { class: 'btn--now__short' }, t('Now')));
     const liveWrap = h('div', { class: 'tb-live' }, livePill, nowBtn);
     const rowMain = h('div', { class: 'tb-row tb-main' });
 
@@ -265,7 +266,7 @@ export function mountTimebar(root, ctx) {
     const thumb = h('span', { class: 'tb-scrub__thumb', 'aria-hidden': 'true' }, h('span', { class: 'tb-scrub__knob' }));
     const tip = h('span', { class: 'tb-scrub__tip', 'aria-hidden': 'true', hidden: true });
     const scrub = h('div', {
-        class: 'tb-scrub', role: 'slider', tabindex: '0', 'aria-label': 'Time',
+        class: 'tb-scrub', role: 'slider', tabindex: '0', 'aria-label': t('Time'),
         'aria-valuemin': '0', 'aria-valuemax': '1', 'aria-valuenow': '0',
     }, canvas, thumb, tip);
     root.append(rowMain, scrub);
@@ -280,28 +281,28 @@ export function mountTimebar(root, ctx) {
     const dateInput = dtInput();
     const zoneGo = zoneSpan();
     // The native picker is Gregorian: a Julian-only day (29 Feb 1500) needs the text entry.
-    const julBtn = h('button', { class: 'btn btn--ghost btn--sm', type: 'button' }, 'Type a Julian date');
-    const quick = h('div', { class: 'pop__quick', role: 'group', 'aria-label': 'Quick jumps' });
-    const accuracy = h('p', { class: 'note pt__warn', hidden: true }, icon('warning', { size: 14 }), 'Positions are less accurate before 1800 and after 2200.');
-    const goForm = h('form', { class: 'pt__sec', novalidate: true }, title('Go to'),
-        h('div', { class: 'pt__row' }, field(tpl('Date and time ({zone})', { zone: zoneGo }), dateInput, 'field pt__grow'),
-            h('button', { class: 'btn btn--primary', type: 'submit' }, 'Go')),
+    const julBtn = h('button', { class: 'btn btn--ghost btn--sm', type: 'button' }, t('Type a Julian date'));
+    const quick = h('div', { class: 'pop__quick', role: 'group', 'aria-label': t('Quick jumps') });
+    const accuracy = h('p', { class: 'note pt__warn', hidden: true }, icon('warning', { size: 14 }), t('Positions are less accurate before 1800 and after 2200.'));
+    const goForm = h('form', { class: 'pt__sec', novalidate: true }, title(t('Go to')),
+        h('div', { class: 'pt__row' }, field(tpl(t('Date and time ({zone})'), { zone: zoneGo }), dateInput, 'field pt__grow'),
+            h('button', { class: 'btn btn--primary', type: 'submit' }, t('Go'))),
         quick,
-        h('p', { class: 'note' }, tpl('Dates before 15 October 1582 are Julian. {button}', { button: julBtn })),
+        h('p', { class: 'note' }, tpl(t('Dates before 15 October 1582 are Julian. {button}'), { button: julBtn })),
         accuracy);
 
     // Stepping.
-    const unitSel = h('select', { class: 'select' }, STEP_UNITS.map((u) => h('option', { value: u.kind }, u.label)));
+    const unitSel = h('select', { class: 'select' }, STEP_UNITS.map((u) => h('option', { value: u.kind }, t(u.label))));
     const runs = segmented({
-        label: 'Time runs', options: [{ value: 'fwd', label: 'Forward' }, { value: 'back', label: 'Backward' }], value: 'fwd',
+        label: t('Time runs'), options: [{ value: 'fwd', label: t('Forward') }, { value: 'back', label: t('Backward') }], value: 'fwd',
         onChange: (v) => { if ((v === 'back') !== (clock.rate < 0)) clock.reverse(); syncControls(); },
     });
     // Phone only: the bar has no step buttons there, so arrange() moves them in here.
     const stepRow = h('div', { class: 'pt__row pt__steps', hidden: true });
-    const stepping = h('div', { class: 'pt__sec' }, title('Stepping'),
-        field('Step buttons move by', unitSel, 'pt__row'),
-        h('p', { class: 'note for-fine' }, 'Shift-click: 1 day. Alt-click: 1 sidereal day.'),
-        h('div', { class: 'pt__row' }, h('span', { class: 'field__label', 'aria-hidden': 'true' }, 'Time runs'), runs.el, h('kbd', { class: 'kbd' }, 'R')),
+    const stepping = h('div', { class: 'pt__sec' }, title(t('Stepping')),
+        field(t('Step buttons move by'), unitSel, 'pt__row'),
+        h('p', { class: 'note for-fine' }, t('Shift-click: 1 day. Alt-click: 1 sidereal day.')),
+        h('div', { class: 'pt__row' }, h('span', { class: 'field__label', 'aria-hidden': 'true' }, t('Time runs')), runs.el, h('kbd', { class: 'kbd' }, 'R')),
         stepRow);
 
     // Loop between two moments.
@@ -310,40 +311,40 @@ export function mountTimebar(root, ctx) {
     const durInput = h('input', { class: 'input input--num', type: 'number', min: '1', max: '600', step: '1', value: '10', inputmode: 'numeric' });
     let playback = 'loop';
     const playSeg = segmented({
-        label: 'Playback', options: [{ value: 'loop', label: 'Loop' }, { value: 'pingpong', label: 'Back and forth' }, { value: 'once', label: 'Once' }],
+        label: t('Playback'), options: [{ value: 'loop', label: t('Loop') }, { value: 'pingpong', label: t('Back and forth') }, { value: 'once', label: t('Once') }],
         value: playback, onChange: (v) => { playback = v; },
     });
     const zoneLoop = zoneSpan();
     const lapseErr = h('p', { class: 'pop__error', role: 'alert', hidden: true });
-    const stopBtn = h('button', { class: 'btn btn--ghost', type: 'button', hidden: true }, 'Stop');
+    const stopBtn = h('button', { class: 'btn btn--ghost', type: 'button', hidden: true }, t('Stop'));
     const loopForm = h('form', { class: 'pt__body', novalidate: true },
-        h('p', { class: 'note' }, tpl('Times are in {zone}.', { zone: zoneLoop })),
-        field('From', fromInput), field('To', toInput),
-        h('label', { class: 'field__label pt__row' }, tpl('One loop takes {seconds} s', { seconds: durInput })),
+        h('p', { class: 'note' }, tpl(t('Times are in {zone}.'), { zone: zoneLoop })),
+        field(t('From'), fromInput), field(t('To'), toInput),
+        h('label', { class: 'field__label pt__row' }, tpl(t('One loop takes {seconds} s'), { seconds: durInput })),
         playSeg.el,
         lapseErr,
-        h('div', { class: 'pt__row pt__end' }, stopBtn, h('button', { class: 'btn btn--primary', type: 'submit' }, icon('play', { size: 14 }), 'Start')));
-    const loopBox = h('details', { class: 'fold' }, h('summary', null, 'Loop between two moments'), loopForm);
+        h('div', { class: 'pt__row pt__end' }, stopBtn, h('button', { class: 'btn btn--primary', type: 'submit' }, icon('play', { size: 14 }), t('Start'))));
+    const loopBox = h('details', { class: 'fold' }, h('summary', null, t('Loop between two moments')), loopForm);
 
     // Show times in.
     const tzSeg = segmented({
-        label: 'Show times in', className: 'seg--fit', options: [{ value: 'observer', label: 'Your place' }, { value: 'device', label: 'This device' }, { value: 'utc', label: 'UTC' }],
+        label: t('Show times in'), className: 'seg--fit', options: [{ value: 'observer', label: t('Your place') }, { value: 'device', label: t('This device') }, { value: 'utc', label: 'UTC' }],
         value: 'observer',
-        onChange: (v) => { ui.act('setTzMode', v); ctx.bus.emit('announce', `Times in ${zoneText}.`); },
+        onChange: (v) => { ui.act('setTzMode', v); ctx.bus.emit('announce', t('Times in {zone}.', { zone: zoneText })); },
     });
     const clock24 = switchRow({
-        label: '24-hour clock', checked: !store.get().display?.hour12,
+        label: t('24-hour clock'), checked: !store.get().display?.hour12,
         onChange: (on24) => store.set({ display: { ...store.get().display, hour12: !on24 } }),
     });
-    const legend = h('details', { class: 'fold' }, h('summary', null, 'What the time bar shows'),
-        h('ul', { class: 'pt__body pt__legend' }, ['The colour is the Sun’s height: day, twilight, night.', 'The top edge shows when the selected planet is up.',
-            'The bottom edge shows when the Moon is up.', 'Gold bars are eclipses, and ticks are events.'].map((t) => h('li', null, t))));
+    const legend = h('details', { class: 'fold' }, h('summary', null, t('What the time bar shows')),
+        h('ul', { class: 'pt__body pt__legend' }, [t('The colour is the Sun’s height: day, twilight, night.'), t('The top edge shows when the selected planet is up.'),
+            t('The bottom edge shows when the Moon is up.'), t('Gold bars are eclipses, and ticks are events.')].map((line) => h('li', null, line))));
 
-    const closeBtn = iconBtn('icon-btn--sm', 'Close', 'close', 16);
+    const closeBtn = iconBtn('icon-btn--sm', t('Close'), 'close', 16);
     const pop = h('div', { class: 'popover pop-time', id: 'pop-time', role: 'dialog', 'aria-labelledby': 'pop-time-title', hidden: true },
-        h('div', { class: 'pt__head' }, h('h2', { class: 'pt__title', id: 'pop-time-title' }, 'Time'), closeBtn),
+        h('div', { class: 'pt__head' }, h('h2', { class: 'pt__title', id: 'pop-time-title' }, t('Time')), closeBtn),
         goForm, stepping, loopBox,
-        h('div', { class: 'pt__sec' }, title('Show times in'), tzSeg.el, clock24.el),
+        h('div', { class: 'pt__sec' }, title(t('Show times in')), tzSeg.el, clock24.el),
         legend);
     (ui.root || document.body).append(pop);
 
@@ -397,14 +398,14 @@ export function mountTimebar(root, ctx) {
         const jul = ui.zoned(clamp(ms, MIN_MS, MAX_MS - 1000)).cal === 'julian';
         const type = jul ? 'text' : 'datetime-local';
         if (input.type !== type) input.type = type;
-        input.placeholder = jul ? 'YYYY-MM-DD HH:MM (Julian)' : '';
+        input.placeholder = jul ? t('YYYY-MM-DD HH:MM (Julian)') : '';
         input.value = toInputValue(ms);
     }
     function quickJumps() {
         const tw = ui.almanac.night?.twilight;
         const z = ui.zoned(clock.tMs);
-        const items = [['Now', null], ['Sunset', tw?.sunsetMs], ['Midnight', ui.toUtc({ y: z.y, mo: z.mo, d: z.d + 1, h: 0, mi: 0, s: 0, cal: z.cal })],
-            ['Sunrise', tw?.sunriseMs]].filter(([, ms]) => ms === null || Number.isFinite(ms));
+        const items = [[t('Now'), null], [t('Sunset'), tw?.sunsetMs], [t('Midnight'), ui.toUtc({ y: z.y, mo: z.mo, d: z.d + 1, h: 0, mi: 0, s: 0, cal: z.cal })],
+            [t('Sunrise'), tw?.sunriseMs]].filter(([, ms]) => ms === null || Number.isFinite(ms));
         quick.replaceChildren(...items.map(([label, ms]) => h('button', {
             class: 'chip', type: 'button',
             onClick: () => { if (ms === null) clock.goLive(); else jumpTo(ms); closeTime(); },
@@ -451,7 +452,7 @@ export function mountTimebar(root, ctx) {
     offs.push(on(julBtn, 'click', () => {
         const v = dateInput.value || toInputValue(clock.tMs);
         dateInput.type = 'text';
-        dateInput.placeholder = 'YYYY-MM-DD HH:MM (Julian before 15 Oct 1582)';
+        dateInput.placeholder = t('YYYY-MM-DD HH:MM (Julian before 15 Oct 1582)');
         dateInput.value = v;
         dateInput.removeAttribute('aria-invalid');
         julBtn.hidden = true;
@@ -470,7 +471,7 @@ export function mountTimebar(root, ctx) {
         let a = fromInputValue(fromInput.value), b = fromInputValue(toInput.value);
         const dur = clamp(Math.round(Number(durInput.value) || 10), 1, 600);
         if (!Number.isFinite(a) || !Number.isFinite(b)) {
-            lapseErr.textContent = 'Enter both a start and an end time.';
+            lapseErr.textContent = t('Enter both a start and an end time.');
             lapseErr.hidden = false;
             return;
         }
@@ -493,25 +494,27 @@ export function mountTimebar(root, ctx) {
         const { playing, live, rate, range } = clock;
         const mobile = ui.layout === 'mobile';
         swapIcon(btnPlay, playing ? 'pause' : 'play', 20);
-        setAttr(btnPlay, 'aria-label', playing ? 'Pause' : 'Play');
-        btnPlay.dataset.tip = playing ? 'Pause' : 'Play';
-        setAttr(btnBack, 'aria-label', `Step back ${unit.long}`);
-        setAttr(btnFwd, 'aria-label', `Step forward ${unit.long}`);
-        btnBack.dataset.tip = `Back ${unit.long}`;
-        btnFwd.dataset.tip = `Forward ${unit.long}`;
+        const play = playing ? t('Pause') : t('Play');
+        setAttr(btnPlay, 'aria-label', play);
+        btnPlay.dataset.tip = play;
+        const long = t(unit.long);
+        setAttr(btnBack, 'aria-label', t('Step back {unit}', { unit: long }));
+        setAttr(btnFwd, 'aria-label', t('Step forward {unit}', { unit: long }));
+        btnBack.dataset.tip = t('Back {unit}', { unit: long });
+        btnFwd.dataset.tip = t('Forward {unit}', { unit: long });
         // In the bar the unit alone ('1 h'); in the phone's popover the whole phrase.
-        setText(unitBack, mobile ? `Back ${unit.long}` : unit.unit);
-        setText(unitFwd, mobile ? `Forward ${unit.long}` : unit.unit);
+        setText(unitBack, mobile ? btnBack.dataset.tip : t(unit.unit));
+        setText(unitFwd, mobile ? btnFwd.dataset.tip : t(unit.unit));
         // The phone row is tight: real time reads '1×' there so the date keeps its year.
-        const rateText = range ? (range.loop === 'once' ? 'Playing' : 'Loop') : ui.fmt('fmtRate', rate, { compact: mobile });
+        const rateText = range ? (range.loop === 'once' ? t('Playing') : t('Loop')) : ui.fmt('fmtRate', rate, { compact: mobile });
         setText(rateOut, rateText);
-        setAttr(rateOut, 'aria-label', playing ? `Speed: ${rateText}` : `Speed: ${rateText}, paused`);
+        setAttr(rateOut, 'aria-label', playing ? t('Speed: {rate}', { rate: rateText }) : t('Speed: {rate}, paused', { rate: rateText }));
         rateOut.classList.toggle('is-reverse', rate < 0 && !range);
         rateOut.classList.toggle('is-paused', !playing);
         btnSlower.disabled = !!range || rate <= -RATE_MAX;
         btnFaster.disabled = !!range || rate >= RATE_MAX;
         // The ladder goes from 1× to −1×: the next Slower turns time around.
-        btnSlower.dataset.tip = rate > 0 && rate <= 1 ? 'Slower (then backward)' : 'Slower';
+        btnSlower.dataset.tip = rate > 0 && rate <= 1 ? t('Slower (then backward)') : t('Slower');
         livePill.hidden = !live;
         nowBtn.hidden = live;
         stampTime.classList.toggle('is-h12', !!store.get().display?.hour12);
@@ -526,15 +529,15 @@ export function mountTimebar(root, ctx) {
         stopBtn.hidden = !clock.range;
         accuracy.hidden = badge.hidden;
         tzSeg.set(st.display?.tzMode || 'observer');
-        setText(tzSeg.el.firstChild, ui.placeShort(st.observer) || 'Your place');
+        setText(tzSeg.el.firstChild, ui.placeShort(st.observer) || t('Your place'));
         clock24.set(!st.display?.hour12);
     }
     /** The zone's long and short forms (zoneTemplates) in the date button and the popover, when they change. */
-    function syncZone(t, mode) {
+    function syncZone(tm, mode) {
         const obs = store.get().observer;
         const [long, short] = zoneTemplates(mode, !!obs?.tzApprox);
-        const offset = ui.offsetText(t);
-        const place = ui.placeShort(obs) || 'Your place';
+        const offset = ui.offsetText(tm);
+        const place = ui.placeShort(obs) || t('Your place');
         const text = tpl(long, { place, offset }).textContent;
         if (text === zoneText) return;
         zoneText = text;
@@ -557,33 +560,35 @@ export function mountTimebar(root, ctx) {
         const now = performance.now();
         if (!force && now - lastStampAt < 90) return;
         lastStampAt = now;
-        const t = clock.tMs;
-        const z = ui.zoned(t);
-        setText(stampDay, ui.fmtDay(t));
-        setText(stampTime, ui.fmtClock(t, { seconds: true }));
+        const tm = clock.tMs;
+        const z = ui.zoned(tm);
+        setText(stampDay, ui.fmtDay(tm));
+        setText(stampTime, ui.fmtClock(tm, { seconds: true }));
         const jul = z.cal === 'julian';
         if (stampCal.hidden === jul) stampCal.hidden = !jul;
         if (jul) {
-            const g = new Date(t + z.offsetMin * 60e3);
-            const tipText = `Julian calendar, as records of the time give it. Gregorian (proleptic): ${g.getUTCDate()} ${ui.MONTHS[g.getUTCMonth()]} ${g.getUTCFullYear()}`;
+            const g = new Date(tm + z.offsetMin * 60e3);
+            const date = dateText({ y: g.getUTCFullYear(), mo: g.getUTCMonth() + 1, d: g.getUTCDate(), wd: g.getUTCDay() }, { day: 'numeric', month: 'short', year: 'numeric' });
+            const tipText = t('Julian calendar, as records of the time give it. Gregorian (proleptic): {date}', { date });
             if (stampCal.title !== tipText) stampCal.title = tipText;
         }
         const st = store.get();
-        syncZone(t, st.display?.tzMode || 'observer');
-        const stamp = ui.fmtSpoken(t);
+        syncZone(tm, st.display?.tzMode || 'observer');
+        const stamp = ui.fmtSpoken(tm);
         const host = st.host;
         const mars = host?.id === 'mars';
         if (stampMars.hidden === mars) stampMars.hidden = !mars;
         let sol = '';
         if (mars) {
             const site = marsSiteNear(host.latDeg, host.lonDeg, 0.5);
-            sol = marsClockText(marsTimeTT(ttDaysApprox(t), host.lonDeg, MT), site ? { ...site, lonDeg: host.lonDeg } : { lonDeg: host.lonDeg }).text;
+            sol = marsClockText(marsTimeTT(ttDaysApprox(tm), host.lonDeg, MT), site ? { ...site, lonDeg: host.lonDeg } : { lonDeg: host.lonDeg }).text;
             setText(stampMars, sol);
         }
-        setAttr(dateBtn, 'aria-label', mars ? `Earth date and time: ${stamp}, ${zoneText}. On Mars: ${sol}. Open the time panel`
-            : jul ? `Date and time: ${stamp} (Julian calendar), ${zoneText}. Open the time panel`
-                : `Date and time: ${stamp}, ${zoneText}. Open the time panel`);
-        const y = new Date(t).getUTCFullYear();
+        const v = { stamp, zone: zoneText, sol };
+        setAttr(dateBtn, 'aria-label', mars ? t('Earth date and time: {stamp}, {zone}. On Mars: {sol}. Open the time panel', v)
+            : jul ? t('Date and time: {stamp} (Julian calendar), {zone}. Open the time panel', v)
+                : t('Date and time: {stamp}, {zone}. Open the time panel', v));
+        const y = new Date(tm).getUTCFullYear();
         if (y !== lastYear) {
             lastYear = y;
             badge.hidden = !(y < 1800 || y > 2200);
@@ -673,8 +678,8 @@ export function mountTimebar(root, ctx) {
             return;
         }
         const W = halfWindowFor(clock.rate);
-        const t = clock.tMs;
-        const centre = drag ? drag.centre : t + offsetMs;
+        const tm = clock.tMs;
+        const centre = drag ? drag.centre : tm + offsetMs;
         win.start = centre - W; win.span = 2 * W; win.range = false;
     }
 
@@ -744,9 +749,9 @@ export function mountTimebar(root, ctx) {
     offs.push(store.subscribe((s) => s.selection, kick));
 
     /** A series' value at t (linear), or NaN outside it. */
-    function seriesAt(sr, key, t) {
-        if (!sr.values || sr.key !== key || t < sr.fromMs || t > sr.toMs) return NaN;
-        const f = ((t - sr.fromMs) / (sr.toMs - sr.fromMs)) * (sr.n - 1);
+    function seriesAt(sr, key, tm) {
+        if (!sr.values || sr.key !== key || tm < sr.fromMs || tm > sr.toMs) return NaN;
+        const f = ((tm - sr.fromMs) / (sr.toMs - sr.fromMs)) * (sr.n - 1);
         const i = Math.min(sr.n - 2, Math.max(0, Math.floor(f)));
         const u = f - i;
         return sr.values[i] * (1 - u) + sr.values[i + 1] * u;
@@ -791,27 +796,27 @@ export function mountTimebar(root, ctx) {
         const bands = !wide && !mars;
         const body = bands && bodySeries.id ? bodyRgb : null;
         for (let x = from; x < to; x += 1) {
-            const t = grad.start + ((x + 0.5) / cw) * grad.span;
+            const tm = grad.start + ((x + 0.5) / cw) * grad.span;
             let r, g, b;
             if (wide) {
-                const k = smooth(0.22, 0.78, mars ? marsDayFraction(t, lat) : dayFraction(t, lat));
+                const k = smooth(0.22, 0.78, mars ? marsDayFraction(tm, lat) : dayFraction(tm, lat));
                 r = C_NIGHT[0] + (C_DAY[0] - C_NIGHT[0]) * k;
                 g = C_NIGHT[1] + (C_DAY[1] - C_NIGHT[1]) * k;
                 b = C_NIGHT[2] + (C_DAY[2] - C_NIGHT[2]) * k;
             } else {
-                let alt = useSeries ? seriesAt(series, key, t) : NaN;
-                if (alt !== alt) alt = mars ? marsSunAlt(t, lat, lon) : sunAltApprox(t, lat, lon);
+                let alt = useSeries ? seriesAt(series, key, tm) : NaN;
+                if (alt !== alt) alt = mars ? marsSunAlt(tm, lat, lon) : sunAltApprox(tm, lat, lon);
                 const li = skyLutIndex(alt);
                 r = LUT[li]; g = LUT[li + 1]; b = LUT[li + 2];
             }
             const o = x * 4;
             data[o] = r; data[o + 1] = g; data[o + 2] = b; data[o + 3] = 255;
             const mo = o + row;
-            const moonUp = bands && seriesAt(moonSeries, key, t) > MOON_UP_DEG;
+            const moonUp = bands && seriesAt(moonSeries, key, tm) > MOON_UP_DEG;
             data[mo] = MOON_RGB[0]; data[mo + 1] = MOON_RGB[1]; data[mo + 2] = MOON_RGB[2];
-            data[mo + 3] = moonUp ? 70 + 185 * moonLitApprox(t) : 0;
+            data[mo + 3] = moonUp ? 70 + 185 * moonLitApprox(tm) : 0;
             const bo = mo + row;
-            const bodyUp = body !== null && seriesAt(bodySeries, key, t) > 0;
+            const bodyUp = body !== null && seriesAt(bodySeries, key, tm) > 0;
             data[bo] = bodyRgb[0]; data[bo + 1] = bodyRgb[1]; data[bo + 2] = bodyRgb[2];
             data[bo + 3] = bodyUp ? 235 : 0;
         }
@@ -865,7 +870,7 @@ export function mountTimebar(root, ctx) {
     function drawGrid() {
         const span = win.span, start = win.start, end = start + span;
         const cw = canvas.width;
-        const xOf = (t) => ((t - start) / span) * cw;
+        const xOf = (tm) => ((tm - start) / span) * cw;
         const offMs = ui.zoned(start + span / 2).offsetMin * 60e3;
         const y0 = geom.trackY * dpr, y1 = (geom.trackY + geom.trackH) * dpr;
         g2d.font = `${Math.round(10.5 * dpr)}px ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`;
@@ -887,8 +892,8 @@ export function mountTimebar(root, ctx) {
             g2d.strokeStyle = 'rgba(255,255,255,0.16)';
             g2d.beginPath();
             const first = Math.ceil((start + offMs) / minorStep) * minorStep - offMs;
-            for (let t = first; t <= end; t += minorStep) {
-                const x = Math.round(xOf(t)) + 0.5;
+            for (let tm = first; tm <= end; tm += minorStep) {
+                const x = Math.round(xOf(tm)) + 0.5;
                 g2d.moveTo(x, y1 - 4 * dpr); g2d.lineTo(x, y1);
             }
             g2d.stroke();
@@ -896,12 +901,12 @@ export function mountTimebar(root, ctx) {
         const majors = [];
         if (kind === 'h' || kind === 'd') {
             const first = Math.ceil((start + offMs) / majorStep) * majorStep - offMs;
-            for (let t = first; t <= end; t += majorStep) majors.push(t);
+            for (let tm = first; tm <= end; tm += majorStep) majors.push(tm);
         } else if (kind === 'D') {
             const first = Math.ceil((start + offMs) / DAY) * DAY - offMs;
-            for (let t = first; t <= end; t += DAY) {
-                const dom = calOf(t + offMs).d;
-                if (dom === 1 || (dom % 5 === 0 && dom < 30)) majors.push(t);
+            for (let tm = first; tm <= end; tm += DAY) {
+                const dom = calOf(tm + offMs).d;
+                if (dom === 1 || (dom % 5 === 0 && dom < 30)) majors.push(tm);
             }
         } else {
             // Month starts in the display calendar (Julian before 15 Oct 1582).
@@ -909,9 +914,9 @@ export function mountTimebar(root, ctx) {
             for (let k = 0; k < 30; k += 1) {
                 const yy = z.y + Math.floor((z.mo - 1 + k) / 12), mm = ((z.mo - 1 + k) % 12) + 1;
                 const g = fromCalendar(yy, mm, 1);
-                const t = Date.UTC(g.y, g.mo - 1, g.d) - offMs;
-                if (t > end) break;
-                if (t >= start) majors.push(t);
+                const tm = Date.UTC(g.y, g.mo - 1, g.d) - offMs;
+                if (tm > end) break;
+                if (tm >= start) majors.push(tm);
             }
         }
         g2d.strokeStyle = 'rgba(255,255,255,0.28)';
@@ -919,12 +924,12 @@ export function mountTimebar(root, ctx) {
         let lastLabelX = -1e9;
         // Keep labels clear of the playhead so its line never cuts through the text.
         const thumbX = xOf(drag ? drag.t : clock.tMs);
-        for (const t of majors) {
-            const x = Math.round(xOf(t)) + 0.5;
+        for (const tm of majors) {
+            const x = Math.round(xOf(tm)) + 0.5;
             g2d.moveTo(x, y0); g2d.lineTo(x, y1);
             if (x - lastLabelX < minGap || x < 18 * dpr || x > cw - 18 * dpr || Math.abs(x - thumbX) < 20 * dpr) continue;
             lastLabelX = x;
-            const lab = labelFor(`${kind}${t}`, () => majorLabel(kind, t, offMs));
+            const lab = labelFor(`${kind}${tm}`, () => majorLabel(kind, tm, offMs));
             const isDay = lab.charCodeAt(0) > 64; // weekday / month names start with a letter
             g2d.fillStyle = isDay ? 'rgba(232,237,246,0.92)' : 'rgba(154,166,184,0.95)';
             g2d.fillText(lab, x, ly);
@@ -940,18 +945,25 @@ export function mountTimebar(root, ctx) {
         return toCalendar(calScratch, calScratch);
     }
 
-    function majorLabel(kind, t, offMs) {
-        const d = new Date(t + offMs);
+    /**
+     * Compact tick labels: 'Tue 14', '14 Oct', 'Jan 2026', 'Feb', '3 PM'. Elsewhere than English the
+     * weekday is Intl's narrowest ('T3 14' in Vietnamese) and the month its in-date abbreviation
+     * ('thg 1 2026'), so the labels stay as short.
+     */
+    function majorLabel(kind, tm, offMs) {
+        const d = new Date(tm + offMs);
         const hh = d.getUTCHours();
-        const c = calOf(t + offMs);
-        if (kind === 'h') {
-            if (hh === 0) return `${ui.WEEKDAYS[d.getUTCDay()]} ${c.d}`;
-            if (store.get().display?.hour12) return `${hh % 12 || 12} ${hh < 12 ? 'AM' : 'PM'}`;
+        const c = calOf(tm + offMs);
+        const f = { y: c.y, mo: c.mo, d: c.d, wd: d.getUTCDay() };
+        if (kind === 'h' && hh !== 0) {
+            if (store.get().display?.hour12) return intl(Intl.DateTimeFormat, { hour: 'numeric', hourCycle: 'h12', timeZone: 'UTC' }).format(Date.UTC(2000, 0, 1, hh));
             return `${pad2(hh)}:00`;
         }
-        if (kind === 'd') return `${ui.WEEKDAYS[d.getUTCDay()]} ${c.d}`;
-        if (kind === 'D') return `${c.d} ${ui.MONTHS[c.mo - 1]}`;
-        return c.mo === 1 ? `${ui.MONTHS[0]} ${c.y}` : ui.MONTHS[c.mo - 1];
+        if (kind === 'h' || kind === 'd') return `${dateText(f, { weekday: locale() === 'en' ? 'short' : 'narrow' })} ${c.d}`;
+        if (kind === 'D') return dateText(f, { day: 'numeric', month: 'short' });
+        const mon = intl(Intl.DateTimeFormat, { day: 'numeric', month: 'short', timeZone: 'UTC' }).formatToParts(Date.UTC(2000, c.mo - 1, 15))
+            .find((p) => p.type === 'month').value;
+        return c.mo === 1 ? `${mon} ${c.y}` : mon;
     }
 
     function drawTicks() {
@@ -1027,8 +1039,8 @@ export function mountTimebar(root, ctx) {
         drawTicks();
         drawNowMarker();
         // Thumb.
-        const t = drag ? drag.t : clock.tMs;
-        const x = clamp(((t - win.start) / win.span) * cssW, 0, cssW);
+        const tm = drag ? drag.t : clock.tMs;
+        const x = clamp(((tm - win.start) / win.span) * cssW, 0, cssW);
         thumb.style.transform = `translate3d(${x.toFixed(1)}px, 0, 0)`;
         syncStamp(false);
         const now = performance.now();
@@ -1040,11 +1052,11 @@ export function mountTimebar(root, ctx) {
     }
 
     function syncAria() {
-        const t = clock.tMs;
+        const tm = clock.tMs;
         setAttr(scrub, 'aria-valuemin', String(Math.round(win.start)));
         setAttr(scrub, 'aria-valuemax', String(Math.round(win.start + win.span)));
-        setAttr(scrub, 'aria-valuenow', String(Math.round(t)));
-        setAttr(scrub, 'aria-valuetext', `${ui.fmtDay(t)}, ${ui.fmtClock(t, { seconds: true })}`);
+        setAttr(scrub, 'aria-valuenow', String(Math.round(tm)));
+        setAttr(scrub, 'aria-valuetext', `${ui.fmtDay(tm)}, ${ui.fmtClock(tm, { seconds: true })}`);
     }
 
     function continuous() {
@@ -1071,10 +1083,10 @@ export function mountTimebar(root, ctx) {
     }
     function showTip(x) {
         const ev = tickAt(x);
-        const t = win.start + (x / Math.max(1, cssW)) * win.span;
+        const tm = win.start + (x / Math.max(1, cssW)) * win.span;
         let text;
         if (ev) text = `${ev.title} · ${ui.fmtWhen(ev.tMs, clock.tMs)}`;
-        else text = win.span > 8 * DAY ? ui.fmtDay(t) : `${ui.fmtDay(t, { year: false })} · ${ui.fmtClock(t)}`;
+        else text = win.span > 8 * DAY ? ui.fmtDay(tm) : `${ui.fmtDay(tm, { year: false })} · ${ui.fmtClock(tm)}`;
         setText(tip, text);
         tip.hidden = false;
         tip.classList.toggle('is-event', !!ev);
@@ -1114,10 +1126,10 @@ export function mountTimebar(root, ctx) {
     }));
     function setFromX(x) {
         const p = clamp(x / Math.max(1, cssW), 0, 1);
-        const t = drag.start + p * drag.span;
-        drag.t = t;
+        const tm = drag.start + p * drag.span;
+        drag.t = tm;
         if (drag.range) clock.seek(p);
-        else clock.setTime(clamp(t, MIN_MS, MAX_MS));
+        else clock.setTime(clamp(tm, MIN_MS, MAX_MS));
     }
     const endDrag = (e) => {
         if (!drag || e.pointerId !== drag.id) return;
@@ -1147,7 +1159,7 @@ export function mountTimebar(root, ctx) {
             if (d.paused) clock.play();
         }
         ui.scrubbing = false;
-        ctx.bus.emit('announce', `Time: ${ui.fmtSpoken(clock.tMs)}`);
+        ctx.bus.emit('announce', t('Time: {time}', { time: ui.fmtSpoken(clock.tMs) }));
         kick();
     };
     offs.push(on(scrub, 'pointerup', endDrag));

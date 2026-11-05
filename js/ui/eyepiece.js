@@ -26,6 +26,7 @@ import {
     GALILEAN, MOON_TRANSIT, MOON_OCCULTED, MOON_ECLIPSED, MOON_SHADOW, bestLimbFeature, librationDirection, saturnEdgeOn,
 } from '../astro/moons.js';
 import { h, setText } from './dom.js';
+import { dateText } from '../core/i18n.js';
 
 const W = 320;
 const H = 148;
@@ -34,7 +35,6 @@ const MOON_TEX_URL = 'assets/textures/moon_1024.jpg';
 const RADIUS = { moon: 62, mercury: 48, venus: 52, mars: 50, jupiter: 30, saturn: 29, uranus: 40, neptune: 40 };
 const KIND = { mercury: 0, venus: 1, mars: 2, jupiter: 3, saturn: 4, uranus: 5, neptune: 6 };
 const DEG = Math.PI / 180;
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 // Mars's albedo features as unit vectors (astro/disc.js MARS_SPOTS, as the shader builds them).
 const MARS_DIRS = MARS_SPOTS.map(([lon, lat, r, k]) => [Math.cos(lat * DEG) * Math.cos(lon * DEG),
@@ -279,7 +279,7 @@ function compassOrder(items) {
 
 function monthYear(ms) {
     const d = new Date(ms);
-    return `${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
+    return dateText({ y: d.getUTCFullYear(), mo: d.getUTCMonth() + 1, d: 1, wd: 0 }, { month: 'short', year: 'numeric' });
 }
 
 /**

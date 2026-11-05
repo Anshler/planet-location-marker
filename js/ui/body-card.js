@@ -224,7 +224,7 @@ export function mountBodyCard(root, ctx) {
         shownId = id;
         shownExtraName = m?.name ?? id;
         card.style.setProperty('--c', m?.color ?? 'var(--accent)');
-        nameEl.replaceChildren(h('span', { class: 'dot dot--lg', 'aria-hidden': 'true' }), m?.name ?? id);
+        nameEl.replaceChildren(h('span', { class: 'dot dot--lg', 'aria-hidden': 'true' }), m?.name ? t(m.name) : id);
         drawExtraGlyph(disc, m?.color ?? '#cfe0ff', m?.kind ?? '');
         disc.setAttribute('aria-label', t(m?.kindLabel ?? ''));
         xBox.hidden = false;
@@ -296,7 +296,7 @@ export function mountBodyCard(root, ctx) {
         const m = ctx.extras?.meta?.(id) ?? null;
         const st = ui.bodyOf(snap, id);
         const info = st ? ctx.extras?.card?.(id, snap) ?? null : null;
-        const name = m?.name ?? id;
+        const name = m?.name ? t(m.name) : id;
         passBox.update(id, snap);
         if (!st) {
             setText(kindEl, m ? t(m.kindLabel || '') : t('Loading…'));

@@ -158,7 +158,7 @@ the UI and the render stack with literal `import('./…')` calls, so:
 | | `data/stars8.json` | The max tier's 36,367 deeper stars (`scripts/build-stars.mjs`, Hipparcos V 6–8); fetched only on max, cached on first use (not precached). |
 | | `js/render/meteors.js` | Layer `meteors` (`r`, sky view): radiant rings with label anchors (`anchors()`, appended by the labels feed's `getSkyExtras`) for showers within 25 % of maximum, and illustrative meteors on a `METEOR` line layer: live (medium+, clock running, no reduced motion; launched as sim time passes each hash-seeded meteor, played for 0.3–0.8 s of wall time, launches capped at 2.5/s, frames requested only while a streak flies) or a static one-hour composite (paused or reduced motion, any tier). `stats()`. |
 | | `js/render/sunpath.js` | Layer `sunPath` (`y`): today's path with hour ticks, the solstice and equinox paths and the noon analemma as line layers in the observer's ENU frame (sky view), and the subsolar figure-8 as a line on the globe (Earth-fixed); figures from the worker via `request(snap)` (main.js `requestSunFigures`), only while the layer is on. `stats()`. |
-| UI | `js/ui/index.js` and its modules | Shell, top bar, time bar (its strip coloured by `sky-palette.js`, the sky's colours by the Sun's altitude; the Time popover: go to, stepping, loop, time zone, 24-hour clock, legend), the five panel tabs (`shell.js TABS`: Up now, Details, Events, Explore, Display; on the phone in the bottom tab bar), Up now (the plain-words summary with its ⓘ; the list; one Charts card holding `sky-dome.js`, the all-sky chart, or `tonight.js`, the dusk-to-dawn chart, which also draws the rows' 24-h sparklines; all also in text mode), Details (`body-card.js`: the verdict, at most four actions with a More menu, the Display switches, More positions and What these numbers mean; with `eyepiece.js`: the 2D-canvas eyepiece portrait, also in text mode; `year-planner.js`: The year ahead, the planets' 12-month chart on a 2D canvas and the Sun's solstice paths in words, from the worker, also in text mode), events (the calendar: the Moon/Planets/Eclipses/Meteors/Satellites/Seasons filters as a radiogroup, 8 weeks then 'Show the rest'; `event-glyphs.js`: each event's inline SVG glyph; `ics.js`: 'Add to calendar', the pure RFC 5545 builder and the file hand-off), Eclipse Companion (plain contact names, folding on the phone and while a playback runs in Sky view), the tour's lower third (`tour-bar.js`), Explore (`explore.js`: the guided tours, the sky you were born under, Moments and Famous comets, a second place, Stand on Mars), Display (`layers.js mountDisplay`: the layer switches grouped by the current view, Sky conditions, Quality, Comfort with the Night vision switch, `actions.setNightVision`, Shift+N in `shortcuts.js`, before plain N, About this app from `about.js`, Replay intro and Reset all settings), help, toasts, shortcuts, announcer; the share menu, `postcard.js` (postcard and Save-image dialog, the typographic band), `video.js` (the time-lapse video dialog: presets, frame size, progress and preview, the burned-in date stamp) and `expose.js` (the long-exposure presets and the exposure's mode chip); the toolbar (`view-switch.js`: `[Globe | Sky | Map] [Tools] [Share] [⋯]`, menus built by `dom.js menu()`, the viewpoint, map, telescope and following chips); the status stack (`modes.js`: `ui.modes`, one chip per active mode, the shortcut flash, Esc's `exitTop`); the ruler's and pointing's chips (`sky-tools.js`); the body card's 'Find it' line; the second place (`Compare with…` in the place search); the place search's sky preview per result (`location.js placeSky`) and its In the sky section (`rankSky`); first-run onboarding: `intro-caption.js` (the intro's title card), `coach.js` (the three coach marks, `ui.showTips()`), `install.js` (About this app's Install group, ⋯ › Install the app and the one-time iOS hint), the help dialog's gestures and mouse (`help.js GESTURES`, `MOUSE`) and the ⋯ menu on every layout (`view-switch.js`) |
+| UI | `js/ui/index.js` and its modules | Shell, top bar, time bar (its strip coloured by `sky-palette.js`, the sky's colours by the Sun's altitude; the Time popover: go to, stepping, loop, time zone, 24-hour clock, legend), the five panel tabs (`shell.js TABS`: Up now, Details, Events, Explore, Display; on the phone in the bottom tab bar), Up now (the plain-words summary with its ⓘ; the list; one Charts card holding `sky-dome.js`, the all-sky chart, or `tonight.js`, the dusk-to-dawn chart, which also draws the rows' 24-h sparklines; all also in text mode), Details (`body-card.js`: the verdict, at most four actions with a More menu, the Display switches, More positions and What these numbers mean; with `eyepiece.js`: the 2D-canvas eyepiece portrait, also in text mode; `year-planner.js`: The year ahead, the planets' 12-month chart on a 2D canvas and the Sun's solstice paths in words, from the worker, also in text mode), events (the calendar: the Moon/Planets/Eclipses/Meteors/Satellites/Seasons filters as a radiogroup, 8 weeks then 'Show the rest'; `event-glyphs.js`: each event's inline SVG glyph; `ics.js`: 'Add to calendar', the pure RFC 5545 builder and the file hand-off), Eclipse Companion (plain contact names, folding on the phone and while a playback runs in Sky view), the tour's lower third (`tour-bar.js`), Explore (`explore.js`: the guided tours, the sky you were born under, Moments and Famous comets, a second place, Stand on Mars), Display (`layers.js mountDisplay`: one disclosure per group, its summary carrying the group's live state, for the layer switches grouped by the current view, Quality, Sky conditions, Comfort with the Night vision switch, `actions.setNightVision`, Shift+N in `shortcuts.js`, before plain N, and About this app from `about.js`; then Replay intro and Reset all settings), help, toasts, shortcuts, announcer; the share menu, `postcard.js` (postcard and Save-image dialog, the typographic band), `video.js` (the time-lapse video dialog: presets, frame size, progress and preview, the burned-in date stamp) and `expose.js` (the long-exposure presets and the exposure's mode chip); the toolbar (`view-switch.js`: `[Globe | Sky | Map] [Tools] [Share] [⋯]`, menus built by `dom.js menu()`, the viewpoint, map, telescope and following chips); the status stack (`modes.js`: `ui.modes`, one chip per active mode, the shortcut flash, Esc's `exitTop`); the ruler's and pointing's chips (`sky-tools.js`); the body card's 'Find it' line; the second place (`Compare with…` in the place search); the place search's sky preview per result (`location.js placeSky`) and its In the sky section (`rankSky`); first-run onboarding: `intro-caption.js` (the intro's title card), `coach.js` (the three coach marks, `ui.showTips()`), `install.js` (About this app's Install group, ⋯ › Install the app and the one-time iOS hint), the help dialog's gestures and mouse (`help.js GESTURES`, `MOUSE`) and the ⋯ menu on every layout (`view-switch.js`) |
 | | `js/ui/report.js` | About's 'Report a problem' (`mountReport`): Copy diagnostics (`actions.copyDiagnostics`; a selectable textarea when the clipboard is blocked) and `issueUrl()`, a new issue on `REPO_URL` with a short template. |
 
 ---
@@ -296,7 +296,7 @@ critical CSS read them.
   `main.js` subscriptions). The UI
   keeps a few conveniences of its own in `core/prefs` (recent places, `skyDome` — the Charts card's
   `{open, mode, chart}`, with the older `tonightOpen` read once to migrate it —, `coachSeen`,
-  `installHint`, `uiVersion`).
+  `installHint`, `uiVersion`, and `displayOpen`, Display's open groups).
 - **`clock`** owns simulated time. The UI calls it directly for play/pause, rate, steps, Now and
   scrubbing. The loop calls `clock.tick(now)` once per animation frame.
 - **`actions`** covers everything with side effects beyond plain state: moving the observer
@@ -449,9 +449,12 @@ critical CSS read them.
   and the Return-to-now words, and under 800 px wraps to two rows). The step buttons show their unit
   (`STEP_UNITS`: '1 h', '1 sid. day'…) with a two-line tooltip (`data-tip` with the key, then
   `data-tip2`: the Shift and Alt steps). The date button's `.stamp__zone` shows the clock's zone from
-  `zoneTemplates(mode, approx)`, whole-phrase templates filled by `tpl()`: '{place}, {offset}' (the
-  place span ellipsizes first), 'This device, {offset}' or 'UTC', and the short '{offset}' under a
-  940-px bar. On the phone the stamp is three lines (time and chevron, the day, then the long zone),
+  `zoneTemplates(mode, approx)`, whole-phrase templates filled by `tpl()`: '{place}, {offset}', 'This
+  device, {offset}' or 'UTC', and the short '{offset}' under a 940-px bar. The place gives way first:
+  `fitZone` cuts it to the room it has and adds the ellipsis itself, because CSS's `text-overflow`
+  leaves up to a glyph's gap before the comma; with room for fewer than six letters the short form
+  shows. It refits when its text changes, when the date button's size changes (a ResizeObserver,
+  acting in a task after its callback: LIVE or Now, the layout, the window) and on leaving Mars. On the phone the stamp is three lines (time and chevron, the day, then the long zone),
   since no phone width has room for the day and the zone side by side. The speed readout is
   muted with 'Speed: {rate}, paused' as its name while paused, reads 'Loop' while a clock range
   runs ('Playing' for a one-shot range), and Slower's tooltip at 1× warns that it turns time around. The date button, and the loop
@@ -470,8 +473,8 @@ critical CSS read them.
   (`PANEL_ALIASES`: `layers` → Display, `settings` → Display revealing `conditions`, `about` → Display
   revealing `about`). `ui.openPanel(id, {focus, sheet, reveal})` (also on `mountUI`'s return, for
   `main.js` at boot and on `hashchange`) shows a tab; `reveal` names a `[data-reveal]` section, which
-  is opened if a `<details>`, scrolled to, its summary or first control focused and `.is-flash`ed
-  for 1.2 s. The desktop rail (64 px) shows each tab's icon over its label. On the phone the same
+  is opened (the `<details>` it is or is in), scrolled to, its `[data-autofocus]` control (Light
+  pollution), else its summary or first control, focused and `.is-flash`ed for 1.2 s. The desktop rail (64 px) shows each tab's icon over its label. On the phone the same
   tablist node moves into `nav.navbar`, a solid bar of five 56-px tabs under the sheet (`--nav-h`);
   the sheet sits on it and its head is the handle and the time bar only. `measureSheet` works above
   the tab bar: peek is the head, half `clamp((vh − nav) / 2, head + 192, full)` (at least 190 px of content), full
@@ -483,8 +486,14 @@ critical CSS read them.
   (`trapFocus` takes several roots). Tablets in portrait (≥ 600 px) get a 560-px sheet and tab bar
   on the left, the globe beside them. Display's layers (`LAYER_GROUPS`, each with `where`: 'globe'
   (the map and the solar system count as the globe), 'sky' or 'both', checked against the render
-  modules) list the current view's first (`layersFor(view)`, pure) and the other view's in one closed
-  'Only in Sky view' / 'Only on the globe' group; Reset layers writes `DEFAULT_STATE.layers` once.
+  modules) list the current view's first (`layersFor(view)`, pure) and the other view's in an 'Only in
+  Sky view' / 'Only on the globe' group; Reset layers writes `DEFAULT_STATE.layers` once. Every
+  group in Display (Beams and labels, Stars, Guides, Earth, In orbit, the other view's, then Quality,
+  Sky conditions, Comfort, About this app) is a `<details data-reveal="{id}">` whose summary is its
+  title and its live state on the right ('6 of 6 on', 'Auto (running Low)', 'Bortle 9 · Typical
+  aurora', 'Night vision off', 'Version 2.0.0'), so the tab reads as a table of contents (1.0
+  screen at 1440×900 in both views). A first visit opens Beams and labels; after that pref
+  `displayOpen` (the open ids, any toggle or reveal) restores what was left open.
   The help table's Layers rows and the shortcut flashes take their names from `LAYER_GROUPS`, and
   `actions.LAYER_LABELS` repeats them (`test/ui.layers.test.mjs`). Returning visitors (`introSeen`,
   pref `uiVersion` below 2) get one toast saying where Settings, tours and history went

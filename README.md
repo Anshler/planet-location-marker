@@ -93,9 +93,11 @@ browser, and nothing needs the network.
   - The next 8 weeks first, then the rest of the year; each row jumps to its event.
 - **Explore.** Guided tours, the sky you were born under, Moments in history and Famous comets
   (each a link to that sky), a second place to compare with, and standing on Mars.
-- **Display.** Every layer, grouped for the view you are in (the other view's layers wait in one
-  closed group), Reset layers, the sky's light pollution and aurora, quality, night vision and
-  About this app.
+- **Display.** Every layer, grouped for the view you are in (the other view's layers in a group of
+  their own), Reset layers, quality, the sky's light pollution and aurora, night vision and About
+  this app. Each group folds, and its heading says how it stands ("Stars · 6 of 6 on", "Quality ·
+  Auto (running Low)"), so the whole tab fits on one screen; it remembers which groups you left
+  open.
 - **Put yourself anywhere, offline, and find anything in the sky.**
   - The place at the top is the search (<kbd>/</kbd>): about 1,600 cities, with no network needed.
     Each result shows its local time and its sky at that moment ('06:14 · sunrise in 12 min',
@@ -131,7 +133,7 @@ browser, and nothing needs the network.
   over a bright sky, and the system's display settings: `prefers-reduced-motion`,
   `prefers-reduced-transparency` (solid panels), `prefers-contrast: more` (brighter text, edged
   panels and chips) and `forced-colors` (Windows High Contrast).
-- **Night vision for real observing.** Display → Night vision, <kbd>Shift</kbd>+<kbd>N</kbd> or
+- **Night vision for real observing.** Display → Comfort → Night vision, <kbd>Shift</kbd>+<kbd>N</kbd> or
   the ⋯ menu turns the whole screen dim red, so your eyes stay dark-adapted, and keeps the
   screen awake (also in Sky view on a phone). It is a setting of the device, never part of a
   shared link.

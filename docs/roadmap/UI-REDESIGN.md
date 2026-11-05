@@ -1844,7 +1844,8 @@ the right thing and records it here.
     sits behind the group's ⓘ ("What the layers show") and stays the row's `aria-describedby`. At
     1440×900 that gives 2.2 screens in globe view and 2.0 in Sky view (chunk 3: 2.8 and 2.5).
     §14's 1.6 is not met: the globe view's 21 layer switches alone are about 800 px. Getting under
-    it means another disclosure over some layers, which is the owner's call.
+    it means another disclosure over some layers, which is the owner's call. (Resolved after QA:
+    see "Display's groups fold" below.)
   - **Phone half.** Its minimum is the head plus 192 px, so the content is at least 190 px (§14).
     It measures 190 px at 390×664.
   - The coarse block covers `.link`, `.pal-opt`, `.loc-chip`, the toolbar buttons and the date
@@ -1919,7 +1920,8 @@ change what the chunks above record:
   - The coach's first tip never spotlights a label below the horizon.
 - **Not changed:**
   - Display is still about 2.2 screens (chunk 4, owner's call). A proposal: fold Stars and Guides
-    into one closed group in globe view, and move Quality above the layers.
+    into one closed group in globe view, and move Quality above the layers. (Resolved: see
+    "Display's groups fold" below.)
   - §14.3's icon-only count holds at 1280 px and wider and on the phone. The narrower desktop
     widths drop labels exactly where §3.2 and §4.5 say to.
 - **Bytes.** The fixes add 3.4 KB raw, so the redesign stands at +14.8 KB against `40131ce`
@@ -1927,3 +1929,59 @@ change what the chunks above record:
   redesign over the ceiling, so their comments were shortened and the loop chip, the stack's
   offsets and two long CSS comments were compacted.
 
+### Display's groups fold (after QA)
+
+QA's one open major was Display's density: 2.2 screens at 1440×900 (§14.5 asks ≤ 1.6), with
+Quality 1,452 px down under 21 switches, which is the owner's "dense" complaint. The owner
+delegated the call. This replaces §4.11's layout:
+
+- **Every group is a disclosure.** Beams and labels, Stars, Guides, Earth, In orbit, the other
+  view's ('Only in Sky view' / 'Only on the globe'), Quality, Sky conditions, Comfort and About this
+  app are each a native `<details class="fold" data-reveal="{id}">`, the pattern the Time popover,
+  Details and Charts already use. The summary is the title, then its live state on the right
+  (`.fold__state`), so the closed tab reads as a table of contents. All states are whole phrases
+  filled by `tpl()`:
+  - a layer group: '{n} of {total} on', over the rows the current view lists ("Stars · 6 of 6 on",
+    "Guides · 0 of 5 on");
+  - Quality: the tier, or '{setting} (running {tier})' when they differ ("Auto (running Low)", "Max
+    (running High)" after repeated context losses). The "Running: … · chosen for this device" line
+    under the segment went, because the summary says it; Max keeps its caption;
+  - Sky conditions: '{sky} · {aurora}'. The sky is 'Bortle {n}' (Auto's estimate; "Auto" until it
+    arrives) or "No light pollution"; the aurora is "Quiet aurora", "Typical aurora" or "Aurora
+    storm";
+  - Comfort: "Night vision on" or "Night vision off"; About this app: 'Version {version}'.
+- **Open on a first visit: Beams and labels only.** It is what the app is about, and it keeps the
+  whole tab on one screen in both views with every other group's state in sight. After that, pref
+  `displayOpen` (the open groups' ids, written on every toggle, a reveal's included) restores what
+  the user left open.
+- **Quality leads the settings:** Quality, Sky conditions, Comfort, About, then Replay intro and
+  Reset all settings. Those two stay plain buttons: a disclosure over them would save no height and
+  hide Reset.
+- **Reveals.** `openPanel` opens the `<details>` a revealed section is or is in, so a reveal of a
+  single row would open its group, and focuses `[data-autofocus]` before the summary.
+  - `#tab=settings` (at boot and on `hashchange`) and Up now › Change open Sky conditions, scrolled
+    into view with Light pollution focused, as before; on the phone the sheet rises to half.
+  - `#tab=about` and ⋯ › About open About this app with its summary focused, in either view.
+  - `#tab=layers` and the what-moved toast's Show me open Display as it was left. The Details
+    switches write the same layers, so their group's count follows, as it does for C, T, Shift+N
+    and Reset layers.
+- **Measured** at 1440×900 with the defaults: 817 px in an 817-px pane (1.0 screen) in globe view
+  and in Sky view. It was 1,824 px (2.23) and 1,626 px (1.99). Quality's summary is at y 546 (globe)
+  and 434 (Sky); it was at 1,452 and 1,253. The phone at full is 868 px (2,103 before). §14.5 is
+  met. With every group open except About and the other view's it is 2.4 screens, which is the
+  user's choice. Every one of the 25 layers is listed exactly once in each view.
+- **No group is ever empty,** so none is hidden (`test/ui.layers.test.mjs` checks both views).
+- **Forced colours.** The state takes `ButtonText` like its summary; otherwise Chromium forced the
+  muted colour to a blue that read as a link.
+- **The phone stamp's zone** read "Royal Obser… , UTC+0": CSS's ellipsis leaves up to a glyph's
+  gap before the comma. `fitZone` now cuts the place to its room and adds the ellipsis itself
+  ("Royal Obser…, UTC+0"). With room for fewer than six letters the short form shows ("UTC−9
+  (approx.)" for a clicked point at 390 px). It refits when its text changes, when the date
+  button's size changes (a ResizeObserver acting in a task after its callback, so there is no
+  loop error and no layout read in rAF) and on leaving Mars. The zone is rebuilt only when its
+  text changes, no longer on every second's stamp. Checked with the 12-hour clock, This device,
+  UTC, Tokyo, a long name, Mars and back, LIVE and Now, at 360 and 390 px and at 1400–1440 px.
+- **Bytes.** +2,047 B raw against `4aef6de`: `layers.js` +1,142, `timebar.js` +668, CSS +179,
+  `shell.js` +43, `prefs.js` +15. The redesign stands at +16.9 KB against `40131ce` (low
+  5,089,386 B, medium 5,846,286 B). That is 1.9 KB over §14.10's +15 KB ceiling, which the owner's
+  +2 KB allowance for this change covers.

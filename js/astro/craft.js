@@ -21,6 +21,7 @@ import { AU_KM, AU_ER, LIGHT_S_PER_AU } from './bodies.js';
 import { topocentricScene } from './extras.js';
 import { latLonToLocal, m4MulDir } from './frames.js';
 import { fmtDate } from '../core/format.js';
+import { t, N_, dec, intl, locale } from '../core/i18n.js';
 
 const JD_J2000 = 2451545.0;
 const LIGHT_DAY_PER_AU = LIGHT_S_PER_AU / 86400;
@@ -41,16 +42,16 @@ export const DSN = Object.freeze([
 /** Presentation and history per craft id (data/craft.json supplies the trajectory). */
 export const CRAFT_INFO = Object.freeze({
     voyager1: { name: 'Voyager 1', color: '#9fe6ff', extrapolate: true,
-        note: 'Flew past Jupiter (1979) and Saturn and Titan (1980); the first human-made object in interstellar space, since 25 August 2012.',
+        note: N_('Flew past Jupiter (1979) and Saturn and Titan (1980); the first human-made object in interstellar space, since 25 August 2012.'),
         silent: 2030 },
     voyager2: { name: 'Voyager 2', color: '#c0a8ff', extrapolate: true,
-        note: 'The only visitor to Uranus (1986) and Neptune (1989), after Jupiter and Saturn; in interstellar space since 5 November 2018.',
+        note: N_('The only visitor to Uranus (1986) and Neptune (1989), after Jupiter and Saturn; in interstellar space since 5 November 2018.'),
         silent: 2030 },
     newhorizons: { name: 'New Horizons', color: '#ffd59a', extrapolate: true,
-        note: 'Flew past Pluto on 14 July 2015 and Arrokoth on 1 January 2019, the most distant world yet visited.',
+        note: N_('Flew past Pluto on 14 July 2015 and Arrokoth on 1 January 2019, the most distant world yet visited.'),
         silent: 2040 },
     jwst: { name: 'JWST', color: '#ffe27a', extrapolate: false,
-        note: 'The James Webb Space Telescope circles the Sun–Earth L2 point, 1.5 million km beyond the Moon, its sunshield keeping the mirror near −233 °C.',
+        note: N_('The James Webb Space Telescope circles the Sun–Earth L2 point, 1.5 million km beyond the Moon, its sunshield keeping the mirror near −233 °C.'),
         silent: null },
 });
 
@@ -72,17 +73,17 @@ export function decodeCraft(json) {
         const info = CRAFT_INFO[c.id];
         if (!info || !Array.isArray(c.k) || c.k.length < 2) continue;
         const n = c.k.length;
-        const t = new Float64Array(n), pos = new Float64Array(n * 3), vel = new Float64Array(n * 3);
+        const knots = new Float64Array(n), pos = new Float64Array(n * 3), vel = new Float64Array(n * 3);
         for (let i = 0; i < n; i++) {
             const r = c.k[i];
-            t[i] = c.t0 + r[0];
+            knots[i] = c.t0 + r[0];
             for (let k = 0; k < 3; k++) {
                 pos[i * 3 + k] = r[1 + k] * POS_UNIT;
                 vel[i * 3 + k] = r[4 + k] * VEL_UNIT;
             }
-            if (i > 0 && !(t[i] > t[i - 1])) throw new TypeError(`craft.json: ${c.id} knots out of order`);
+            if (i > 0 && !(knots[i] > knots[i - 1])) throw new TypeError(`craft.json: ${c.id} knots out of order`);
         }
-        out.push({ id: `craft:${c.id}`, name: info.name, color: info.color, launchMs: Date.parse(c.launch), t, pos, vel,
+        out.push({ id: `craft:${c.id}`, name: info.name, color: info.color, launchMs: Date.parse(c.launch), t: knots, pos, vel,
             extrapolate: info.extrapolate, note: info.note, silent: info.silent });
     }
     return out;
@@ -92,28 +93,28 @@ export function decodeCraft(json) {
  * Cubic Hermite interpolation of one coordinate between two knots (times t0 < t1; values and
  * derivatives per unit time). Exact for cubics.
  */
-export function hermite(t0, p0, v0, t1, p1, v1, t) {
+export function hermite(t0, p0, v0, t1, p1, v1, x) {
     const h = t1 - t0;
-    const s = (t - t0) / h;
+    const s = (x - t0) / h;
     const s2 = s * s, s3 = s2 * s;
     return (2 * s3 - 3 * s2 + 1) * p0 + (s3 - 2 * s2 + s) * h * v0 + (-2 * s3 + 3 * s2) * p1 + (s3 - s2) * h * v1;
 }
 
 /** Derivative of {@link hermite} (per unit time). */
-function hermiteRate(t0, p0, v0, t1, p1, v1, t) {
+function hermiteRate(t0, p0, v0, t1, p1, v1, x) {
     const h = t1 - t0;
-    const s = (t - t0) / h;
+    const s = (x - t0) / h;
     const s2 = s * s;
     return ((6 * s2 - 6 * s) * p0 + (3 * s2 - 4 * s + 1) * h * v0 + (-6 * s2 + 6 * s) * p1 + (3 * s2 - 2 * s) * h * v1) / h;
 }
 
 /** Index i of the knot interval [t[i], t[i+1]] holding `jd` (binary search), or −1 outside. */
-function interval(t, jd) {
-    if (!(jd >= t[0]) || !(jd <= t[t.length - 1])) return -1;
-    let lo = 0, hi = t.length - 1;
+function interval(knots, jd) {
+    if (!(jd >= knots[0]) || !(jd <= knots[knots.length - 1])) return -1;
+    let lo = 0, hi = knots.length - 1;
     while (hi - lo > 1) {
         const mid = (lo + hi) >> 1;
-        if (t[mid] <= jd) lo = mid; else hi = mid;
+        if (knots[mid] <= jd) lo = mid; else hi = mid;
     }
     return lo;
 }
@@ -172,14 +173,15 @@ export function dsnInView(snap, geoS) {
     return out;
 }
 
-/** "23 h 08 min", "4.9 s", "3 min 12 s", "1 day 2 h" */
+/** "23 h 08 min", "4.9 s", "3 min 12 s", "2 days 2 h" (in the interface's language). */
 export function fmtRadioTime(s) {
     if (!Number.isFinite(s) || s < 0) return '—';
-    if (s < 60) return `${s.toFixed(1)} s`;
-    if (s < 3600) return `${Math.floor(s / 60)} min ${String(Math.round(s % 60)).padStart(2, '0')} s`;
+    const p2 = (n) => String(n).padStart(2, '0');
+    if (s < 60) return t('{n} s', { n: dec(s, 1) });
+    if (s < 3600) return t('{m} min {s} s', { m: Math.floor(s / 60), s: p2(Math.round(s % 60)) });
     const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
-    if (h < 48) return m === 60 ? `${h + 1} h 00 min` : `${h} h ${String(m).padStart(2, '0')} min`;
-    return `${Math.floor(h / 24)} days ${h % 24} h`;
+    if (h < 48) return m === 60 ? t('{h} h {m} min', { h: h + 1, m: '00' }) : t('{h} h {m} min', { h, m: p2(m) });
+    return t('{d} days {h} h', { d: Math.floor(h / 24), h: h % 24 });
 }
 
 /**
@@ -220,7 +222,7 @@ export function createCraftProvider(list) {
     const g = new Float64Array(3);
     return {
         kind: 'craft',
-        kindLabel: 'Spacecraft',
+        kindLabel: N_('Spacecraft'),
         // Radio beams and parallax from the Earth: not drawn from Mars (astro/extras.js host).
         host: 'earth',
         ids: () => ids,
@@ -265,23 +267,25 @@ export function createCraftProvider(list) {
             const year = new Date(snap.tMs).getUTCFullYear();
             const silent = c.silent && year >= c.silent;
             const km = st.distAU * AU_KM;
-            const kmText = km >= 1e9 ? `${(km / 1e9).toFixed(2)} billion km` : `${(km / 1e6).toFixed(km < 1e7 ? 2 : 1)} million km`;
+            const kmText = km >= 1e9 ? t('{n} billion km', { n: dec(km / 1e9, 2) }) : t('{n} million km', { n: dec(km / 1e6, km < 1e7 ? 2 : 1) });
+            const where = locale() === 'en' ? dsn.join(' and ') : intl(Intl.ListFormat, { type: 'conjunction' }).format(dsn);
             return {
-                kindLabel: 'Spacecraft',
-                subtitle: `Launched ${fmtDate(c.launchMs, 'UTC', { weekday: false })}`,
+                kindLabel: t('Spacecraft'),
+                subtitle: t('Launched {date}', { date: fmtDate(c.launchMs, 'UTC', { weekday: false }) }),
                 lines: [
-                    `A message sent now arrives in ${fmtRadioTime(up)}; the signal you could hear now left it ${fmtRadioTime(st.lightTimeS)} ago.`,
-                    dsn.length ? `In view of ${dsn.join(' and ')} right now (above ${DSN_MIN_ELEV_DEG}°).` : 'No Deep Space Network complex has it in view right now.',
-                    c.note,
+                    t('A message sent now arrives in {up}; the signal you could hear now left it {down} ago.', { up: fmtRadioTime(up), down: fmtRadioTime(st.lightTimeS) }),
+                    dsn.length ? t('In view of {where} right now (above {deg}°).', { where, deg: DSN_MIN_ELEV_DEG }) : t('No Deep Space Network complex has it in view right now.'),
+                    t(c.note),
                 ],
                 facts: [
-                    ['Distance', `${st.distAU.toFixed(st.distAU < 1 ? 4 : 2)} AU · ${kmText}`],
-                    ['From the Sun', `${D.sunAU.toFixed(2)} AU`],
-                    ['Speed', `${D.speedKmS.toFixed(1)} km/s relative to the Sun`],
+                    [t('Distance'), `${t('{au} AU', { au: dec(st.distAU, st.distAU < 1 ? 4 : 2) })} · ${kmText}`],
+                    [t('From the Sun'), t('{au} AU', { au: dec(D.sunAU, 2) })],
+                    [t('Speed'), t('{v} km/s relative to the Sun', { v: dec(D.speedKmS, 1) })],
                 ],
                 caveat: D.mode === 'projected'
-                    ? `Projected: a straight-line coast beyond JPL’s trajectory. ${silent ? 'Its power will have run out long before; the radio is silent.' : ''}`.trim()
-                    : silent ? 'Its power is expected to have run out by now: the dish would hear nothing.' : 'Trajectory from JPL Horizons; the DSN line is a visibility test, not the DSN schedule.',
+                    ? silent ? t('Projected: a straight-line coast beyond JPL’s trajectory. Its power will have run out long before; the radio is silent.')
+                        : t('Projected: a straight-line coast beyond JPL’s trajectory.')
+                    : silent ? t('Its power is expected to have run out by now: the dish would hear nothing.') : t('Trajectory from JPL Horizons; the DSN line is a visibility test, not the DSN schedule.'),
                 sources: ['JPL Horizons (NASA/JPL-Caltech), heliocentric ICRF vectors; data/craft.json'],
             };
         },

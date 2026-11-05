@@ -23,6 +23,7 @@
 import { AE } from './ae.js';
 import { topocentricScene } from './extras.js';
 import { fmtDate } from '../core/format.js';
+import { t, N_, dec } from '../core/i18n.js';
 import { LIGHT_S_PER_AU, AU_KM } from './bodies.js';
 
 const DEG = Math.PI / 180;
@@ -60,19 +61,19 @@ const FK4_TO_FK5 = [
 /** Halley's Comet: elements per apparition (J2000 ecliptic; tpJd in TDB), magnitude law M1 + 5 log Δ + k1 log r. */
 export const HALLEY = Object.freeze([
     { year: 1066, q: 0.5745, e: 0.96887, iDeg: 163.112, nodeDeg: 47.624, periDeg: 102.473, tpJd: 2110493.434, approx: true,
-        note: 'The Anglo-Saxon Chronicle saw “a sign such as men never saw before” from 24 April 1066; months later William won at Hastings, and the Bayeux Tapestry shows the star with the words ISTI MIRANT STELLA.',
+        note: N_('The Anglo-Saxon Chronicle saw “a sign such as men never saw before” from 24 April 1066; months later William won at Hastings, and the Bayeux Tapestry shows the star with the words ISTI MIRANT STELLA.'),
         source: 'JPL Horizons, DASTCOM record 90000018 (solution SAO/1066, after Yeomans & Kiang 1981)' },
     { year: 1456, q: 0.5797, e: 0.968, iDeg: 162.89, nodeDeg: 51.866, periDeg: 105.835, tpJd: 2253022.133, approx: true,
-        note: 'Paolo Toscanelli measured its path from Florence in June 1456. The story of a pope excommunicating the comet is a later invention.',
+        note: N_('Paolo Toscanelli measured its path from Florence in June 1456. The story of a pope excommunicating the comet is a later invention.'),
         source: 'JPL Horizons, DASTCOM record 90000023' },
     { year: 1910, q: 0.587208, e: 0.967302, iDeg: 162.2186, nodeDeg: 58.5629, periDeg: 111.7371, tpJd: 2418781.6785, approx: false,
-        note: 'On 19 May 1910 the Earth passed through its tail; newspapers sold “comet pills”. Its dawn tail stretched across a third of the sky.',
+        note: N_('On 19 May 1910 the Earth passed through its tail; newspapers sold “comet pills”. Its dawn tail stretched across a third of the sky.'),
         source: 'JPL Horizons, DASTCOM record 90000029' },
     { year: 1986, q: 0.5871034489, e: 0.9672792272, iDeg: 162.2422243, nodeDeg: 58.8599364, periDeg: 111.8655481, tpJd: 2446470.958961, approx: false,
-        note: 'The poorest showing in two thousand years from the ground, but five spacecraft met it; Giotto photographed the nucleus from 600 km.',
+        note: N_('The poorest showing in two thousand years from the ground, but five spacecraft met it; Giotto photographed the nucleus from 600 km.'),
         source: 'JPL Horizons, osculating elements at 1986-02-09 from record 90000030' },
     { year: 2061, q: 0.5927819456, e: 0.9665767671, iDeg: 161.9651213, nodeDeg: 59.3923157, periDeg: 112.0521038, tpJd: 2474034.220125, approx: false,
-        note: 'Its next return: perihelion on 28 July 2061, on the same side of the Sun as the Earth this time, so a far better view than 1986.',
+        note: N_('Its next return: perihelion on 28 July 2061, on the same side of the Sun as the Earth this time, so a far better view than 1986.'),
         source: 'JPL Horizons, osculating elements at 2061-07-28 from record 90000030 (a prediction)' },
 ].map((a) => Object.freeze({ ...a, M1: 5.5, k1: 8 })));
 
@@ -358,8 +359,8 @@ export function createCometData() {
 /** UTC ms of a TDB Julian date (TT ≈ TDB; ΔT from Astronomy Engine). */
 function tdbJdToUtcMs(jd) {
     const approx = (jd - 2440587.5) * 86400e3;
-    const t = AE.MakeTime(new Date(approx));
-    return approx - (t.tt - t.ut) * 86400e3;
+    const at = AE.MakeTime(new Date(approx));
+    return approx - (at.tt - at.ut) * 86400e3;
 }
 
 /** The angular length (degrees) of a tail from its first and last samples. */
@@ -379,12 +380,12 @@ export function createCometProvider() {
     const earth = new Float64Array(3);
     return {
         kind: 'comet',
-        kindLabel: 'Comet',
+        kindLabel: N_('Comet'),
         // Geocentric orbits with the Earth's parallax: not drawn from Mars (astro/extras.js host).
         host: 'earth',
         ids: () => ids,
         meta(id) {
-            return id === 'comet:halley' ? { name: 'Halley’s Comet', short: 'Halley', color: '#bfe9ff', glyph: 'coma', label: 'always' } : null;
+            return id === 'comet:halley' ? { name: N_('Halley’s Comet'), short: 'Halley', color: '#bfe9ff', glyph: 'coma', label: 'always' } : null;
         },
         fill(snap, id, out) {
             out.present = false;
@@ -418,21 +419,25 @@ export function createCometProvider() {
             const el = HALLEY.find((a) => a.year === D.year);
             if (!el) return null;
             const days = Math.round((snap.tMs - D.tpMs) / 86400e3);
-            const when = days === 0 ? 'at perihelion today' : days < 0 ? `${-days} days before perihelion` : `${days} days after perihelion`;
+            const when = days === 0 ? t('at perihelion today') : days < 0 ? t('{n} days before perihelion', { n: -days }) : t('{n} days after perihelion', { n: days });
             const ion = tailDeg(D.ion);
             return {
-                kindLabel: `Comet · the ${el.year} apparition`,
+                kindLabel: t('Comet · the {year} apparition', { year: el.year }),
                 subtitle: `1P/Halley, ${when} (${fmtDate(D.tpMs, 'UTC', { weekday: false })})`,
                 lines: [
-                    `${D.delta.toFixed(D.delta < 1 ? 3 : 2)} AU from you and ${D.r.toFixed(2)} AU from the Sun; the light you see left it ${fmtLight(st.lightTimeS)} ago.`,
-                    el.note,
+                    t('{delta} AU from you and {r} AU from the Sun; the light you see left it {time} ago.',
+                        { delta: dec(D.delta, D.delta < 1 ? 3 : 2), r: dec(D.r, 2), time: fmtLight(st.lightTimeS) }),
+                    t(el.note),
                 ],
                 facts: [
-                    ['Tails', D.activity > 0.01 ? `ion tail about ${ion < 1 ? ion.toFixed(1) : Math.round(ion)}° long, pointing away from the Sun; a curved dust tail` : 'no tail yet: too far from the Sun'],
-                    ['Perihelion', `${el.q.toFixed(3)} AU from the Sun`],
-                    ['Orbit', `about 76 years; retrograde, ${Math.round(el.iDeg)}° to the ecliptic`],
+                    [t('Tails'), D.activity > 0.01 ? t('ion tail about {deg}° long, pointing away from the Sun; a curved dust tail', { deg: ion < 1 ? dec(ion, 1) : Math.round(ion) })
+                        : t('no tail yet: too far from the Sun')],
+                    [t('Perihelion'), t('{au} AU from the Sun', { au: dec(el.q, 3) })],
+                    [t('Orbit'), t('about 76 years; retrograde, {deg}° to the ecliptic', { deg: Math.round(el.iDeg) })],
                 ],
-                caveat: `${el.approx ? 'Position approximate (about 1°): the perihelion time and ΔT are uncertain for this apparition. ' : ''}Brightness from JPL’s magnitude law; the tails’ length and glow are a physically guided model, not a prediction.`,
+                caveat: el.approx
+                    ? t('Position approximate (about 1°): the perihelion time and ΔT are uncertain for this apparition. Brightness from JPL’s magnitude law; the tails’ length and glow are a physically guided model, not a prediction.')
+                    : t('Brightness from JPL’s magnitude law; the tails’ length and glow are a physically guided model, not a prediction.'),
                 sources: [el.source],
             };
         },
@@ -441,7 +446,7 @@ export function createCometProvider() {
 
 function fmtLight(s) {
     if (!Number.isFinite(s)) return '—';
-    if (s < 60) return `${Math.round(s)} s`;
+    if (s < 60) return t('{n} s', { n: Math.round(s) });
     const m = Math.floor(s / 60), r = Math.round(s - m * 60);
-    return m < 60 ? `${m} min ${r} s` : `${Math.floor(m / 60)} h ${m % 60} min`;
+    return m < 60 ? t('{m} min {s} s', { m, s: r }) : t('{h} h {m} min', { h: Math.floor(m / 60), m: m % 60 });
 }

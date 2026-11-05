@@ -15,6 +15,8 @@
  * @module astro/mars-clock
  */
 import { AE } from './ae.js';
+import { t, N_ } from '../core/i18n.js';
+import { fmtInt } from '../core/format.js';
 
 const DEG = Math.PI / 180;
 /** Mean radius of Mars, km (IAU WGCCRE 2015: 3389.5). */
@@ -30,8 +32,8 @@ export const SOL_DAYS = 1.0274912517;
  * @type {ReadonlyArray<{id:string, name:string, short:string, mission:string, latDeg:number, lonDeg:number, missionUtc?:string}>}
  */
 export const MARS_SITES = Object.freeze([
-    { id: 'jezero', name: 'Jezero Crater', short: 'Jezero', mission: 'Perseverance (2021)', latDeg: 18.4447, lonDeg: 77.4508, missionUtc: '2021-02-18T20:44:00Z' },
-    { id: 'gale', name: 'Gale Crater', short: 'Gale', mission: 'Curiosity (2012)', latDeg: -4.5895, lonDeg: 137.4417, missionUtc: '2012-08-06T05:04:00Z' },
+    { id: 'jezero', name: N_('Jezero Crater'), short: 'Jezero', mission: 'Perseverance (2021)', latDeg: 18.4447, lonDeg: 77.4508, missionUtc: '2021-02-18T20:44:00Z' },
+    { id: 'gale', name: N_('Gale Crater'), short: 'Gale', mission: 'Curiosity (2012)', latDeg: -4.5895, lonDeg: 137.4417, missionUtc: '2012-08-06T05:04:00Z' },
     { id: 'elysium', name: 'Elysium Planitia', short: 'Elysium', mission: 'InSight (2018)', latDeg: 4.5024, lonDeg: 135.6234, missionUtc: '2018-11-26T19:45:00Z' },
     { id: 'utopia', name: 'Utopia Planitia', short: 'Utopia', mission: 'Zhurong (2021)', latDeg: 25.066, lonDeg: 109.925 },
     { id: 'chryse', name: 'Chryse Planitia', short: 'Chryse', mission: 'Viking 1 (1976)', latDeg: 22.27, lonDeg: -47.95 },
@@ -137,8 +139,8 @@ export function missionSol(site, msd) {
     if (!site || !site.missionUtc) return null;
     let sol0 = MISSION_SOL0.get(site.missionUtc);
     if (sol0 === undefined) {
-        const t = Date.parse(site.missionUtc);
-        sol0 = Number.isFinite(t) ? Math.floor(marsTime(t, 0).msd + site.lonDeg / 360) : NaN;
+        const ms = Date.parse(site.missionUtc);
+        sol0 = Number.isFinite(ms) ? Math.floor(marsTime(ms, 0).msd + site.lonDeg / 360) : NaN;
         MISSION_SOL0.set(site.missionUtc, sol0);
     }
     const n = Math.floor(msd + site.lonDeg / 360) - sol0;
@@ -152,7 +154,6 @@ export function hhmm(h) {
     return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 }
 
-const groupThousands = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 
 /**
  * The time bar's Mars clock: 'Sol 1,712 · 16:40 LMST' at a mission site, otherwise the local Mars
@@ -163,8 +164,8 @@ const groupThousands = (n) => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
  */
 export function marsClockText(mt, site) {
     const sol = missionSol(site, mt.msd);
-    const day = sol !== null ? `Sol ${groupThousands(sol)}` : `MSD ${groupThousands(Math.floor(mt.msd + (site ? site.lonDeg : 0) / 360))}`;
-    const time = `${hhmm(mt.lmstH)} LMST`;
+    const day = sol !== null ? t('Sol {n}', { n: fmtInt(sol) }) : t('MSD {n}', { n: fmtInt(Math.floor(mt.msd + (site ? site.lonDeg : 0) / 360)) });
+    const time = t('{time} LMST', { time: hhmm(mt.lmstH) });
     return { text: `${day} · ${time}`, sol, day, time };
 }
 
@@ -181,10 +182,11 @@ export function marsSunAltDeg(mt, latDeg) {
     return Math.asin(Math.max(-1, Math.min(1, Math.sin(p) * Math.sin(d) + Math.cos(p) * Math.cos(d) * Math.cos(H)))) / DEG;
 }
 
-/** The Martian season (northern hemisphere) for an Ls. */
+const SEASONS_N = [N_('northern spring'), N_('northern summer'), N_('northern autumn'), N_('northern winter')];
+const SEASONS_S = [N_('southern autumn'), N_('southern winter'), N_('southern spring'), N_('southern summer')];
+
+/** The Martian season at a site's hemisphere for an Ls, in English ('northern spring'; shown with t()). */
 export function marsSeason(lsDeg, latDeg = 0) {
-    const north = latDeg >= 0;
     const q = Math.floor(mod(lsDeg, 360) / 90);
-    const names = north ? ['spring', 'summer', 'autumn', 'winter'] : ['autumn', 'winter', 'spring', 'summer'];
-    return `${north ? 'northern' : 'southern'} ${names[q]}`;
+    return (latDeg >= 0 ? SEASONS_N : SEASONS_S)[q];
 }

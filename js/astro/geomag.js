@@ -21,6 +21,7 @@
  * @module astro/geomag
  */
 import { DEG2RAD, RAD2DEG, latLonToLocal, m4MulDir } from './frames.js';
+import { t } from '../core/i18n.js';
 
 /** IGRF-14 dipole coefficients (nT): [year, g10, g11, h11]. DGRF through 2020, IGRF 2025. */
 export const IGRF_DIPOLE = Object.freeze([
@@ -260,11 +261,14 @@ export function auroraText(snap) {
     magCoords(obs.posS, aur, MC);
     const lat = Math.abs(MC.magLatDeg);
     const { eqDeg, poleDeg } = ovalAt(aur, MC.mltH);
-    const tag = `modelled Kp ${aur.kp}, not a forecast`;
-    const side = MC.magLatDeg >= 0 ? 'north' : 'south';
-    if (lat >= eqDeg - 1 && lat <= poleDeg + 1) return `Under the aurora oval (${tag})`;
-    if (lat > poleDeg + 1) return lat - poleDeg < 8 ? `Aurora oval to the ${side === 'north' ? 'south' : 'north'} (${tag})` : '';
-    if (eqDeg - lat < 8) return `Aurora oval low in the ${side} (${tag})`;
+    const v = { kp: aur.kp };
+    const north = MC.magLatDeg >= 0;
+    if (lat >= eqDeg - 1 && lat <= poleDeg + 1) return t('Under the aurora oval (modelled Kp {kp}, not a forecast)', v);
+    if (lat > poleDeg + 1) {
+        if (lat - poleDeg >= 8) return '';
+        return north ? t('Aurora oval to the south (modelled Kp {kp}, not a forecast)', v) : t('Aurora oval to the north (modelled Kp {kp}, not a forecast)', v);
+    }
+    if (eqDeg - lat < 8) return north ? t('Aurora oval low in the north (modelled Kp {kp}, not a forecast)', v) : t('Aurora oval low in the south (modelled Kp {kp}, not a forecast)', v);
     return '';
 }
 
@@ -275,9 +279,9 @@ export function auroraText(snap) {
  */
 export function ovalSummary(activity) {
     const kp = AURORA_KP[activity] ?? AURORA_KP.typical;
-    const t = ovalBoundaries(kp, new Float64Array(2 * OVAL_BINS));
+    const b = ovalBoundaries(kp, new Float64Array(2 * OVAL_BINS));
     let m = 90;
-    for (let h = 0; h < OVAL_BINS; h++) m = Math.min(m, t[h]);
-    return `Kp ${kp}: the oval reaches down to about ${Math.round(m)}° geomagnetic latitude near midnight. `
-        + 'A statistical model, not live space weather.';
+    for (let h = 0; h < OVAL_BINS; h++) m = Math.min(m, b[h]);
+    return t('Kp {kp}: the oval reaches down to about {deg}° geomagnetic latitude near midnight. A statistical model, not live space weather.',
+        { kp, deg: Math.round(m) });
 }

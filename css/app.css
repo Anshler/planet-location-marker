@@ -997,6 +997,10 @@ body.tier-medium:not(.is-coarse) .glass {
     .stamp { font-size: var(--fs-4); }
     .tb-date__icon, .tb-step__unit { display: none; }
 }
+/* Vietnamese's longer date ('Thứ 5, 5 thg 11, 2026') and rate ('Thời gian thực') need the icon's room sooner. */
+@container timebar (max-width: 880px) {
+    .ui:lang(vi) .tb-date__icon { display: none; }
+}
 /* A very narrow bar (text mode on a phone): the stamp wraps instead of running out of the button. */
 @container timebar (max-width: 520px) {
     .tb-date { height: auto; min-height: 38px; }
@@ -2089,6 +2093,8 @@ body.no-webgl #ui-root { position: static; inset: auto; pointer-events: auto; }
 .ui[data-layout="text"] .panel__body { overflow: visible; }
 .ui[data-layout="text"] .panel__collapse { display: none; }
 .ui[data-layout="text"] .tabpanel { padding: 18px 18px 22px; }
+/* A phone in text mode: less nested padding, so a row's magnitude ("cấp −2,0") is not cut off. */
+@media (max-width: 480px) { .ui[data-layout="text"] .tabpanel { padding: 14px 10px 18px; } }
 .ui[data-layout="text"] .viewbar { position: static; display: flex; justify-content: flex-end; gap: 8px; }
 .ui[data-layout="text"] .seg--view, .ui[data-layout="text"] .vb-tools { display: none; }
 .ui[data-layout="text"] .toasts { left: 50%; bottom: 20px; position: fixed; }

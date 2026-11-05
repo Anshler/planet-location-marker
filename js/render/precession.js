@@ -13,6 +13,7 @@
 import * as THREE from 'three';
 import { createLineLayer } from './sky.js';
 import { poleOnCircle, poleTrack, eclipticPole, POLE_STARS } from '../astro/precession.js';
+import { t } from '../core/i18n.js';
 
 const DEG = Math.PI / 180;
 const CIRCLE_SEGS = 360;
@@ -32,8 +33,8 @@ function seg(layer, i, a, b, alpha = 1, flag = 0) {
 }
 
 /** p + t·u, renormalised, into out. */
-function offset(p, u, t, out) {
-    const x = p[0] + u[0] * t, y = p[1] + u[1] * t, z = p[2] + u[2] * t;
+function offset(p, u, k, out) {
+    const x = p[0] + u[0] * k, y = p[1] + u[1] * k, z = p[2] + u[2] * k;
     const l = Math.hypot(x, y, z) || 1;
     out[0] = x / l; out[1] = y / l; out[2] = z / l;
     return out;
@@ -114,15 +115,15 @@ export function createPrecession(rc) {
     const mk = (id, text, dirS, color = COLOR, priority = 30) => ({
         id, text, kind: 'trail', priority, color, dirS, offsetPx: [6, -6], ariaLabel: text, interactive: false,
     });
-    for (const t of tickDir) anchorList.push(mk(`prec:${t.year}`, String(t.year), t.dir, COLOR, 28));
+    for (const tk of tickDir) anchorList.push(mk(`prec:${tk.year}`, String(tk.year), tk.dir, COLOR, 28));
     for (const s of POLE_STARS) {
         if (s.year >= TRACK_FROM && s.year <= TRACK_TO) continue;
-        anchorList.push(mk(`prec:${s.name}`, `${s.label} (illustrative)`, Float64Array.from(poleOnCircle(s.year)), PALE, 26));
+        anchorList.push(mk(`prec:${s.name}`, t('{label} (illustrative)', { label: t(s.label) }), Float64Array.from(poleOnCircle(s.year)), PALE, 26));
     }
-    anchorList.push(mk('prec:ecl', 'Ecliptic pole', Float64Array.from(eclipticPole()), PALE, 24));
-    anchorList.push(mk('prec:pole', 'Pole of date', poleLive, '#ffe2a8', 34));
-    anchorList.push(mk('prec:march', '♈ March equinox', marchLive, '#ffe2a8', 33));
-    anchorList.push(mk('prec:sept', '♎ September equinox', septLive, '#ffe2a8', 32));
+    anchorList.push(mk('prec:ecl', t('Ecliptic pole'), Float64Array.from(eclipticPole()), PALE, 24));
+    anchorList.push(mk('prec:pole', t('Pole of date'), poleLive, '#ffe2a8', 34));
+    anchorList.push(mk('prec:march', t('♈ March equinox'), marchLive, '#ffe2a8', 33));
+    anchorList.push(mk('prec:sept', t('♎ September equinox'), septLive, '#ffe2a8', 32));
 
     const m4 = new THREE.Matrix4(), unspin = new THREE.Matrix4();
     const v = new THREE.Vector3();

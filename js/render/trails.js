@@ -18,7 +18,7 @@ import { createLineLayer, skyViewExposure } from './sky.js';
 import { bodyById } from '../astro/bodies.js';
 import { GLYPH_VERT, GLYPH_FRAG } from './shaders/bodies.glsl.js';
 import { glyphSizePx, glyphIntensity } from './bodies.js';
-import { dateText } from '../core/i18n.js';
+import { dateText, t } from '../core/i18n.js';
 
 const DEG = Math.PI / 180;
 const TICK_HALF_RAD = 0.55 * DEG;
@@ -113,26 +113,26 @@ export function createTrails(rc) {
     const tmpSize = new THREE.Vector2();
 
     /** Unit direction at time t (linear in the samples, renormalised), into out. */
-    function dirAt(dirS, t, out) {
+    function dirAt(dirS, ms, out) {
         let lo = 0, hi = count - 1;
-        if (t <= tMs[0]) lo = hi = 0;
-        else if (t >= tMs[count - 1]) lo = hi = count - 1;
+        if (ms <= tMs[0]) lo = hi = 0;
+        else if (ms >= tMs[count - 1]) lo = hi = count - 1;
         else {
-            while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (tMs[mid] <= t) lo = mid; else hi = mid; }
+            while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (tMs[mid] <= ms) lo = mid; else hi = mid; }
         }
-        const f = hi === lo ? 0 : (t - tMs[lo]) / (tMs[hi] - tMs[lo]);
+        const f = hi === lo ? 0 : (ms - tMs[lo]) / (tMs[hi] - tMs[lo]);
         for (let k = 0; k < 3; k++) out[k] = dirS[lo * 3 + k] + (dirS[hi * 3 + k] - dirS[lo * 3 + k]) * f;
         return normalize3(out);
     }
 
     /** Fractional sample index of time t (−1 before the path, count−1+ after it). */
-    function indexAt(t) {
+    function indexAt(ms) {
         if (!count) return -1;
-        if (t < tMs[0]) return -1;
-        if (t >= tMs[count - 1]) return count - 1 + (t - tMs[count - 1]) / 864e5;
+        if (ms < tMs[0]) return -1;
+        if (ms >= tMs[count - 1]) return count - 1 + (ms - tMs[count - 1]) / 864e5;
         let lo = 0, hi = count - 1;
-        while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (tMs[mid] <= t) lo = mid; else hi = mid; }
-        return lo + (t - tMs[lo]) / (tMs[hi] - tMs[lo]);
+        while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (tMs[mid] <= ms) lo = mid; else hi = mid; }
+        return lo + (ms - tMs[lo]) / (tMs[hi] - tMs[lo]);
     }
 
     /**
@@ -208,7 +208,7 @@ export function createTrails(rc) {
                 color: typeof colorHex === 'string' ? colorHex : `#${color.getHexString()}`,
                 dirS: Float64Array.from(d),
                 offsetPx: [6, 10],
-                ariaLabel: `${fmtMonth(tm, true)} on the path`,
+                ariaLabel: t('{month} on the path', { month: fmtMonth(tm, true) }),
                 interactive: false,
             });
         }
@@ -232,13 +232,15 @@ export function createTrails(rc) {
             const when = Number.isFinite(st.tMs) ? fmtDate(st.tMs) : '';
             anchorsOut.push({
                 id: `trail:station:${si++}`,
-                text: `${begins ? 'Retrograde begins' : 'Retrograde ends'}${when ? ` · ${when}` : ''}`,
+                text: begins ? (when ? t('Retrograde begins · {date}', { date: when }) : t('Retrograde begins'))
+                    : when ? t('Retrograde ends · {date}', { date: when }) : t('Retrograde ends'),
                 kind: 'trail',
                 priority: 55,
                 color: typeof colorHex === 'string' ? colorHex : `#${color.getHexString()}`,
                 dirS: Float64Array.from(c),
                 offsetPx: [10, -10],
-                ariaLabel: `${begins ? 'Retrograde motion begins' : 'Retrograde motion ends'}${when ? ` on ${when}` : ''}`,
+                ariaLabel: begins ? (when ? t('Retrograde motion begins on {date}', { date: when }) : t('Retrograde motion begins'))
+                    : when ? t('Retrograde motion ends on {date}', { date: when }) : t('Retrograde motion ends'),
                 interactive: false,
                 tMs: st.tMs,
                 station: st.kind,
@@ -276,10 +278,10 @@ export function createTrails(rc) {
         if (brightest >= 0 && nGhosts > 2) {
             const j = Math.min(g.index[brightest], n0 - 1);
             anchorsOut.push({
-                id: 'trail:brightest', text: `Brightest · ${fmtDate(p.tMs[j])}`, kind: 'trail', priority: 50,
+                id: 'trail:brightest', text: t('Brightest · {date}', { date: fmtDate(p.tMs[j]) }), kind: 'trail', priority: 50,
                 color: typeof colorHex === 'string' ? colorHex : `#${color.getHexString()}`,
                 dirS: Float64Array.from(gDir.array.subarray(brightest * 3, brightest * 3 + 3)),
-                offsetPx: [12, 14], ariaLabel: `Brightest on ${fmtDate(p.tMs[j])}`, interactive: false,
+                offsetPx: [12, 14], ariaLabel: t('Brightest on {date}', { date: fmtDate(p.tMs[j]) }), interactive: false,
             });
         }
         list = anchorsOut;

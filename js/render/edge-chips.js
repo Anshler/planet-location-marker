@@ -25,6 +25,7 @@ import { BODIES, hostBodies } from '../astro/bodies.js';
 import { liftByRefraction } from '../astro/photometry.js';
 import { edgeHit } from '../astro/sky-guide.js';
 import { uiOccluders } from './labels.js';
+import { t } from '../core/i18n.js';
 
 const DEG = 180 / Math.PI;
 /** Chips keep this far inside the free area (CSS px). */
@@ -41,7 +42,7 @@ const TURN_FROM_DEG = 40;
 const TURN_FULL_DEG = 70;
 
 const wrap180 = (d) => ((((d + 180) % 360) + 360) % 360) - 180;
-function smoothstep(e0, e1, x) { const t = Math.max(0, Math.min(1, (x - e0) / (e1 - e0))); return t * t * (3 - 2 * t); }
+function smoothstep(e0, e1, x) { const u = Math.max(0, Math.min(1, (x - e0) / (e1 - e0))); return u * u * (3 - 2 * u); }
 
 /**
  * Brightness a body needs for a chip: the naked-eye limit at night, the bright planets in
@@ -75,7 +76,7 @@ export function createEdgeChips(rc, deps = {}) {
     // One slot per body: the element, its last written state, and this frame's placement.
     const slots = BODIES.map((b, i) => {
         const s = {
-            i, id: b.id, name: b.name, el: null, arrow: null, deg: null,
+            i, id: b.id, name: t(b.name), el: null, arrow: null, deg: null,
             on: false, x: NaN, y: NaN, rot: NaN, text: '', vis: false,
             // this frame
             want: false, px: 0, py: 0, edge: '', along: 0, hw: 0, angle: 0, rotNow: 0,
@@ -92,7 +93,7 @@ export function createEdgeChips(rc, deps = {}) {
             arrow.setAttribute('aria-hidden', 'true');
             const name = doc.createElement('span');
             name.className = 'echip__name';
-            name.textContent = b.name;
+            name.textContent = s.name;
             const deg = doc.createElement('span');
             deg.className = 'echip__deg';
             el.append(arrow, name, deg);
@@ -221,8 +222,8 @@ export function createEdgeChips(rc, deps = {}) {
             if (text !== s.text) {
                 s.text = text;
                 s.deg.textContent = text;
-                s.el.setAttribute('aria-label', `${s.name}, ${text} from the centre of the view. Turn there.`);
-                s.el.title = `${s.name}: ${text} away — tap to turn there`;
+                s.el.setAttribute('aria-label', t('{body}, {deg} from the centre of the view. Turn there.', { body: s.name, deg: text }));
+                s.el.title = t('{body}: {deg} away — tap to turn there', { body: s.name, deg: text });
             }
             s.hw = (34 + 6.8 * (s.name.length + text.length)) / 2;
             edgeHit(pcx, pcy, ux, uy, fx0 + s.hw, fy0 + CHIP_H / 2, fx1 - s.hw, fy1 - CHIP_H / 2, HIT);
@@ -348,7 +349,7 @@ export function createEdgeChips(rc, deps = {}) {
         setHost(id) {
             const table = hostBodies(id);
             for (const s of slots) {
-                const name = table[s.i].name;
+                const name = t(table[s.i].name);
                 if (s.name === name) continue;
                 s.name = name;
                 s.text = '';

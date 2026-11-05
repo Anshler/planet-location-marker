@@ -17,6 +17,7 @@
  */
 
 import { AE } from './ae.js';
+import { N_ } from '../core/i18n.js';
 
 const DEG = Math.PI / 180;
 /** Mean obliquity of the ecliptic at J2000, degrees (IAU 2006). */
@@ -34,12 +35,12 @@ const J2000_MS = Date.UTC(2000, 0, 1, 12);
  * @type {ReadonlyArray<{name:string, hip:number, year:number, label:string}>}
  */
 export const POLE_STARS = Object.freeze([
-    { name: 'Thuban', hip: 68756, year: -2830, label: 'Thuban · 2830 BCE' },
-    { name: 'Polaris', hip: 11767, year: 2102, label: 'Polaris · closest 2102' },
-    { name: 'Errai', hip: 116727, year: 4100, label: 'Errai · ≈ 4100' },
-    { name: 'Alderamin', hip: 105199, year: 7500, label: 'Alderamin · ≈ 7500' },
-    { name: 'Deneb', hip: 102098, year: 10200, label: 'Deneb · ≈ 10,200' },
-    { name: 'Vega', hip: 91262, year: 13700, label: 'Vega · ≈ 13,700' },
+    { name: 'Thuban', hip: 68756, year: -2830, label: N_('Thuban · 2830 BCE') },
+    { name: 'Polaris', hip: 11767, year: 2102, label: N_('Polaris · closest 2102') },
+    { name: 'Errai', hip: 116727, year: 4100, label: N_('Errai · ≈ 4100') },
+    { name: 'Alderamin', hip: 105199, year: 7500, label: N_('Alderamin · ≈ 7500') },
+    { name: 'Deneb', hip: 102098, year: 10200, label: N_('Deneb · ≈ 10,200') },
+    { name: 'Vega', hip: 91262, year: 13700, label: N_('Vega · ≈ 13,700') },
 ]);
 
 /** EQJ (x, y, z) → scene (x, z, −y), into out. */

@@ -36,6 +36,7 @@
  */
 import * as THREE from 'three';
 import { createLineLayer } from './sky.js';
+import { t } from '../core/i18n.js';
 import {
     SHOWERS, SPORADIC_HR, SPORADIC_R, RADIANT_MARK_FRACTION, BUCKET_MS, solarLonFromScene, showerValid, zhrAt,
     radiantAt, meteorLimitMag, hourlyRate, hash01, poissonCount, meteorShape, sampleMagnitude, meteorAlpha,
@@ -281,8 +282,8 @@ export function createMeteors(rc, deps = {}) {
             if (!S.mark) continue;
             const sh = SHOWERS[i];
             anchorList.push({
-                id: `radiant:${sh.id}`, text: `${sh.name} radiant`, kind: 'trail', priority: 58, color: RADIANT_COLOR,
-                dirS: markDir[m], offsetPx: [10, -12], ariaLabel: `${sh.name} radiant: the shower’s meteors seem to come from here`,
+                id: `radiant:${sh.id}`, text: t('{shower} radiant', { shower: t(sh.name) }), kind: 'trail', priority: 58, color: RADIANT_COLOR,
+                dirS: markDir[m], offsetPx: [10, -12], ariaLabel: t('{shower} radiant: the shower’s meteors seem to come from here', { shower: t(sh.name) }),
                 interactive: false,
             });
             m++;

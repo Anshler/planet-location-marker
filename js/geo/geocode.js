@@ -14,6 +14,7 @@
 //   - Successful non-empty results are cached in a 50-entry LRU keyed by the folded query.
 
 import { foldText } from './cities.js';
+import { locale } from '../core/i18n.js';
 
 /** @typedef {import('../core/types.js').Place} Place */
 /** @typedef {{id:string, label:string, enterOnly:boolean, minIntervalMs?:number, url:(q:string)=>string, parse:(json:any)=>Place[]}} Provider */
@@ -50,7 +51,7 @@ const openMeteo = Object.freeze({
     id: 'open-meteo',
     label: 'Open-Meteo',
     enterOnly: false,
-    url: (q) => `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=8&language=en&format=json`,
+    url: (q) => `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=8&language=${locale()}&format=json`,
     parse(json) {
         const rows = Array.isArray(json?.results) ? json.results : [];
         return rows.map((r) => r && makePlace({
@@ -85,7 +86,7 @@ const nominatim = Object.freeze({
     label: 'OpenStreetMap',
     enterOnly: true,
     minIntervalMs: 1100,
-    url: (q) => `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=8&accept-language=en&addressdetails=1&q=${encodeURIComponent(q)}`,
+    url: (q) => `https://nominatim.openstreetmap.org/search?format=jsonv2&limit=8&accept-language=${locale()}&addressdetails=1&q=${encodeURIComponent(q)}`,
     parse(json) {
         const rows = Array.isArray(json) ? json : [];
         return rows.map((r) => {

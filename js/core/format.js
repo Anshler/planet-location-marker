@@ -374,17 +374,18 @@ export function fmtRelative(ms, nowMs) {
     return d > 0 ? t('in {time}', { time: s }) : t('{time} ago', { time: s });
 }
 
-const POLES = [N_('North Pole'), N_('South Pole')];
+/** Names app/actions.js and core/store.js give places in English. */
+const NAMED = [N_('North Pole'), N_('South Pole'), N_('Royal Observatory Greenwich')];
 
 /**
  * An observer's stored name in the locale. app/actions.js names places in English, since names
- * live in links and prefs: 'near Lyon' → 'gần Lyon', 'North Pole' → 'Bắc Cực'; others as given.
+ * live in links and prefs: 'near Lyon' → 'gần Lyon', 'North Pole' → 'Bắc Cực' (and the default observer); others as given.
  * @param {string} name
  * @returns {string}
  */
 export function placeName(name) {
     const s = String(name ?? '');
-    return s.startsWith('near ') ? t('near {place}', { place: s.slice(5) }) : POLES.includes(s) ? t(s) : s;
+    return s.startsWith('near ') ? t('near {place}', { place: s.slice(5) }) : NAMED.includes(s) ? t(s) : s;
 }
 
 /**

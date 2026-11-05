@@ -1285,6 +1285,8 @@ body.is-coarse .ui .mode__btn { height: 44px; }
 .pick-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-1); width: 100%; margin: var(--sp-3) 0 var(--sp-2); }
 .bchip--pick { justify-content: flex-start; width: 100%; height: var(--h-ctl); border-radius: var(--r-s); }
 .bchip--pick .kbd { margin-left: auto; }
+/* Vietnamese names ('Sao Thiên Vương') need two columns to stay on one line. */
+.ui:lang(vi) .pick-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
 /* 13 ─ Events ---------------------------------------------------------------------------- */
 .tours { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 0 0 18px; }
